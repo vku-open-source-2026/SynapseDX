@@ -28,15 +28,26 @@ const httpCounter = new client.Counter({
   registers: [register],
 });
 
-interface RouteRule {
+export interface RouteRule {
   path: string;
   target: string;
   auth: 'none' | 'jwt' | 'apikey' | 'either';
   stripPrefix?: boolean;
 }
 
-function expandEnv(s: string): string {
+export function expandEnv(s: string): string {
   return s.replace(/\$\{([^:}]+)(?::([^}]*))?\}/g, (_, k, d) => process.env[k] ?? d ?? '');
+}
+
+/** Longest-prefix match: /v1/orgs khớp /v1/orgs và /v1/orgs/..., không khớp /v1/organizations. */
+export function findRoute(routes: RouteRule[], pathname: string): RouteRule | undefined {
+  let best: RouteRule | undefined;
+  for (const r of routes) {
+    if (pathname === r.path || pathname.startsWith(r.path + '/')) {
+      if (!best || r.path.length > best.path.length) best = r;
+    }
+  }
+  return best;
 }
 
 function loadRoutes(): RouteRule[] {
@@ -114,28 +125,13 @@ export function createApp(): express.Express {
   const routes = loadRoutes();
   console.log(`[gateway] loaded ${routes.length} routes: ${routes.map((r) => `${r.path}->${expandEnv(r.target)}[${r.auth}]`).join(', ')}`);
 
-  // QUAN TRỌNG: không dùng app.use(path, ...) để mount proxy.
-  // Express strips mount-prefix khỏi req.url và giữ bookkeeping slashAdded/removed;
-  // tự gán req.url bên trong middleware sẽ làm hỏng bookkeeping (exact-path
-  // như /v1/orgs bị biến thành /v1/orgsv1/orgs → 404 oan).
-  // Cách đúng với http-proxy-middleware v3: mount ở root (không path) và dùng
-  // pathFilter nội bộ của proxy — req.url giữ nguyên full path /v1/*.
-  function findRoute(pathname: string): RouteRule | undefined {
-    // longest-prefix match để /v1/n8n... không bị /v1/n... nuốt (nếu có)
-    let best: RouteRule | undefined;
-    for (const r of routes) {
-      if (pathname === r.path || pathname.startsWith(r.path + '/')) {
-        if (!best || r.path.length > best.path.length) best = r;
-      }
-    }
-    return best;
-  }
-
-  // Auth resolver toàn cục (không mount path → không strip URL)
+  // Auth resolver toàn cục. KHÔNG dùng app.use(path, proxy): Express strips
+  // mount-prefix khỏi req.url (bookkeeping slashAdded/removed); gán lại req.url
+  // sẽ tạo URL rác với exact-path. Dùng pathFilter của proxy v3 + mount ở root.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const urlPath = req.path; // pathname, không query
     if (urlPath === '/health' || urlPath === '/metrics') return next();
-    const route = findRoute(urlPath);
+    const route = findRoute(routes, urlPath);
     if (!route) return res.status(404).json({ error: 'not_found', message: 'No gateway route matched' });
     (req as any).olpRoute = route;
     httpCounter.inc({ route: route.path, status: 'incoming' });
