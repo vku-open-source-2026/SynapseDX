@@ -16,3 +16,6 @@ orgs, err := c.ListOrgs()
 ```
 
 Cần Go ≥ 1.22 để chạy `go test ./...`. Xem thêm [docs/api.md](../../docs/api.md).
+
+Forks: đổi module path `github.com/olp/olp-sdk-go` trong `go.mod` theo repo của bạn
+(Go resolve package qua git tag, không cần publish registry riêng).
