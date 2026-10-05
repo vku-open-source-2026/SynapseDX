@@ -77,8 +77,8 @@ services:
       authentik-postgres-init:
         condition: service_completed_successfully
     ports:
-      - "9443:9443"
-      - "9000:9000"
+      - "${AUTHENTIK_HTTPS_PORT:-19443}:9443"
+      - "${AUTHENTIK_HTTP_PORT:-19000}:9000"
     networks: [olp-net]
 
   authentik-worker:
@@ -99,6 +99,8 @@ services:
         condition: service_healthy
     networks: [olp-net]
 
+  # LƯU Ý: OIDC_ISSUER là URL NỘI BỘ trong mạng docker (authentik-server:9000).
+  # Từ browser redirect dùng host port AUTHENTIK_HTTP_PORT (mặc định 19000).
   n8n:
     image: n8nio/n8n:1.66.0
     environment:
@@ -115,7 +117,7 @@ services:
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Ho_Chi_Minh}
       N8N_API_KEY: ${N8N_API_KEY:-}
     ports:
-      - "5678:5678"
+      - "${N8N_HOST_PORT:-5678}:5678"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,7 +137,7 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-olp-platform}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
     ports:
-      - "4001:4001"
+      - "${IAM_HOST_PORT:-4001}:4001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -152,7 +154,7 @@ services:
       N8N_API_KEY: ${N8N_API_KEY:-change_me_n8n_api_key}
       IAM_SERVICE_URL: http://iam:4001
     ports:
-      - "4002:4002"
+      - "${WORKFLOW_HOST_PORT:-4002}:4002"
     depends_on:
       - n8n
       - iam
@@ -169,7 +171,7 @@ services:
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 300
     ports:
-      - "8080:8080"
+      - "${GATEWAY_HOST_PORT:-8080}:8080"
     depends_on:
       - iam
       - workflow
