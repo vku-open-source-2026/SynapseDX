@@ -219,6 +219,14 @@ export async function listUsers(orgId: string): Promise<User[]> {
   return [...mem.users.values()].filter((u) => u.org_id === orgId);
 }
 
+export async function getUserById(id: string): Promise<User | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, org_id, email, display_name, external_sub FROM users WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return mem.users.get(id) || null;
+}
+
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
 
 export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {

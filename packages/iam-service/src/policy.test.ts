@@ -47,3 +47,30 @@ describe('evaluatePolicies', () => {
     assert.equal(evaluatePolicies([allow, deny], { action: 'org:Read', resource: '*' }).allowed, true);
   });
 });
+
+describe('conditions', () => {
+  const docWith = (cond: any) => ({
+    Version: '1',
+    Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: '*', Condition: cond }],
+  });
+  it('StringEquals gate on org', () => {
+    const doc = docWith({ StringEquals: { org: 'acme' } });
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { org: 'acme' }).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { org: 'other' }).allowed, false);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, {}).allowed, false);
+  });
+  it('StringLike wildcard on email', () => {
+    const doc = docWith({ StringLike: { email: '*@acme.local' } });
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { email: 'a@acme.local' }).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { email: 'a@evil.com' }).allowed, false);
+  });
+  it('IfExists skips missing keys', () => {
+    const doc = docWith({ StringEqualsIfExists: { team: 'etl' } });
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, {}).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { team: 'nope' }).allowed, false);
+  });
+  it('unknown operator is conservative (deny)', () => {
+    const doc = docWith({ IpAddress: { sourceIp: '10.0.0.0/8' } });
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { sourceIp: '10.1.2.3' }).allowed, false);
+  });
+});

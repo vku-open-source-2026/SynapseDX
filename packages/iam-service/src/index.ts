@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import {
   createOrganization, listOrganizations, getOrgBySlug,
-  createAccount, listAccounts, upsertUser, listUsers, createRole, createPolicy,
+  createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, useDb,
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies,
@@ -211,24 +211,28 @@ export function createApp(): express.Express {
   });
 
   // ---------- Authorize (policy evaluation) ----------
+  // context: caller cung cấp thêm (vd {hour, sourceIp}); server luôn ép
+  // user/org/email từ DB (caller không override được) để Condition đáng tin.
   app.post('/v1/authorize', async (req, res) => {
-    const { userId, action, resource } = req.body as any;
+    const { userId, action, resource, context } = req.body as any;
     if (!userId || !action || !resource) return res.status(400).json({ error: 'userId+action+resource required' });
     const docs = await policiesForUser(userId);
-    const verdict = evaluatePolicies(docs, { action, resource });
+    const user = await getUserById(userId);
+    const ctx = { ...(context || {}), user: userId, org: user?.org_id, email: user?.email };
+    const verdict = evaluatePolicies(docs, { action, resource }, ctx);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
   });
 
   // Dry-run simulator (không cần user): đánh giá documents inline, như AWS IAM Policy Simulator.
   app.post('/v1/authorize/dry-run', async (req, res) => {
-    const { documents, action, resource } = req.body as any;
+    const { documents, action, resource, context } = req.body as any;
     if (!Array.isArray(documents) || !action || !resource) {
       return res.status(400).json({ error: 'documents[]+action+resource required' });
     }
     for (const d of documents) {
       if (!d || !Array.isArray(d.Statement)) return res.status(400).json({ error: 'each document needs Statement[]' });
     }
-    const verdict = evaluatePolicies(documents, { action, resource });
+    const verdict = evaluatePolicies(documents, { action, resource }, context || {});
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: documents.length });
   });
 

@@ -23,7 +23,18 @@ Organization (slug duy nhất toàn cục, vd `acme`)
 ```
 - `Action`: `service:Verb`, hỗ trợ `*` và `prefix:*` (vd `workflow:*`, `iam:*`).
 - `Resource`: ARN-ish hoặc `*` (vd `arn:olp:acme:prod:workflow:etl-nightly`).
-- Đánh giá: **Deny显式 thắng → Allow → mặc định Deny**.
+- Đánh giá: **Deny tường minh thắng → Allow → mặc định Deny**.
+
+## Condition (subset AWS)
+Statement hỗ trợ `Condition` với `StringEquals`, `StringLike` (wildcard `*`) và
+biến thể `...IfExists` (bỏ qua key vắng mặt). Toán tử lạ → conservative deny.
+```json
+{ "Effect": "Allow", "Action": ["data:Read"], "Resource": "*",
+  "Condition": { "StringEquals": { "team": "etl" } } }
+```
+`POST /v1/authorize` nhận thêm `context` (vd `{"team":"etl"}`); server luôn ép
+`user/org/email` từ DB nên caller không thể spoof các key này. Dry-run nhận
+`context` trực tiếp.
 
 ## Token
 | Loại | Định dạng | TTL mặc định | Lưu trữ |
