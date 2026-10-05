@@ -6,6 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { signAccess, verifyAccess, newRefreshToken, storeRefresh, consumeRefresh, consumeAndRevokeRefresh, revokeRefresh, revokeAllRefresh, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
+import { logAudit, listAudit } from './db';
 
 describe('access tokens', () => {
   it('sign/verify roundtrip', () => {
@@ -74,5 +75,17 @@ describe('refresh + api keys (memory)', () => {
     assert.equal(await verifyApiKey(k.value), null);
     assert.equal(await revokeApiKey(k.id), false);
     assert.equal(await revokeApiKey('nope'), false);
+  });
+});
+
+describe('audit log (memory)', () => {
+  it('records and filters by actor', async () => {
+    await logAudit({ actor_type: 'user', actor_id: 'ua', action: 'x:Y', resource: '*', decision: true, context: {} });
+    await logAudit({ actor_type: 'user', actor_id: 'ub', action: 'x:Y', resource: '*', decision: false, context: {} });
+    const all = await listAudit(50);
+    assert.ok(all.length >= 2);
+    assert.equal(all[0].created_at >= all[1].created_at, true);
+    const mine = await listAudit(50, 'ua');
+    assert.ok(mine.length >= 1 && mine.every((a: any) => a.actor_id === 'ua'));
   });
 });
