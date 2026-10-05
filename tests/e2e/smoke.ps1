@@ -1,4 +1,4 @@
-#RequiresVersion 5.1
+#Requires -Version 5.1
 # OLP e2e smoke cho Windows PowerShell
 param([string]$Base = $env:OLP_BASE_URL)
 if (-not $Base) { $Base = "http://localhost:8080" }

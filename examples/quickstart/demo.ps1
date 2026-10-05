@@ -1,4 +1,4 @@
-#RequiresVersion 5.1
+#Requires -Version 5.1
 # OLP quickstart cho Windows PowerShell (tương đương examples/quickstart/demo.sh)
 param([string]$Base = "http://localhost:8080")
 $H = @{}
@@ -10,12 +10,19 @@ Write-Host "TOK len=$($tok.Length) UID=$uid"
 Write-Host "== orgs =="
 $orgs = Invoke-RestMethod "$Base/v1/orgs" -Headers $H
 $org = $orgs[0].id; Write-Host "ORG=$org"
-Write-Host "== create account =="
-$acc = Invoke-RestMethod -Method Post "$Base/v1/orgs/$org/accounts" -ContentType "application/json" -Headers $H -Body '{"slug":"prod","displayName":"Production"}'
+Write-Host "== create account (idempotent) =="
+try {
+  $acc = Invoke-RestMethod -Method Post "$Base/v1/orgs/$org/accounts" -ContentType "application/json" -Headers $H -Body '{"slug":"prod","displayName":"Production"}'
+} catch {
+  $acc = (Invoke-RestMethod "$Base/v1/orgs/$org/accounts" -Headers $H | Where-Object { $_.slug -eq "prod" })[0]
+}
 Write-Host "ACC=$($acc.id)"
-Write-Host "== role + policy =="
-$role = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/roles" -ContentType "application/json" -Headers $H -Body '{"slug":"runner"}'
-$pol = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/policies" -ContentType "application/json" -Headers $H -Body '{"slug":"run-only","document":{"Version":"2026-01-01","Statement":[{"Effect":"Allow","Action":["workflow:Execute"],"Resource":"*"},{"Effect":"Deny","Action":["iam:*"],"Resource":"*"}]}}'
+Write-Host "== role + policy (idempotent) =="
+try { $role = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/roles" -ContentType "application/json" -Headers $H -Body '{"slug":"runner"}' }
+catch { $role = (Invoke-RestMethod "$Base/v1/accounts/$($acc.id)/roles" -Headers $H | Where-Object { $_.slug -eq "runner" })[0] }
+try {
+  $pol = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/policies" -ContentType "application/json" -Headers $H -Body '{"slug":"run-only","document":{"Version":"2026-01-01","Statement":[{"Effect":"Allow","Action":["workflow:Execute"],"Resource":"*"},{"Effect":"Deny","Action":["iam:*"],"Resource":"*"}]}}'
+} catch { $pol = (Invoke-RestMethod "$Base/v1/accounts/$($acc.id)/policies" -Headers $H | Where-Object { $_.slug -eq "run-only" })[0] }
 Invoke-RestMethod -Method Post "$Base/v1/roles/$($role.id)/attach" -ContentType "application/json" -Headers $H -Body (@{policyId=$pol.id} | ConvertTo-Json) | Out-Null
 Invoke-RestMethod -Method Post "$Base/v1/users/$uid/assign" -ContentType "application/json" -Headers $H -Body (@{roleId=$role.id} | ConvertTo-Json) | Out-Null
 Write-Host "== authorize =="
