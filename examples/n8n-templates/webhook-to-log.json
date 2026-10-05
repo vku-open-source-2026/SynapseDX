@@ -1,8 +1,8 @@
 {
   "name": "webhook-to-log",
   "nodes": [
-    { "id": "1", "name": "Webhook", "type": "n8n-nodes-base.webhook", "position": [200, 300], "parameters": { "path": "olp-event", "httpMethod": "POST" } },
-    { "id": "2", "name": "Log", "type": "n8n-nodes-base.noOp", "position": [400, 300], "parameters": {} }
+    { "id": "a1b2c3d4-0001-4000-8000-000000000001", "name": "Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "webhookId": "a1b2c3d4-0002-4000-8000-000000000002", "position": [200, 300], "parameters": { "path": "olp-event", "httpMethod": "POST" } },
+    { "id": "a1b2c3d4-0003-4000-8000-000000000003", "name": "Log", "type": "n8n-nodes-base.noOp", "typeVersion": 1, "position": [400, 300], "parameters": {} }
   ],
   "connections": { "Webhook": { "main": [[{ "node": "Log", "type": "main", "index": 0 }]] } }
 }

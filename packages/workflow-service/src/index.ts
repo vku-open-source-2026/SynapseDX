@@ -102,12 +102,13 @@ export function listTemplates() {
 
 export function buildTemplate(name: string, workflowName?: string): any | null {
   const wname = workflowName || name;
+  const wid = () => (globalThis.crypto as any)?.randomUUID?.() || Math.random().toString(36).slice(2);
   if (name === 'webhook-to-log') {
     return {
       name: wname,
       nodes: [
-        { id: '1', name: 'Webhook', type: 'n8n-nodes-base.webhook', position: [200, 300], parameters: { path: 'olp-event', httpMethod: 'POST' } },
-        { id: '2', name: 'Log', type: 'n8n-nodes-base.noOp', position: [400, 300], parameters: {} },
+        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'olp-event', httpMethod: 'POST' } },
+        { id: wid(), name: 'Log', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [400, 300], parameters: {} },
       ],
       connections: { Webhook: { main: [[{ node: 'Log', type: 'main', index: 0 }]] } },
     };
@@ -116,8 +117,8 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
     return {
       name: wname,
       nodes: [
-        { id: '1', name: 'Cron', type: 'n8n-nodes-base.cron', position: [200, 300], parameters: { rule: { interval: [{ field: 'hours', hoursInterval: 24 }] } } },
-        { id: '2', name: 'FetchIAM', type: 'n8n-nodes-base.httpRequest', position: [400, 300], parameters: { url: 'http://iam:4001/health', method: 'GET' } },
+        { id: wid(), name: 'Cron', type: 'n8n-nodes-base.cron', typeVersion: 1, position: [200, 300], parameters: { rule: { interval: [{ field: 'hours', hoursInterval: 24 }] } } },
+        { id: wid(), name: 'FetchIAM', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [400, 300], parameters: { url: 'http://iam:4001/health', method: 'GET' } },
       ],
       connections: { Cron: { main: [[{ node: 'FetchIAM', type: 'main', index: 0 }]] } },
     };
@@ -126,8 +127,8 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
     return {
       name: wname,
       nodes: [
-        { id: '1', name: 'IAMEvent', type: 'n8n-nodes-base.webhook', position: [200, 300], parameters: { path: 'iam-event', httpMethod: 'POST' } },
-        { id: '2', name: 'CallOLP', type: 'n8n-nodes-base.httpRequest', position: [420, 300], parameters: { url: 'http://gateway:8080/v1/orgs', method: 'GET' } },
+        { id: wid(), name: 'IAMEvent', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'iam-event', httpMethod: 'POST' } },
+        { id: wid(), name: 'CallOLP', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [420, 300], parameters: { url: 'http://gateway:8080/v1/orgs', method: 'GET' } },
       ],
       connections: { IAMEvent: { main: [[{ node: 'CallOLP', type: 'main', index: 0 }]] } },
     };
