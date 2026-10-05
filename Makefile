@@ -35,6 +35,7 @@ compose-logs:
 
 e2e:
 	bash tests/e2e/smoke.sh || powershell -File tests/e2e/smoke.ps1
+	bash tests/e2e/api-check.sh
 
 sdk-check:
 	node tests/e2e/sdk-check.js
