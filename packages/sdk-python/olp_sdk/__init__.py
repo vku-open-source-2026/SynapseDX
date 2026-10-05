@@ -57,6 +57,9 @@ class OlpClient:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})
 
     # ---- workflows ----
+    def list_templates(self) -> Any:
+        return self._req("GET", "/v1/templates")
+
     def list_workflows(self) -> Any:
         return self._req("GET", "/v1/workflows")
 
