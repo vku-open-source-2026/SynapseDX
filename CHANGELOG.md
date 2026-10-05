@@ -11,7 +11,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
 - SDKs: `@olp/sdk` (JS/TS), `olp-sdk` (Python), `olp-sdk-go` (minimal).
 - Docker Compose topology (parametrized host ports, S3Mock + bucket init, Authentik on 19000/19443), service Dockerfiles + .dockerignore, K8s base manifests + secrets example, GitHub CI/release workflows.
 - Docs: architecture, IAM model, API reference, quickstart (incl. scripted n8n bootstrap), object-storage, troubleshooting; OSS files: LICENSE (Apache-2.0), NOTICE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, GOVERNANCE.
-- Tests: 41 node + 3 Python unit green; live-verified: gateway proxy, IAM on memory + Postgres, n8n workflow create/list, S3 bucket ops, Authentik boot, JS/Python SDKs, rate-limiting.
+- Tests: 42 node + 3 Python unit green; live-verified: gateway proxy, IAM on memory + Postgres, n8n workflow create/list, S3 bucket ops, Authentik boot, JS/Python SDKs, rate-limiting.
 
 ### Notes
 - Default object store is Adobe S3Mock (Docker Hub `minio/minio` repo was removed); production may use MinIO (quay.io) or AWS S3 via `S3_ENDPOINT`.
