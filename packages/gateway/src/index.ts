@@ -169,7 +169,9 @@ export function propagatePrincipal(req: express.Request): void {
 
 export function createApp(): express.Express {
   const app = express();
-  app.use(cors());
+  // CORS: mở hết theo mặc định (MVP); production set CORS_ORIGIN=a.com,b.com
+  const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+  app.use(cors(corsOrigins.length ? { origin: corsOrigins } : undefined));
   app.use(morgan('combined'));
   // Request ID: dùng client gửi lên nếu có, else tự sinh; trả về + forward upstream.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {

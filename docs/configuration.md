@@ -14,6 +14,7 @@ Copy `.env.example` → `.env`, đổi mọi giá trị `*_change_me_*`. Chỉ s
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 60000 / 300 | rate limit |
 | `GATEWAY_VERIFY_APIKEY` | `false` | `true` → verify `X-API-Key` tập trung qua IAM (fail-closed 503 khi IAM chết); `false` → edge check presence, upstream verify |
 | `PROXY_TIMEOUT_MS` | 30000 | timeout upstream (504 khi quá hạn) |
+| `CORS_ORIGIN` | (mở hết) | `a.com,b.com` → chỉ cho origin đó (production) |
 | `REDIS_URL` | — (memory) | `redis://...` → rate-limit dùng Redis (share giữa replicas, fail-open khi Redis chết) |
 | `GATEWAY_HOST_PORT` | 8080 | host port (compose only) |
 

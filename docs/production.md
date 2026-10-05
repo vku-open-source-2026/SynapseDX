@@ -13,6 +13,7 @@ Dùng khi đưa OLP ra khỏi laptop. Mọi mục đều có sẵn cơ chế —
 ## 2. Mạng & TLS
 - [ ] Gateway là điểm vào duy nhất (Ingress + TLS); IAM/workflow/n8n/postgres/redis
       không expose ra internet (ClusterIP / compose network nội bộ).
+- [ ] Siết CORS của gateway theo origin frontend thật (mặc định mở hết cho MVP).
 - [ ] Rate limit: rà `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW_MS` theo tải; Redis
       (`REDIS_URL`) để share giữa replicas.
 - [ ] `PROXY_TIMEOUT_MS` theo SLA upstream (mặc định 30s).
