@@ -12,6 +12,7 @@
 
 ## Hardening notes
 - Change every `*_change_me_*` secret in `.env` before exposing anything.
+- Set `IAM_ALLOW_DEV_LOGIN=false` in production (disables passwordless dev login; OIDC only).
 - Gateway rate-limits by default (300 req/min); tighten in `docker-compose.yml` for public deployments.
 - JWT uses HS256 with `IAM_JWT_SECRET` (≥32 chars). Rotate by restarting `iam` + `gateway` together.
 - n8n/Authentik are external engines — track their own CVEs and pin images in `docker-compose.yml`.

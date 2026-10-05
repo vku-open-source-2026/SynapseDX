@@ -32,7 +32,7 @@ export function createApp(): express.Express {
   // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
   app.get('/v1/auth/oidc/config', (_req, res) => {
     res.json({
-      issuer: process.env.OIDC_ISSUER || 'http://authentik:9000/application/o/olp/',
+      issuer: process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/olp/',
       clientId: process.env.OIDC_CLIENT_ID || 'olp-platform',
       redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:4001/v1/auth/oidc/callback',
       provider: process.env.OIDC_PROVIDER || 'authentik',
@@ -66,8 +66,12 @@ export function createApp(): express.Express {
     }
   });
 
-  // Dev login (không dùng production): cấp token trực tiếp theo email
+  // Dev login: cấp token trực tiếp theo email. TẮT ở production bằng
+  // IAM_ALLOW_DEV_LOGIN=false (khi đó chỉ còn OIDC callback + refresh).
   app.post('/v1/auth/login', async (req, res) => {
+    if ((process.env.IAM_ALLOW_DEV_LOGIN || 'true') !== 'true') {
+      return res.status(403).json({ error: 'dev_login_disabled', message: 'Use OIDC flow' });
+    }
     const { email, orgSlug } = req.body as any;
     if (!email) return res.status(400).json({ error: 'email required' });
     const org = (await getOrgBySlug(orgSlug || 'acme')) || (await createOrganization(orgSlug || 'acme', orgSlug || 'acme'));

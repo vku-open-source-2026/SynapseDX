@@ -23,6 +23,7 @@ Copy `.env.example` → `.env`, đổi mọi giá trị `*_change_me_*`. Chỉ s
 | `REDIS_URL` | — | dự trữ (session/ratelimit tập trung, v0.2) |
 | `IAM_JWT_SECRET` | — | HS256 cho access/service JWT (≥32 ký tự) |
 | `IAM_JWT_EXPIRES_IN` / `IAM_REFRESH_EXPIRES_IN` | 3600 / 2592000 (giây) | TTL token |
+| `IAM_ALLOW_DEV_LOGIN` | `true` | `false` để tắt `POST /v1/auth/login` ở production (chỉ còn OIDC) |
 | `OIDC_PROVIDER` | `authentik` | tên hiển thị IdP (`authentik`\|`keycloak`) |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI` | xem `.env.example` | federated OIDC (Authentik/Keycloak) |
 
