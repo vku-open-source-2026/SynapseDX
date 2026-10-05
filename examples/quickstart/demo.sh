@@ -8,11 +8,11 @@ auth_h() { echo "Authorization: Bearer $TOK"; }
 echo "== login =="
 curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d'{"email":"demo@acme.local","orgSlug":"acme"}' | tee /tmp/olp-login.json
 TOK=$(jq -r .accessToken /tmp/olp-login.json)
-UID=$(jq -r .user.id /tmp/olp-login.json)
+USER_ID=$(jq -r .user.id /tmp/olp-login.json)
 echo; echo "== orgs =="
 curl -s "$BASE/v1/orgs" -H"$(auth_h)" | tee /tmp/orgs.json; echo
 ORG=$(jq -r '.[0].id' /tmp/orgs.json)
-echo "ORG=$ORG UID=$UID"
+echo "ORG=$ORG USER_ID=$USER_ID"
 
 echo "== account (tao neu chua co) =="
 ACC_JSON=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$(auth_h)" -d'{"slug":"prod","displayName":"Production"}')
@@ -31,9 +31,9 @@ POL_JSON=$(curl -s -XPOST "$BASE/v1/accounts/$ACC/policies" -H'Content-Type: app
 POL=$(echo "$POL_JSON" | jq -r '.id // empty')
 [ -z "$POL" ] && POL=$(curl -s "$BASE/v1/accounts/$ACC/policies" -H"$(auth_h)" | jq -r '.[] | select(.slug=="run-only") | .id')
 curl -s -XPOST "$BASE/v1/roles/$ROLE/attach" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"policyId\":\"$POL\"}"; echo
-curl -s -XPOST "$BASE/v1/users/$UID/assign" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"roleId\":\"$ROLE\"}"; echo
+curl -s -XPOST "$BASE/v1/users/$USER_ID/assign" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"roleId\":\"$ROLE\"}"; echo
 echo "== authorize =="
-curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"userId\":\"$UID\",\"action\":\"workflow:Execute\",\"resource\":\"*\"}"; echo
+curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"userId\":\"$USER_ID\",\"action\":\"workflow:Execute\",\"resource\":\"*\"}"; echo
 echo "== api key =="
 curl -s -XPOST "$BASE/v1/accounts/$ACC/keys" -H'Content-Type: application/json' -H"$(auth_h)" -d'{"name":"demo","scopes":["*"]}' | tee /tmp/key.json; echo
 KEY=$(jq -r .apiKey /tmp/key.json)

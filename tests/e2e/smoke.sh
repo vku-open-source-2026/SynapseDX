@@ -20,9 +20,9 @@ if [ -n "${TOK:-}" ]; then
   check orgs-list curl -sf -H"Authorization: Bearer $TOK" "$BASE/v1/orgs"
   check templates curl -sf -H"Authorization: Bearer $TOK" "$BASE/v1/templates"
   # authorize self-test (userId từ login)
-  UID=$(echo "$LOGIN_JSON" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-  if [ -n "${UID:-}" ]; then
-    code=$(curl -s -o /tmp/authz.json -w "%{http_code}" -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"Authorization: Bearer $TOK" -d"{\"userId\":\"$UID\",\"action\":\"workflow:Execute\",\"resource\":\"*\"}" || true)
+  USER_ID=$(echo "$LOGIN_JSON" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
+  if [ -n "${USER_ID:-}" ]; then
+    code=$(curl -s -o /tmp/authz.json -w "%{http_code}" -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"Authorization: Bearer $TOK" -d"{\"userId\":\"$USER_ID\",\"action\":\"workflow:Execute\",\"resource\":\"*\"}" || true)
     echo "authorize http=$code body=$(cat /tmp/authz.json 2>/dev/null)"
   fi
 fi
