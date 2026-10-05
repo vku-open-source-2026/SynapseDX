@@ -37,6 +37,10 @@ routes:
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
 
+  - path: /v1/audit
+    target: ${IAM_SERVICE_URL:http://iam:4001}
+    auth: either
+
   - path: /v1/workflows
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either

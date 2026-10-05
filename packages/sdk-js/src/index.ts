@@ -104,6 +104,10 @@ export class OlpClient {
   simulate(documents: any[], action: string, resource: string, context?: Record<string, unknown>) {
     return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource, context }) });
   }
+  listAudit(limit = 50, actor?: string) {
+    const qs = `?limit=${limit}${actor ? `&actor=${encodeURIComponent(actor)}` : ''}`;
+    return this.req(`/v1/audit${qs}`);
+  }
   createApiKey(accountId: string, name = 'default', scopes: string[] = ['*']) {
     return this.req<{ apiKey: string }>(`/v1/accounts/${accountId}/keys`, { method: 'POST', body: JSON.stringify({ name, scopes }) });
   }

@@ -38,6 +38,7 @@ không cần re-verify JWT.
 - `GET /v1/users/:userId/policies`
 - `POST /v1/authorize {userId, action, resource, context?}` → `{allowed, matchedBy}` (context hợp nhất với user/org/email từ DB)
 - `POST /v1/authorize/dry-run {documents[], action, resource, context?}` → `{allowed}` (simulator, không cần user)
+- `GET /v1/audit?limit=50&actor=<id>` → audit log authorize decisions (mới nhất trước)
 
 ## Keys
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (hiện 1 lần), id, prefix}`

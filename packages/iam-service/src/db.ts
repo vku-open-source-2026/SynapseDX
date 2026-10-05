@@ -243,6 +243,44 @@ export async function deletePolicy(id: string): Promise<boolean> {
   return mem.policies.delete(id);
 }
 
+export interface AuditEntry {
+  id?: string;
+  actor_type: string;
+  actor_id: string;
+  action: string;
+  resource: string;
+  decision: boolean;
+  context?: any;
+}
+
+export async function logAudit(e: AuditEntry): Promise<void> {
+  if (pool) {
+    await pool.query(
+      'INSERT INTO audit_log (actor_type, actor_id, action, resource, decision, context) VALUES ($1,$2,$3,$4,$5,$6)',
+      [e.actor_type, e.actor_id, e.action, e.resource || '', !!e.decision, e.context || {}],
+    );
+    return;
+  }
+  if (!(__mem as any).audit) (__mem as any).audit = [];
+  ((__mem as any).audit as any[]).push({ id: randomUUID(), created_at: new Date().toISOString(), ...e });
+  if (((__mem as any).audit as any[]).length > 1000) ((__mem as any).audit as any[]).splice(0, 100);
+}
+
+export async function listAudit(limit = 50, actorId?: string): Promise<any[]> {
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  if (pool) {
+    if (actorId) {
+      const r = await pool.query('SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log WHERE actor_id=$1 ORDER BY created_at DESC LIMIT $2', [actorId, lim]);
+      return r.rows;
+    }
+    const r = await pool.query('SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log ORDER BY created_at DESC LIMIT $1', [lim]);
+    return r.rows;
+  }
+  const all: any[] = (((__mem as any).audit as any[]) || []).slice().reverse();
+  const filtered = actorId ? all.filter((a) => a.actor_id === actorId) : all;
+  return filtered.slice(0, lim);
+}
+
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
 
 export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {

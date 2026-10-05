@@ -111,6 +111,20 @@ CREATE TABLE IF NOT EXISTS workflows (
   UNIQUE(account_id, slug)
 );
 
+-- Audit log cho authorize decisions (CloudTrail-lite)
+CREATE TABLE IF NOT EXISTS audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  actor_type TEXT NOT NULL DEFAULT 'user',
+  actor_id TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL,
+  resource TEXT NOT NULL DEFAULT '',
+  decision BOOLEAN NOT NULL,
+  context JSONB NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at DESC);
+
 -- Seed demo org for quickstart (idempotent)
 INSERT INTO organizations (slug, display_name)
 VALUES ('acme', 'ACME Demo Organization')

@@ -87,6 +87,10 @@ class OlpClient:
     def simulate(self, documents: list, action: str, resource: str, context: dict | None = None) -> dict:
         return self._req("POST", "/v1/authorize/dry-run", {"documents": documents, "action": action, "resource": resource, "context": context})
 
+    def list_audit(self, limit: int = 50, actor: str | None = None) -> list:
+        qs = f"?limit={limit}" + (f"&actor={actor}" if actor else "")
+        return self._req("GET", f"/v1/audit{qs}")
+
     def create_api_key(self, account_id: str, name: str = "default", scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})
 

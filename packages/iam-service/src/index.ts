@@ -13,7 +13,7 @@ import {
   createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, useDb, deleteRole, deletePolicy,
   createServiceAccount, listServiceAccounts, getServiceAccount,
-  listRoles, listPolicies,
+  listRoles, listPolicies, logAudit, listAudit,
 } from './db';
 import { evaluatePolicies } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
@@ -250,6 +250,7 @@ export function createApp(): express.Express {
     const user = await getUserById(userId);
     const ctx = { ...(context || {}), user: userId, org: user?.org_id, email: user?.email };
     const verdict = evaluatePolicies(docs, { action, resource }, ctx);
+    await logAudit({ actor_type: 'user', actor_id: userId, action, resource, decision: verdict.allowed, context: ctx }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
   });
 
@@ -263,7 +264,15 @@ export function createApp(): express.Express {
       if (!d || !Array.isArray(d.Statement)) return res.status(400).json({ error: 'each document needs Statement[]' });
     }
     const verdict = evaluatePolicies(documents, { action, resource }, context || {});
+    await logAudit({ actor_type: 'dry-run', actor_id: '', action, resource, decision: verdict.allowed, context: context || {} }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: documents.length });
+  });
+
+  // Audit log (đọc).
+  app.get('/v1/audit', async (req, res) => {
+    const limit = Number(req.query.limit || 50);
+    const actor = (req.query.actor as string) || undefined;
+    res.json(await listAudit(limit, actor));
   });
 
   // ---------- API keys ----------
