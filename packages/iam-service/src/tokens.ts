@@ -57,6 +57,17 @@ export async function consumeRefresh(value: string): Promise<{ user_id: string }
   return { user_id: rec.user_id };
 }
 
+/** Thu hồi refresh token (dùng khi rotate hoặc logout). */
+export async function revokeRefresh(value: string): Promise<void> {
+  const hash = createHash('sha256').update(value).digest('hex');
+  if (useDb()) {
+    await query('UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=$1', [hash]);
+    return;
+  }
+  const rec = __mem.refresh.get(hash);
+  if (rec) rec.revoked_at = new Date().toISOString();
+}
+
 export async function createApiKeyRecord(accountId: string, userId: string | null, name: string, scopes: string[], expiresAt: Date | null): Promise<{ id: string; value: string; prefix: string }> {
   const { randomUUID } = await import('crypto');
   void randomUUID;

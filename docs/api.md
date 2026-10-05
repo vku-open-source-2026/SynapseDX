@@ -10,7 +10,8 @@ không cần re-verify JWT.
 
 ## Auth
 - `POST /v1/auth/login {email, orgSlug}` → `{accessToken, refreshToken, user}`
-- `POST /v1/auth/refresh {refreshToken}` → `{accessToken}`
+- `POST /v1/auth/refresh {refreshToken}` → `{accessToken, refreshToken}` (xoay vòng: token cũ bị thu hồi)
+- `POST /v1/auth/logout {refreshToken}` → `{ok}`
 - `GET /v1/auth/verify` (Bearer hoặc X-API-Key) → `{valid, ...}`
 - `GET /v1/auth/oidc/config` → `{issuer, clientId, ...}`
 - `GET /v1/auth/oidc/start?org=acme` → `{authorizeUrl}`

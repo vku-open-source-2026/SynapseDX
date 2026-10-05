@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signAccess, verifyAccess, newRefreshToken, storeRefresh, consumeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, verifyAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
 
 describe('access tokens', () => {
   it('sign/verify roundtrip', () => {
@@ -29,6 +29,12 @@ describe('refresh + api keys (memory)', () => {
   });
   it('unknown refresh rejected', async () => {
     assert.equal(await consumeRefresh('olp_rt_bogus'), null);
+  });
+  it('revoked refresh rejected', async () => {
+    const rt = newRefreshToken();
+    await storeRefresh('u9', rt.hash, new Date(Date.now() + 60000));
+    await revokeRefresh(rt.value);
+    assert.equal(await consumeRefresh(rt.value), null);
   });
   it('api key roundtrip', async () => {
     const k = await createApiKeyRecord('acc1', 'u1', 't', ['*'], null);
