@@ -137,8 +137,21 @@ export function createApp(): express.Express {
     res.json({ ok: true, revoked });
   });
 
-  app.get('/v1/auth/verify', async (req, res) => {
+  // Who-am-I: user record của chính Bearer token.
+  app.get('/v1/auth/me', async (req, res) => {
     const h = req.headers.authorization || '';
+    if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'unauthorized' });
+    try {
+      const decoded: any = jwt.verify(h.slice(7), process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min');
+      const user = await getUserById(decoded.sub);
+      if (!user) return res.status(404).json({ error: 'user_not_found' });
+      res.json({ user, kind: decoded.kind || 'user' });
+    } catch (e: any) {
+      return res.status(401).json({ error: 'invalid_token', message: e.message });
+    }
+  });
+
+  app.get('/v1/auth/verify', async (req, res) => {    const h = req.headers.authorization || '';
     const apiKey = (req.headers['x-api-key'] as string) || '';
     if (h.startsWith('Bearer ')) {
       try {

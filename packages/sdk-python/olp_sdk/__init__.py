@@ -58,6 +58,9 @@ class OlpClient:
     def verify(self) -> dict:
         return self._req("GET", "/v1/auth/verify")
 
+    def me(self) -> dict:
+        return self._req("GET", "/v1/auth/me")
+
     # ---- orgs ----
     def list_orgs(self) -> list:
         return self._req("GET", "/v1/orgs")

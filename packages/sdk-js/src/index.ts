@@ -66,6 +66,7 @@ export class OlpClient {
     return this.req<{ ok: boolean; revoked: number }>('/v1/auth/logout-all', { method: 'POST', body: JSON.stringify({ refreshToken }) });
   }
   verify() { return this.req('/v1/auth/verify'); }
+  me() { return this.req('/v1/auth/me'); }
 
   // ---- orgs/accounts ----
   listOrgs(): Promise<any[]> { return this.req('/v1/orgs'); }
