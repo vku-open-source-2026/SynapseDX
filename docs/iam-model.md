@@ -41,8 +41,12 @@ biến thể `...IfExists` (bỏ qua key vắng mặt). Toán tử lạ → cons
 |---|---|---|---|
 | Access JWT | Bearer `eyJ...` (HS256) | 3600s | stateless, verify bằng `IAM_JWT_SECRET` |
 | Refresh | `olp_rt_...` opaque, **xoay vòng** | 30 ngày | SHA-256 hash trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
-| API key | `olp_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index |
+| API key | `olp_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index, `DELETE /v1/keys/:id` để thu hồi |
 | Service account | Bearer JWT `kind=service-account` | 3600s | stateless, mang `account` scope |
+
+Lưu ý: access JWT stateless nên **không thu hồi lẻ** được — giữ TTL ngắn (1h) và
+thu hồi ở tầng refresh (`/v1/auth/logout`, `/v1/auth/logout-all`). Cần thu hồi
+tức thì: xoay `IAM_JWT_SECRET` (restart iam+gateway, mọi JWT cũ vô hiệu).
 
 Lưu ý hiện tại: `scopes` của API key được lưu + trả về khi verify (`/v1/keys/verify`).
 Gateway mặc định chỉ check presence ở edge (upstream verify chi tiết); bật
