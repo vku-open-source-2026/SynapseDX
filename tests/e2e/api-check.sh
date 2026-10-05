@@ -13,6 +13,7 @@ TOK=$(echo "$LOGIN" | jq -r .accessToken)
 E2E_UID=$(echo "$LOGIN" | jq -r .user.id)
 [ -n "$TOK" ] && [ "$TOK" != "null" ] && ok login || { bad login "$LOGIN"; exit 1; }
 H="Authorization: Bearer $TOK"
+[ "$(curl -s "$BASE/v1/auth/me" -H"$H" | jq -r .user.email)" = "e2e@acme.local" ] && ok me || bad me ""
 
 # health + ready + metrics (public)
 curl -sf "$BASE/health" >/dev/null && ok health || bad health ""
