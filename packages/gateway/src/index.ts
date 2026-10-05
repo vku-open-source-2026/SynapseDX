@@ -223,6 +223,9 @@ export function createApp(): express.Express {
       target,
       changeOrigin: true,
       logLevel: 'warn',
+      // Upstream treo thì 504 sau 30s thay vì treo gateway theo.
+      proxyTimeout: Number(process.env.PROXY_TIMEOUT_MS || 30000),
+      timeout: Number(process.env.PROXY_TIMEOUT_MS || 30000),
     } as any);
     app.use(proxy as any); // không path → proxy tự filter theo pathFilter, forward nguyên req.url
   }
