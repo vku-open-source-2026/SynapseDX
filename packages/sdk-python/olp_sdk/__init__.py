@@ -99,8 +99,20 @@ class OlpClient:
     def list_roles(self, account_id: str) -> list:
         return self._req("GET", f"/v1/accounts/{account_id}/roles")
 
+    def create_role(self, account_id: str, slug: str, description: str = "") -> dict:
+        return self._req("POST", f"/v1/accounts/{account_id}/roles", {"slug": slug, "description": description})
+
+    def delete_role(self, role_id: str) -> dict:
+        return self._req("DELETE", f"/v1/roles/{role_id}")
+
     def list_policies(self, account_id: str) -> list:
         return self._req("GET", f"/v1/accounts/{account_id}/policies")
+
+    def create_policy(self, account_id: str, slug: str, document: dict, description: str = "") -> dict:
+        return self._req("POST", f"/v1/accounts/{account_id}/policies", {"slug": slug, "document": document, "description": description})
+
+    def delete_policy(self, policy_id: str) -> dict:
+        return self._req("DELETE", f"/v1/policies/{policy_id}")
 
     def service_account_token(self, sa_id: str, scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/service-accounts/{sa_id}/token", {"scopes": scopes or ["*"]})
