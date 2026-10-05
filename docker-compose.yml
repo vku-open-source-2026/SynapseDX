@@ -141,6 +141,10 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-olp}:${POSTGRES_PASSWORD:-olp_password_change_me}@postgres:5432/${POSTGRES_DB:-olp}
       REDIS_URL: redis://redis:6379
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
+      IAM_JWT_EXPIRES_IN: ${IAM_JWT_EXPIRES_IN:-3600}
+      IAM_REFRESH_EXPIRES_IN: ${IAM_REFRESH_EXPIRES_IN:-2592000}
+      IAM_ALLOW_DEV_LOGIN: ${IAM_ALLOW_DEV_LOGIN:-true}
+      OIDC_PROVIDER: ${OIDC_PROVIDER:-authentik}
       OIDC_ISSUER: ${OIDC_ISSUER:-http://authentik-server:9000/application/o/olp/}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-olp-platform}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
@@ -165,7 +169,7 @@ services:
     image: olp/workflow:0.1.0
     environment:
       PORT: 4002
-      N8N_BASE_URL: http://n8n:5678
+      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
       N8N_API_KEY: ${N8N_API_KEY:-change_me_n8n_api_key}
       IAM_SERVICE_URL: http://iam:4001
     ports:
@@ -193,6 +197,8 @@ services:
       REDIS_URL: redis://redis:6379
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 300
+      GATEWAY_VERIFY_APIKEY: ${GATEWAY_VERIFY_APIKEY:-false}
+      PROXY_TIMEOUT_MS: ${PROXY_TIMEOUT_MS:-30000}
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     healthcheck:
