@@ -62,6 +62,15 @@ class OlpClient:
     def create_service_account(self, account_id: str, slug: str, description: str = "") -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/service-accounts", {"slug": slug, "description": description})
 
+    def list_service_accounts(self, account_id: str) -> list:
+        return self._req("GET", f"/v1/accounts/{account_id}/service-accounts")
+
+    def list_roles(self, account_id: str) -> list:
+        return self._req("GET", f"/v1/accounts/{account_id}/roles")
+
+    def list_policies(self, account_id: str) -> list:
+        return self._req("GET", f"/v1/accounts/{account_id}/policies")
+
     def service_account_token(self, sa_id: str, scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/service-accounts/{sa_id}/token", {"scopes": scopes or ["*"]})
 

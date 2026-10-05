@@ -82,6 +82,7 @@ export class OlpClient {
   createServiceAccount(accountId: string, slug: string, description = '') {
     return this.req(`/v1/accounts/${accountId}/service-accounts`, { method: 'POST', body: JSON.stringify({ slug, description }) });
   }
+  listServiceAccounts(accountId: string) { return this.req(`/v1/accounts/${accountId}/service-accounts`); }
   serviceAccountToken(saId: string, scopes: string[] = ['*']) {
     return this.req<{ accessToken: string }>(`/v1/service-accounts/${saId}/token`, { method: 'POST', body: JSON.stringify({ scopes }) });
   }
