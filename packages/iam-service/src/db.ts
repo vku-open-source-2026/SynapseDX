@@ -107,6 +107,8 @@ export async function createAccount(orgId: string, slug: string, display_name: s
     const r = await pool.query('INSERT INTO accounts (org_id, slug, display_name) VALUES ($1,$2,$3) RETURNING id, org_id, slug, display_name', [orgId, slug, display_name]);
     return r.rows[0];
   }
+  const dup = [...mem.accounts.values()].find((a) => a.org_id === orgId && a.slug === slug);
+  if (dup) throw Object.assign(new Error('account exists'), { status: 409 });
   const a: Account = { id: randomUUID(), org_id: orgId, slug, display_name };
   mem.accounts.set(a.id, a);
   return a;

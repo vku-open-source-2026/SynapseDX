@@ -27,6 +27,22 @@ export function createApp(): express.Express {
   app.use(morgan('combined'));
   app.use(express.json({ limit: '1mb' }));
 
+  // Bọc mọi async handler: Express 4 không catch async throw (treo request /
+  // unhandledRejection khi lỗi DB như slug trùng). Map unique-violation → 409.
+  for (const m of ['get', 'post', 'put', 'delete', 'patch'] as const) {
+    const orig = ((app as any)[m] as Function).bind(app);
+    (app as any)[m] = (path: string, ...handlers: any[]) =>
+      orig(
+        path,
+        ...handlers.map((h: any) =>
+          typeof h === 'function' && h.length < 4
+            ? (req: express.Request, res: express.Response, next: express.NextFunction) =>
+                Promise.resolve(h(req, res, next)).catch(next)
+            : h,
+        ),
+      );
+  }
+
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', db: useDb() ? 'postgres' : 'memory', time: new Date().toISOString() }));
 
   // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
@@ -130,6 +146,9 @@ export function createApp(): express.Express {
       const b = schema.parse(req.body);
       res.status(201).json(await createOrganization(b.slug, b.displayName));
     } catch (e: any) {
+      if (e?.code === '23505' || /exists|duplicate/i.test(e?.message || '')) {
+        return res.status(409).json({ error: 'conflict', message: 'organization slug exists' });
+      }
       res.status(400).json({ error: 'invalid_body', message: e.message });
     }
   });
@@ -142,6 +161,9 @@ export function createApp(): express.Express {
       const b = schema.parse(req.body);
       res.status(201).json(await createAccount(req.params.orgId, b.slug, b.displayName));
     } catch (e: any) {
+      if (e?.code === '23505' || /exists|duplicate/i.test(e?.message || '')) {
+        return res.status(409).json({ error: 'conflict', message: 'account slug exists' });
+      }
       res.status(400).json({ error: 'invalid_body', message: e.message });
     }
   });
@@ -251,6 +273,12 @@ export function createApp(): express.Express {
 
   // 404
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err?.code === '23505') return res.status(409).json({ error: 'conflict', message: 'duplicate slug' });
+    console.error('[iam] unhandled:', err?.message || err);
+    res.status(500).json({ error: 'internal' });
+  });
   return app;
 }
 

@@ -165,8 +165,12 @@ export function createApp(): express.Express {
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gateway', time: new Date().toISOString() }));
   app.get('/metrics', async (_req, res) => {
-    res.setHeader('Content-Type', register.contentType);
-    res.send(await register.metrics());
+    try {
+      res.setHeader('Content-Type', register.contentType);
+      res.send(await register.metrics());
+    } catch (e: any) {
+      res.status(500).json({ error: 'metrics_failed', message: e.message });
+    }
   });
 
   // Aggregate readiness: gateway + các upstream chính (timeout ngắn, không fail hard).
