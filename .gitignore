@@ -18,6 +18,7 @@ minio-data/
 # python
 __pycache__/
 *.pyc
+*.egg-info/
 .venv/
 sdk-python-dist/
 
