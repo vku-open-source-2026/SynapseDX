@@ -16,7 +16,7 @@ import {
   listRoles, listPolicies,
 } from './db';
 import { evaluatePolicies } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, refreshExpiry, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
@@ -260,6 +260,12 @@ export function createApp(): express.Express {
     const rec = await verifyApiKey(req.body.apiKey || '');
     if (!rec) return res.status(401).json({ valid: false });
     res.json({ valid: true, ...rec });
+  });
+
+  app.delete('/v1/keys/:id', async (req, res) => {
+    const ok = await revokeApiKey(req.params.id);
+    if (!ok) return res.status(404).json({ error: 'key_not_found' });
+    res.json({ ok: true });
   });
 
   // ---------- Service accounts (machine identity) ----------

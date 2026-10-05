@@ -104,6 +104,9 @@ export class OlpClient {
   createApiKey(accountId: string, name = 'default', scopes: string[] = ['*']) {
     return this.req<{ apiKey: string }>(`/v1/accounts/${accountId}/keys`, { method: 'POST', body: JSON.stringify({ name, scopes }) });
   }
+  revokeApiKey(keyId: string) {
+    return this.req(`/v1/keys/${keyId}`, { method: 'DELETE' });
+  }
   createServiceAccount(accountId: string, slug: string, description = '') {
     return this.req(`/v1/accounts/${accountId}/service-accounts`, { method: 'POST', body: JSON.stringify({ slug, description }) });
   }

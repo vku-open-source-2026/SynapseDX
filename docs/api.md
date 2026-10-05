@@ -41,6 +41,7 @@ không cần re-verify JWT.
 ## Keys
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (hiện 1 lần), id, prefix}`
 - `POST /v1/keys/verify {apiKey}` → `{valid, account_id, scopes}`
+- `DELETE /v1/keys/:id` → thu hồi key
 
 ## Service accounts (machine identity)
 - `POST /v1/accounts/:accountId/service-accounts {slug, description}` → service account

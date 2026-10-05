@@ -89,8 +89,22 @@ export async function createApiKeyRecord(accountId: string, userId: string | nul
   return { id, value: raw, prefix };
 }
 
-export async function verifyApiKey(raw: string): Promise<{ account_id: string; scopes: string[] } | null> {
-  const hash = hashSecret(raw);
+/** Thu hồi API key theo id (trả về false nếu không tồn tại). */
+export async function revokeApiKey(id: string): Promise<boolean> {
+  if (useDb()) {
+    const r = await query('UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND revoked_at IS NULL RETURNING id', [id]);
+    return r.rows.length > 0;
+  }
+  for (const rec of __mem.apiKeys.values()) {
+    if (rec.id === id && !rec.revoked_at) {
+      rec.revoked_at = new Date().toISOString();
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function verifyApiKey(raw: string): Promise<{ account_id: string; scopes: string[] } | null> {  const hash = hashSecret(raw);
   if (useDb()) {
     const r = await query('SELECT account_id, scopes, expires_at, revoked_at FROM api_keys WHERE key_hash=$1', [hash]);
     const row = r.rows[0];
