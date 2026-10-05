@@ -142,6 +142,27 @@ export function createApp(): express.Express {
     res.send(await register.metrics());
   });
 
+  // Aggregate readiness: gateway + các upstream chính (timeout ngắn, không fail hard).
+  app.get('/ready', async (_req, res) => {
+    async function probe(name: string, url: string): Promise<{ name: string; ok: boolean; status?: number; ms?: number }> {
+      const t0 = Date.now();
+      try {
+        const ctl = new AbortController();
+        const to = setTimeout(() => ctl.abort(), 4000);
+        const r = await fetch(`${url.replace(/\/$/, '')}/health`, { signal: ctl.signal });
+        clearTimeout(to);
+        return { name, ok: r.ok, status: r.status, ms: Date.now() - t0 };
+      } catch {
+        return { name, ok: false, ms: Date.now() - t0 };
+      }
+    }
+    const iamUrl = process.env.IAM_SERVICE_URL || 'http://iam:4001';
+    const wfUrl = process.env.WORKFLOW_SERVICE_URL || 'http://workflow:4002';
+    const [iam, workflow] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl)]);
+    const allOk = iam.ok && workflow.ok;
+    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow], time: new Date().toISOString() });
+  });
+
   const routes = loadRoutes();
   console.log(`[gateway] loaded ${routes.length} routes: ${routes.map((r) => `${r.path}->${expandEnv(r.target)}[${r.auth}]`).join(', ')}`);
 
