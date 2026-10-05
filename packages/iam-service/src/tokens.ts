@@ -4,12 +4,17 @@
  * Token management: JWT access tokens + opaque refresh tokens + API keys.
  */
 import jwt from 'jsonwebtoken';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, randomUUID, createHash } from 'crypto';
 import { query, useDb, __mem, hashSecret } from './db';
 
 const JWT_SECRET = process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min';
 const ACCESS_TTL = Number(process.env.IAM_JWT_EXPIRES_IN || 3600);
 const REFRESH_TTL = Number(process.env.IAM_REFRESH_EXPIRES_IN || 2592000);
+
+/** Thời điểm hết hạn refresh token mới (dùng REFRESH_TTL, mặc định 30 ngày). */
+export function refreshExpiry(): Date {
+  return new Date(Date.now() + REFRESH_TTL * 1000);
+}
 
 export interface AccessClaims {
   sub: string; // user id
@@ -69,8 +74,6 @@ export async function revokeRefresh(value: string): Promise<void> {
 }
 
 export async function createApiKeyRecord(accountId: string, userId: string | null, name: string, scopes: string[], expiresAt: Date | null): Promise<{ id: string; value: string; prefix: string }> {
-  const { randomUUID } = await import('crypto');
-  void randomUUID;
   const raw = 'olp_' + randomBytes(24).toString('base64url');
   const prefix = raw.slice(0, 12);
   const hash = hashSecret(raw);
@@ -81,7 +84,7 @@ export async function createApiKeyRecord(accountId: string, userId: string | nul
     );
     return { id: r.rows[0].id, value: raw, prefix };
   }
-  const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const id = randomUUID();
   __mem.apiKeys.set(hash, { id, account_id: accountId, user_id: userId, key_prefix: prefix, name, scopes, expires_at: expiresAt?.toISOString() || null, revoked_at: null });
   return { id, value: raw, prefix };
 }

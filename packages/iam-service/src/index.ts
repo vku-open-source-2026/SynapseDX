@@ -16,7 +16,7 @@ import {
   listRoles, listPolicies,
 } from './db';
 import { evaluatePolicies } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, refreshExpiry, createApiKeyRecord, verifyApiKey } from './tokens';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
@@ -75,7 +75,7 @@ export function createApp(): express.Express {
       const user = await upsertUser(org.id, email, displayName || email, sub || email);
       const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
       const rt = newRefreshToken();
-      await storeRefresh(user.id, rt.hash, new Date(Date.now() + 30 * 24 * 3600 * 1000));
+      await storeRefresh(user.id, rt.hash, refreshExpiry());
       res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
     } catch (e: any) {
       res.status(500).json({ error: 'oidc_callback_failed', message: e.message });
@@ -94,7 +94,7 @@ export function createApp(): express.Express {
     const user = await upsertUser(org.id, email, email);
     const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
     const rt = newRefreshToken();
-    await storeRefresh(user.id, rt.hash, new Date(Date.now() + 30 * 24 * 3600 * 1000));
+    await storeRefresh(user.id, rt.hash, refreshExpiry());
     res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
   });
 
@@ -106,7 +106,7 @@ export function createApp(): express.Express {
     if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
     await revokeRefresh(refreshToken);
     const rt = newRefreshToken();
-    await storeRefresh(rec.user_id, rt.hash, new Date(Date.now() + 30 * 24 * 3600 * 1000));
+    await storeRefresh(rec.user_id, rt.hash, refreshExpiry());
     const { token, expiresIn } = signAccess({ sub: rec.user_id });
     res.json({ accessToken: token, expiresIn, refreshToken: rt.value });
   });
