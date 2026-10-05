@@ -17,7 +17,8 @@ jobs:
       - run: npm install --workspaces
       - run: npm run build --workspaces --if-present
       - run: npm run test --workspaces --if-present
-      - run: pip install ./packages/sdk-python && pytest packages/sdk-python -q || python -m pytest packages/sdk-python -q
+      - run: pip install ./packages/sdk-python
+      - run: pytest packages/sdk-python -q
       - run: docker compose config
   docker:
     runs-on: ubuntu-latest
