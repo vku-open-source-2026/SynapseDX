@@ -275,7 +275,9 @@ export function createApp(): express.Express {
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    if (err?.code === '23505') return res.status(409).json({ error: 'conflict', message: 'duplicate slug' });
+    if (err?.code === '23505' || /exists|duplicate/i.test(err?.message || '')) {
+      return res.status(409).json({ error: 'conflict', message: 'duplicate slug' });
+    }
     console.error('[iam] unhandled:', err?.message || err);
     res.status(500).json({ error: 'internal' });
   });

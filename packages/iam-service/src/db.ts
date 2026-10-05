@@ -4,7 +4,7 @@
  * IAM persistence layer — Postgres with in-memory fallback for dev/test.
  */
 import { Pool } from 'pg';
-import { randomUUID, createHash, randomBytes } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 
 export interface Organization { id: string; slug: string; display_name: string; created_at?: string }
 export interface Account { id: string; org_id: string; slug: string; display_name: string }
@@ -65,12 +65,6 @@ export async function query<T extends import('pg').QueryResultRow = any>(text: s
 
 export function hashSecret(s: string): string {
   return createHash('sha256').update(s).digest('hex');
-}
-
-export function newApiKeyValue(prefix = 'olp'): { value: string; prefixPart: string } {
-  const rand = randomBytes(24).toString('base64url');
-  const value = `${prefix}_${rand}`;
-  return { value, prefixPart: value.slice(0, 12) };
 }
 
 // ---------- high-level CRUD that works on both pg + memory ----------
@@ -143,6 +137,8 @@ export async function createRole(accountId: string, slug: string, description = 
     const r = await pool.query('INSERT INTO roles (account_id, slug, description) VALUES ($1,$2,$3) RETURNING id, account_id, slug, description', [accountId, slug, description]);
     return r.rows[0];
   }
+  const dup = [...mem.roles.values()].find((r) => r.account_id === accountId && r.slug === slug);
+  if (dup) throw Object.assign(new Error('role exists'), { status: 409 });
   const r: Role = { id: randomUUID(), account_id: accountId, slug, description };
   mem.roles.set(r.id, r);
   return r;
@@ -153,6 +149,8 @@ export async function createPolicy(accountId: string, slug: string, description:
     const r = await pool.query('INSERT INTO policies (account_id, slug, description, document) VALUES ($1,$2,$3,$4) RETURNING id, account_id, slug, description, document', [accountId, slug, description, document]);
     return r.rows[0];
   }
+  const dup = [...mem.policies.values()].find((p) => p.account_id === accountId && p.slug === slug);
+  if (dup) throw Object.assign(new Error('policy exists'), { status: 409 });
   const p: Policy = { id: randomUUID(), account_id: accountId, slug, description, document };
   mem.policies.set(p.id, p);
   return p;
@@ -228,6 +226,8 @@ export async function createServiceAccount(accountId: string, slug: string, desc
     const r = await pool.query('INSERT INTO service_accounts (account_id, slug, description) VALUES ($1,$2,$3) RETURNING id, account_id, slug, description', [accountId, slug, description]);
     return r.rows[0];
   }
+  const dup = [...__mem.serviceAccounts.values()].find((s: any) => s.account_id === accountId && s.slug === slug);
+  if (dup) throw Object.assign(new Error('service account exists'), { status: 409 });
   const sa: ServiceAccount = { id: randomUUID(), account_id: accountId, slug, description };
   __mem.serviceAccounts.set(sa.id, sa);
   return sa;
