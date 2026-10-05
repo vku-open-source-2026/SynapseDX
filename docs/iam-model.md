@@ -9,6 +9,7 @@ Organization (slug duy nhất toàn cục, vd `acme`)
      ├─ User (thuộc Org, gán Role qua user_roles — có thể cross-account)
      ├─ ApiKey (thuộc Account, hash SHA-256, prefix tra cứu)
      └─ ServiceAccount (identity cho máy)
+Toàn cục: audit_log ghi mọi authorize decision (xem `GET /v1/audit`).
 ```
 
 ## Policy JSON
