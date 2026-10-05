@@ -11,7 +11,8 @@
 
 ## v0.2 (next)
 - [ ] OIDC full code exchange via `openid-client` + JWKS verification at gateway
-- [ ] Enforce API-key scopes at gateway (central) + audit log cho authorize decisions
+- [ ] Enforce API-key scopes at gateway (central) + audit retention job
+- [ ] License check in CI (forbid GPL in dependency tree) + SBOM release artifact
 - [ ] S3Bucket abstraction API (presigned URLs, đổi backend MinIO/S3 thật qua env)
 - [ ] n8n credential auto-provisioning + execution webhooks → OLP events
 - [ ] e2e with real Postgres (testcontainers) + load test gateway
