@@ -59,6 +59,9 @@ class OlpClient:
     def create_account(self, org_id: str, slug: str, display_name: str) -> dict:
         return self._req("POST", f"/v1/orgs/{org_id}/accounts", {"slug": slug, "displayName": display_name})
 
+    def list_users(self, org_id: str) -> list:
+        return self._req("GET", f"/v1/orgs/{org_id}/users")
+
     # ---- iam ----
     def authorize(self, user_id: str, action: str, resource: str) -> dict:
         return self._req("POST", "/v1/authorize", {"userId": user_id, "action": action, "resource": resource})
@@ -90,6 +93,9 @@ class OlpClient:
 
     def get_workflow(self, wf_id: str) -> Any:
         return self._req("GET", f"/v1/workflows/{wf_id}")
+
+    def activate_workflow(self, wf_id: str) -> Any:
+        return self._req("POST", f"/v1/workflows/{wf_id}/activate")
 
     def list_workflows(self) -> Any:
         return self._req("GET", "/v1/workflows")

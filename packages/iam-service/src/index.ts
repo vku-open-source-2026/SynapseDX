@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import {
   createOrganization, listOrganizations, getOrgBySlug,
-  createAccount, listAccounts, upsertUser, createRole, createPolicy,
+  createAccount, listAccounts, upsertUser, listUsers, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, useDb,
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies,
@@ -147,6 +147,10 @@ export function createApp(): express.Express {
     const { email, displayName } = req.body as any;
     if (!email) return res.status(400).json({ error: 'email required' });
     res.status(201).json(await upsertUser(req.params.orgId, email, displayName));
+  });
+
+  app.get('/v1/orgs/:orgId/users', async (req, res) => {
+    res.json(await listUsers(req.params.orgId));
   });
 
   // ---------- Roles & Policies (AWS-style) ----------

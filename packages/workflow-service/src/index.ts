@@ -79,6 +79,17 @@ export function createApp(): express.Express {
     res.status(r.status).json(r.body);
   });
 
+  // Activate / deactivate (proxy)
+  app.post('/v1/workflows/:id/activate', async (req, res) => {
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}/activate`, { method: 'POST' });
+    res.status(r.status).json(r.body);
+  });
+
+  app.post('/v1/workflows/:id/deactivate', async (req, res) => {
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}/deactivate`, { method: 'POST' });
+    res.status(r.status).json(r.body);
+  });
+
   // Proxy executions list
   app.get('/v1/executions', async (req, res) => {
     const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';

@@ -124,6 +124,14 @@ export function createApp(): express.Express {
   const app = express();
   app.use(cors());
   app.use(morgan('combined'));
+  // Request ID: dùng client gửi lên nếu có, else tự sinh; trả về + forward upstream.
+  app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const incoming = req.headers['x-request-id'] as string;
+    const id = (incoming && incoming.slice(0, 128)) || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    (req.headers as any)['x-request-id'] = id;
+    res.setHeader('x-request-id', id);
+    next();
+  }) as any);
   // Rate limit: Redis store khi có REDIS_URL (chia sẻ giữa replicas),
   // fallback memory khi không có (single-instance).
   // NOTE: không dùng express.json() toàn cục — body-parser sẽ nuốt stream

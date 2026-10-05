@@ -62,6 +62,7 @@ export class OlpClient {
     return this.req('/v1/orgs', { method: 'POST', body: JSON.stringify({ slug, displayName }) });
   }
   listAccounts(orgId: string) { return this.req(`/v1/orgs/${orgId}/accounts`); }
+  listUsers(orgId: string) { return this.req(`/v1/orgs/${orgId}/users`); }
   createAccount(orgId: string, slug: string, displayName: string) {
     return this.req(`/v1/orgs/${orgId}/accounts`, { method: 'POST', body: JSON.stringify({ slug, displayName }) });
   }
@@ -95,6 +96,8 @@ export class OlpClient {
   // ---- workflows (n8n via workflow-service) ----
   listWorkflows() { return this.req('/v1/workflows'); }
   getWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}`); }
+  activateWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}/activate`, { method: 'POST' }); }
+  deactivateWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}/deactivate`, { method: 'POST' }); }
   createWorkflowFromTemplate(template: string, name?: string) {
     return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ template, name }) });
   }

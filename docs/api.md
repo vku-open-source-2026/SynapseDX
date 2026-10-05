@@ -22,6 +22,8 @@ không cần re-verify JWT.
 - `POST /v1/orgs {slug, displayName}` → org
 - `GET /v1/orgs/:orgId/accounts`
 - `POST /v1/orgs/:orgId/accounts {slug, displayName}`
+- `GET /v1/orgs/:orgId/users` → users trong org
+- `POST /v1/orgs/:orgId/users {email, displayName}`
 
 ## Roles / Policies / Authorize
 - `POST /v1/accounts/:accountId/roles {slug, description}`
@@ -33,7 +35,6 @@ không cần re-verify JWT.
 - `GET /v1/users/:userId/policies`
 - `POST /v1/authorize {userId, action, resource}` → `{allowed, matchedBy}`
 - `POST /v1/authorize/dry-run {documents[], action, resource}` → `{allowed}` (simulator, không cần user)
-- `POST /v1/orgs/:orgId/users {email, displayName}`
 
 ## Keys
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (hiện 1 lần), id, prefix}`
@@ -48,6 +49,7 @@ không cần re-verify JWT.
 - `GET /v1/templates` / `GET /v1/templates/:name`
 - `GET /v1/workflows` (proxy n8n)
 - `GET /v1/workflows/:id` (proxy n8n)
+- `POST /v1/workflows/:id/activate` / `POST /v1/workflows/:id/deactivate` (proxy n8n)
 - `POST /v1/workflows {name, template} | {name, definition}`
 - `POST /v1/workflows/:id/execute {input}`
 - `GET /v1/executions`
@@ -56,3 +58,7 @@ không cần re-verify JWT.
 - `GET /health` (mỗi service + gateway)
 - `GET /ready` (gateway: aggregate iam + workflow, 503 khi degraded)
 - `GET /metrics` (gateway, Prometheus)
+
+## Tracing
+- Gateway tự gán `x-request-id` (giữ lại nếu client đã gửi), trả về trong
+  response và forward tới upstream.
