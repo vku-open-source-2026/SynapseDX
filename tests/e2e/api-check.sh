@@ -16,6 +16,7 @@ H="Authorization: Bearer $TOK"
 
 # health + ready + metrics (public)
 curl -sf "$BASE/health" >/dev/null && ok health || bad health ""
+[ -n "$(curl -s "$BASE/health" | jq -r .version)" ] && ok version || bad version ""
 curl -sf "$BASE/ready" >/dev/null && ok ready || bad ready ""
 curl -sf "$BASE/metrics" | grep -q gateway_requests_total && ok metrics || bad metrics ""
 
