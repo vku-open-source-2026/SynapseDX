@@ -54,4 +54,5 @@ không cần re-verify JWT.
 
 ## Health / Metrics
 - `GET /health` (mỗi service + gateway)
+- `GET /ready` (gateway: aggregate iam + workflow, 503 khi degraded)
 - `GET /metrics` (gateway, Prometheus)

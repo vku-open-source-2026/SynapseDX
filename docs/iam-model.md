@@ -29,8 +29,13 @@ Organization (slug duy nhất toàn cục, vd `acme`)
 | Loại | Định dạng | TTL mặc định | Lưu trữ |
 |---|---|---|---|
 | Access JWT | Bearer `eyJ...` (HS256) | 3600s | stateless, verify bằng `IAM_JWT_SECRET` |
-| Refresh | `olp_rt_...` opaque | 30 ngày | SHA-256 hash trong `refresh_tokens` |
+| Refresh | `olp_rt_...` opaque, **xoay vòng** | 30 ngày | SHA-256 hash trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
 | API key | `olp_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index |
+| Service account | Bearer JWT `kind=service-account` | 3600s | stateless, mang `account` scope |
+
+Lưu ý hiện tại: `scopes` của API key được lưu + trả về khi verify (`/v1/keys/verify`)
+nhưng gateway chưa ép (enforce) scope theo từng route — upstream tự kiểm tra qua
+verify API. Enforce tập trung tại gateway là mục v0.2 (xem `ROADMAP.md`).
 
 ## OIDC (Authentik / Keycloak)
 - `GET /v1/auth/oidc/config` — xem issuer/client.
