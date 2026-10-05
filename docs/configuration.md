@@ -12,6 +12,7 @@ Copy `.env.example` → `.env`, đổi mọi giá trị `*_change_me_*`. Chỉ s
 | `IAM_JWT_SECRET` | — | **phải trùng** IAM để verify Bearer |
 | `GATEWAY_ROUTES_PATH` | `./routes.yaml` | bảng định tuyến |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 60000 / 300 | rate limit |
+| `REDIS_URL` | — (memory) | `redis://...` → rate-limit dùng Redis (share giữa replicas, fail-open khi Redis chết) |
 | `GATEWAY_HOST_PORT` | 8080 | host port (compose only) |
 
 ## IAM (`packages/iam-service`)

@@ -190,6 +190,7 @@ services:
       IAM_SERVICE_URL: http://iam:4001
       WORKFLOW_SERVICE_URL: http://workflow:4002
       N8N_API_URL: http://n8n:5678/api/v1
+      REDIS_URL: redis://redis:6379
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 300
     ports:
@@ -204,6 +205,8 @@ services:
       iam:
         condition: service_healthy
       workflow:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks: [olp-net]
 

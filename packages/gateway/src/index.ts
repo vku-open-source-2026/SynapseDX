@@ -124,13 +124,32 @@ export function createApp(): express.Express {
   const app = express();
   app.use(cors());
   app.use(morgan('combined'));
+  // Rate limit: Redis store khi có REDIS_URL (chia sẻ giữa replicas),
+  // fallback memory khi không có (single-instance).
   // NOTE: không dùng express.json() toàn cục — body-parser sẽ nuốt stream
   // khiến http-proxy-middleware forward body rỗng/bể tới upstream.
   // Gateway là proxy thuần nên giữ nguyên raw body.
 
+  const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
+  const max = Number(process.env.RATE_LIMIT_MAX || 300);
+  let store: any;
+  if (process.env.REDIS_URL) {
+    try {
+      // lazy import để image không cần redis khi chạy single-instance
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { createRedisStore } = require('./ratelimit-redis');
+      store = createRedisStore({ redisUrl: process.env.REDIS_URL, windowMs });
+      console.log('[gateway] rate-limit store: redis');
+    } catch (e: any) {
+      console.error('[gateway] redis store failed, fallback memory:', e.message);
+    }
+  } else {
+    console.log('[gateway] rate-limit store: memory');
+  }
   const limiter = rateLimit({
-    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60000),
-    max: Number(process.env.RATE_LIMIT_MAX || 300),
+    windowMs,
+    max,
+    ...(store ? { store } : {}),
     standardHeaders: true,
     legacyHeaders: false,
   });
