@@ -34,6 +34,7 @@ curl -s -XPOST "$BASE/v1/users/$E2E_UID/assign" -H'Content-Type: application/jso
 [ "$(curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$H" -d"{\"userId\":\"$E2E_UID\",\"action\":\"t:Act\",\"resource\":\"*\",\"context\":{\"team\":\"etl\"}}" | jq -r .allowed)" = "true" ] && ok authz-allow || bad authz-allow ""
 [ "$(curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$H" -d"{\"userId\":\"$E2E_UID\",\"action\":\"t:Act\",\"resource\":\"*\",\"context\":{\"team\":\"x\"}}" | jq -r .allowed)" = "false" ] && ok authz-deny || bad authz-deny ""
 [ "$(curl -s -XPOST "$BASE/v1/authorize/dry-run" -H'Content-Type: application/json' -H"$H" -d'{"documents":[{"Statement":[{"Effect":"Allow","Action":"a","Resource":"*"}]}],"action":"a","resource":"*"}' | jq -r .allowed)" = "true" ] && ok dryrun || bad dryrun ""
+[ "$(curl -s "$BASE/v1/audit?limit=3" -H"$H" | jq 'length')" -ge 1 ] && ok audit || bad audit ""
 curl -s -XDELETE "$BASE/v1/roles/$ROLE" -H"$H" | grep -q '"ok":true' && ok role-del || bad role-del ""
 
 # keys lifecycle: create -> verify -> revoke -> verify-invalid
