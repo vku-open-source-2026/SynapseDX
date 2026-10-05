@@ -36,8 +36,8 @@ không cần re-verify JWT.
 - `POST /v1/roles/:roleId/attach {policyId}`
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
-- `POST /v1/authorize {userId, action, resource}` → `{allowed, matchedBy}`
-- `POST /v1/authorize/dry-run {documents[], action, resource}` → `{allowed}` (simulator, không cần user)
+- `POST /v1/authorize {userId, action, resource, context?}` → `{allowed, matchedBy}` (context hợp nhất với user/org/email từ DB)
+- `POST /v1/authorize/dry-run {documents[], action, resource, context?}` → `{allowed}` (simulator, không cần user)
 
 ## Keys
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (hiện 1 lần), id, prefix}`
