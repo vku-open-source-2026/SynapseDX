@@ -28,6 +28,8 @@ Dùng khi đưa OLP ra khỏi laptop. Mọi mục đều có sẵn cơ chế —
       (xem `infra/k8s/base/all.yaml`). Cảnh báo khi `/ready` → 503.
 - [ ] Pin image digest cho release (`olp/*:0.1.0` → digest), không dùng `latest` cho engine ngoài.
 - [ ] Log tập trung (json-file driver mặc định; chuyển Loki/ELK khi cần) + giữ `x-request-id`.
+- [ ] Retention `audit_log` Postgres (cron `DELETE ... WHERE created_at < now() - interval`)
+      khi traffic authorize lớn.
 - [ ] Định kỳ `npm audit`, theo dõi advisory đã ghi nhận trong `SECURITY.md`.
 
 ## 5. Nâng cấp
