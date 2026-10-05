@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { findRoute, expandEnv, RouteRule } from './index';
+import { findRoute, expandEnv, propagatePrincipal, RouteRule } from './index';
 
 const routes: RouteRule[] = [
   { path: '/v1/auth', target: 'http://iam:4001', auth: 'none' },
@@ -31,6 +31,31 @@ describe('findRoute', () => {
       { path: '/v1/workflows', target: 'x', auth: 'either' },
     ];
     assert.equal(findRoute(rs, '/v1/workflows/123/execute')?.target, 'http://workflow:4002');
+  });
+});
+
+describe('propagatePrincipal', () => {
+  it('strips spoofed headers when no principal', () => {
+    const req: any = { headers: { 'x-olp-user': 'mallory', 'x-olp-kind': 'user' } };
+    propagatePrincipal(req);
+    assert.equal(req.headers['x-olp-user'], undefined);
+    assert.equal(req.headers['x-olp-kind'], undefined);
+  });
+  it('writes verified jwt principal', () => {
+    const req: any = {
+      headers: { 'x-olp-user': 'mallory' },
+      principal: { type: 'jwt', sub: 'u1', org: 'o1', scopes: ['a', 'b'] },
+    };
+    propagatePrincipal(req);
+    assert.equal(req.headers['x-olp-user'], 'u1');
+    assert.equal(req.headers['x-olp-org'], 'o1');
+    assert.equal(req.headers['x-olp-scopes'], 'a,b');
+    assert.equal(req.headers['x-olp-kind'], 'user');
+  });
+  it('writes apikey kind', () => {
+    const req: any = { headers: {}, principal: { type: 'apikey' } };
+    propagatePrincipal(req);
+    assert.equal(req.headers['x-olp-kind'], 'apikey');
   });
 });
 
