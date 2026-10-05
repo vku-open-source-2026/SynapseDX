@@ -14,9 +14,13 @@ jobs:
         with: { node-version: 20 }
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
       - run: npm install --workspaces
       - run: npm run build --workspaces --if-present
       - run: npm run test --workspaces --if-present
+      - run: go vet ./... && go test ./...
+        working-directory: packages/sdk-go
       - run: pip install ./packages/sdk-python
       - run: pytest packages/sdk-python -q
       - run: docker compose config
