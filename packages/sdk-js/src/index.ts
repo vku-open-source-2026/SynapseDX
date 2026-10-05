@@ -65,11 +65,16 @@ export class OlpClient {
   createRole(accountId: string, slug: string, description = '') {
     return this.req(`/v1/accounts/${accountId}/roles`, { method: 'POST', body: JSON.stringify({ slug, description }) });
   }
+  listRoles(accountId: string) { return this.req(`/v1/accounts/${accountId}/roles`); }
+  listPolicies(accountId: string) { return this.req(`/v1/accounts/${accountId}/policies`); }
   createPolicy(accountId: string, slug: string, document: any, description = '') {
     return this.req(`/v1/accounts/${accountId}/policies`, { method: 'POST', body: JSON.stringify({ slug, document, description }) });
   }
   authorize(userId: string, action: string, resource: string) {
     return this.req<{ allowed: boolean }>('/v1/authorize', { method: 'POST', body: JSON.stringify({ userId, action, resource }) });
+  }
+  simulate(documents: any[], action: string, resource: string) {
+    return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource }) });
   }
   createApiKey(accountId: string, name = 'default', scopes: string[] = ['*']) {
     return this.req<{ apiKey: string }>(`/v1/accounts/${accountId}/keys`, { method: 'POST', body: JSON.stringify({ name, scopes }) });
@@ -83,6 +88,7 @@ export class OlpClient {
 
   // ---- workflows (n8n via workflow-service) ----
   listWorkflows() { return this.req('/v1/workflows'); }
+  getWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}`); }
   createWorkflowFromTemplate(template: string, name?: string) {
     return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ template, name }) });
   }

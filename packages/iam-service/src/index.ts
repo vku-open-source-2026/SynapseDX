@@ -177,6 +177,19 @@ export function createApp(): express.Express {
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
   });
 
+  // Dry-run simulator (không cần user): đánh giá documents inline, như AWS IAM Policy Simulator.
+  app.post('/v1/authorize/dry-run', async (req, res) => {
+    const { documents, action, resource } = req.body as any;
+    if (!Array.isArray(documents) || !action || !resource) {
+      return res.status(400).json({ error: 'documents[]+action+resource required' });
+    }
+    for (const d of documents) {
+      if (!d || !Array.isArray(d.Statement)) return res.status(400).json({ error: 'each document needs Statement[]' });
+    }
+    const verdict = evaluatePolicies(documents, { action, resource });
+    res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: documents.length });
+  });
+
   // ---------- API keys ----------
   app.post('/v1/accounts/:accountId/keys', async (req, res) => {
     const { userId, name, scopes, expiresInSeconds } = req.body as any;

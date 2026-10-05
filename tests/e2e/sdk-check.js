@@ -1,0 +1,17 @@
+const { OlpClient } = require('../../packages/sdk-js/dist/index.js');
+
+async function main() {
+  const c = new OlpClient({ baseUrl: process.env.OLP_BASE_URL || 'http://127.0.0.1:18110' });
+  const login = await c.login('sdksim@acme.local');
+  c.setToken(login.accessToken);
+  const orgs = await c.listOrgs();
+  const acc = await c.createAccount(orgs[0].id, 'sdkacc', 'SDK');
+  console.log('SDK_ROLES', JSON.stringify(await c.listRoles(acc.id)));
+  console.log('SDK_POLICIES', JSON.stringify(await c.listPolicies(acc.id)));
+  console.log('SDK_SIM', JSON.stringify(await c.simulate(
+    [{ Statement: [{ Effect: 'Allow', Action: '*', Resource: '*' }] }], 'x:Y', '*')));
+  const sa = await c.createServiceAccount(acc.id, 'sdk-sa');
+  console.log('SDK_SA', sa.slug);
+  console.log('SDK_SA_TOK', (await c.serviceAccountToken(sa.id)).accessToken.slice(0, 20) + '...');
+}
+main().catch((e) => { console.error('SDK_FAIL', e.message); process.exit(1); });

@@ -31,6 +31,7 @@ không cần re-verify JWT.
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
 - `POST /v1/authorize {userId, action, resource}` → `{allowed, matchedBy}`
+- `POST /v1/authorize/dry-run {documents[], action, resource}` → `{allowed}` (simulator, không cần user)
 - `POST /v1/orgs/:orgId/users {email, displayName}`
 
 ## Keys

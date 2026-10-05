@@ -53,6 +53,9 @@ class OlpClient:
     def authorize(self, user_id: str, action: str, resource: str) -> dict:
         return self._req("POST", "/v1/authorize", {"userId": user_id, "action": action, "resource": resource})
 
+    def simulate(self, documents: list, action: str, resource: str) -> dict:
+        return self._req("POST", "/v1/authorize/dry-run", {"documents": documents, "action": action, "resource": resource})
+
     def create_api_key(self, account_id: str, name: str = "default", scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})
 
@@ -65,6 +68,9 @@ class OlpClient:
     # ---- workflows ----
     def list_templates(self) -> Any:
         return self._req("GET", "/v1/templates")
+
+    def get_workflow(self, wf_id: str) -> Any:
+        return self._req("GET", f"/v1/workflows/{wf_id}")
 
     def list_workflows(self) -> Any:
         return self._req("GET", "/v1/workflows")
