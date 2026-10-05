@@ -19,6 +19,11 @@ describe('matchPattern', () => {
     assert.equal(matchPattern('iam:Create', 'iam:Create'), true);
     assert.equal(matchPattern('iam:Create', 'iam:Delete'), false);
   });
+  it('arn-style resources', () => {
+    const doc = { Version: '1', Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: 'arn:olp:acme:prod:workflow:*' }] };
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:olp:acme:prod:workflow:etl' }).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:olp:acme:staging:workflow:etl' }).allowed, false);
+  });
 });
 
 describe('evaluatePolicies', () => {

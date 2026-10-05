@@ -30,6 +30,11 @@ describe('refresh + api keys (memory)', () => {
   it('unknown refresh rejected', async () => {
     assert.equal(await consumeRefresh('olp_rt_bogus'), null);
   });
+  it('expired refresh rejected', async () => {
+    const rt = newRefreshToken();
+    await storeRefresh('u1', rt.hash, new Date(Date.now() - 1000));
+    assert.equal(await consumeRefresh(rt.value), null);
+  });
   it('revoked refresh rejected', async () => {
     const rt = newRefreshToken();
     await storeRefresh('u9', rt.hash, new Date(Date.now() + 60000));
@@ -42,5 +47,9 @@ describe('refresh + api keys (memory)', () => {
     const v = await verifyApiKey(k.value);
     assert.equal(v?.account_id, 'acc1');
     assert.equal(await verifyApiKey('olp_bogus'), null);
+  });
+  it('expired api key rejected', async () => {
+    const k = await createApiKeyRecord('acc1', 'u1', 't', ['*'], new Date(Date.now() - 1000));
+    assert.equal(await verifyApiKey(k.value), null);
   });
 });
