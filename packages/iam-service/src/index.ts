@@ -16,7 +16,7 @@ import {
   listRoles, listPolicies,
 } from './db';
 import { evaluatePolicies } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
@@ -106,13 +106,12 @@ export function createApp(): express.Express {
     res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
   });
 
-  // Refresh xoay vòng: token cũ bị thu hồi ngay, cấp cặp mới (chống replay).
+  // Refresh xoay vòng NGUYÊN TỬ: consume+revoke 1 bước → replay/race đều rớt.
   app.post('/v1/auth/refresh', async (req, res) => {
     const { refreshToken } = req.body as any;
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
-    const rec = await consumeRefresh(refreshToken);
+    const rec = await consumeAndRevokeRefresh(refreshToken);
     if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
-    await revokeRefresh(refreshToken);
     const rt = newRefreshToken();
     await storeRefresh(rec.user_id, rt.hash, refreshExpiry());
     const { token, expiresIn } = signAccess({ sub: rec.user_id });

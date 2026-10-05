@@ -73,6 +73,28 @@ export async function revokeRefresh(value: string): Promise<void> {
   if (rec) rec.revoked_at = new Date().toISOString();
 }
 
+/**
+ * Tiêu thụ + thu hồi NGUYÊN TỬ (1 câu lệnh / 1 tick): 2 request song song
+ * dùng cùng RT thì chỉ 1 thành công — chống replay tuyệt đối.
+ */
+export async function consumeAndRevokeRefresh(value: string): Promise<{ user_id: string } | null> {
+  const hash = createHash('sha256').update(value).digest('hex');
+  if (useDb()) {
+    const r = await query(
+      `UPDATE refresh_tokens SET revoked_at=now()
+       WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()
+       RETURNING user_id`,
+      [hash],
+    );
+    return r.rows[0] ? { user_id: r.rows[0].user_id } : null;
+  }
+  const rec = __mem.refresh.get(hash);
+  if (!rec || rec.revoked_at) return null;
+  if (new Date(rec.expires_at).getTime() < Date.now()) return null;
+  rec.revoked_at = new Date().toISOString();
+  return { user_id: rec.user_id };
+}
+
 /** Thu hồi TẤT CẢ refresh token của user (mất thiết bị). Trả về số token bị thu hồi. */
 export async function revokeAllRefresh(userId: string): Promise<number> {
   if (useDb()) {

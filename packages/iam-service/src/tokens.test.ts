@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { signAccess, verifyAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, verifyAccess, newRefreshToken, storeRefresh, consumeRefresh, consumeAndRevokeRefresh, revokeRefresh, revokeAllRefresh, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
 
 describe('access tokens', () => {
   it('sign/verify roundtrip', () => {
@@ -50,6 +50,12 @@ describe('refresh + api keys (memory)', () => {
     assert.equal(await consumeRefresh(a.value), null);
     assert.equal(await consumeRefresh(b.value), null);
     assert.equal(await revokeAllRefresh('u10'), 0);
+  });
+  it('atomic consume: parallel double-use, exactly one wins', async () => {
+    const rt = newRefreshToken();
+    await storeRefresh('u11', rt.hash, new Date(Date.now() + 60000));
+    const results = await Promise.all([consumeAndRevokeRefresh(rt.value), consumeAndRevokeRefresh(rt.value)]);
+    assert.equal(results.filter(Boolean).length, 1);
   });
   it('api key roundtrip', async () => {
     const k = await createApiKeyRecord('acc1', 'u1', 't', ['*'], null);
