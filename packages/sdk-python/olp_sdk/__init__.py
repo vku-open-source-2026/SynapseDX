@@ -46,6 +46,12 @@ class OlpClient:
     def login(self, email: str, org_slug: str = "acme") -> dict:
         return self._req("POST", "/v1/auth/login", {"email": email, "orgSlug": org_slug})
 
+    def refresh(self, refresh_token: str) -> dict:
+        return self._req("POST", "/v1/auth/refresh", {"refreshToken": refresh_token})
+
+    def logout(self, refresh_token: str) -> dict:
+        return self._req("POST", "/v1/auth/logout", {"refreshToken": refresh_token})
+
     def verify(self) -> dict:
         return self._req("GET", "/v1/auth/verify")
 
@@ -59,12 +65,21 @@ class OlpClient:
     def create_account(self, org_id: str, slug: str, display_name: str) -> dict:
         return self._req("POST", f"/v1/orgs/{org_id}/accounts", {"slug": slug, "displayName": display_name})
 
+    def create_user(self, org_id: str, email: str, display_name: str | None = None) -> dict:
+        return self._req("POST", f"/v1/orgs/{org_id}/users", {"email": email, "displayName": display_name})
+
     def list_users(self, org_id: str) -> list:
         return self._req("GET", f"/v1/orgs/{org_id}/users")
 
     # ---- iam ----
     def authorize(self, user_id: str, action: str, resource: str) -> dict:
         return self._req("POST", "/v1/authorize", {"userId": user_id, "action": action, "resource": resource})
+
+    def attach_policy(self, role_id: str, policy_id: str) -> dict:
+        return self._req("POST", f"/v1/roles/{role_id}/attach", {"policyId": policy_id})
+
+    def assign_role(self, user_id: str, role_id: str) -> dict:
+        return self._req("POST", f"/v1/users/{user_id}/assign", {"roleId": role_id})
 
     def simulate(self, documents: list, action: str, resource: str) -> dict:
         return self._req("POST", "/v1/authorize/dry-run", {"documents": documents, "action": action, "resource": resource})

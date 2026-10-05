@@ -54,6 +54,14 @@ export class OlpClient {
       method: 'POST', body: JSON.stringify({ email, orgSlug }),
     });
   }
+  refresh(refreshToken: string) {
+    return this.req<{ accessToken: string; refreshToken: string }>('/v1/auth/refresh', {
+      method: 'POST', body: JSON.stringify({ refreshToken }),
+    });
+  }
+  logout(refreshToken: string) {
+    return this.req('/v1/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) });
+  }
   verify() { return this.req('/v1/auth/verify'); }
 
   // ---- orgs/accounts ----
@@ -63,6 +71,9 @@ export class OlpClient {
   }
   listAccounts(orgId: string) { return this.req(`/v1/orgs/${orgId}/accounts`); }
   listUsers(orgId: string) { return this.req(`/v1/orgs/${orgId}/users`); }
+  createUser(orgId: string, email: string, displayName?: string) {
+    return this.req(`/v1/orgs/${orgId}/users`, { method: 'POST', body: JSON.stringify({ email, displayName }) });
+  }
   createAccount(orgId: string, slug: string, displayName: string) {
     return this.req(`/v1/orgs/${orgId}/accounts`, { method: 'POST', body: JSON.stringify({ slug, displayName }) });
   }
@@ -78,6 +89,12 @@ export class OlpClient {
   }
   authorize(userId: string, action: string, resource: string) {
     return this.req<{ allowed: boolean }>('/v1/authorize', { method: 'POST', body: JSON.stringify({ userId, action, resource }) });
+  }
+  attachPolicy(roleId: string, policyId: string) {
+    return this.req(`/v1/roles/${roleId}/attach`, { method: 'POST', body: JSON.stringify({ policyId }) });
+  }
+  assignRole(userId: string, roleId: string) {
+    return this.req(`/v1/users/${userId}/assign`, { method: 'POST', body: JSON.stringify({ roleId }) });
   }
   simulate(documents: any[], action: string, resource: string) {
     return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource }) });
