@@ -29,6 +29,11 @@ Base: `http://localhost:8080` (gateway) — mọi route `/v1/*` yêu cầu `Auth
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (hiện 1 lần), id, prefix}`
 - `POST /v1/keys/verify {apiKey}` → `{valid, account_id, scopes}`
 
+## Service accounts (machine identity)
+- `POST /v1/accounts/:accountId/service-accounts {slug, description}` → service account
+- `GET /v1/accounts/:accountId/service-accounts` → list
+- `POST /v1/service-accounts/:id/token {scopes?}` → `{accessToken (kind=service-account), expiresIn}`
+
 ## Workflows (n8n)
 - `GET /v1/templates` / `GET /v1/templates/:name`
 - `GET /v1/workflows` (proxy n8n)

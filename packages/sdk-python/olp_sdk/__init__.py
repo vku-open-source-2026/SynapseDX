@@ -56,6 +56,12 @@ class OlpClient:
     def create_api_key(self, account_id: str, name: str = "default", scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})
 
+    def create_service_account(self, account_id: str, slug: str, description: str = "") -> dict:
+        return self._req("POST", f"/v1/accounts/{account_id}/service-accounts", {"slug": slug, "description": description})
+
+    def service_account_token(self, sa_id: str, scopes: list | None = None) -> dict:
+        return self._req("POST", f"/v1/service-accounts/{sa_id}/token", {"scopes": scopes or ["*"]})
+
     # ---- workflows ----
     def list_templates(self) -> Any:
         return self._req("GET", "/v1/templates")

@@ -195,4 +195,32 @@ export async function policiesForUser(userId: string): Promise<PolicyDoc[]> {
   return docs;
 }
 
+export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
+
+export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {
+  if (pool) {
+    const r = await pool.query('INSERT INTO service_accounts (account_id, slug, description) VALUES ($1,$2,$3) RETURNING id, account_id, slug, description', [accountId, slug, description]);
+    return r.rows[0];
+  }
+  const sa: ServiceAccount = { id: randomUUID(), account_id: accountId, slug, description };
+  __mem.serviceAccounts.set(sa.id, sa);
+  return sa;
+}
+
+export async function listServiceAccounts(accountId: string): Promise<ServiceAccount[]> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description FROM service_accounts WHERE account_id=$1 ORDER BY slug', [accountId]);
+    return r.rows;
+  }
+  return [...__mem.serviceAccounts.values()].filter((s: any) => s.account_id === accountId);
+}
+
+export async function getServiceAccount(id: string): Promise<ServiceAccount | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description FROM service_accounts WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return (__mem.serviceAccounts.get(id) as ServiceAccount) || null;
+}
+
 export const __mem = mem;

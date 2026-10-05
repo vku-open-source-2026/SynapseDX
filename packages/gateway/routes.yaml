@@ -21,6 +21,10 @@ routes:
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
     stripPrefix: false
+  - path: /v1/service-accounts
+    target: ${IAM_SERVICE_URL:http://iam:4001}
+    auth: either
+    stripPrefix: false
   - path: /v1/policies
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either

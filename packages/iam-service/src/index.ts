@@ -12,6 +12,7 @@ import {
   createOrganization, listOrganizations, getOrgBySlug,
   createAccount, listAccounts, upsertUser, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, query, useDb, __mem,
+  createServiceAccount, listServiceAccounts, getServiceAccount,
 } from './db';
 import { evaluatePolicies } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
@@ -179,6 +180,26 @@ export function createApp(): express.Express {
     const rec = await verifyApiKey(req.body.apiKey || '');
     if (!rec) return res.status(401).json({ valid: false });
     res.json({ valid: true, ...rec });
+  });
+
+  // ---------- Service accounts (machine identity) ----------
+  app.post('/v1/accounts/:accountId/service-accounts', async (req, res) => {
+    const { slug, description } = req.body as any;
+    if (!slug) return res.status(400).json({ error: 'slug required' });
+    res.status(201).json(await createServiceAccount(req.params.accountId, slug, description || ''));
+  });
+
+  app.get('/v1/accounts/:accountId/service-accounts', async (req, res) => {
+    res.json(await listServiceAccounts(req.params.accountId));
+  });
+
+  // Cấp JWT cho service account (kind=service-account, mang account scope).
+  app.post('/v1/service-accounts/:id/token', async (req, res) => {
+    const sa = await getServiceAccount(req.params.id);
+    if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
+    const scopes: string[] = req.body?.scopes || ['*'];
+    const { token, expiresIn } = signAccess({ sub: sa.id, account: sa.account_id, scopes, kind: 'service-account' });
+    res.json({ accessToken: token, expiresIn, serviceAccount: sa });
   });
 
   // debug: list policies of user

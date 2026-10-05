@@ -74,6 +74,12 @@ export class OlpClient {
   createApiKey(accountId: string, name = 'default', scopes: string[] = ['*']) {
     return this.req<{ apiKey: string }>(`/v1/accounts/${accountId}/keys`, { method: 'POST', body: JSON.stringify({ name, scopes }) });
   }
+  createServiceAccount(accountId: string, slug: string, description = '') {
+    return this.req(`/v1/accounts/${accountId}/service-accounts`, { method: 'POST', body: JSON.stringify({ slug, description }) });
+  }
+  serviceAccountToken(saId: string, scopes: string[] = ['*']) {
+    return this.req<{ accessToken: string }>(`/v1/service-accounts/${saId}/token`, { method: 'POST', body: JSON.stringify({ scopes }) });
+  }
 
   // ---- workflows (n8n via workflow-service) ----
   listWorkflows() { return this.req('/v1/workflows'); }
