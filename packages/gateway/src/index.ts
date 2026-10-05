@@ -90,6 +90,19 @@ function authMiddleware(mode: RouteRule['auth']) {
     }
     if (mode === 'apikey' || mode === 'either') {
       if (apiKey) {
+        // Mặc định: edge check presence, upstream verify chi tiết.
+        // GATEWAY_VERIFY_APIKEY=true: verify tập trung qua IAM (fail-closed khi IAM chết).
+        if ((process.env.GATEWAY_VERIFY_APIKEY || 'false') === 'true') {
+          verifyApiKeyUpstream(apiKey).then(
+            (info) => {
+              if (!info) return res.status(401).json({ error: 'invalid_api_key' });
+              (req as any).principal = { type: 'apikey', account: info.account_id, scopes: info.scopes };
+              return next();
+            },
+            () => res.status(503).json({ error: 'iam_unavailable' }),
+          );
+          return;
+        }
         (req as any).principal = { type: 'apikey' };
         return next();
       }
@@ -97,6 +110,28 @@ function authMiddleware(mode: RouteRule['auth']) {
     }
     return res.status(401).json({ error: 'unauthorized', message: 'Provide Bearer JWT and/or X-API-Key' });
   };
+}
+
+async function verifyApiKeyUpstream(apiKey: string): Promise<{ account_id: string; scopes: string[] } | null> {
+  const iam = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), 5000);
+  try {
+    const r = await fetch(`${iam}/v1/keys/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey }),
+      signal: ctl.signal,
+    });
+    clearTimeout(to);
+    if (!r.ok) return null;
+    const j: any = await r.json();
+    if (!j.valid) return null;
+    return { account_id: j.account_id, scopes: j.scopes || [] };
+  } catch {
+    clearTimeout(to);
+    throw new Error('iam_unreachable');
+  }
 }
 
 /** Xóa x-olp-* do client gửi (chống spoof), ghi lại từ principal đã verify. */
@@ -117,6 +152,10 @@ export function propagatePrincipal(req: express.Request): void {
     h['x-olp-kind'] = 'user';
   } else if (p.type === 'apikey') {
     h['x-olp-kind'] = 'apikey';
+    if ((p as any).account) h['x-olp-account'] = String((p as any).account);
+    if (Array.isArray((p as any).scopes) && (p as any).scopes.length) {
+      h['x-olp-scopes'] = (p as any).scopes.join(',');
+    }
   }
 }
 

@@ -12,6 +12,7 @@ Copy `.env.example` → `.env`, đổi mọi giá trị `*_change_me_*`. Chỉ s
 | `IAM_JWT_SECRET` | — | **phải trùng** IAM để verify Bearer |
 | `GATEWAY_ROUTES_PATH` | `./routes.yaml` | bảng định tuyến |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 60000 / 300 | rate limit |
+| `GATEWAY_VERIFY_APIKEY` | `false` | `true` → verify `X-API-Key` tập trung qua IAM (fail-closed 503 khi IAM chết); `false` → edge check presence, upstream verify |
 | `PROXY_TIMEOUT_MS` | 30000 | timeout upstream (504 khi quá hạn) |
 | `REDIS_URL` | — (memory) | `redis://...` → rate-limit dùng Redis (share giữa replicas, fail-open khi Redis chết) |
 | `GATEWAY_HOST_PORT` | 8080 | host port (compose only) |

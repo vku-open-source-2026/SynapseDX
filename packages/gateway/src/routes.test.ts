@@ -57,6 +57,12 @@ describe('propagatePrincipal', () => {
     propagatePrincipal(req);
     assert.equal(req.headers['x-olp-kind'], 'apikey');
   });
+  it('writes verified apikey account+scopes', () => {
+    const req: any = { headers: {}, principal: { type: 'apikey', account: 'a1', scopes: ['x', 'y'] } };
+    propagatePrincipal(req);
+    assert.equal(req.headers['x-olp-account'], 'a1');
+    assert.equal(req.headers['x-olp-scopes'], 'x,y');
+  });
 });
 
 describe('expandEnv', () => {

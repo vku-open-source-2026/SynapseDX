@@ -44,9 +44,11 @@ biến thể `...IfExists` (bỏ qua key vắng mặt). Toán tử lạ → cons
 | API key | `olp_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index |
 | Service account | Bearer JWT `kind=service-account` | 3600s | stateless, mang `account` scope |
 
-Lưu ý hiện tại: `scopes` của API key được lưu + trả về khi verify (`/v1/keys/verify`)
-nhưng gateway chưa ép (enforce) scope theo từng route — upstream tự kiểm tra qua
-verify API. Enforce tập trung tại gateway là mục v0.2 (xem `ROADMAP.md`).
+Lưu ý hiện tại: `scopes` của API key được lưu + trả về khi verify (`/v1/keys/verify`).
+Gateway mặc định chỉ check presence ở edge (upstream verify chi tiết); bật
+`GATEWAY_VERIFY_APIKEY=true` để gateway verify tập trung (kèm `x-olp-account`,
+`x-olp-scopes` xuống upstream). Enforce scope theo từng route là mục v0.2
+(xem `ROADMAP.md`).
 
 ## OIDC (Authentik / Keycloak)
 - `GET /v1/auth/oidc/config` — xem issuer/client.
