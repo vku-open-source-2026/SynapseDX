@@ -16,6 +16,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const PORT = Number(process.env.PORT || process.env.GATEWAY_PORT || 8080);
+const VERSION = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('../package.json').version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 const IAM_SERVICE_URL = process.env.IAM_SERVICE_URL || 'http://iam:4001';
 const JWT_SECRET = process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min';
 
@@ -202,7 +210,7 @@ export function createApp(): express.Express {
   });
   app.use(limiter);
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gateway', time: new Date().toISOString() }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gateway', version: VERSION, time: new Date().toISOString() }));
   app.get('/metrics', async (_req, res) => {
     try {
       res.setHeader('Content-Type', register.contentType);

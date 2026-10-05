@@ -20,6 +20,14 @@ import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefres
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
+const VERSION = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('../package.json').version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 
 export function createApp(): express.Express {
   const app = express();
@@ -43,7 +51,7 @@ export function createApp(): express.Express {
       );
   }
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', db: useDb() ? 'postgres' : 'memory', time: new Date().toISOString() }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', version: VERSION, db: useDb() ? 'postgres' : 'memory', time: new Date().toISOString() }));
 
   // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
   app.get('/v1/auth/oidc/config', (_req, res) => {

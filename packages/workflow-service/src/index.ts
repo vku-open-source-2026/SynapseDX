@@ -11,6 +11,14 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4002);
+const VERSION = (() => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('../package.json').version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 const N8N_BASE_URL = (process.env.N8N_BASE_URL || 'http://n8n:5678').replace(/\/$/, '');
 const N8N_API_KEY = process.env.N8N_API_KEY || '';
 
@@ -57,7 +65,7 @@ export function createApp(): express.Express {
 
   app.get('/health', async (_req, res) => {
     const n8n = await n8nFetch('/healthz').catch(() => ({ status: 0, body: null }));
-    res.json({ status: 'ok', service: 'workflow', n8n: N8N_BASE_URL, n8nStatus: (n8n as any).status, time: new Date().toISOString() });
+    res.json({ status: 'ok', service: 'workflow', version: VERSION, n8n: N8N_BASE_URL, n8nStatus: (n8n as any).status, time: new Date().toISOString() });
   });
 
   // List workflows (proxy)
