@@ -195,6 +195,22 @@ export async function policiesForUser(userId: string): Promise<PolicyDoc[]> {
   return docs;
 }
 
+export async function listRoles(accountId: string): Promise<Role[]> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description FROM roles WHERE account_id=$1 ORDER BY slug', [accountId]);
+    return r.rows;
+  }
+  return [...mem.roles.values()].filter((r) => r.account_id === accountId);
+}
+
+export async function listPolicies(accountId: string): Promise<Policy[]> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description, document FROM policies WHERE account_id=$1 ORDER BY slug', [accountId]);
+    return r.rows;
+  }
+  return [...mem.policies.values()].filter((p) => p.account_id === accountId);
+}
+
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
 
 export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {

@@ -24,7 +24,9 @@ không cần re-verify JWT.
 
 ## Roles / Policies / Authorize
 - `POST /v1/accounts/:accountId/roles {slug, description}`
+- `GET /v1/accounts/:accountId/roles`
 - `POST /v1/accounts/:accountId/policies {slug, description, document}`
+- `GET /v1/accounts/:accountId/policies`
 - `POST /v1/roles/:roleId/attach {policyId}`
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
@@ -43,6 +45,7 @@ không cần re-verify JWT.
 ## Workflows (n8n)
 - `GET /v1/templates` / `GET /v1/templates/:name`
 - `GET /v1/workflows` (proxy n8n)
+- `GET /v1/workflows/:id` (proxy n8n)
 - `POST /v1/workflows {name, template} | {name, definition}`
 - `POST /v1/workflows/:id/execute {input}`
 - `GET /v1/executions`

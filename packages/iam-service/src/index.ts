@@ -13,6 +13,7 @@ import {
   createAccount, listAccounts, upsertUser, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, query, useDb, __mem,
   createServiceAccount, listServiceAccounts, getServiceAccount,
+  listRoles, listPolicies,
 } from './db';
 import { evaluatePolicies } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
@@ -143,11 +144,19 @@ export function createApp(): express.Express {
     res.status(201).json(await createRole(req.params.accountId, slug, description || ''));
   });
 
+  app.get('/v1/accounts/:accountId/roles', async (req, res) => {
+    res.json(await listRoles(req.params.accountId));
+  });
+
   app.post('/v1/accounts/:accountId/policies', async (req, res) => {
     const { slug, description, document } = req.body as any;
     if (!slug || !document) return res.status(400).json({ error: 'slug+document required' });
     if (!document.Statement) return res.status(400).json({ error: 'document.Statement required (AWS IAM style)' });
     res.status(201).json(await createPolicy(req.params.accountId, slug, description || '', document));
+  });
+
+  app.get('/v1/accounts/:accountId/policies', async (req, res) => {
+    res.json(await listPolicies(req.params.accountId));
   });
 
   app.post('/v1/roles/:roleId/attach', async (req, res) => {

@@ -51,6 +51,12 @@ export function createApp(): express.Express {
     res.status(r.status).json(r.body);
   });
 
+  // Get one workflow (proxy)
+  app.get('/v1/workflows/:id', async (req, res) => {
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}`);
+    res.status(r.status).json(r.body);
+  });
+
   // Create workflow from template or raw definition
   app.post('/v1/workflows', async (req, res) => {
     const { name, definition, template } = req.body as any;
