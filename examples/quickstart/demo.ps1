@@ -31,5 +31,5 @@ Write-Host ("allowed=" + $a.allowed)
 Write-Host "== api key =="
 $k = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/keys" -ContentType "application/json" -Headers $H -Body '{"name":"demo","scopes":["*"]}'
 Write-Host ("prefix=" + $k.prefix + " (lưu apiKey ngay, chỉ hiện 1 lần)")
-Write-Host "== templates =="
-Invoke-RestMethod "$Base/v1/templates" -Headers $H | ConvertTo-Json -Depth 3
+Write-Host "== templates (bằng X-API-Key) =="
+Invoke-RestMethod "$Base/v1/templates" -Headers @{"X-API-Key"=$k.apiKey} | ForEach-Object { $_.name }

@@ -36,5 +36,6 @@ echo "== authorize =="
 curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"userId\":\"$UID\",\"action\":\"workflow:Execute\",\"resource\":\"*\"}"; echo
 echo "== api key =="
 curl -s -XPOST "$BASE/v1/accounts/$ACC/keys" -H'Content-Type: application/json' -H"$(auth_h)" -d'{"name":"demo","scopes":["*"]}' | tee /tmp/key.json; echo
-echo "== templates =="
-curl -s "$BASE/v1/templates" -H"$(auth_h)"; echo
+KEY=$(jq -r .apiKey /tmp/key.json)
+echo "== templates (bằng X-API-Key, không cần Bearer) =="
+curl -s "$BASE/v1/templates" -H"X-API-Key: $KEY" | jq -r '.[].name'
