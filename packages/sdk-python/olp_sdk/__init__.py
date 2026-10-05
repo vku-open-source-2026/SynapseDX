@@ -87,6 +87,9 @@ class OlpClient:
     def create_api_key(self, account_id: str, name: str = "default", scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})
 
+    def revoke_api_key(self, key_id: str) -> dict:
+        return self._req("DELETE", f"/v1/keys/{key_id}")
+
     def create_service_account(self, account_id: str, slug: str, description: str = "") -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/service-accounts", {"slug": slug, "description": description})
 
