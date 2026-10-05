@@ -16,7 +16,7 @@ import {
   listRoles, listPolicies,
 } from './db';
 import { evaluatePolicies } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey } from './tokens';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
@@ -117,6 +117,17 @@ export function createApp(): express.Express {
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
     await revokeRefresh(refreshToken);
     res.json({ ok: true });
+  });
+
+  // Logout mọi nơi: dùng refreshToken còn hiệu lực để chứng minh sở hữu,
+  // rồi thu hồi TẤT CẢ session của chính user đó (không nhận userId tùy ý).
+  app.post('/v1/auth/logout-all', async (req, res) => {
+    const { refreshToken } = req.body as any;
+    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+    const rec = await consumeRefresh(refreshToken);
+    if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
+    const revoked = await revokeAllRefresh(rec.user_id);
+    res.json({ ok: true, revoked });
   });
 
   app.get('/v1/auth/verify', async (req, res) => {

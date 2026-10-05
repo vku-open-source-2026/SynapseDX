@@ -12,6 +12,7 @@ không cần re-verify JWT.
 - `POST /v1/auth/login {email, orgSlug}` → `{accessToken, refreshToken, user}`
 - `POST /v1/auth/refresh {refreshToken}` → `{accessToken, refreshToken}` (xoay vòng: token cũ bị thu hồi)
 - `POST /v1/auth/logout {refreshToken}` → `{ok}`
+- `POST /v1/auth/logout-all {refreshToken}` → `{ok, revoked}` (thu hồi mọi session của chính mình)
 - `GET /v1/auth/verify` (Bearer hoặc X-API-Key) → `{valid, ...}`
 - `GET /v1/auth/oidc/config` → `{issuer, clientId, ...}`
 - `GET /v1/auth/oidc/start?org=acme` → `{authorizeUrl}`

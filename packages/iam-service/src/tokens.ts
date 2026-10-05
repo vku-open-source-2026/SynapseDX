@@ -73,6 +73,22 @@ export async function revokeRefresh(value: string): Promise<void> {
   if (rec) rec.revoked_at = new Date().toISOString();
 }
 
+/** Thu hồi TẤT CẢ refresh token của user (mất thiết bị). Trả về số token bị thu hồi. */
+export async function revokeAllRefresh(userId: string): Promise<number> {
+  if (useDb()) {
+    const r = await query('UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL RETURNING id', [userId]);
+    return r.rows.length;
+  }
+  let n = 0;
+  for (const rec of __mem.refresh.values()) {
+    if (rec.user_id === userId && !rec.revoked_at) {
+      rec.revoked_at = new Date().toISOString();
+      n++;
+    }
+  }
+  return n;
+}
+
 export async function createApiKeyRecord(accountId: string, userId: string | null, name: string, scopes: string[], expiresAt: Date | null): Promise<{ id: string; value: string; prefix: string }> {
   const raw = 'olp_' + randomBytes(24).toString('base64url');
   const prefix = raw.slice(0, 12);

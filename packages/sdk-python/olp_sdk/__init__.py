@@ -52,6 +52,9 @@ class OlpClient:
     def logout(self, refresh_token: str) -> dict:
         return self._req("POST", "/v1/auth/logout", {"refreshToken": refresh_token})
 
+    def logout_all(self, refresh_token: str) -> dict:
+        return self._req("POST", "/v1/auth/logout-all", {"refreshToken": refresh_token})
+
     def verify(self) -> dict:
         return self._req("GET", "/v1/auth/verify")
 
