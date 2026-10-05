@@ -306,7 +306,7 @@ export function createApp(): express.Express {
     res.json({ accessToken: token, expiresIn, serviceAccount: sa });
   });
 
-  // debug: list policies of user
+  // Liệt kê policy của user (hữu ích khi debug authorize).
   app.get('/v1/users/:userId/policies', async (req, res) => {
     res.json(await policiesForUser(req.params.userId));
   });

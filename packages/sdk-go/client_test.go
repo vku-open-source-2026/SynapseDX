@@ -1,3 +1,5 @@
+// Copyright 2026 OLP Contributors
+// Licensed under the Apache License, Version 2.0 (the "License");
 package olp
 
 import "testing"
