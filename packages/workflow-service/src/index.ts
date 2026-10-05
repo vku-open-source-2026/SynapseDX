@@ -190,5 +190,12 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
 
 if (require.main === module) {
   const app = createApp();
-  app.listen(PORT, () => console.log(`[workflow] listening on :${PORT} n8n=${N8N_BASE_URL}`));
+  const server = app.listen(PORT, () => console.log(`[workflow] listening on :${PORT} n8n=${N8N_BASE_URL}`));
+  const shutdown = () => {
+    console.log('[workflow] shutting down...');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 8000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }

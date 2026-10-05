@@ -291,5 +291,12 @@ export function createApp(): express.Express {
 
 if (require.main === module) {
   const app = createApp();
-  app.listen(PORT, () => console.log(`[gateway] listening on :${PORT}`));
+  const server = app.listen(PORT, () => console.log(`[gateway] listening on :${PORT}`));
+  const shutdown = () => {
+    console.log('[gateway] shutting down...');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 8000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
