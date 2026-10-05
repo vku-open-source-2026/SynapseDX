@@ -30,7 +30,7 @@ cp .env.example .env        # rồi đổi các secret *_change_me_*
 docker compose up --build -d
 curl localhost:8080/health && curl localhost:4001/health && curl localhost:4002/health
 ```
-Chi tiết: `docs/quickstart.md`. API: `docs/api.md`. Mô hình phân quyền: `docs/iam-model.md`.
+Chi tiết: `docs/quickstart.md`. API: `docs/api.md`. Mô hình phân quyền: `docs/iam-model.md`. Mục lục: `docs/README.md`.
 
 ## Repo layout
 ```
