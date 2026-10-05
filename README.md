@@ -81,6 +81,8 @@ out, _ := c.Login("demo@acme.local")
 | `make build` / `make test` | build/test toàn monorepo |
 | `make compose-up` / `make compose-down` | chạy/dừng platform |
 | `bash tests/e2e/smoke.sh` | smoke test gateway+iam+workflow |
+| `bash tests/e2e/api-check.sh` | e2e toàn API (23 checks, cần jq) |
+| `make sdk-check` | live SDK check JS + Python (cần gateway chạy) |
 
 ## Contributing / Security / License
 - Đóng góp: `CONTRIBUTING.md`. Ứng xử: `CODE_OF_CONDUCT.md`. Quản trị: `GOVERNANCE.md`. Lộ trình: `ROADMAP.md`.
