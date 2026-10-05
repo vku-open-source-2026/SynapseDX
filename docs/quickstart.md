@@ -31,6 +31,19 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 ## 5. N8N
 - Mở `http://localhost:5678`, tạo owner account, vào Settings → API → tạo API key → điền `N8N_API_KEY` vào `.env`, restart `workflow`.
 - Tạo workflow từ template: `POST /v1/workflows {"template":"webhook-to-log","name":"demo"}`.
+- Script headless (đã kiểm chứng với n8n 1.66):
+  ```bash
+  curl -XPOST localhost:5678/rest/owner/setup -H'Content-Type: application/json' \
+    -d'{"email":"owner@acme.local","firstName":"OLP","lastName":"Owner","password":"<STR0NG>"}'
+  # login (cookie) rồi tạo API key:
+  curl -c jar -XPOST localhost:5678/rest/login -H'Content-Type: application/json' \
+    -d'{"email":"owner@acme.local","password":"<STR0NG>"}'
+  curl -b jar -XPOST localhost:5678/rest/api-keys -H'Content-Type: application/json' \
+    -d'{"label":"olp"}'   # → data.apiKey
+  ```
+  Lưu ý: n8n đặt cookie `Secure` nên flow cookie chỉ chạy trên http khi
+  `N8N_SECURE_COOKIE=false` (local dev); sau TLS-terminating proxy giữ mặc định.
+  Flow API key (`X-N8N-API-KEY`, cách `workflow-service` gọi n8n) không cần cookie.
 
 ## 6. Object storage (S3)
 - S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `olp-core` tự tạo bởi service `s3-init`.
