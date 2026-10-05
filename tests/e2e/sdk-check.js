@@ -4,6 +4,8 @@ async function main() {
   const c = new OlpClient({ baseUrl: process.env.OLP_BASE_URL || 'http://127.0.0.1:18110' });
   const login = await c.login('sdksim@acme.local');
   c.setToken(login.accessToken);
+  console.log('SDK_ME', (await c.me()).user.email);
+  console.log('SDK_AUDIT', (await c.listAudit(5)).length);
   const orgs = await c.listOrgs();
   const acc = await c.createAccount(orgs[0].id, 'sdkacc', 'SDK');
   console.log('SDK_USERS', (await c.listUsers(orgs[0].id)).length);
