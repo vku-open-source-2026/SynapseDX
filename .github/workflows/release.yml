@@ -29,7 +29,8 @@ jobs:
       - run: npm install --workspace=packages/sdk-js && npm run build --workspace=packages/sdk-js
       - run: cp LICENSE packages/sdk-js/LICENSE
       - run: npm publish --workspace=packages/sdk-js --access public
-        env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-sdk-python:
     runs-on: ubuntu-latest
