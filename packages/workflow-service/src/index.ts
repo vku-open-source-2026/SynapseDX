@@ -45,7 +45,7 @@ async function n8nFetch(path: string, init?: RequestInit): Promise<{ status: num
 export function createApp(): express.Express {
   const app = express();
   app.use(cors());
-  app.use(morgan('combined'));
+  app.use(morgan(':method :url :status :response-time ms rid=:req[x-request-id]'));
   app.use(express.json({ limit: '2mb' }));
 
   // Bọc async handler (Express 4 không catch async throw).

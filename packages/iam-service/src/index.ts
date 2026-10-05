@@ -32,7 +32,7 @@ const VERSION = (() => {
 export function createApp(): express.Express {
   const app = express();
   app.use(cors());
-  app.use(morgan('combined'));
+  app.use(morgan(':method :url :status :response-time ms rid=:req[x-request-id]'));
   app.use(express.json({ limit: '1mb' }));
 
   // Bọc mọi async handler: Express 4 không catch async throw (treo request /

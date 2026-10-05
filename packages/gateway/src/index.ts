@@ -172,7 +172,8 @@ export function createApp(): express.Express {
   // CORS: mở hết theo mặc định (MVP); production set CORS_ORIGIN=a.com,b.com
   const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
   app.use(cors(corsOrigins.length ? { origin: corsOrigins } : undefined));
-  app.use(morgan('combined'));
+  // Log kem request-id de trace gateway -> upstream (header do middleware rid gan ben duoi).
+  app.use(morgan(':method :url :status :response-time ms rid=:req[x-request-id]'));
   // Request ID: dùng client gửi lên nếu có, else tự sinh; trả về + forward upstream.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const incoming = req.headers['x-request-id'] as string;
