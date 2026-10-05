@@ -9,6 +9,10 @@ from typing import Any, Optional
 import requests
 
 
+class OlpError(Exception):
+    """Mọi lỗi SDK đều là OlpError (network hoặc HTTP)."""
+
+
 @dataclass
 class OlpClient:
     base_url: str
@@ -28,8 +32,14 @@ class OlpClient:
         return h
 
     def _req(self, method: str, path: str, body: Any | None = None) -> Any:
-        r = requests.request(method, self.base_url + path, json=body, headers=self._headers(), timeout=self.timeout)
-        r.raise_for_status()
+        try:
+            r = requests.request(method, self.base_url + path, json=body, headers=self._headers(), timeout=self.timeout)
+        except Exception as e:  # network, DNS, timeout...
+            raise OlpError(f"OLP network {path}: {e}") from e
+        try:
+            r.raise_for_status()
+        except Exception as e:
+            raise OlpError(f"OLP {r.status_code} {path}: {r.text[:500]}") from e
         return r.json() if r.text else None
 
     # ---- auth ----

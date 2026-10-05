@@ -32,10 +32,15 @@ export class OlpClient {
   }
 
   private async req<T>(path: string, init?: RequestInit): Promise<T> {
-    const r = await fetch(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: this.headers((init?.headers as any) || {}),
-    });
+    let r: Response;
+    try {
+      r = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        headers: this.headers((init?.headers as any) || {}),
+      });
+    } catch (e: any) {
+      throw new Error(`OLP network ${path}: ${e?.message || e}`);
+    }
     if (!r.ok) {
       const text = await r.text();
       throw new Error(`OLP ${r.status} ${path}: ${text}`);
