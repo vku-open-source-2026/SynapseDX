@@ -246,6 +246,16 @@ export function createApp(): express.Express {
   const routes = loadRoutes();
   console.log(`[gateway] loaded ${routes.length} routes: ${routes.map((r) => `${r.path}->${expandEnv(r.target)}[${r.auth}]`).join(', ')}`);
 
+  app.get('/', (_req, res) =>
+    res.json({
+      name: 'OLP Gateway (Tier-1 PaaS)',
+      version: VERSION,
+      docs: ['/health', '/ready', '/metrics'],
+      auth: 'Bearer JWT | X-API-Key (except /v1/auth/*)',
+      routes: routes.map((r) => ({ path: r.path, auth: r.auth })),
+    }),
+  );
+
   // Auth resolver toàn cục. KHÔNG dùng app.use(path, proxy): Express strips
   // mount-prefix khỏi req.url (bookkeeping slashAdded/removed); gán lại req.url
   // sẽ tạo URL rác với exact-path. Dùng pathFilter của proxy v3 + mount ở root.
@@ -253,7 +263,7 @@ export function createApp(): express.Express {
   // GHI header từ principal đã verify để upstream tin dùng mà không cần re-verify JWT.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const urlPath = req.path; // pathname, không query
-    if (urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
+    if (urlPath === '/' || urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
     const route = findRoute(routes, urlPath);
     if (!route) return res.status(404).json({ error: 'not_found', message: 'No gateway route matched' });
     (req as any).olpRoute = route;
