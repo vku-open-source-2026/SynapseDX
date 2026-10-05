@@ -35,5 +35,11 @@ Nếu tự sửa gateway: **không** `app.use(path, proxy)` + gán lại `req.ur
 `authentik-postgres-init` phải chạy xong trước (tạo user/db `authentik`). Xem log:
 `docker compose logs authentik-postgres-init authentik-server`. Lần đầu lấy bootstrap admin password trong log `authentik-server`.
 
+## Backup / restore Postgres (cụm dữ liệu lõi)
+```bash
+docker compose exec postgres pg_dump -U olp olp > olp-$(date +%F).sql
+cat olp-2026-10-06.sql | docker compose exec -T postgres psql -U olp -d olp
+```
+
 ## n8n báo lỗi API
 `workflow-service` cần `N8N_API_KEY` (tạo trong n8n Settings → API sau khi lập owner account). Khi chưa có key, `GET /v1/templates` (built-in) vẫn chạy — chỉ proxy sang n8n mới lỗi.
