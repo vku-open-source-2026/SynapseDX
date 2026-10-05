@@ -40,6 +40,21 @@ export function createApp(): express.Express {
   app.use(morgan('combined'));
   app.use(express.json({ limit: '2mb' }));
 
+  // Bọc async handler (Express 4 không catch async throw).
+  for (const m of ['get', 'post', 'put', 'delete', 'patch'] as const) {
+    const orig = ((app as any)[m] as Function).bind(app);
+    (app as any)[m] = (path: string, ...handlers: any[]) =>
+      orig(
+        path,
+        ...handlers.map((h: any) =>
+          typeof h === 'function' && h.length < 4
+            ? (req: express.Request, res: express.Response, next: express.NextFunction) =>
+                Promise.resolve(h(req, res, next)).catch(next)
+            : h,
+        ),
+      );
+  }
+
   app.get('/health', async (_req, res) => {
     const n8n = await n8nFetch('/healthz').catch(() => ({ status: 0, body: null }));
     res.json({ status: 'ok', service: 'workflow', n8n: N8N_BASE_URL, n8nStatus: (n8n as any).status, time: new Date().toISOString() });
@@ -63,7 +78,7 @@ export function createApp(): express.Express {
     let payload: any = definition;
     if (template && !definition) {
       payload = buildTemplate(template, name);
-      if (!payload) return res.status(400).json({ error: 'unknown_template', available: ['webhook-to-log', 'cron-etl', 'iam-webhook'] });
+      if (!payload) return res.status(400).json({ error: 'unknown_template', available: listTemplates().map((t) => t.name) });
     }
     if (!payload) return res.status(400).json({ error: 'definition or template required' });
     const r = await n8nFetch('/api/v1/workflows', { method: 'POST', body: JSON.stringify({ name: name || 'olp-workflow', nodes: payload.nodes || [], connections: payload.connections || {}, settings: {} }) });
@@ -106,6 +121,12 @@ export function createApp(): express.Express {
   });
 
   app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error('[workflow] unhandled:', err?.message || err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'internal' });
+  });
   return app;
 }
 
