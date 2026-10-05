@@ -72,8 +72,8 @@ class OlpClient:
         return self._req("GET", f"/v1/orgs/{org_id}/users")
 
     # ---- iam ----
-    def authorize(self, user_id: str, action: str, resource: str) -> dict:
-        return self._req("POST", "/v1/authorize", {"userId": user_id, "action": action, "resource": resource})
+    def authorize(self, user_id: str, action: str, resource: str, context: dict | None = None) -> dict:
+        return self._req("POST", "/v1/authorize", {"userId": user_id, "action": action, "resource": resource, "context": context})
 
     def attach_policy(self, role_id: str, policy_id: str) -> dict:
         return self._req("POST", f"/v1/roles/{role_id}/attach", {"policyId": policy_id})
@@ -81,8 +81,8 @@ class OlpClient:
     def assign_role(self, user_id: str, role_id: str) -> dict:
         return self._req("POST", f"/v1/users/{user_id}/assign", {"roleId": role_id})
 
-    def simulate(self, documents: list, action: str, resource: str) -> dict:
-        return self._req("POST", "/v1/authorize/dry-run", {"documents": documents, "action": action, "resource": resource})
+    def simulate(self, documents: list, action: str, resource: str, context: dict | None = None) -> dict:
+        return self._req("POST", "/v1/authorize/dry-run", {"documents": documents, "action": action, "resource": resource, "context": context})
 
     def create_api_key(self, account_id: str, name: str = "default", scopes: list | None = None) -> dict:
         return self._req("POST", f"/v1/accounts/{account_id}/keys", {"name": name, "scopes": scopes or ["*"]})

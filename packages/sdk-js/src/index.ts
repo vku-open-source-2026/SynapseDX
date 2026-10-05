@@ -87,8 +87,8 @@ export class OlpClient {
   createPolicy(accountId: string, slug: string, document: any, description = '') {
     return this.req(`/v1/accounts/${accountId}/policies`, { method: 'POST', body: JSON.stringify({ slug, document, description }) });
   }
-  authorize(userId: string, action: string, resource: string) {
-    return this.req<{ allowed: boolean }>('/v1/authorize', { method: 'POST', body: JSON.stringify({ userId, action, resource }) });
+  authorize(userId: string, action: string, resource: string, context?: Record<string, unknown>) {
+    return this.req<{ allowed: boolean }>('/v1/authorize', { method: 'POST', body: JSON.stringify({ userId, action, resource, context }) });
   }
   attachPolicy(roleId: string, policyId: string) {
     return this.req(`/v1/roles/${roleId}/attach`, { method: 'POST', body: JSON.stringify({ policyId }) });
@@ -96,8 +96,8 @@ export class OlpClient {
   assignRole(userId: string, roleId: string) {
     return this.req(`/v1/users/${userId}/assign`, { method: 'POST', body: JSON.stringify({ roleId }) });
   }
-  simulate(documents: any[], action: string, resource: string) {
-    return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource }) });
+  simulate(documents: any[], action: string, resource: string, context?: Record<string, unknown>) {
+    return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource, context }) });
   }
   createApiKey(accountId: string, name = 'default', scopes: string[] = ['*']) {
     return this.req<{ apiKey: string }>(`/v1/accounts/${accountId}/keys`, { method: 'POST', body: JSON.stringify({ name, scopes }) });
