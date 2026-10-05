@@ -146,6 +146,12 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
     ports:
       - "${IAM_HOST_PORT:-4001}:4001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy
@@ -164,6 +170,12 @@ services:
       IAM_SERVICE_URL: http://iam:4001
     ports:
       - "${WORKFLOW_HOST_PORT:-4002}:4002"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       - n8n
       - iam
@@ -182,9 +194,17 @@ services:
       RATE_LIMIT_MAX: 300
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
-      - iam
-      - workflow
+      iam:
+        condition: service_healthy
+      workflow:
+        condition: service_healthy
     networks: [olp-net]
 
 volumes:
