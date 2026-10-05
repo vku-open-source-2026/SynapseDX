@@ -56,6 +56,8 @@ spec:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
             - { name: WORKFLOW_SERVICE_URL, value: "http://workflow:4002" }
           livenessProbe: { httpGet: { path: /health, port: 8080 }, initialDelaySeconds: 10, periodSeconds: 15 }
+          # readiness = aggregate /ready: chi nhan traffic khi iam + workflow deu len
+          readinessProbe: { httpGet: { path: /ready, port: 8080 }, initialDelaySeconds: 15, periodSeconds: 15 }
 ---
 apiVersion: v1
 kind: Service
