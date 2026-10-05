@@ -1,4 +1,4 @@
-.PHONY: help bootstrap build test lint compose-up compose-down compose-logs e2e sdk-demo clean
+.PHONY: help bootstrap build test lint compose-up compose-down compose-logs e2e sdk-check clean
 
 help:
 	@echo "OLP make targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  compose-up   - docker compose up --build -d"
 	@echo "  compose-down - docker compose down"
 	@echo "  e2e          - run e2e smoke script"
+	@echo "  sdk-check    - live SDK smoke (needs gateway at OLP_BASE_URL)"
 
 bootstrap:
 	cp -n .env.example .env || copy .env.example .env
@@ -34,6 +35,10 @@ compose-logs:
 
 e2e:
 	bash tests/e2e/smoke.sh || powershell -File tests/e2e/smoke.ps1
+
+sdk-check:
+	node tests/e2e/sdk-check.js
+	python tests/e2e/sdk-check.py || python3 tests/e2e/sdk-check.py
 
 clean:
 	docker compose down -v || true

@@ -32,6 +32,10 @@ jobs:
     needs: build-test
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
       - run: cp .env.example .env
       - run: docker compose up -d --build postgres redis s3 s3-init iam workflow gateway
       - run: |
@@ -44,5 +48,7 @@ jobs:
           curl -sf http://localhost:8080/v1/orgs -H"Authorization: Bearer $TOK" | grep -q acme
           curl -sf http://localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | grep -q webhook-to-log
           echo E2E_OK
+      - run: pip install ./packages/sdk-python -q && OLP_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
+      - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && OLP_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
       - run: docker compose down -v
         if: always()
