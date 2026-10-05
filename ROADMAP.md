@@ -1,13 +1,19 @@
 # Roadmap
 
 ## v0.1 (this release — Tier-1 PaaS MVP) ✅
-- [x] API Gateway (proxy, JWT/API-key, rate-limit, Prometheus)
-- [x] IAM extras: service accounts, API keys, refresh rotation, `POST /v1/authorize` + dry-run simulator
-- [x] Token: JWT + refresh + API key + OIDC config for Authentik/Keycloak
-- [x] Core data: Postgres + Redis + S3 (S3Mock) via compose
-- [x] Workflow: n8n proxied control-plane + 3 templates
-- [x] SDKs: JS/TS + Python + Go (minimal) under Apache-2.0
-- [x] Dockerfiles, compose, K8s base, CI, docs
+- [x] API Gateway: proxy (pathFilter, no strip bugs), JWT/API-key (+strict verify mode),
+      principal `x-olp-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
+      proxy timeout, CORS gating, `/ready` aggregate, Prometheus, graceful shutdown
+- [x] IAM: Organization/Account/User/Role/Policy AWS-style + Conditions
+      (StringEquals/StringLike/IfExists) + `POST /v1/authorize` + dry-run simulator + audit log
+- [x] Token: JWT + refresh xoay vòng nguyên tử + logout/logout-all + API key
+      (verify/revoke) + service account + OIDC config (Authentik/Keycloak) + dev-login kill-switch
+- [x] Core data: Postgres (schema + seed) + Redis + S3 (S3Mock, bucket init) via compose
+- [x] Workflow: n8n proxied control-plane + 3 versioned templates (webhookId-correct) +
+      activate/deactivate/execute/get + trigger→execution verified on real n8n
+- [x] SDKs: JS/TS + Python (full API parity) + Go (minimal), Apache-2.0, unit + live tested
+- [x] Dockerfiles + .dockerignore, compose (parametrized ports, healthchecks, unified tags),
+      K8s base (probes, secrets example), CI (build/test/docker/e2e incl. SDK smoke), 10+ docs
 
 ## v0.2 (next)
 - [ ] OIDC full code exchange via `openid-client` + JWKS verification at gateway
