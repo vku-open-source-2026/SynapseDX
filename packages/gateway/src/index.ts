@@ -204,7 +204,7 @@ export function createApp(): express.Express {
   // GHI header từ principal đã verify để upstream tin dùng mà không cần re-verify JWT.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const urlPath = req.path; // pathname, không query
-    if (urlPath === '/health' || urlPath === '/metrics') return next();
+    if (urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
     const route = findRoute(routes, urlPath);
     if (!route) return res.status(404).json({ error: 'not_found', message: 'No gateway route matched' });
     (req as any).olpRoute = route;
