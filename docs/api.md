@@ -28,8 +28,10 @@ không cần re-verify JWT.
 ## Roles / Policies / Authorize
 - `POST /v1/accounts/:accountId/roles {slug, description}`
 - `GET /v1/accounts/:accountId/roles`
+- `DELETE /v1/roles/:roleId`
 - `POST /v1/accounts/:accountId/policies {slug, description, document}`
 - `GET /v1/accounts/:accountId/policies`
+- `DELETE /v1/policies/:policyId`
 - `POST /v1/roles/:roleId/attach {policyId}`
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
@@ -52,7 +54,7 @@ không cần re-verify JWT.
 - `POST /v1/workflows/:id/activate` / `POST /v1/workflows/:id/deactivate` (proxy n8n)
 - `POST /v1/workflows {name, template} | {name, definition}`
 - `POST /v1/workflows/:id/execute {input}`
-- `GET /v1/executions`
+- `GET /v1/executions` / `GET /v1/executions/:id`
 
 ## Health / Metrics
 - `GET /health` (mỗi service + gateway)

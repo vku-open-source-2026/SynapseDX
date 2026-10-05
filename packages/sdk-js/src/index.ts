@@ -83,7 +83,9 @@ export class OlpClient {
     return this.req(`/v1/accounts/${accountId}/roles`, { method: 'POST', body: JSON.stringify({ slug, description }) });
   }
   listRoles(accountId: string) { return this.req(`/v1/accounts/${accountId}/roles`); }
+  deleteRole(roleId: string) { return this.req(`/v1/roles/${roleId}`, { method: 'DELETE' }); }
   listPolicies(accountId: string) { return this.req(`/v1/accounts/${accountId}/policies`); }
+  deletePolicy(policyId: string) { return this.req(`/v1/policies/${policyId}`, { method: 'DELETE' }); }
   createPolicy(accountId: string, slug: string, document: any, description = '') {
     return this.req(`/v1/accounts/${accountId}/policies`, { method: 'POST', body: JSON.stringify({ slug, document, description }) });
   }
@@ -113,6 +115,7 @@ export class OlpClient {
   // ---- workflows (n8n via workflow-service) ----
   listWorkflows() { return this.req('/v1/workflows'); }
   getWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}`); }
+  getExecution(id: string) { return this.req(`/v1/executions/${encodeURIComponent(id)}`); }
   activateWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}/activate`, { method: 'POST' }); }
   deactivateWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}/deactivate`, { method: 'POST' }); }
   createWorkflowFromTemplate(template: string, name?: string) {

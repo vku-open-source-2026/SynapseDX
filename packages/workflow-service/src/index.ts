@@ -112,6 +112,12 @@ export function createApp(): express.Express {
     res.status(r.status).json(r.body);
   });
 
+  // Get one execution (proxy)
+  app.get('/v1/executions/:id', async (req, res) => {
+    const r = await n8nFetch(`/api/v1/executions/${encodeURIComponent(req.params.id)}`);
+    res.status(r.status).json(r.body);
+  });
+
   // Built-in templates (versioned JSON, dùng khi n8n chưa có workflow)
   app.get('/v1/templates', (_req, res) => res.json(listTemplates()));
   app.get('/v1/templates/:name', (req, res) => {

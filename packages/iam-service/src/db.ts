@@ -227,6 +227,22 @@ export async function getUserById(id: string): Promise<User | null> {
   return mem.users.get(id) || null;
 }
 
+export async function deleteRole(id: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('DELETE FROM roles WHERE id=$1', [id]);
+    return (r.rowCount || 0) > 0;
+  }
+  return mem.roles.delete(id);
+}
+
+export async function deletePolicy(id: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('DELETE FROM policies WHERE id=$1', [id]);
+    return (r.rowCount || 0) > 0;
+  }
+  return mem.policies.delete(id);
+}
+
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
 
 export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {

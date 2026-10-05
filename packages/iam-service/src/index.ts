@@ -11,7 +11,7 @@ import { z } from 'zod';
 import {
   createOrganization, listOrganizations, getOrgBySlug,
   createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
-  attachPolicy, assignRole, policiesForUser, useDb,
+  attachPolicy, assignRole, policiesForUser, useDb, deleteRole, deletePolicy,
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies,
 } from './db';
@@ -190,6 +190,12 @@ export function createApp(): express.Express {
     res.json(await listRoles(req.params.accountId));
   });
 
+  app.delete('/v1/roles/:roleId', async (req, res) => {
+    const ok = await deleteRole(req.params.roleId);
+    if (!ok) return res.status(404).json({ error: 'role_not_found' });
+    res.json({ ok: true });
+  });
+
   app.post('/v1/accounts/:accountId/policies', async (req, res) => {
     const { slug, description, document } = req.body as any;
     if (!slug || !document) return res.status(400).json({ error: 'slug+document required' });
@@ -199,6 +205,12 @@ export function createApp(): express.Express {
 
   app.get('/v1/accounts/:accountId/policies', async (req, res) => {
     res.json(await listPolicies(req.params.accountId));
+  });
+
+  app.delete('/v1/policies/:policyId', async (req, res) => {
+    const ok = await deletePolicy(req.params.policyId);
+    if (!ok) return res.status(404).json({ error: 'policy_not_found' });
+    res.json({ ok: true });
   });
 
   app.post('/v1/roles/:roleId/attach', async (req, res) => {
