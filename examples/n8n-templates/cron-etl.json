@@ -1,0 +1,8 @@
+{
+  "name": "cron-etl",
+  "nodes": [
+    { "id": "1", "name": "Cron", "type": "n8n-nodes-base.cron", "position": [200, 300], "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 24 }] } } },
+    { "id": "2", "name": "FetchIAM", "type": "n8n-nodes-base.httpRequest", "position": [400, 300], "parameters": { "url": "http://iam:4001/health", "method": "GET" } }
+  ],
+  "connections": { "Cron": { "main": [[{ "node": "FetchIAM", "type": "main", "index": 0 }]] } }
+}

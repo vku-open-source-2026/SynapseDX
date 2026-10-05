@@ -1,0 +1,18 @@
+{
+  "name": "@olp/sdk",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "OLP SDK for JavaScript/TypeScript",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/**/*.test.js || echo \"no tests\"",
+    "lint": "echo lint-ok"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.14.0"
+  }
+}

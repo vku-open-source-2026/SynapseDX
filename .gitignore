@@ -1,0 +1,30 @@
+# OLP dependencies
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+
+# env
+.env
+!.env.example
+
+# docker volumes
+data/
+pgdata/
+redisdata/
+minio-data/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+sdk-python-dist/
+
+# go
+sdk-go-bin/
+
+# IDE
+.vscode/
+.idea/
+*.swp

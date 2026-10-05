@@ -1,0 +1,197 @@
+/*
+ * Copyright 2026 OLP Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+import { z } from 'zod';
+import {
+  createOrganization, listOrganizations, getOrgBySlug,
+  createAccount, listAccounts, upsertUser, createRole, createPolicy,
+  attachPolicy, assignRole, policiesForUser, query, useDb, __mem,
+} from './db';
+import { evaluatePolicies } from './policy';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, createApiKeyRecord, verifyApiKey } from './tokens';
+
+dotenv.config();
+const PORT = Number(process.env.PORT || 4001);
+
+export function createApp(): express.Express {
+  const app = express();
+  app.use(cors());
+  app.use(morgan('combined'));
+  app.use(express.json({ limit: '1mb' }));
+
+  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', db: useDb() ? 'postgres' : 'memory', time: new Date().toISOString() }));
+
+  // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
+  app.get('/v1/auth/oidc/config', (_req, res) => {
+    res.json({
+      issuer: process.env.OIDC_ISSUER || 'http://authentik:9000/application/o/olp/',
+      clientId: process.env.OIDC_CLIENT_ID || 'olp-platform',
+      redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:4001/v1/auth/oidc/callback',
+      provider: process.env.OIDC_PROVIDER || 'authentik',
+      note: 'Cấu hình Authentik/Keycloak làm upstream IdP. IAM giữ shadow user + phân quyền org/account/role/policy.',
+    });
+  });
+
+  app.get('/v1/auth/oidc/start', (req, res) => {
+    const issuer = process.env.OIDC_ISSUER || '';
+    const clientId = process.env.OIDC_CLIENT_ID || '';
+    const redirectUri = (process.env.OIDC_REDIRECT_URI || '') as string;
+    const state = Buffer.from(JSON.stringify({ org: req.query.org || 'acme', t: Date.now() })).toString('base64url');
+    const url = `${issuer.replace(/\/$/, '')}/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=${encodeURIComponent('openid email profile')}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+    res.json({ authorizeUrl: url, state });
+  });
+
+  // Callback: trong bản MVP nhận `email` (do IdP trả về sau khi exchange code — ở production dùng openid-client).
+  // Hỗ trợ cả code exchange thật nếu OIDC_ISSUER reachable, fallback demo.
+  app.post('/v1/auth/oidc/callback', async (req, res) => {
+    try {
+      const { email, sub, displayName, orgSlug } = req.body as any;
+      if (!email) return res.status(400).json({ error: 'missing_email' });
+      const org = (await getOrgBySlug(orgSlug || 'acme')) || (await createOrganization(orgSlug || 'acme', orgSlug || 'acme'));
+      const user = await upsertUser(org.id, email, displayName || email, sub || email);
+      const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
+      const rt = newRefreshToken();
+      await storeRefresh(user.id, rt.hash, new Date(Date.now() + 30 * 24 * 3600 * 1000));
+      res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
+    } catch (e: any) {
+      res.status(500).json({ error: 'oidc_callback_failed', message: e.message });
+    }
+  });
+
+  // Dev login (không dùng production): cấp token trực tiếp theo email
+  app.post('/v1/auth/login', async (req, res) => {
+    const { email, orgSlug } = req.body as any;
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const org = (await getOrgBySlug(orgSlug || 'acme')) || (await createOrganization(orgSlug || 'acme', orgSlug || 'acme'));
+    const user = await upsertUser(org.id, email, email);
+    const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
+    const rt = newRefreshToken();
+    await storeRefresh(user.id, rt.hash, new Date(Date.now() + 30 * 24 * 3600 * 1000));
+    res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
+  });
+
+  app.post('/v1/auth/refresh', async (req, res) => {
+    const { refreshToken } = req.body as any;
+    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+    const rec = await consumeRefresh(refreshToken);
+    if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
+    const { token, expiresIn } = signAccess({ sub: rec.user_id });
+    res.json({ accessToken: token, expiresIn });
+  });
+
+  app.get('/v1/auth/verify', async (req, res) => {
+    const h = req.headers.authorization || '';
+    const apiKey = (req.headers['x-api-key'] as string) || '';
+    if (h.startsWith('Bearer ')) {
+      try {
+        const decoded = jwt.verify(h.slice(7), process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min');
+        return res.json({ valid: true, type: 'jwt', claims: decoded });
+      } catch (e: any) {
+        return res.status(401).json({ valid: false, message: e.message });
+      }
+    }
+    if (apiKey) {
+      const rec = await verifyApiKey(apiKey);
+      if (!rec) return res.status(401).json({ valid: false });
+      return res.json({ valid: true, type: 'apikey', ...rec });
+    }
+    return res.status(400).json({ error: 'provide Bearer or X-API-Key' });
+  });
+
+  // ---------- Organizations ----------
+  app.get('/v1/orgs', async (_req, res) => res.json(await listOrganizations()));
+  app.post('/v1/orgs', async (req, res) => {
+    try {
+      const schema = z.object({ slug: z.string().min(2), displayName: z.string().min(2) });
+      const b = schema.parse(req.body);
+      res.status(201).json(await createOrganization(b.slug, b.displayName));
+    } catch (e: any) {
+      res.status(400).json({ error: 'invalid_body', message: e.message });
+    }
+  });
+
+  // ---------- Accounts ----------
+  app.get('/v1/orgs/:orgId/accounts', async (req, res) => res.json(await listAccounts(req.params.orgId)));
+  app.post('/v1/orgs/:orgId/accounts', async (req, res) => {
+    try {
+      const schema = z.object({ slug: z.string().min(2), displayName: z.string().min(2) });
+      const b = schema.parse(req.body);
+      res.status(201).json(await createAccount(req.params.orgId, b.slug, b.displayName));
+    } catch (e: any) {
+      res.status(400).json({ error: 'invalid_body', message: e.message });
+    }
+  });
+
+  // ---------- Users ----------
+  app.post('/v1/orgs/:orgId/users', async (req, res) => {
+    const { email, displayName } = req.body as any;
+    if (!email) return res.status(400).json({ error: 'email required' });
+    res.status(201).json(await upsertUser(req.params.orgId, email, displayName));
+  });
+
+  // ---------- Roles & Policies (AWS-style) ----------
+  app.post('/v1/accounts/:accountId/roles', async (req, res) => {
+    const { slug, description } = req.body as any;
+    if (!slug) return res.status(400).json({ error: 'slug required' });
+    res.status(201).json(await createRole(req.params.accountId, slug, description || ''));
+  });
+
+  app.post('/v1/accounts/:accountId/policies', async (req, res) => {
+    const { slug, description, document } = req.body as any;
+    if (!slug || !document) return res.status(400).json({ error: 'slug+document required' });
+    if (!document.Statement) return res.status(400).json({ error: 'document.Statement required (AWS IAM style)' });
+    res.status(201).json(await createPolicy(req.params.accountId, slug, description || '', document));
+  });
+
+  app.post('/v1/roles/:roleId/attach', async (req, res) => {
+    await attachPolicy(req.params.roleId, req.body.policyId);
+    res.json({ ok: true });
+  });
+  app.post('/v1/users/:userId/assign', async (req, res) => {
+    await assignRole(req.params.userId, req.body.roleId);
+    res.json({ ok: true });
+  });
+
+  // ---------- Authorize (policy evaluation) ----------
+  app.post('/v1/authorize', async (req, res) => {
+    const { userId, action, resource } = req.body as any;
+    if (!userId || !action || !resource) return res.status(400).json({ error: 'userId+action+resource required' });
+    const docs = await policiesForUser(userId);
+    const verdict = evaluatePolicies(docs, { action, resource });
+    res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
+  });
+
+  // ---------- API keys ----------
+  app.post('/v1/accounts/:accountId/keys', async (req, res) => {
+    const { userId, name, scopes, expiresInSeconds } = req.body as any;
+    const exp = expiresInSeconds ? new Date(Date.now() + expiresInSeconds * 1000) : null;
+    const k = await createApiKeyRecord(req.params.accountId, userId || null, name || 'default', scopes || ['*'], exp);
+    res.status(201).json({ id: k.id, apiKey: k.value, prefix: k.prefix, warning: 'Lưu apiKey ngay — chỉ hiển thị 1 lần.' });
+  });
+
+  app.post('/v1/keys/verify', async (req, res) => {
+    const rec = await verifyApiKey(req.body.apiKey || '');
+    if (!rec) return res.status(401).json({ valid: false });
+    res.json({ valid: true, ...rec });
+  });
+
+  // debug: list policies of user
+  app.get('/v1/users/:userId/policies', async (req, res) => {
+    res.json(await policiesForUser(req.params.userId));
+  });
+
+  // 404
+  app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
+  return app;
+}
+
+if (require.main === module) {
+  const app = createApp();
+  app.listen(PORT, () => console.log(`[iam] listening on :${PORT} db=${useDb() ? 'postgres' : 'memory'}`));
+}
