@@ -13,6 +13,11 @@ curl localhost:8080/health      # gateway
 curl localhost:4001/health      # iam
 curl localhost:4002/health      # workflow
 ```
+- Lần đầu pull hơi lâu (n8n, authentik). Muốn nhẹ: `docker compose up -d --build
+  postgres redis s3 s3-init iam workflow gateway` (n8n vẫn tự lên theo
+  `depends_on` của `workflow`; authentik thì không — chỉ lên khi gọi tên).
+- Host port bận? Đổi `GATEWAY_HOST_PORT` (+ `*_HOST_PORT`) trong `.env` — xem `docs/troubleshooting.md`.
+- Windows: dùng `examples/quickstart/demo.ps1` (tương đương `demo.sh`).
 
 ## 3. Luồng đầu tiên (dev login → org → key → workflow)
 ```bash

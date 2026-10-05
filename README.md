@@ -12,7 +12,7 @@ Apache-2.0 open-source PaaS core: **API Gateway + IAM (AWS-style) + core data + 
 ## Tính chất open source (thỏa mãn)
 - **Giấy phép permissive**: `LICENSE` Apache-2.0 cho platform + mọi SDK; `NOTICE` ghi nhận third-party.
 - **Phát triển công khai**: monorepo, Conventional Commits, PR template, CI (`ci.yml`) + release (`release.yml`), `CHANGELOG.md`.
-- **Tài liệu mở**: `docs/` (architecture, iam-model, api, quickstart) + `README.md` này.
+- **Tài liệu mở**: `docs/` (architecture, iam-model, api, quickstart, object-storage, troubleshooting) + `README.md` này.
 - **Đóng góp mở**: `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`, `SECURITY.md`, `GOVERNANCE.md`, `ROADMAP.md`.
 - **Build tái lập**: `Dockerfile` mỗi service, `docker-compose.yml` pin image, `infra/k8s` Kustomize, `.env.example`.
 - **Không fork license lạ**: n8n/Authentik dùng như container ngoài, gọi qua API/OIDC — code OLP vẫn thuần Apache-2.0.
@@ -34,8 +34,8 @@ Chi tiết: `docs/quickstart.md`. API: `docs/api.md`. Mô hình phân quyền: `
 
 ## Repo layout
 ```
-packages/gateway           API gateway (proxy, JWT/API-key, rate-limit, /metrics)
-packages/iam-service       IAM AWS-style + token + OIDC (Authentik/Keycloak)
+packages/gateway           API gateway (proxy, JWT/API-key, principal x-olp-*, rate-limit, /metrics)
+packages/iam-service       IAM AWS-style + token/SA + authorize/simulator + OIDC (Authentik/Keycloak)
 packages/workflow-service  control-plane n8n (proxy + templates)
 packages/sdk-js            @olp/sdk (TypeScript)
 packages/sdk-python        olp-sdk (Python)
@@ -44,8 +44,8 @@ infra/postgres/init.sql    schema lõi (orgs/accounts/users/roles/policies/keys/
 infra/k8s/base             Kustomize cho K8s
 examples/quickstart        script demo end-to-end
 examples/n8n-templates     workflow JSON mẫu
-tests/e2e                  smoke test
-docs                       architecture/iam-model/api/quickstart
+tests/e2e                  smoke test (sh/ps1) + SDK live check
+docs                       architecture/iam-model/api/quickstart/object-storage/troubleshooting
 ```
 
 ## SDK nhanh
@@ -71,7 +71,7 @@ out, _ := c.Login("demo@acme.local")
 ```
 
 ## Cấu hình IdP (Access Management)
-- Mặc định **Authentik** (`authentik-server:9000`), xem `infra/authentik/README.md`.
+- Mặc định **Authentik** (nội bộ `authentik-server:9000`, ngoài máy `http://localhost:19000`), xem `infra/authentik/README.md`.
 - Thích **Keycloak**? Chỉ đổi `OIDC_ISSUER=https://<keycloak>/realms/<realm>` + client id/secret — IAM giữ nguyên (federated OIDC, shadow user + phân quyền nội bộ).
 
 ## Lệnh hay dùng
