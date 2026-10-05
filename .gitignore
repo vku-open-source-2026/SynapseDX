@@ -13,7 +13,7 @@ build/
 data/
 pgdata/
 redisdata/
-minio-data/
+s3data/
 
 # python
 __pycache__/

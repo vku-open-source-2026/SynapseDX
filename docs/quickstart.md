@@ -25,15 +25,17 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 ```
 
 ## 4. Authentik (IdP mặc định)
-- Mở `http://localhost:9000` (user/pass bootstrap trong log `authentik-server`), tạo Provider `olp` + Application, lấy `OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET` điền vào `.env`, restart `iam`.
+- Mở `http://localhost:19000` (host port `AUTHENTIK_HTTP_PORT`; user/pass bootstrap trong log `authentik-server`), tạo Provider `olp` + Application, lấy `OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET` điền vào `.env`, restart `iam`.
 - Muốn dùng Keycloak thay thế: dựng Keycloak, tạo realm+client, đổi `OIDC_ISSUER` thành `https://<keycloak>/realms/<realm>` — IAM không đổi code.
 
 ## 5. N8N
 - Mở `http://localhost:5678`, tạo owner account, vào Settings → API → tạo API key → điền `N8N_API_KEY` vào `.env`, restart `workflow`.
 - Tạo workflow từ template: `POST /v1/workflows {"template":"webhook-to-log","name":"demo"}`.
 
-## 6. MinIO
-- Console `http://localhost:9001`, S3 endpoint `http://localhost:9000`, bucket `olp-core` (tạo lần đầu qua console hoặc `mc`).
+## 6. Object storage (S3)
+- S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `olp-core` tự tạo bởi service `s3-init`.
+- Kiểm tra: `aws --endpoint-url http://localhost:9090 s3 ls` (access key trong `.env`: `S3_ACCESS_KEY/S3_SECRET_KEY`).
+- Production: đổi sang MinIO (`quay.io/minio/minio`) hoặc AWS S3 bằng cách thay service `s3` + `S3_ENDPOINT` — SDK/API không đổi vì đều nói S3.
 
 ## 7. Dừng
 ```bash

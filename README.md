@@ -21,7 +21,7 @@ Apache-2.0 open-source PaaS core: **API Gateway + IAM (AWS-style) + core data + 
 ```
 Client → Gateway :8080 ─┬─► IAM :4001 (Org/Account/Role/Policy + token + OIDC Authentik/Keycloak)
                         └─► Workflow :4002 ─► n8n :5678
-                        Postgres :5432 / Redis :6379 / MinIO :9000-9001
+                        Postgres :5432 / Redis :6379 / S3 (S3Mock) :9090
 ```
 
 ## Chạy trong 3 lệnh

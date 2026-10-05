@@ -19,5 +19,6 @@ Third-party components (each under its own license):
 - Authentik (https://goauthentik.io) — MIT-licensed identity provider, used as optional external IdP via OIDC.
 - Keycloak (https://www.keycloak.org) — Apache-2.0 identity provider, supported as alternative external IdP via OIDC.
 - N8N (https://n8n.io) — Sustainable Use License / Enterprise; orchestrated as external workflow engine via API, not bundled as derived work.
-- PostgreSQL, Redis, MinIO — each under its own OSI-approved license, consumed as container images.
+- PostgreSQL, Redis — each under its own OSI-approved license, consumed as container images.
+- Adobe S3Mock (https://github.com/adobe/S3Mock) — Apache-2.0 fake object store, used as default S3-compatible backend for local/dev (production may point at MinIO/AWS S3 instead).
 - Kong/KrakenD/Traefik compatible — gateway routing config can target any of them; default gateway implementation in this repo is Apache-2.0.

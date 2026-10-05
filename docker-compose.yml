@@ -29,22 +29,29 @@ services:
       retries: 5
     networks: [olp-net]
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  # Object storage S3-compatible (mac dinh S3Mock nhe, du cho MVP).
+  # Production: thay image bang MinIO (quay.io/minio/minio) hoac AWS S3 that,
+  # giu nguyen S3_ENDPOINT/S3_BUCKET/S3_REGION/S3 keys.
+  s3:
+    image: adobe/s3mock:latest
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin_change_me}
+      COM_ADOBE_TESTING_S3MOCK_STORE_FILESYSTEM_ROOT: /data
     volumes:
-      - miniodata:/data
+      - s3data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
+      - "${S3_HOST_PORT:-9090}:9090"
+    networks: [olp-net]
+
+  s3-init:
+    image: amazon/aws-cli:latest
+    entrypoint: ["sh", "-c", "for i in $(seq 1 30); do aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 mb s3://$${S3_BUCKET:-olp-core} && break || sleep 2; done; aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 ls || true"]
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-test}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-test}
+      AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-olp-core}
+    depends_on:
+      - s3
     networks: [olp-net]
 
   authentik-postgres-init:
@@ -99,8 +106,8 @@ services:
         condition: service_healthy
     networks: [olp-net]
 
-  # LƯU Ý: OIDC_ISSUER là URL NỘI BỘ trong mạng docker (authentik-server:9000).
-  # Từ browser redirect dùng host port AUTHENTIK_HTTP_PORT (mặc định 19000).
+  # LUU Y: OIDC_ISSUER la URL NOI BO trong mang docker (authentik-server:9000).
+  # Tu browser redirect dung host port AUTHENTIK_HTTP_PORT (mac dinh 19000).
   n8n:
     image: n8nio/n8n:1.66.0
     environment:
@@ -180,7 +187,7 @@ services:
 volumes:
   pgdata:
   redisdata:
-  miniodata:
+  s3data:
   n8ndata:
 
 networks:

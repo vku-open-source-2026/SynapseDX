@@ -1,0 +1,28 @@
+---
+name: Bug report
+about: Báo lỗi OLP (gateway, IAM, workflow, SDK, compose)
+title: "fix: "
+labels: bug
+---
+
+## Mô tả
+<!-- Lỗi gì, kỳ vọng gì -->
+
+## Tái hiện
+1.
+2.
+3.
+
+## Môi trường
+- OLP version/tag hoặc commit:
+- Chạy bằng: [ ] docker compose [ ] k8s [ ] dev local
+- OS:
+
+## Log
+<!-- `docker compose logs` đoạn liên quan, che secret -->
+```
+```
+
+## Checklist
+- [ ] Đã đọc `docs/troubleshooting.md`
+- [ ] Không chứa secret trong log

@@ -4,12 +4,12 @@ Compose đã dựng `authentik-server:9000` + `authentik-worker` chung Postgres/
 
 ## Bootstrap lần đầu
 1. `docker compose logs authentik-server | grep -i "initial\|admin\|password"` — lấy bootstrap credentials (Authentik in ra lần đầu).
-2. Mở `http://localhost:9000`, đăng nhập admin.
+2. Mở `http://localhost:19000` (host port `AUTHENTIK_HTTP_PORT` trong `.env`), đăng nhập admin.
 3. Tạo Provider (OAuth2/OIDC):
    - Authorization flow: `default-provider-authorization-implicit-consent`
    - Client ID: `olp-platform` (khớp `OIDC_CLIENT_ID`)
    - Redirect URI: `http://localhost:4001/v1/auth/oidc/callback` (khớp `OIDC_REDIRECT_URI`)
-4. Tạo Application `olp`, gắn provider, lấy slug → `OIDC_ISSUER=http://localhost:9000/application/o/olp/`.
+4. Tạo Application `olp`, gắn provider, lấy slug → `OIDC_ISSUER=http://localhost:19000/application/o/olp/` cho browser, nhưng trong mạng docker IAM dùng `OIDC_ISSUER=http://authentik-server:9000/application/o/olp/`.
 5. Điền `OIDC_CLIENT_SECRET` vào `.env`, `docker compose up -d iam`.
 
 ## Dùng Keycloak thay thế

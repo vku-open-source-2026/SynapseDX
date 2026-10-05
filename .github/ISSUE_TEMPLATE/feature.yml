@@ -1,0 +1,19 @@
+---
+name: Feature request
+about: Đề xuất tính năng cho OLP
+title: "feat: "
+labels: enhancement
+---
+
+## Vấn đề / use-case
+<!-- Giải quyết gì, cho ai -->
+
+## Đề xuất
+<!-- API, hành vi, tương thích ngược? -->
+
+## Phương án khác đã cân nhắc
+<!-- ... -->
+
+## Checklist
+- [ ] Nằm trong Tier-1 PaaS (xem ROADMAP) hoặc ghi rõ tier đề xuất
+- [ ] Không yêu cầu đổi license third-party (n8n/Authentik dùng ngoài)
