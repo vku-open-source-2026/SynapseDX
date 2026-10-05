@@ -32,7 +32,6 @@ export interface RouteRule {
   path: string;
   target: string;
   auth: 'none' | 'jwt' | 'apikey' | 'either';
-  stripPrefix?: boolean;
 }
 
 export function expandEnv(s: string): string {

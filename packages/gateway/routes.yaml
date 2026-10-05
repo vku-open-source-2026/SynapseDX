@@ -4,52 +4,52 @@ routes:
   - path: /v1/auth
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: none
-    stripPrefix: false
+
   - path: /v1/orgs
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/accounts
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/roles
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/users
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/service-accounts
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/policies
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/keys
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/authorize
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
-    stripPrefix: false
+
   - path: /v1/workflows
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either
-    stripPrefix: false
+
   - path: /v1/templates
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either
-    stripPrefix: false
+
   - path: /v1/executions
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either
-    stripPrefix: false
+
   - path: /v1/n8n
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either
-    stripPrefix: false
+
