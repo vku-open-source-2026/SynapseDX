@@ -137,7 +137,7 @@ services:
 
   iam:
     build:
-      context: ./packages/iam-service
+      context: ./apps/iam-service
     image: synapsedx/iam:0.3.0
     environment:
       PORT: 4001
@@ -168,7 +168,7 @@ services:
 
   workflow:
     build:
-      context: ./packages/workflow-service
+      context: ./apps/workflow-service
     image: synapsedx/workflow:0.3.0
     environment:
       PORT: 4002
@@ -190,7 +190,7 @@ services:
 
   gateway:
     build:
-      context: ./packages/gateway
+      context: ./apps/gateway
     image: synapsedx/gateway:0.3.0
     environment:
       PORT: 8080
@@ -221,7 +221,7 @@ services:
 
   console:
     build:
-      context: ./packages/console
+      context: ./apps/console
     image: synapsedx/console:0.3.0
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

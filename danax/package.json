@@ -4,20 +4,17 @@
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
-    "packages/gateway",
-    "packages/iam-service",
-    "packages/workflow-service",
-    "packages/sdk-js",
-    "packages/console",
-    "packages/cli"
+    "apps/*",
+    "tools/*",
+    "sdks/sdk-js"
   ],
   "scripts": {
     "install:all": "npm install --workspaces",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "dev:iam": "npm run dev --workspace=packages/iam-service",
-    "dev:gateway": "npm run dev --workspace=packages/gateway",
-    "dev:workflow": "npm run dev --workspace=packages/workflow-service"
+    "dev:iam": "npm run dev --workspace=apps/iam-service",
+    "dev:gateway": "npm run dev --workspace=apps/gateway",
+    "dev:workflow": "npm run dev --workspace=apps/workflow-service"
   }
 }

@@ -13,7 +13,7 @@ help:
 bootstrap:
 	cp -n .env.example .env || copy .env.example .env
 	npm install --workspaces
-	cd packages/sdk-python && pip install -e . || true
+	cd sdks/sdk-python && pip install -e . || true
 
 build:
 	npm run build --workspaces --if-present
@@ -43,4 +43,4 @@ sdk-check:
 
 clean:
 	docker compose down -v || true
-	rm -rf packages/*/dist packages/*/node_modules node_modules || true
+	rm -rf apps/*/dist tools/*/dist sdks/sdk-js/dist apps/*/node_modules tools/*/node_modules sdks/sdk-js/node_modules node_modules || true

@@ -34,14 +34,14 @@ Chi tiết: `docs/quickstart.md`. API: `docs/api.md`. Mô hình phân quyền: `
 
 ## Repo layout
 ```
-packages/gateway           API gateway (proxy, JWT/API-key, principal x-synapsedx-*, rate-limit, /metrics)
-packages/iam-service       IAM AWS-style + token/SA + authorize/simulator + OIDC (Authentik/Keycloak)
-packages/workflow-service  control-plane n8n (proxy + templates)
-packages/sdk-js            @synapsedx/sdk (TypeScript)
-packages/sdk-python        synapsedx-sdk (Python)
-packages/sdk-go            synapsedx-sdk-go (Go, minimal)
-packages/console           Management UI kiểu AWS (React+Vite+Tailwind)
-packages/cli               CLI `synapsedx` zero-dependency (Node 18+)
+apps/console               Management UI kiểu AWS (React+Vite+Tailwind)
+apps/gateway               API gateway (proxy, JWT/API-key, principal x-synapsedx-*, rate-limit, /metrics)
+apps/iam-service           IAM AWS-style + token/SA + authorize/simulator + OIDC (Authentik/Keycloak)
+apps/workflow-service      control-plane n8n (proxy + templates)
+sdks/sdk-js                @synapsedx/sdk (TypeScript)
+sdks/sdk-python            synapsedx-sdk (Python)
+sdks/sdk-go                synapsedx-sdk-go (Go, minimal)
+tools/cli                  CLI `synapsedx` zero-dependency (Node 18+)
 infra/postgres/init.sql    schema lõi (orgs/accounts/users/roles/policies/keys/...)
 infra/k8s/base             Kustomize cho K8s
 examples/quickstart        script demo end-to-end
@@ -76,8 +76,8 @@ out, _ := c.Login("demo@acme.local")
 - **Console** (`http://localhost:3000` sau `docker compose up -d console`):
   login `demo@acme.local` / org `acme` → quản trị Org/Account/User/Role/Policy/Key,
   authorize simulator, workflow, audit. Chi tiết: `docs/console.md`.
-- **CLI** (`packages/cli`, zero-dependency): `node packages/cli/bin/synapsedx.js login ...`
-  — xem `packages/cli/README.md`.
+- **CLI** (`tools/cli`, zero-dependency): `node tools/cli/bin/synapsedx.js login ...`
+  — xem `tools/cli/README.md`.
 
 ## Cấu hình IdP (Access Management)
 - Mặc định **Authentik** (nội bộ `authentik-server:9000`, ngoài máy `http://localhost:19000`), xem `infra/authentik/README.md`.

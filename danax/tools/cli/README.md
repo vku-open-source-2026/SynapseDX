@@ -1,12 +1,12 @@
 # `synapsedx` CLI — zero-dependency command line (Node 18+)
 
-Apache-2.0. Part of [synapsedx](../../README.md) Tier-1 PaaS. No `npm install` needed —
+Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS. No `npm install` needed —
 single file, only Node's built-in `fetch`.
 
 ```bash
-node packages/cli/bin/synapsedx.js --help
+node tools/cli/bin/synapsedx.js --help
 # hoặc link toàn cục:
-npm link ./packages/cli   # rồi gọi `synapsedx ...` ở mọi nơi
+npm link ./tools/cli   # rồi gọi `synapsedx ...` ở mọi nơi
 ```
 
 ## Nhanh

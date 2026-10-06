@@ -18,9 +18,9 @@ Thanks for considering contributing. synapsedx follows standard open-source prac
 ```bash
 cp .env.example .env
 npm install --workspaces
-npm run dev --workspace=packages/iam-service     # :4001
-npm run dev --workspace=packages/workflow-service # :4002
-npm run dev --workspace=packages/gateway          # :8080
+npm run dev --workspace=apps/iam-service     # :4001
+npm run dev --workspace=apps/workflow-service # :4002
+npm run dev --workspace=apps/gateway          # :8080
 # e2e smoke:
 bash tests/e2e/smoke.sh
 ```

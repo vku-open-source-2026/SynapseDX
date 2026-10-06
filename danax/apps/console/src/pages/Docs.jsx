@@ -11,7 +11,7 @@ open http://localhost:3000            # compose: console service
 # Đổi backend khi gateway không ở :8080 (ví dụ :18080):
 CONSOLE_HOST_PORT=3000 SYNAPSEDX_PUBLIC_BASE_URL=http://localhost:18080 \\
   docker compose up -d console`,
-  JavaScript: `// npm i @synapsedx/sdk   (sau khi publish; dev: dùng packages/sdk-js)
+  JavaScript: `// npm i @synapsedx/sdk   (sau khi publish; dev: dùng sdks/sdk-js)
 import { SynapseDXClient } from '@synapsedx/sdk';
 
 const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
@@ -21,7 +21,7 @@ c.setToken(accessToken);
 await c.createOrg('acme-2', 'ACME 2');
 await c.authorize(user.id, 'workflow:Execute', '*', { team: 'etl' });
 await c.createWorkflowFromTemplate('webhook-to-log', 'demo');`,
-  Python: `# pip install synapsedx-sdk   (sau khi publish; dev: pip install -e packages/sdk-python)
+  Python: `# pip install synapsedx-sdk   (sau khi publish; dev: pip install -e sdks/sdk-python)
 from synapsedx_sdk import SynapseDXClient
 
 c = SynapseDXClient("http://localhost:8080")
@@ -37,11 +37,11 @@ out, _ := c.Login("demo@acme.local")
 c.Token = out["accessToken"].(string)
 orgs, _ := c.ListOrgs()`,
   CLI: `# zero-dependency, chỉ cần Node 18+
-node packages/cli/bin/olp.js login --email demo@acme.local
-node packages/cli/bin/olp.js orgs
-node packages/cli/bin/olp.js authz <uid> workflow:Execute "*" --context team=etl
-node packages/cli/bin/olp.js workflows create --template webhook-to-log --name demo
-node packages/cli/bin/olp.js audit --limit 20`,
+node tools/cli/bin/synapsedx.js login --email demo@acme.local
+node tools/cli/bin/synapsedx.js orgs
+node tools/cli/bin/synapsedx.js authz <uid> workflow:Execute "*" --context team=etl
+node tools/cli/bin/synapsedx.js workflows create --template webhook-to-log --name demo
+node tools/cli/bin/synapsedx.js audit --limit 20`,
 };
 
 export default function Docs() {

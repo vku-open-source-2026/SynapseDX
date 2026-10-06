@@ -1,4 +1,4 @@
-const { SynapseDXClient } = require('../../packages/sdk-js/dist/index.js');
+const { SynapseDXClient } = require('../../sdks/sdk-js/dist/index.js');
 
 async function main() {
   const c = new SynapseDXClient({ baseUrl: process.env.SYNAPSEDX_BASE_URL || 'http://127.0.0.1:18110' });

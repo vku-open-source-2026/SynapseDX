@@ -26,9 +26,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: https://registry.npmjs.org }
-      - run: npm install --workspace=packages/sdk-js && npm run build --workspace=packages/sdk-js
-      - run: cp LICENSE packages/sdk-js/LICENSE
-      - run: npm publish --workspace=packages/sdk-js --access public
+      - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
+      - run: cp LICENSE sdks/sdk-js/LICENSE
+      - run: npm publish --workspace=sdks/sdk-js --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -42,10 +42,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: pip install build twine
-      - run: cp LICENSE packages/sdk-python/LICENSE
-      - run: python -m build packages/sdk-python
+      - run: cp LICENSE sdks/sdk-python/LICENSE
+      - run: python -m build sdks/sdk-python
       - run: twine upload dist/* --non-interactive
-        working-directory: packages/sdk-python
+        working-directory: sdks/sdk-python
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
@@ -65,10 +65,10 @@ jobs:
       - run: |
           OWNER="${{ github.repository_owner }}"
           TAG="${GITHUB_REF_NAME#v}"
-          docker build -t "ghcr.io/$OWNER/synapsedx-gateway:$TAG" -t "ghcr.io/$OWNER/synapsedx-gateway:latest" packages/gateway
-          docker build -t "ghcr.io/$OWNER/synapsedx-iam:$TAG" -t "ghcr.io/$OWNER/synapsedx-iam:latest" packages/iam-service
-          docker build -t "ghcr.io/$OWNER/synapsedx-workflow:$TAG" -t "ghcr.io/$OWNER/synapsedx-workflow:latest" packages/workflow-service
-          docker build -t "ghcr.io/$OWNER/synapsedx-console:$TAG" -t "ghcr.io/$OWNER/synapsedx-console:latest" packages/console
+          docker build -t "ghcr.io/$OWNER/synapsedx-gateway:$TAG" -t "ghcr.io/$OWNER/synapsedx-gateway:latest" apps/gateway
+          docker build -t "ghcr.io/$OWNER/synapsedx-iam:$TAG" -t "ghcr.io/$OWNER/synapsedx-iam:latest" apps/iam-service
+          docker build -t "ghcr.io/$OWNER/synapsedx-workflow:$TAG" -t "ghcr.io/$OWNER/synapsedx-workflow:latest" apps/workflow-service
+          docker build -t "ghcr.io/$OWNER/synapsedx-console:$TAG" -t "ghcr.io/$OWNER/synapsedx-console:latest" apps/console
           docker push "ghcr.io/$OWNER/synapsedx-gateway:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-gateway:latest"
           docker push "ghcr.io/$OWNER/synapsedx-iam:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-iam:latest"
           docker push "ghcr.io/$OWNER/synapsedx-workflow:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-workflow:latest"

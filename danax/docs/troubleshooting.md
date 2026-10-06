@@ -24,8 +24,8 @@ Port **nội bộ** container (4001/4002/8080/...) giữ nguyên — các servic
 `curl.exe -d "{\"email\":\"a@a\"}"`. Xem `examples/quickstart/demo.ps1` và `tests/e2e/smoke.ps1`.
 
 ## Gateway trả 404 `No gateway route matched` cho route đã khai báo
-Kiểm tra `packages/gateway/routes.yaml` có prefix đó không (gateway match theo longest-prefix, xem `docs/api.md`).
-Nếu tự sửa gateway: **không** `app.use(path, proxy)` + gán lại `req.url` — Express giữ bookkeeping `slashAdded/removed`, gán tay sẽ làm URL thành rác với exact-path. Dùng `pathFilter` của http-proxy-middleware v3 + mount ở root (xem code `packages/gateway/src/index.ts`).
+Kiểm tra `apps/gateway/routes.yaml` có prefix đó không (gateway match theo longest-prefix, xem `docs/api.md`).
+Nếu tự sửa gateway: **không** `app.use(path, proxy)` + gán lại `req.url` — Express giữ bookkeeping `slashAdded/removed`, gán tay sẽ làm URL thành rác với exact-path. Dùng `pathFilter` của http-proxy-middleware v3 + mount ở root (xem code `apps/gateway/src/index.ts`).
 
 ## IAM báo `db=memory` trong khi muốn Postgres
 `DATABASE_URL` chưa tới được container. Trong compose, `DATABASE_URL` trỏ `postgres:5432` (tên service). Khi chạy IAM ngoài docker (dev local), set:

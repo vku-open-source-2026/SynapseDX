@@ -1,6 +1,6 @@
 # `@synapsedx/sdk` — synapsedx SDK for JavaScript/TypeScript
 
-Apache-2.0. Part of [synapsedx](../../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
 
 ```bash
 npm install @synapsedx/sdk

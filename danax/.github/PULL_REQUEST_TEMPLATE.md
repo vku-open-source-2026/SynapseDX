@@ -12,7 +12,7 @@
 
 ## Kiểm thử
 <!-- Lệnh đã chạy + kết quả, ví dụ:
-- npm run build --workspace=packages/gateway
+- npm run build --workspace=apps/gateway
 - bash tests/e2e/smoke.sh (pass=...)
 -->
 

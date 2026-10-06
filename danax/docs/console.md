@@ -23,12 +23,12 @@ GATEWAY_HOST_PORT=18080 docker compose up -d --build console gateway ...
 ```
 `SYNAPSEDX_PUBLIC_BASE_URL` **phải là URL trình duyệt gọi được** (không phải tên
 service docker) — container tự chèn vào `config.js` lúc khởi động
-(`packages/console/docker-entrypoint.sh`).
+(`apps/console/docker-entrypoint.sh`).
 
 ## Dev frontend
 
 ```bash
-cd packages/console
+cd apps/console
 npm install
 npm run dev   # :3000, proxy /api -> localhost:8080 nếu cần
 ```

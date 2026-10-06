@@ -10,7 +10,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const VERSION = '0.1.0';
+const VERSION = (() => {
+  try {
+    return require('../package.json').version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
 const CONF_DIR = path.join(os.homedir(), '.synapsedx');
 const CONF_FILE = path.join(CONF_DIR, 'config.json');
 
