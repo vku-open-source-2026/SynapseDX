@@ -45,8 +45,8 @@ jobs:
       - run: docker compose up -d --build postgres redis s3 s3-init iam workflow gateway
       - run: |
           set -e
-          for i in $(seq 1 30); do
-            curl -sf http://localhost:8080/health && break || sleep 5
+          for i in $(seq 1 36); do
+            curl -sf http://localhost:8080/ready && break || sleep 5
           done
           curl -sf http://localhost:4001/health
           TOK=$(curl -s -XPOST http://localhost:8080/v1/auth/login -H'Content-Type: application/json' -d'{"email":"ci@acme.local","orgSlug":"acme"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")

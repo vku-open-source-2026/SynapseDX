@@ -8,6 +8,12 @@ pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "PASS $1"; }
 bad()  { fail=$((fail+1)); echo "FAIL $1 -- $2"; }
 
+# Cho gateway + upstream san sang (cold boot docker co the mat 1-2 phut)
+for i in $(seq 1 24); do
+  curl -sf "$BASE/ready" >/dev/null 2>&1 && break
+  sleep 5
+done
+
 LOGIN=$(curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d'{"email":"e2e@acme.local","orgSlug":"acme"}')
 TOK=$(echo "$LOGIN" | jq -r .accessToken)
 E2E_UID=$(echo "$LOGIN" | jq -r .user.id)
