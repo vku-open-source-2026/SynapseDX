@@ -5,6 +5,14 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [0.3.0] - 2026-10-07
 ### Changed (BREAKING)
+- Tái cấu trúc monorepo chuẩn: `apps/` (console, gateway, iam-service,
+  workflow-service — deployables, có Dockerfile, không publish) vs `sdks/`
+  (sdk-js, sdk-python, sdk-go) + `tools/cli` (distributables). npm workspaces:
+  `apps/*`, `tools/*`, `sdks/sdk-js`. Mọi CI path, compose context, docs,
+  SDK/CLI references cập nhật theo.
+
+## [0.3.0] - 2026-10-07
+### Changed (BREAKING)
 - Đổi tên dự án danax → SynapseDX: packages `@synapsedx/*`, `synapsedx-sdk`
   (PyPI), `synapsedx-sdk-go`, CLI `synapsedx` (`~/.synapsedx`), images
   `synapsedx/*`, K8s namespace `synapsedx`, key prefix `synapsedx_*`,
