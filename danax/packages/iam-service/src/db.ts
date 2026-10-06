@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * IAM persistence layer — Postgres with in-memory fallback for dev/test.
  */

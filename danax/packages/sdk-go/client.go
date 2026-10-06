@@ -1,7 +1,7 @@
-// Copyright 2026 OLP Contributors
+// Copyright 2026 danax Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
-// OLP Go SDK (minimal, fetch via net/http).
-package olp
+// danax Go SDK (minimal, fetch via net/http).
+package danax
 
 import (
 	"bytes"
@@ -45,7 +45,7 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("olp %d %s: %s", resp.StatusCode, path, string(b))
+		return nil, fmt.Errorf("danax %d %s: %s", resp.StatusCode, path, string(b))
 	}
 	return b, nil
 }

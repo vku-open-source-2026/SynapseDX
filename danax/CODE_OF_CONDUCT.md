@@ -1,6 +1,6 @@
 # Contributor Covenant Code of Conduct (summary)
 
-OLP is dedicated to a harassment-free experience for everyone, regardless of background.
+danax is dedicated to a harassment-free experience for everyone, regardless of background.
 
 - Be respectful, inclusive, and constructive.
 - Unacceptable: harassment, personal attacks, unwanted attention, publishing private info.

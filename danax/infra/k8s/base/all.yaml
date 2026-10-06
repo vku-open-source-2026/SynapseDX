@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: olp
+  name: danax
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: iam
-  namespace: olp
+  namespace: danax
 spec:
   replicas: 2
   selector:
@@ -18,11 +18,11 @@ spec:
     spec:
       containers:
         - name: iam
-          image: ghcr.io/olp/iam:0.2.0
+          image: ghcr.io/danax/iam:0.2.0
           ports: [{ containerPort: 4001 }]
           env:
-            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: olp-secrets, key: database-url } } }
-            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: olp-secrets, key: iam-jwt-secret } } }
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: danax-secrets, key: database-url } } }
+            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: danax-secrets, key: iam-jwt-secret } } }
           livenessProbe: { httpGet: { path: /health, port: 4001 }, initialDelaySeconds: 10, periodSeconds: 15 }
           readinessProbe: { httpGet: { path: /health, port: 4001 }, initialDelaySeconds: 5, periodSeconds: 10 }
 ---
@@ -30,7 +30,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: iam
-  namespace: olp
+  namespace: danax
 spec:
   selector: { app: iam }
   ports: [{ port: 4001, targetPort: 4001 }]
@@ -39,7 +39,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: gateway
-  namespace: olp
+  namespace: danax
 spec:
   replicas: 2
   selector:
@@ -50,7 +50,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: ghcr.io/olp/gateway:0.2.0
+          image: ghcr.io/danax/gateway:0.2.0
           ports: [{ containerPort: 8080 }]
           env:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
@@ -63,7 +63,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: gateway
-  namespace: olp
+  namespace: danax
 spec:
   type: LoadBalancer
   selector: { app: gateway }
@@ -73,7 +73,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: workflow
-  namespace: olp
+  namespace: danax
 spec:
   replicas: 1
   selector:
@@ -84,7 +84,7 @@ spec:
     spec:
       containers:
         - name: workflow
-          image: ghcr.io/olp/workflow:0.2.0
+          image: ghcr.io/danax/workflow:0.2.0
           ports: [{ containerPort: 4002 }]
           env:
             - { name: N8N_BASE_URL, value: "http://n8n:5678" }
@@ -95,7 +95,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: workflow
-  namespace: olp
+  namespace: danax
 spec:
   selector: { app: workflow }
   ports: [{ port: 4002, targetPort: 4002 }]
@@ -104,7 +104,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: console
-  namespace: olp
+  namespace: danax
 spec:
   replicas: 1
   selector:
@@ -115,11 +115,11 @@ spec:
     spec:
       containers:
         - name: console
-          image: ghcr.io/olp/console:0.2.0
+          image: ghcr.io/danax/console:0.2.0
           ports: [{ containerPort: 80 }]
           env:
             # URL gateway ma TRINH DUYET goi toi (Ingress/TLS ben ngoai) - doi theo domain that.
-            - { name: OLP_PUBLIC_BASE_URL, value: "https://gateway.example.com" }
+            - { name: DANAX_PUBLIC_BASE_URL, value: "https://gateway.example.com" }
           livenessProbe: { httpGet: { path: /, port: 80 }, initialDelaySeconds: 5, periodSeconds: 20 }
           readinessProbe: { httpGet: { path: /, port: 80 }, initialDelaySeconds: 3, periodSeconds: 10 }
 ---
@@ -127,7 +127,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: console
-  namespace: olp
+  namespace: danax
 spec:
   selector: { app: console }
   ports: [{ port: 80, targetPort: 80 }]

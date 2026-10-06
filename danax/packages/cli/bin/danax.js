@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * OLP CLI — zero dependencies, Node 18+ (global fetch).
+ * danax CLI — zero dependencies, Node 18+ (global fetch).
  */
 'use strict';
 
@@ -11,7 +11,7 @@ const os = require('os');
 const path = require('path');
 
 const VERSION = '0.1.0';
-const CONF_DIR = path.join(os.homedir(), '.olp');
+const CONF_DIR = path.join(os.homedir(), '.danax');
 const CONF_FILE = path.join(CONF_DIR, 'config.json');
 
 // ---------- config ----------
@@ -27,12 +27,12 @@ function saveConfig(cfg) {
   fs.writeFileSync(CONF_FILE, JSON.stringify(cfg, null, 2));
 }
 function baseUrl(opts) {
-  return (opts.base || process.env.OLP_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+  return (opts.base || process.env.DANAX_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
 }
 function authHeaders(opts) {
   const cfg = loadConfig();
-  const token = opts.token || process.env.OLP_TOKEN || cfg.token;
-  const apiKey = opts.apikey || process.env.OLP_API_KEY || cfg.apiKey;
+  const token = opts.token || process.env.DANAX_TOKEN || cfg.token;
+  const apiKey = opts.apikey || process.env.DANAX_API_KEY || cfg.apiKey;
   const h = { 'Content-Type': 'application/json', Connection: 'close' };
   if (token) h.Authorization = `Bearer ${token}`;
   if (apiKey) h['X-API-Key'] = apiKey;
@@ -349,28 +349,28 @@ const COMMANDS = {
 };
 
 function help() {
-  console.log(`olp v${VERSION} — Open Layer Platform CLI (Apache-2.0)
+  console.log(`danax v${VERSION} — Open Layer Platform CLI (Apache-2.0)
 
-Usage: olp [--base URL] [--token T | --apikey K] [--json] <command> [args]
+Usage: danax [--base URL] [--token T | --apikey K] [--json] <command> [args]
 
-Auth defaults: --base > $OLP_BASE_URL > ~/.olp/config.json > http://localhost:8080
+Auth defaults: --base > $DANAX_BASE_URL > ~/.danax/config.json > http://localhost:8080
 `);
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));
-  for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: olp ${COMMANDS[n].use}`);
-  console.log('\nExamples:\n  olp login --email demo@acme.local\n  olp orgs create acme2 "ACME 2"\n  olp authz <uid> workflow:Execute "*" --context team=etl\n  olp --json workflows list');
+  for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: danax ${COMMANDS[n].use}`);
+  console.log('\nExamples:\n  danax login --email demo@acme.local\n  danax orgs create acme2 "ACME 2"\n  danax authz <uid> workflow:Execute "*" --context team=etl\n  danax --json workflows list');
 }
 
 async function main() {
   const { args, opts } = parse(process.argv.slice(2));
   const [cmd, ...rest] = args;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h' || cmd === 'version' || cmd === '--version') {
-    if (cmd === 'version' || cmd === '--version') return console.log(`olp v${VERSION}`);
+    if (cmd === 'version' || cmd === '--version') return console.log(`danax v${VERSION}`);
     return help();
   }
   const c = COMMANDS[cmd];
   if (!c) {
-    console.error(`unknown command '${cmd}' — try: olp help`);
+    console.error(`unknown command '${cmd}' — try: danax help`);
     process.exit(2);
   }
   try {

@@ -1,8 +1,8 @@
 import os
-from olp_sdk import OlpClient
+from danax_sdk import DanaxClient
 
-base = os.environ.get("OLP_BASE_URL", "http://127.0.0.1:18128")
-c = OlpClient(base)
+base = os.environ.get("DANAX_BASE_URL", "http://127.0.0.1:18128")
+c = DanaxClient(base)
 login = c.login("pyfull@acme.local")
 r = c.refresh(login["refreshToken"])
 print("PY_REFRESH", bool(r["accessToken"]))

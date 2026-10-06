@@ -59,7 +59,7 @@ export default function Authorize() {
           <Field label="Action (vd workflow:Execute)">
             <Input value={action} onChange={(e) => setAction(e.target.value)} />
           </Field>
-          <Field label="Resource (vd * hoặc arn:olp:...)">
+          <Field label="Resource (vd * hoặc arn:danax:...)">
             <Input value={resource} onChange={(e) => setResource(e.target.value)} />
           </Field>
           <Field label="Context JSON (cho Condition)">

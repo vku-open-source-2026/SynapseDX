@@ -1,14 +1,14 @@
 .PHONY: help bootstrap build test lint compose-up compose-down compose-logs e2e sdk-check clean
 
 help:
-	@echo "OLP make targets:"
+	@echo "danax make targets:"
 	@echo "  bootstrap    - copy .env.example to .env + npm install all"
 	@echo "  build        - build all node packages"
 	@echo "  test         - run unit tests"
 	@echo "  compose-up   - docker compose up --build -d"
 	@echo "  compose-down - docker compose down"
 	@echo "  e2e          - run e2e smoke script"
-	@echo "  sdk-check    - live SDK smoke (needs gateway at OLP_BASE_URL)"
+	@echo "  sdk-check    - live SDK smoke (needs gateway at DANAX_BASE_URL)"
 
 bootstrap:
 	cp -n .env.example .env || copy .env.example .env

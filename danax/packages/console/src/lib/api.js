@@ -1,14 +1,14 @@
-// OLP API client (fetch-based, mirrors @olp/sdk). Apache-2.0.
+// danax API client (fetch-based, mirrors @danax/sdk). Apache-2.0.
 export function baseUrl() {
-  if (typeof window !== 'undefined' && window.OLP_CONFIG?.BASE_URL) {
-    return String(window.OLP_CONFIG.BASE_URL).replace(/\/$/, '');
+  if (typeof window !== 'undefined' && window.DANAX_CONFIG?.BASE_URL) {
+    return String(window.DANAX_CONFIG.BASE_URL).replace(/\/$/, '');
   }
-  return (import.meta.env?.VITE_OLP_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  return (import.meta.env?.VITE_DANAX_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 }
 
-export class OlpError extends Error {
+export class DanaxError extends Error {
   constructor(status, path, body) {
-    super(`OLP ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+    super(`danax ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
     this.status = status;
     this.body = body;
   }
@@ -26,7 +26,7 @@ async function req(path, { method = 'GET', body, token, apiKey } = {}) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
-    throw new Error(`OLP network ${path}: ${e.message || e}`);
+    throw new Error(`danax network ${path}: ${e.message || e}`);
   }
   const text = await r.text();
   let data = null;
@@ -35,7 +35,7 @@ async function req(path, { method = 'GET', body, token, apiKey } = {}) {
   } catch {
     data = text;
   }
-  if (!r.ok) throw new OlpError(r.status, path, data);
+  if (!r.ok) throw new DanaxError(r.status, path, data);
   return data;
 }
 

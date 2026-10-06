@@ -2,7 +2,7 @@
 
 ## Port đã có tiến trình khác dùng (EADDRINUSE / Bind for ... failed)
 Máy dev thường đã chạy sẵn service (ví dụ một web chiếm `:8080`, Postgres chiếm `:5432`).
-OLP không gán cứng host port — đổi qua env trong `.env`:
+danax không gán cứng host port — đổi qua env trong `.env`:
 
 | Env | Mặc định | Dịch vụ |
 |---|---|---|
@@ -29,7 +29,7 @@ Nếu tự sửa gateway: **không** `app.use(path, proxy)` + gán lại `req.ur
 
 ## IAM báo `db=memory` trong khi muốn Postgres
 `DATABASE_URL` chưa tới được container. Trong compose, `DATABASE_URL` trỏ `postgres:5432` (tên service). Khi chạy IAM ngoài docker (dev local), set:
-`DATABASE_URL=postgres://olp:<pw>@localhost:<HOST_PORT>/olp`.
+`DATABASE_URL=postgres://danax:<pw>@localhost:<HOST_PORT>/danax`.
 
 ## Authentik không lên
 `authentik-postgres-init` phải chạy xong trước (tạo user/db `authentik`). Xem log:
@@ -37,8 +37,8 @@ Nếu tự sửa gateway: **không** `app.use(path, proxy)` + gán lại `req.ur
 
 ## Backup / restore Postgres (cụm dữ liệu lõi)
 ```bash
-docker compose exec postgres pg_dump -U olp olp > olp-$(date +%F).sql
-cat olp-2026-10-06.sql | docker compose exec -T postgres psql -U olp -d olp
+docker compose exec postgres pg_dump -U danax danax > danax-$(date +%F).sql
+cat danax-2026-10-06.sql | docker compose exec -T postgres psql -U danax -d danax
 ```
 
 ## n8n báo lỗi API

@@ -1,10 +1,10 @@
 # TLS terminator (dev): 1 nginx SNI tren 443 —
-#   https://gateway.olp.local -> gateway:8080 (API)
-#   https://olp.local         -> console:80   (UI)
+#   https://gateway.danax.local -> gateway:8080 (API)
+#   https://danax.local         -> console:80   (UI)
 # Dung kem compose chinh:
 #   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build tls
 # Yeu cau: bash infra/tls/gen-cert.sh truoc, them vao hosts:
-#   127.0.0.1 olp.local gateway.olp.local
+#   127.0.0.1 danax.local gateway.danax.local
 # Production: thay cert self-signed bang LE/ACME, giu nguyen khoi tls nay.
 
 services:
@@ -18,4 +18,4 @@ services:
     depends_on:
       - gateway
       - console
-    networks: [olp-net]
+    networks: [danax-net]

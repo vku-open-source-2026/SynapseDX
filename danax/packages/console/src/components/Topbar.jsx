@@ -15,7 +15,7 @@ export default function Topbar() {
       <header className="lg:hidden fixed z-50 top-0 left-0 w-full bg-white/80 backdrop-blur-md shadow-sm">
         <div className="flex items-center justify-between px-4 h-14">
           <Link to="/" className="font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-            OLP Console
+            danax Console
           </Link>
           <button onClick={() => setOpen(!open)} className="text-xl text-normal-text">
             <FontAwesomeIcon icon={open ? faXmark : faBars} />

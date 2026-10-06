@@ -35,7 +35,7 @@ export default function Sidebar() {
     <div className="fixed left-[1%] top-0 h-screen w-1/5 max-w-72 hidden lg:flex flex-col items-center z-40">
       <Link to="/">
         <h1 className="my-6 mt-10 ml-2 text-2xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-          OLP Console
+          danax Console
         </h1>
       </Link>
       <nav className="w-5/6 bg-white rounded-3xl py-4 px-2 flex flex-col text-normal-text shadow-md max-h-[78vh] overflow-y-auto">

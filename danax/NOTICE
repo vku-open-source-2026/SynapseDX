@@ -1,5 +1,5 @@
-OLP — Open Layer Platform
-Copyright 2026 OLP Contributors
+danax — Open Layer Platform
+Copyright 2026 danax Contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-This product includes software developed by the OLP Contributors.
+This product includes software developed by the danax Contributors.
 
 Third-party components (each under its own license):
 - Authentik (https://goauthentik.io) — MIT-licensed identity provider, used as optional external IdP via OIDC.

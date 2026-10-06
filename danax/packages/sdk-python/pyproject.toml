@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "olp-sdk"
+name = "danax-sdk"
 version = "0.2.0"
-description = "OLP SDK for Python (Apache-2.0)"
+description = "danax SDK for Python (Apache-2.0)"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
@@ -16,4 +16,4 @@ dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["olp_sdk*"]
+include = ["danax_sdk*"]

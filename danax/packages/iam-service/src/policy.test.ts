@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Unit tests for AWS-style policy evaluation (pure, no DB).
  */
@@ -20,9 +20,9 @@ describe('matchPattern', () => {
     assert.equal(matchPattern('iam:Create', 'iam:Delete'), false);
   });
   it('arn-style resources', () => {
-    const doc = { Version: '1', Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: 'arn:olp:acme:prod:workflow:*' }] };
-    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:olp:acme:prod:workflow:etl' }).allowed, true);
-    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:olp:acme:staging:workflow:etl' }).allowed, false);
+    const doc = { Version: '1', Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: 'arn:danax:acme:prod:workflow:*' }] };
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:danax:acme:prod:workflow:etl' }).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:danax:acme:staging:workflow:etl' }).allowed, false);
   });
 });
 

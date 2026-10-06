@@ -1,10 +1,10 @@
 {
-  "name": "@olp/cli",
+  "name": "@danax/cli",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "OLP CLI - zero-dependency command line for Tier-1 PaaS (Node 18+)",
+  "description": "danax CLI - zero-dependency command line for Tier-1 PaaS (Node 18+)",
   "bin": {
-    "olp": "./bin/olp.js"
+    "danax": "./bin/danax.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js || echo \"no tests\""

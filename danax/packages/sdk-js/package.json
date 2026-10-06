@@ -1,8 +1,8 @@
 {
-  "name": "@olp/sdk",
+  "name": "@danax/sdk",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "OLP SDK for JavaScript/TypeScript",
+  "description": "danax SDK for JavaScript/TypeScript",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

@@ -23,7 +23,7 @@ Toàn cục: audit_log ghi mọi authorize decision (xem `GET /v1/audit`).
 }
 ```
 - `Action`: `service:Verb`, hỗ trợ `*` và `prefix:*` (vd `workflow:*`, `iam:*`).
-- `Resource`: ARN-ish hoặc `*` (vd `arn:olp:acme:prod:workflow:etl-nightly`).
+- `Resource`: ARN-ish hoặc `*` (vd `arn:danax:acme:prod:workflow:etl-nightly`).
 - Đánh giá: **Deny tường minh thắng → Allow → mặc định Deny**.
 
 ## Condition (subset AWS)
@@ -41,8 +41,8 @@ biến thể `...IfExists` (bỏ qua key vắng mặt). Toán tử lạ → cons
 | Loại | Định dạng | TTL mặc định | Lưu trữ |
 |---|---|---|---|
 | Access JWT | Bearer `eyJ...` (HS256) | 3600s | stateless, verify bằng `IAM_JWT_SECRET` |
-| Refresh | `olp_rt_...` opaque, **xoay vòng** | 30 ngày | SHA-256 hash trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
-| API key | `olp_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index, `DELETE /v1/keys/:id` để thu hồi |
+| Refresh | `danax_rt_...` opaque, **xoay vòng** | 30 ngày | SHA-256 hash trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
+| API key | `danax_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index, `DELETE /v1/keys/:id` để thu hồi |
 | Service account | Bearer JWT `kind=service-account` | 3600s | stateless, mang `account` scope |
 
 Lưu ý: access JWT stateless nên **không thu hồi lẻ** được — giữ TTL ngắn (1h) và
@@ -51,8 +51,8 @@ tức thì: xoay `IAM_JWT_SECRET` (restart iam+gateway, mọi JWT cũ vô hiệu
 
 Lưu ý hiện tại: `scopes` của API key được lưu + trả về khi verify (`/v1/keys/verify`).
 Gateway mặc định chỉ check presence ở edge (upstream verify chi tiết); bật
-`GATEWAY_VERIFY_APIKEY=true` để gateway verify tập trung (kèm `x-olp-account`,
-`x-olp-scopes` xuống upstream). Enforce scope theo từng route là mục v0.2
+`GATEWAY_VERIFY_APIKEY=true` để gateway verify tập trung (kèm `x-danax-account`,
+`x-danax-scopes` xuống upstream). Enforce scope theo từng route là mục v0.2
 (xem `ROADMAP.md`).
 
 ## OIDC (Authentik / Keycloak)

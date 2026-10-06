@@ -1,6 +1,6 @@
-# Copyright 2026 OLP Contributors
+# Copyright 2026 danax Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
-"""OLP Python SDK — gateway + IAM + workflow client."""
+"""danax Python SDK — gateway + IAM + workflow client."""
 
 from __future__ import annotations
 
@@ -9,12 +9,12 @@ from typing import Any, Optional
 import requests
 
 
-class OlpError(Exception):
-    """Mọi lỗi SDK đều là OlpError (network hoặc HTTP)."""
+class DanaxError(Exception):
+    """Mọi lỗi SDK đều là DanaxError (network hoặc HTTP)."""
 
 
 @dataclass
-class OlpClient:
+class DanaxClient:
     base_url: str
     token: Optional[str] = None
     api_key: Optional[str] = None
@@ -35,11 +35,11 @@ class OlpClient:
         try:
             r = requests.request(method, self.base_url + path, json=body, headers=self._headers(), timeout=self.timeout)
         except Exception as e:  # network, DNS, timeout...
-            raise OlpError(f"OLP network {path}: {e}") from e
+            raise DanaxError(f"danax network {path}: {e}") from e
         try:
             r.raise_for_status()
         except Exception as e:
-            raise OlpError(f"OLP {r.status_code} {path}: {r.text[:500]}") from e
+            raise DanaxError(f"danax {r.status_code} {path}: {r.text[:500]}") from e
         return r.json() if r.text else None
 
     # ---- auth ----

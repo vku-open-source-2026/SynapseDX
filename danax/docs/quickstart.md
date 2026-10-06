@@ -30,7 +30,7 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 ```
 
 ## 4. Authentik (IdP mặc định)
-- Mở `http://localhost:19000` (host port `AUTHENTIK_HTTP_PORT`; user/pass bootstrap trong log `authentik-server`), tạo Provider `olp` + Application, lấy `OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET` điền vào `.env`, restart `iam`.
+- Mở `http://localhost:19000` (host port `AUTHENTIK_HTTP_PORT`; user/pass bootstrap trong log `authentik-server`), tạo Provider `danax` + Application, lấy `OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET` điền vào `.env`, restart `iam`.
 - Muốn dùng Keycloak thay thế: dựng Keycloak, tạo realm+client, đổi `OIDC_ISSUER` thành `https://<keycloak>/realms/<realm>` — IAM không đổi code.
 
 ## 5. N8N
@@ -39,19 +39,19 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 - Script headless (đã kiểm chứng với n8n 1.66):
   ```bash
   curl -XPOST localhost:5678/rest/owner/setup -H'Content-Type: application/json' \
-    -d'{"email":"owner@acme.local","firstName":"OLP","lastName":"Owner","password":"<STR0NG>"}'
+    -d'{"email":"owner@acme.local","firstName":"danax","lastName":"Owner","password":"<STR0NG>"}'
   # login (cookie) rồi tạo API key:
   curl -c jar -XPOST localhost:5678/rest/login -H'Content-Type: application/json' \
     -d'{"email":"owner@acme.local","password":"<STR0NG>"}'
   curl -b jar -XPOST localhost:5678/rest/api-keys -H'Content-Type: application/json' \
-    -d'{"label":"olp"}'   # → data.apiKey
+    -d'{"label":"danax"}'   # → data.apiKey
   ```
   Lưu ý: n8n đặt cookie `Secure` nên flow cookie chỉ chạy trên http khi
   `N8N_SECURE_COOKIE=false` (local dev); sau TLS-terminating proxy giữ mặc định.
   Flow API key (`X-N8N-API-KEY`, cách `workflow-service` gọi n8n) không cần cookie.
 
 ## 6. Object storage (S3)
-- S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `olp-core` tự tạo bởi service `s3-init`.
+- S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `danax-core` tự tạo bởi service `s3-init`.
 - Kiểm tra: `aws --endpoint-url http://localhost:9090 s3 ls` (access key trong `.env`: `S3_ACCESS_KEY/S3_SECRET_KEY`).
 - Production: đổi sang MinIO (`quay.io/minio/minio`) hoặc AWS S3 bằng cách thay service `s3` + `S3_ENDPOINT` — SDK/API không đổi vì đều nói S3.
 
@@ -71,9 +71,9 @@ Idempotent, chạy lại an toàn. Biến `SEED_ORG`, `SEED_EMAIL` để đổi 
 ```bash
 bash infra/tls/gen-cert.sh
 docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d tls
-# https://gateway.olp.local:8443 (API), https://olp.local:8443 (console)
-# cần quyền admin để thêm '127.0.0.1 olp.local gateway.olp.local' vào hosts,
+# https://gateway.danax.local:8443 (API), https://danax.local:8443 (console)
+# cần quyền admin để thêm '127.0.0.1 danax.local gateway.danax.local' vào hosts,
 # hoặc curl --resolve ...:8443:127.0.0.1 (bỏ qua SNI/DNS)
 ```
-Cert self-signed cho `olp.local` (`infra/tls/certs/`, gitignored). Production:
+Cert self-signed cho `danax.local` (`infra/tls/certs/`, gitignored). Production:
 thay bằng cert LE/ACME, giữ nguyên service `tls`.

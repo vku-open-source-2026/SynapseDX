@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Seed du lieu mau cho OLP: org demo + accounts + roles/policies/users + api key.
+# Seed du lieu mau cho danax: org demo + accounts + roles/policies/users + api key.
 # Idempotent (chay lai an toan). Yeu cau: gateway dang chay, jq co san.
 set -uo pipefail
-BASE="${OLP_BASE_URL:-http://localhost:8080}"
+BASE="${DANAX_BASE_URL:-http://localhost:8080}"
 ORGSLUG="${SEED_ORG:-demo}"
 EMAIL="${SEED_EMAIL:-admin@demo.local}"
 

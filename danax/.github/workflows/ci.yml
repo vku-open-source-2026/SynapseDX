@@ -54,7 +54,7 @@ jobs:
           curl -sf http://localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | grep -q webhook-to-log
           echo E2E_OK
       - run: bash tests/e2e/api-check.sh
-      - run: pip install ./packages/sdk-python -q && OLP_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
-      - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && OLP_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
+      - run: pip install ./packages/sdk-python -q && DANAX_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
+      - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && DANAX_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
       - run: docker compose down -v
         if: always()

@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# OLP quickstart cho Windows PowerShell (tương đương examples/quickstart/demo.sh)
+# danax quickstart cho Windows PowerShell (tương đương examples/quickstart/demo.sh)
 param([string]$Base = "http://localhost:8080")
 $OrgSlug = if ($env:DEMO_ORG_SLUG) { $env:DEMO_ORG_SLUG } else { "acme" }
 $AccSlug = if ($env:DEMO_ACCOUNT_SLUG) { $env:DEMO_ACCOUNT_SLUG } else { "prod" }

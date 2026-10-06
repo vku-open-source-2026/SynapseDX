@@ -1,21 +1,21 @@
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * OLP JavaScript SDK — works in Node 18+ and browsers (fetch-based).
+ * danax JavaScript SDK — works in Node 18+ and browsers (fetch-based).
  */
 
-export interface OlpClientOptions {
+export interface DanaxClientOptions {
   baseUrl: string; // gateway, e.g. http://localhost:8080
   token?: string; // Bearer JWT
   apiKey?: string; // X-API-Key
 }
 
-export class OlpClient {
+export class DanaxClient {
   private baseUrl: string;
   private token?: string;
   private apiKey?: string;
 
-  constructor(opts: OlpClientOptions) {
+  constructor(opts: DanaxClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.token = opts.token;
     this.apiKey = opts.apiKey;
@@ -39,11 +39,11 @@ export class OlpClient {
         headers: this.headers((init?.headers as any) || {}),
       });
     } catch (e: any) {
-      throw new Error(`OLP network ${path}: ${e?.message || e}`);
+      throw new Error(`danax network ${path}: ${e?.message || e}`);
     }
     if (!r.ok) {
       const text = await r.text();
-      throw new Error(`OLP ${r.status} ${path}: ${text}`);
+      throw new Error(`danax ${r.status} ${path}: ${text}`);
     }
     return (await r.json()) as T;
   }

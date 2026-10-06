@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Minimal Redis fixed-window store for express-rate-limit v7 (callback API).
  * Lua script giữ INCR + EXPIRE nguyên tử; prefix key để share Redis an toàn.
@@ -30,7 +30,7 @@ export function createRedisStore(opts: RedisStoreOptions) {
     enableOfflineQueue: false,
     retryStrategy: (times) => Math.min(times * 200, 2000),
   });
-  const prefix = opts.prefix || 'olp:rl:';
+  const prefix = opts.prefix || 'danax:rl:';
   redis.on('error', (e) => console.error('[gateway][ratelimit] redis error:', e.message));
 
   return {

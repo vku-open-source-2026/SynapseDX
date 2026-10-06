@@ -1,13 +1,13 @@
 #Requires -Version 5.1
-# OLP e2e smoke cho Windows PowerShell
-param([string]$Base = $env:OLP_BASE_URL)
+# danax e2e smoke cho Windows PowerShell
+param([string]$Base = $env:DANAX_BASE_URL)
 if (-not $Base) { $Base = "http://localhost:8080" }
 $Iam = "http://localhost:4001"
 $pass = 0; $fail = 0
 function Check($name, [scriptblock]$sb) {
   try { & $sb | Out-Null; Write-Host "PASS $name"; $script:pass++ } catch { Write-Host "FAIL $name : $_"; $script:fail++ }
 }
-Write-Host "== OLP smoke vs $Base =="
+Write-Host "== danax smoke vs $Base =="
 Check "gateway-health" { Invoke-RestMethod "$Base/health" -TimeoutSec 10 }
 Check "iam-health" { Invoke-RestMethod "$Iam/health" -TimeoutSec 10 }
 try {

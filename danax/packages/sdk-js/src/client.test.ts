@@ -1,12 +1,12 @@
 /*
- * Copyright 2026 OLP Contributors
+ * Copyright 2026 danax Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Offline SDK tests — local echo server, no platform needed.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { OlpClient } from './index';
+import { DanaxClient } from './index';
 
 let base = '';
 let lastHeaders: Record<string, string | string[] | undefined> = {};
@@ -33,14 +33,14 @@ before(
 
 after(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
-describe('OlpClient', () => {
+describe('DanaxClient', () => {
   it('trims trailing slash', () => {
-    const c = new OlpClient({ baseUrl: 'http://x:8080/' });
+    const c = new DanaxClient({ baseUrl: 'http://x:8080/' });
     assert.equal((c as any).baseUrl, 'http://x:8080');
   });
 
   it('sends Bearer token', async () => {
-    const c = new OlpClient({ baseUrl: base });
+    const c = new DanaxClient({ baseUrl: base });
     c.setToken('tok123');
     await c.listOrgs();
     assert.equal(lastHeaders['authorization'], 'Bearer tok123');
@@ -48,13 +48,13 @@ describe('OlpClient', () => {
   });
 
   it('sends X-API-Key', async () => {
-    const c = new OlpClient({ baseUrl: base, apiKey: 'k1' });
+    const c = new DanaxClient({ baseUrl: base, apiKey: 'k1' });
     await c.listTemplates();
     assert.equal(lastHeaders['x-api-key'], 'k1');
   });
 
   it('throws rich error on non-2xx', async () => {
-    const bad = new OlpClient({ baseUrl: 'http://127.0.0.1:1' });
-    await assert.rejects(() => bad.listOrgs(), /OLP/);
+    const bad = new DanaxClient({ baseUrl: 'http://127.0.0.1:1' });
+    await assert.rejects(() => bad.listOrgs(), /danax/);
   });
 });

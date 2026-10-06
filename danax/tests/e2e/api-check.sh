@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# OLP full API check — bao phu toan bo IAM + workflow templates qua gateway.
-# Yeu cau: gateway dang chay; OLP_BASE_URL (mac dinh http://localhost:8080).
+# danax full API check — bao phu toan bo IAM + workflow templates qua gateway.
+# Yeu cau: gateway dang chay; DANAX_BASE_URL (mac dinh http://localhost:8080).
 # Tra ve exit 0 neu tat ca pass.
 set -uo pipefail
-BASE="${OLP_BASE_URL:-http://localhost:8080}"
+BASE="${DANAX_BASE_URL:-http://localhost:8080}"
 pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "PASS $1"; }
 bad()  { fail=$((fail+1)); echo "FAIL $1 -- $2"; }

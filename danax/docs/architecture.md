@@ -1,4 +1,4 @@
-# Architecture — OLP Tier-1 PaaS
+# Architecture — danax Tier-1 PaaS
 
 ```
                     ┌─────────────┐   OIDC    ┌──────────────┐
@@ -26,10 +26,10 @@
 ```
 
 ## Tầng 1 = PaaS
-- **API Gateway**: điểm vào duy nhất, xác thực (JWT/API key), strip + ghi lại header `x-olp-*` từ principal đã verify (chống spoof), rate-limit (Redis khi có `REDIS_URL`, fail-open), định tuyến theo `routes.yaml`, metrics Prometheus.
+- **API Gateway**: điểm vào duy nhất, xác thực (JWT/API key), strip + ghi lại header `x-danax-*` từ principal đã verify (chống spoof), rate-limit (Redis khi có `REDIS_URL`, fail-open), định tuyến theo `routes.yaml`, metrics Prometheus.
 - **Access Management (IAM)**: mô hình AWS — Organization (như AWS Organization), Account (như AWS Account), User/Role/Policy JSON (như IAM policy), `POST /v1/authorize` đánh giá Allow/Deny. Authentik/Keycloak chỉ làm IdP federated qua OIDC; IAM giữ shadow user + toàn bộ phân quyền.
-- **Token**: JWT ngắn hạn (Bearer), refresh token xoay vòng (opaque, hash trong DB), API key dài hạn kiểu `olp_...` (hash + prefix), service account cho workload.
-- **Cụm dữ liệu lõi**: Postgres 16 (source of truth), Redis (cache/rate-limit/session), S3Mock (object storage S3-compatible, bucket `olp-core`; production đổi sang MinIO/S3 thật qua `S3_ENDPOINT`).
+- **Token**: JWT ngắn hạn (Bearer), refresh token xoay vòng (opaque, hash trong DB), API key dài hạn kiểu `danax_...` (hash + prefix), service account cho workload.
+- **Cụm dữ liệu lõi**: Postgres 16 (source of truth), Redis (cache/rate-limit/session), S3Mock (object storage S3-compatible, bucket `danax-core`; production đổi sang MinIO/S3 thật qua `S3_ENDPOINT`).
 - **Workflow**: n8n là engine ngoài (SUL, không fork), `workflow-service` là control-plane: proxy API, template versioned, execute.
 
 ## Quyết định kỹ thuật

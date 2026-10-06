@@ -1,6 +1,6 @@
 # Governance
 
-OLP is a community project under Apache-2.0.
+danax is a community project under Apache-2.0.
 
 ## Roles
 - **Contributors**: anyone with a merged PR.
@@ -12,4 +12,4 @@ OLP is a community project under Apache-2.0.
 - `CHANGELOG.md` updated per release.
 
 ## Trademark
-"OLP" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.
+"danax" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.

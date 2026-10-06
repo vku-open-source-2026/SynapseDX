@@ -1,3 +1,3 @@
-module github.com/olp/olp-sdk-go
+module github.com/danax/danax-sdk-go
 
 go 1.22

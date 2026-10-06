@@ -1,6 +1,6 @@
-# Contributing to OLP
+# Contributing to danax
 
-Thanks for considering contributing. OLP follows standard open-source practices.
+Thanks for considering contributing. danax follows standard open-source practices.
 
 ## Ground rules
 - License: Apache-2.0. By contributing you agree your contribution is under the same license (see `LICENSE`).

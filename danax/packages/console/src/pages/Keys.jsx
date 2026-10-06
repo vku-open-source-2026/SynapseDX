@@ -29,7 +29,7 @@ export default function Keys() {
 
   return (
     <>
-      <PageTitle title="API Keys" sub="Key dài hạn olp_* — chỉ hiện 1 lần khi tạo" right={<Btn onClick={() => setOpen(true)}>+ Tạo key</Btn>} />
+      <PageTitle title="API Keys" sub="Key dài hạn danax_* — chỉ hiện 1 lần khi tạo" right={<Btn onClick={() => setOpen(true)}>+ Tạo key</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>

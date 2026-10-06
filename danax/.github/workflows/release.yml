@@ -65,11 +65,11 @@ jobs:
       - run: |
           OWNER="${{ github.repository_owner }}"
           TAG="${GITHUB_REF_NAME#v}"
-          docker build -t "ghcr.io/$OWNER/olp-gateway:$TAG" -t "ghcr.io/$OWNER/olp-gateway:latest" packages/gateway
-          docker build -t "ghcr.io/$OWNER/olp-iam:$TAG" -t "ghcr.io/$OWNER/olp-iam:latest" packages/iam-service
-          docker build -t "ghcr.io/$OWNER/olp-workflow:$TAG" -t "ghcr.io/$OWNER/olp-workflow:latest" packages/workflow-service
-          docker build -t "ghcr.io/$OWNER/olp-console:$TAG" -t "ghcr.io/$OWNER/olp-console:latest" packages/console
-          docker push "ghcr.io/$OWNER/olp-gateway:$TAG" && docker push "ghcr.io/$OWNER/olp-gateway:latest"
-          docker push "ghcr.io/$OWNER/olp-iam:$TAG" && docker push "ghcr.io/$OWNER/olp-iam:latest"
-          docker push "ghcr.io/$OWNER/olp-workflow:$TAG" && docker push "ghcr.io/$OWNER/olp-workflow:latest"
-          docker push "ghcr.io/$OWNER/olp-console:$TAG" && docker push "ghcr.io/$OWNER/olp-console:latest"
+          docker build -t "ghcr.io/$OWNER/danax-gateway:$TAG" -t "ghcr.io/$OWNER/danax-gateway:latest" packages/gateway
+          docker build -t "ghcr.io/$OWNER/danax-iam:$TAG" -t "ghcr.io/$OWNER/danax-iam:latest" packages/iam-service
+          docker build -t "ghcr.io/$OWNER/danax-workflow:$TAG" -t "ghcr.io/$OWNER/danax-workflow:latest" packages/workflow-service
+          docker build -t "ghcr.io/$OWNER/danax-console:$TAG" -t "ghcr.io/$OWNER/danax-console:latest" packages/console
+          docker push "ghcr.io/$OWNER/danax-gateway:$TAG" && docker push "ghcr.io/$OWNER/danax-gateway:latest"
+          docker push "ghcr.io/$OWNER/danax-iam:$TAG" && docker push "ghcr.io/$OWNER/danax-iam:latest"
+          docker push "ghcr.io/$OWNER/danax-workflow:$TAG" && docker push "ghcr.io/$OWNER/danax-workflow:latest"
+          docker push "ghcr.io/$OWNER/danax-console:$TAG" && docker push "ghcr.io/$OWNER/danax-console:latest"

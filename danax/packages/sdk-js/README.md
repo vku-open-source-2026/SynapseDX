@@ -1,15 +1,15 @@
-# `@olp/sdk` — OLP SDK for JavaScript/TypeScript
+# `@danax/sdk` — danax SDK for JavaScript/TypeScript
 
-Apache-2.0. Part of [OLP](../../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [danax](../../README.md) Tier-1 PaaS.
 
 ```bash
-npm install @olp/sdk
+npm install @danax/sdk
 ```
 
 ```ts
-import { OlpClient } from '@olp/sdk';
+import { DanaxClient } from '@danax/sdk';
 
-const c = new OlpClient({ baseUrl: 'http://localhost:8080' });
+const c = new DanaxClient({ baseUrl: 'http://localhost:8080' });
 const { accessToken, user } = await c.login('demo@acme.local');
 c.setToken(accessToken);
 

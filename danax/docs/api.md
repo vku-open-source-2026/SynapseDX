@@ -3,9 +3,9 @@
 Base: `http://localhost:8080` (gateway) — mọi route `/v1/*` yêu cầu `Authorization: Bearer <JWT>` hoặc `X-API-Key`, trừ `/v1/auth/*`.
 
 ## Principal propagation (gateway → upstream)
-Gateway **xóa** mọi header `x-olp-*` do client gửi (chống spoof) rồi **ghi lại từ
-principal đã verify**: `x-olp-kind: user|apikey`, `x-olp-user: <sub>`,
-`x-olp-org`, `x-olp-account`, `x-olp-scopes`. Upstream tin dùng trực tiếp,
+Gateway **xóa** mọi header `x-danax-*` do client gửi (chống spoof) rồi **ghi lại từ
+principal đã verify**: `x-danax-kind: user|apikey`, `x-danax-user: <sub>`,
+`x-danax-org`, `x-danax-account`, `x-danax-scopes`. Upstream tin dùng trực tiếp,
 không cần re-verify JWT.
 
 ## Auth

@@ -1,8 +1,8 @@
 {
-  "name": "@olp/console",
+  "name": "@danax/console",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "OLP Console - AWS-style management UI (React + Vite + Tailwind)",
+  "description": "danax Console - AWS-style management UI (React + Vite + Tailwind)",
   "private": true,
   "type": "module",
   "scripts": {
