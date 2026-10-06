@@ -1,8 +1,8 @@
 {
   "name": "@olp/workflow-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "OLP Workflow — proxy + template management for n8n",
+  "description": "OLP Workflow - proxy + template management for n8n",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

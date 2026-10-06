@@ -3,6 +3,20 @@
 All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
+## [0.2.0] - 2026-10-06
+### Added
+- Console: AWS-style management UI (React 18 + Vite + Tailwind, BWD look:
+  Poppins, gradient `#4FACFE→#00F2FE`, sidebar + FontAwesome) — Dashboard (ready),
+  Organizations/Accounts/Users/Roles/Policies (JSON editor)/API Keys/Service
+  Accounts/Workflows/Authorize simulator/Audit Log; login email+org hoặc API key;
+  runtime backend URL qua `config.js` (`OLP_PUBLIC_BASE_URL`); compose service
+  `:3000`, K8s Deployment/Service, Nginx SPA image `olp/console`.
+- CLI `olp` zero-dependency (Node 18+): login/use-key/logout, orgs/accounts/users,
+  roles/policies/attach/assign, authz/sim (kèm `--context`), audit, keys
+  create/revoke, sa create/token, workflows/templates, config; `--json` cho script;
+  config `~/.olp/config.json`; unit tests offline (exit-code chuẩn).
+- K8s: console Deployment/Service; release workflow publish thêm `olp-console`.
+
 ## [0.1.0] - 2026-10-06
 ### Added
 - Tier-1 PaaS MVP: gateway, IAM (AWS-style org/account/role/policy + tokens + OIDC config), core data (Postgres/Redis/S3), workflow-service over n8n (proxied control-plane + versioned templates + activate/execute, trigger→execution verified on real n8n).

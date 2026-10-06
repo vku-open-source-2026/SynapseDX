@@ -135,7 +135,7 @@ services:
   iam:
     build:
       context: ./packages/iam-service
-    image: olp/iam:0.1.0
+    image: olp/iam:0.2.0
     environment:
       PORT: 4001
       DATABASE_URL: postgres://${POSTGRES_USER:-olp}:${POSTGRES_PASSWORD:-olp_password_change_me}@postgres:5432/${POSTGRES_DB:-olp}
@@ -166,7 +166,7 @@ services:
   workflow:
     build:
       context: ./packages/workflow-service
-    image: olp/workflow:0.1.0
+    image: olp/workflow:0.2.0
     environment:
       PORT: 4002
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
@@ -188,7 +188,7 @@ services:
   gateway:
     build:
       context: ./packages/gateway
-    image: olp/gateway:0.1.0
+    image: olp/gateway:0.2.0
     environment:
       PORT: 8080
       IAM_SERVICE_URL: http://iam:4001
@@ -219,9 +219,9 @@ services:
   console:
     build:
       context: ./packages/console
-    image: olp/console:0.1.0
+    image: olp/console:0.2.0
     environment:
-      # URL gateway mà TRÌNH DUYỆT gọi tới (không phải tên service docker).
+      # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).
       OLP_PUBLIC_BASE_URL: ${OLP_PUBLIC_BASE_URL:-http://localhost:8080}
     ports:
       - "${CONSOLE_HOST_PORT:-3000}:80"

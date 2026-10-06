@@ -1,8 +1,8 @@
 {
   "name": "@olp/iam-service",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "OLP IAM — AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
+  "description": "OLP IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
