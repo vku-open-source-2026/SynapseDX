@@ -9,6 +9,7 @@
 | [configuration.md](configuration.md) | Bảng env toàn stack |
 | [object-storage.md](object-storage.md) | S3 backend (S3Mock mặc định, MinIO/S3 prod) |
 | [troubleshooting.md](troubleshooting.md) | Port bận, curl Windows, 404 gateway, backup/restore |
+| [console.md](console.md) | Management UI (chạy, cấu hình, dev frontend) |
 | [production.md](production.md) | Checklist production (secret, TLS, backup, pin image) |
 
 Bắt đầu từ [../README.md](../README.md) → [quickstart.md](quickstart.md).

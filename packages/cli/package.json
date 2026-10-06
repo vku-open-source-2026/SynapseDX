@@ -1,0 +1,15 @@
+{
+  "name": "@olp/cli",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "OLP CLI — zero-dependency command line for Tier-1 PaaS (Node 18+)",
+  "bin": {
+    "olp": "./bin/olp.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js || echo \"no tests\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "Version": "2026-01-01",
+  "Statement": [
+    { "Effect": "Allow", "Action": ["workflow:Execute"], "Resource": "*", "Condition": { "StringEquals": { "team": "etl" } } },
+    { "Effect": "Deny", "Action": ["iam:*"], "Resource": "*" }
+  ]
+}

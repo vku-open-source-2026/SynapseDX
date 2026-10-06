@@ -40,6 +40,8 @@ packages/workflow-service  control-plane n8n (proxy + templates)
 packages/sdk-js            @olp/sdk (TypeScript)
 packages/sdk-python        olp-sdk (Python)
 packages/sdk-go            olp-sdk-go (Go, minimal)
+packages/console           Management UI kiểu AWS (React+Vite+Tailwind)
+packages/cli               CLI `olp` zero-dependency (Node 18+)
 infra/postgres/init.sql    schema lõi (orgs/accounts/users/roles/policies/keys/...)
 infra/k8s/base             Kustomize cho K8s
 examples/quickstart        script demo end-to-end
@@ -69,6 +71,13 @@ print(c.list_orgs())
 c := olp.New("http://localhost:8080")
 out, _ := c.Login("demo@acme.local")
 ```
+
+## Truy cập: Console UI & CLI
+- **Console** (`http://localhost:3000` sau `docker compose up -d console`):
+  login `demo@acme.local` / org `acme` → quản trị Org/Account/User/Role/Policy/Key,
+  authorize simulator, workflow, audit. Chi tiết: `docs/console.md`.
+- **CLI** (`packages/cli`, zero-dependency): `node packages/cli/bin/olp.js login ...`
+  — xem `packages/cli/README.md`.
 
 ## Cấu hình IdP (Access Management)
 - Mặc định **Authentik** (nội bộ `authentik-server:9000`, ngoài máy `http://localhost:19000`), xem `infra/authentik/README.md`.
