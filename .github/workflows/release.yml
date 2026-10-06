@@ -68,6 +68,8 @@ jobs:
           docker build -t "ghcr.io/$OWNER/olp-gateway:$TAG" -t "ghcr.io/$OWNER/olp-gateway:latest" packages/gateway
           docker build -t "ghcr.io/$OWNER/olp-iam:$TAG" -t "ghcr.io/$OWNER/olp-iam:latest" packages/iam-service
           docker build -t "ghcr.io/$OWNER/olp-workflow:$TAG" -t "ghcr.io/$OWNER/olp-workflow:latest" packages/workflow-service
+          docker build -t "ghcr.io/$OWNER/olp-console:$TAG" -t "ghcr.io/$OWNER/olp-console:latest" packages/console
           docker push "ghcr.io/$OWNER/olp-gateway:$TAG" && docker push "ghcr.io/$OWNER/olp-gateway:latest"
           docker push "ghcr.io/$OWNER/olp-iam:$TAG" && docker push "ghcr.io/$OWNER/olp-iam:latest"
           docker push "ghcr.io/$OWNER/olp-workflow:$TAG" && docker push "ghcr.io/$OWNER/olp-workflow:latest"
+          docker push "ghcr.io/$OWNER/olp-console:$TAG" && docker push "ghcr.io/$OWNER/olp-console:latest"
