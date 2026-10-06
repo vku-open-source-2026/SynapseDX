@@ -216,6 +216,19 @@ services:
         condition: service_healthy
     networks: [olp-net]
 
+  console:
+    build:
+      context: ./packages/console
+    image: olp/console:0.1.0
+    environment:
+      # URL gateway mà TRÌNH DUYỆT gọi tới (không phải tên service docker).
+      OLP_PUBLIC_BASE_URL: ${OLP_PUBLIC_BASE_URL:-http://localhost:8080}
+    ports:
+      - "${CONSOLE_HOST_PORT:-3000}:80"
+    depends_on:
+      - gateway
+    networks: [olp-net]
+
 volumes:
   pgdata:
   redisdata:

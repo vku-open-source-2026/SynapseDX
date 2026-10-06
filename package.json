@@ -7,7 +7,9 @@
     "packages/gateway",
     "packages/iam-service",
     "packages/workflow-service",
-    "packages/sdk-js"
+    "packages/sdk-js",
+    "packages/console",
+    "packages/cli"
   ],
   "scripts": {
     "install:all": "npm install --workspaces",
