@@ -13,8 +13,8 @@ Compose đã dựng `authentik-server:9000` + `authentik-worker` chung Postgres/
 5. Điền `OIDC_CLIENT_SECRET` vào `.env`, `docker compose up -d iam`.
 
 > Ghi chú deploy: image Authentik không in password bootstrap ra log, nên
-> password `akadmin` được đặt trực tiếp qua DB lúc dựng (Django PBKDF2):
-> `akadmin / OlpAdmin123!` — đổi ngay sau khi vào. Đặt lại khi cần bằng UPDATE
+> password `akadmin` được đặt trực tiếp qua DB lúc dựng (Django PBKDF2).
+> Đổi ngay sau khi vào. Đặt lại khi cần bằng UPDATE
 > bảng `authentik_core_user` hoặc flow recovery của Authentik.
 
 ## Đã provision sẵn trên deployment này (không cần làm lại)
