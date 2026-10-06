@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
+## [0.3.0] - 2026-10-07
+### Changed (BREAKING)
+- Đổi tên dự án danax → SynapseDX: packages `@synapsedx/*`, `synapsedx-sdk`
+  (PyPI), `synapsedx-sdk-go`, CLI `synapsedx` (`~/.synapsedx`), images
+  `synapsedx/*`, K8s namespace `synapsedx`, key prefix `synapsedx_*`,
+  OIDC `synapsedx-platform`, domain `synapsedx.local`, DB `synapsedx`.
+### Added
+- Console: trang chủ `/` công khai (header nav) tách bạch trang console sau login
+  (sidebar nav); `/api-docs`, `/docs` công khai; Dashboard dời về `/dashboard`.
+
 ## [0.2.0] - 2026-10-06
 ### Added
 - Console: AWS-style management UI (React 18 + Vite + Tailwind, BWD look:

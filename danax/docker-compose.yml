@@ -138,7 +138,7 @@ services:
   iam:
     build:
       context: ./packages/iam-service
-    image: synapsedx/iam:0.2.0
+    image: synapsedx/iam:0.3.0
     environment:
       PORT: 4001
       DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
@@ -169,7 +169,7 @@ services:
   workflow:
     build:
       context: ./packages/workflow-service
-    image: synapsedx/workflow:0.2.0
+    image: synapsedx/workflow:0.3.0
     environment:
       PORT: 4002
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
@@ -191,7 +191,7 @@ services:
   gateway:
     build:
       context: ./packages/gateway
-    image: synapsedx/gateway:0.2.0
+    image: synapsedx/gateway:0.3.0
     environment:
       PORT: 8080
       IAM_SERVICE_URL: http://iam:4001
@@ -222,7 +222,7 @@ services:
   console:
     build:
       context: ./packages/console
-    image: synapsedx/console:0.2.0
+    image: synapsedx/console:0.3.0
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).
       SYNAPSEDX_PUBLIC_BASE_URL: ${SYNAPSEDX_PUBLIC_BASE_URL:-http://localhost:8080}
