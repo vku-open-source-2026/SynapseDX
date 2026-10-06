@@ -17,6 +17,14 @@ Compose đã dựng `authentik-server:9000` + `authentik-worker` chung Postgres/
 > `akadmin / OlpAdmin123!` — đổi ngay sau khi vào. Đặt lại khi cần bằng UPDATE
 > bảng `authentik_core_user` hoặc flow recovery của Authentik.
 
+## Đã provision sẵn trên deployment này (không cần làm lại)
+- Provider OAuth2/OIDC `olp` (`client_id=olp-platform`, implicit-consent flow,
+  redirect `http://localhost:4001/v1/auth/oidc/callback`) + Application `olp`.
+- Discovery: `http://localhost:19000/application/o/olp/.well-known/openid-configuration`
+- API token bootstrap tạm đã thu hồi sau khi provision (xóa khỏi DB, key cũ 403).
+- `N8N_SECURE_COOKIE=false` trong compose cho dev http (cookie `Secure` làm rớt
+  session/API automation qua http; production sau TLS đặt `true`).
+
 ## Dùng Keycloak thay thế
 1. Dựng Keycloak (ngoài compose hoặc thêm service).
 2. Tạo realm (vd `olp`), client `olp-platform` (standard flow, redirect như trên).

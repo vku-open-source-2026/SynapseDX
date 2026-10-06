@@ -115,6 +115,9 @@ services:
       N8N_HOST: n8n
       N8N_PORT: 5678
       N8N_PROTOCOL: http
+      # Local dev qua http: cookie Secure se khong duoc gui -> dat false.
+      # Production sau TLS: dat N8N_SECURE_COOKIE=true.
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
