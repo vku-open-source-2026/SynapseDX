@@ -60,3 +60,20 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 docker compose down        # giữ data
 docker compose down -v     # xóa sạch data
 ```
+
+## 8. Seed dữ liệu mẫu (tùy chọn)
+```bash
+bash examples/quickstart/seed.sh   # org demo + accounts prod/staging + roles/policies viewer+etl
+```
+Idempotent, chạy lại an toàn. Biến `SEED_ORG`, `SEED_EMAIL` để đổi org/email.
+
+## 9. HTTPS local (tùy chọn)
+```bash
+bash infra/tls/gen-cert.sh
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d tls
+# https://gateway.olp.local:8443 (API), https://olp.local:8443 (console)
+# cần quyền admin để thêm '127.0.0.1 olp.local gateway.olp.local' vào hosts,
+# hoặc curl --resolve ...:8443:127.0.0.1 (bỏ qua SNI/DNS)
+```
+Cert self-signed cho `olp.local` (`infra/tls/certs/`, gitignored). Production:
+thay bằng cert LE/ACME, giữ nguyên service `tls`.

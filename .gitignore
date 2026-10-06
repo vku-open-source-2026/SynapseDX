@@ -9,6 +9,9 @@ build/
 .env
 !.env.example
 
+# generated TLS certs (per-deploy: bash infra/tls/gen-cert.sh)
+infra/tls/certs/
+
 # docker volumes
 data/
 pgdata/
