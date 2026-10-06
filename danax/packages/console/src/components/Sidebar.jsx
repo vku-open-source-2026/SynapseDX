@@ -18,7 +18,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 
 const ITEMS = [
-  { to: '/', label: 'Dashboard', icon: faHouse, match: (p) => p === '/' },
+  { to: '/dashboard', label: 'Dashboard', icon: faHouse, match: (p) => p.startsWith('/dashboard') },
   { to: '/orgs', label: 'Organizations', icon: faBuilding, match: (p) => p.startsWith('/orgs') },
   { to: '/accounts', label: 'Accounts', icon: faBoxes, match: (p) => p.startsWith('/accounts') },
   { to: '/users', label: 'Users', icon: faUsers, match: (p) => p.startsWith('/users') },

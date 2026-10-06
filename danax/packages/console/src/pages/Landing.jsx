@@ -5,11 +5,11 @@ import {
   faBolt,
   faKey,
   faLayerGroup,
-  faRightToBracket,
   faRobot,
   faShieldHalved,
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
+import PublicHeader from '../components/PublicHeader.jsx';
 
 const FEATURES = [
   { icon: faShieldHalved, title: 'IAM kiểu AWS', text: 'Organization → Account → User → Role → Policy JSON (Allow/Deny, Condition), authorize + simulator + audit log.' },
@@ -23,27 +23,7 @@ const FEATURES = [
 export default function Landing() {
   return (
     <div className="min-h-screen">
-      <header className="fixed z-50 top-0 left-0 w-full bg-white/70 backdrop-blur-md shadow-sm">
-        <div className="flex items-center justify-between px-4 mx-auto max-w-6xl h-16">
-          <span className="text-xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-            danax
-          </span>
-          <div className="flex gap-2 text-sm">
-            <Link to="/api-docs" className="px-3 py-1.5 text-normal-text hover:text-main-blue">
-              API Docs
-            </Link>
-            <Link to="/docs" className="px-3 py-1.5 text-normal-text hover:text-main-blue">
-              Docs
-            </Link>
-            <Link
-              to="/login"
-              className="px-4 py-1.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end"
-            >
-              <FontAwesomeIcon icon={faRightToBracket} className="mr-1" /> Console
-            </Link>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       <main className="mx-auto max-w-6xl px-4 pt-32 pb-16 text-center">
         <h1 className="text-4xl md:text-5xl font-bold text-main-text leading-tight">

@@ -35,7 +35,7 @@ export default function Topbar() {
       {open && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/30 pt-14" onClick={() => setOpen(false)}>
           <div className="bg-white rounded-b-3xl p-4 mx-3 shadow-md" onClick={(e) => e.stopPropagation()}>
-            <Link to="/" onClick={() => setOpen(false)} className="block py-2 text-main-text">
+            <Link to="/dashboard" onClick={() => setOpen(false)} className="block py-2 text-main-text">
               Dashboard
             </Link>
             {['orgs', 'accounts', 'users', 'roles', 'policies', 'keys', 'service-accounts', 'workflows', 'authorize', 'audit', 'api-docs', 'docs'].map(

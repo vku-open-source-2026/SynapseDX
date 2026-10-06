@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './lib/auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
+import PublicHeader from './components/PublicHeader.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Orgs from './pages/Orgs.jsx';
@@ -26,7 +27,18 @@ function Guard({ children }) {
   return children;
 }
 
-function Shell({ children }) {
+// Trang ngoài: navigate chính bằng header phía trên.
+function PublicLayout({ children }) {
+  return (
+    <div className="min-h-screen">
+      <PublicHeader />
+      <main className="mx-auto max-w-6xl px-4 pt-24 pb-12">{children}</main>
+    </div>
+  );
+}
+
+// Trang trong console (sau login): navigate chính bằng sidebar.
+function ConsoleLayout({ children }) {
   return (
     <div className="min-h-screen">
       <Sidebar />
@@ -39,22 +51,23 @@ function Shell({ children }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/welcome" element={<Landing />} />
+      <Route path="/" element={<Landing />} />
+      <Route path="/welcome" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Login />} />
-      <Route path="/api-docs" element={<Shell><ApiDocs /></Shell>} />
-      <Route path="/docs" element={<Shell><Docs /></Shell>} />
-      <Route path="/" element={<Guard><Shell><Dashboard /></Shell></Guard>} />
-      <Route path="/orgs" element={<Guard><Shell><Orgs /></Shell></Guard>} />
-      <Route path="/accounts" element={<Guard><Shell><Accounts /></Shell></Guard>} />
-      <Route path="/users" element={<Guard><Shell><Users /></Shell></Guard>} />
-      <Route path="/roles" element={<Guard><Shell><Roles /></Shell></Guard>} />
-      <Route path="/policies" element={<Guard><Shell><Policies /></Shell></Guard>} />
-      <Route path="/keys" element={<Guard><Shell><Keys /></Shell></Guard>} />
-      <Route path="/service-accounts" element={<Guard><Shell><ServiceAccounts /></Shell></Guard>} />
-      <Route path="/workflows" element={<Guard><Shell><Workflows /></Shell></Guard>} />
-      <Route path="/authorize" element={<Guard><Shell><Authorize /></Shell></Guard>} />
-      <Route path="/audit" element={<Guard><Shell><Audit /></Shell></Guard>} />
-      <Route path="*" element={<Guard><Shell><Dashboard /></Shell></Guard>} />
+      <Route path="/api-docs" element={<PublicLayout><ApiDocs /></PublicLayout>} />
+      <Route path="/docs" element={<PublicLayout><Docs /></PublicLayout>} />
+      <Route path="/dashboard" element={<Guard><ConsoleLayout><Dashboard /></ConsoleLayout></Guard>} />
+      <Route path="/orgs" element={<Guard><ConsoleLayout><Orgs /></ConsoleLayout></Guard>} />
+      <Route path="/accounts" element={<Guard><ConsoleLayout><Accounts /></ConsoleLayout></Guard>} />
+      <Route path="/users" element={<Guard><ConsoleLayout><Users /></ConsoleLayout></Guard>} />
+      <Route path="/roles" element={<Guard><ConsoleLayout><Roles /></ConsoleLayout></Guard>} />
+      <Route path="/policies" element={<Guard><ConsoleLayout><Policies /></ConsoleLayout></Guard>} />
+      <Route path="/keys" element={<Guard><ConsoleLayout><Keys /></ConsoleLayout></Guard>} />
+      <Route path="/service-accounts" element={<Guard><ConsoleLayout><ServiceAccounts /></ConsoleLayout></Guard>} />
+      <Route path="/workflows" element={<Guard><ConsoleLayout><Workflows /></ConsoleLayout></Guard>} />
+      <Route path="/authorize" element={<Guard><ConsoleLayout><Authorize /></ConsoleLayout></Guard>} />
+      <Route path="/audit" element={<Guard><ConsoleLayout><Audit /></ConsoleLayout></Guard>} />
+      <Route path="*" element={<Landing />} />
     </Routes>
   );
 }

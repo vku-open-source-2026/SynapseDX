@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { baseUrl } from '../lib/api.js';
 import { Btn, Err, Field, Input } from '../components/ui.jsx';
@@ -11,8 +11,10 @@ export default function Login() {
   const [mode, setMode] = useState('email');
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
-  const { login, loginWithKey } = useAuth();
+  const { auth, login, loginWithKey } = useAuth();
   const nav = useNavigate();
+
+  if (auth) return <Navigate to="/dashboard" replace />;
 
   const submit = async (e) => {
     e.preventDefault();
@@ -24,7 +26,7 @@ export default function Login() {
         if (!apiKey) throw new Error('Nhập API key');
         loginWithKey(apiKey);
       }
-      nav('/', { replace: true });
+      nav('/dashboard', { replace: true });
     } catch (ex) {
       setErr(ex);
     } finally {
