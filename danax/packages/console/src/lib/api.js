@@ -1,14 +1,14 @@
-// danax API client (fetch-based, mirrors @danax/sdk). Apache-2.0.
+// synapsedx API client (fetch-based, mirrors @synapsedx/sdk). Apache-2.0.
 export function baseUrl() {
-  if (typeof window !== 'undefined' && window.DANAX_CONFIG?.BASE_URL) {
-    return String(window.DANAX_CONFIG.BASE_URL).replace(/\/$/, '');
+  if (typeof window !== 'undefined' && window.SYNAPSEDX_CONFIG?.BASE_URL) {
+    return String(window.SYNAPSEDX_CONFIG.BASE_URL).replace(/\/$/, '');
   }
-  return (import.meta.env?.VITE_DANAX_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  return (import.meta.env?.VITE_SYNAPSEDX_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 }
 
-export class DanaxError extends Error {
+export class SynapseDXError extends Error {
   constructor(status, path, body) {
-    super(`danax ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+    super(`synapsedx ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
     this.status = status;
     this.body = body;
   }
@@ -26,7 +26,7 @@ async function req(path, { method = 'GET', body, token, apiKey } = {}) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
-    throw new Error(`danax network ${path}: ${e.message || e}`);
+    throw new Error(`synapsedx network ${path}: ${e.message || e}`);
   }
   const text = await r.text();
   let data = null;
@@ -35,7 +35,7 @@ async function req(path, { method = 'GET', body, token, apiKey } = {}) {
   } catch {
     data = text;
   }
-  if (!r.ok) throw new DanaxError(r.status, path, data);
+  if (!r.ok) throw new SynapseDXError(r.status, path, data);
   return data;
 }
 

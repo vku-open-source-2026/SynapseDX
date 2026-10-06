@@ -1,4 +1,4 @@
--- danax core schema (IAM + workflow metadata)
+-- synapsedx core schema (IAM + workflow metadata)
 -- Postgres 16 compatible
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";

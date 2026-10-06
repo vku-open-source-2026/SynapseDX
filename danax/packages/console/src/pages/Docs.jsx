@@ -9,30 +9,30 @@ open http://localhost:3000            # compose: console service
 # login: demo@acme.local / org acme  (hoặc X-API-Key)
 
 # Đổi backend khi gateway không ở :8080 (ví dụ :18080):
-CONSOLE_HOST_PORT=3000 DANAX_PUBLIC_BASE_URL=http://localhost:18080 \\
+CONSOLE_HOST_PORT=3000 SYNAPSEDX_PUBLIC_BASE_URL=http://localhost:18080 \\
   docker compose up -d console`,
-  JavaScript: `// npm i @danax/sdk   (sau khi publish; dev: dùng packages/sdk-js)
-import { DanaxClient } from '@danax/sdk';
+  JavaScript: `// npm i @synapsedx/sdk   (sau khi publish; dev: dùng packages/sdk-js)
+import { SynapseDXClient } from '@synapsedx/sdk';
 
-const c = new DanaxClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
 const { accessToken, user } = await c.login('demo@acme.local');
 c.setToken(accessToken);
 
 await c.createOrg('acme-2', 'ACME 2');
 await c.authorize(user.id, 'workflow:Execute', '*', { team: 'etl' });
 await c.createWorkflowFromTemplate('webhook-to-log', 'demo');`,
-  Python: `# pip install danax-sdk   (sau khi publish; dev: pip install -e packages/sdk-python)
-from danax_sdk import DanaxClient
+  Python: `# pip install synapsedx-sdk   (sau khi publish; dev: pip install -e packages/sdk-python)
+from synapsedx_sdk import SynapseDXClient
 
-c = DanaxClient("http://localhost:8080")
+c = SynapseDXClient("http://localhost:8080")
 login = c.login("demo@acme.local")
 c.token = login["accessToken"]
 print(c.list_orgs())
 print(c.simulate([{"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}], "x:Y", "*"))`,
-  Go: `// go get github.com/danax/danax-sdk-go  (sau khi repo public)
-import danax "github.com/danax/danax-sdk-go"
+  Go: `// go get github.com/synapsedx/synapsedx-sdk-go  (sau khi repo public)
+import synapsedx "github.com/synapsedx/synapsedx-sdk-go"
 
-c := danax.New("http://localhost:8080")
+c := synapsedx.New("http://localhost:8080")
 out, _ := c.Login("demo@acme.local")
 c.Token = out["accessToken"].(string)
 orgs, _ := c.ListOrgs()`,

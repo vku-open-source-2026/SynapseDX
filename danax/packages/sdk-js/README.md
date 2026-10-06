@@ -1,15 +1,15 @@
-# `@danax/sdk` — danax SDK for JavaScript/TypeScript
+# `@synapsedx/sdk` — synapsedx SDK for JavaScript/TypeScript
 
-Apache-2.0. Part of [danax](../../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [synapsedx](../../README.md) Tier-1 PaaS.
 
 ```bash
-npm install @danax/sdk
+npm install @synapsedx/sdk
 ```
 
 ```ts
-import { DanaxClient } from '@danax/sdk';
+import { SynapseDXClient } from '@synapsedx/sdk';
 
-const c = new DanaxClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
 const { accessToken, user } = await c.login('demo@acme.local');
 c.setToken(accessToken);
 

@@ -1,4 +1,4 @@
-name: danax
+name: synapsedx
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -7,4 +7,4 @@ jobs:
   greet:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Thanks for contributing to danax! Please read CONTRIBUTING.md and sign off your commits."
+      - run: echo "Thanks for contributing to synapsedx! Please read CONTRIBUTING.md and sign off your commits."

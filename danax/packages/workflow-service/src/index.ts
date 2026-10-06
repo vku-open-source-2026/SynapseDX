@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Workflow service: thin control-plane over n8n REST API.
  * Không fork n8n — gọi n8n như engine ngoài qua N8N_BASE_URL + N8N_API_KEY.
@@ -89,7 +89,7 @@ export function createApp(): express.Express {
       if (!payload) return res.status(400).json({ error: 'unknown_template', available: listTemplates().map((t) => t.name) });
     }
     if (!payload) return res.status(400).json({ error: 'definition or template required' });
-    const r = await n8nFetch('/api/v1/workflows', { method: 'POST', body: JSON.stringify({ name: name || 'danax-workflow', nodes: payload.nodes || [], connections: payload.connections || {}, settings: {} }) });
+    const r = await n8nFetch('/api/v1/workflows', { method: 'POST', body: JSON.stringify({ name: name || 'synapsedx-workflow', nodes: payload.nodes || [], connections: payload.connections || {}, settings: {} }) });
     res.status(r.status).json(r.body);
   });
 
@@ -148,7 +148,7 @@ export function listTemplates() {
   return [
     { name: 'webhook-to-log', description: 'Webhook nhận event từ gateway -> ghi log -> trả lời 200' },
     { name: 'cron-etl', description: 'Cron mỗi đêm -> fetch IAM health -> transform -> log' },
-    { name: 'iam-webhook', description: 'Nhận sự kiện IAM (user.created) -> gọi lại danax API' },
+    { name: 'iam-webhook', description: 'Nhận sự kiện IAM (user.created) -> gọi lại synapsedx API' },
   ];
 }
 
@@ -159,7 +159,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
     return {
       name: wname,
       nodes: [
-        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'danax-event', httpMethod: 'POST' } },
+        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'synapsedx-event', httpMethod: 'POST' } },
         { id: wid(), name: 'Log', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [400, 300], parameters: {} },
       ],
       connections: { Webhook: { main: [[{ node: 'Log', type: 'main', index: 0 }]] } },
@@ -180,9 +180,9 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       name: wname,
       nodes: [
         { id: wid(), name: 'IAMEvent', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'iam-event', httpMethod: 'POST' } },
-        { id: wid(), name: 'Calldanax', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [420, 300], parameters: { url: 'http://gateway:8080/v1/orgs', method: 'GET' } },
+        { id: wid(), name: 'CallAPI', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [420, 300], parameters: { url: 'http://gateway:8080/v1/orgs', method: 'GET' } },
       ],
-      connections: { IAMEvent: { main: [[{ node: 'Calldanax', type: 'main', index: 0 }]] } },
+      connections: { IAMEvent: { main: [[{ node: 'CallAPI', type: 'main', index: 0 }]] } },
     };
   }
   return null;

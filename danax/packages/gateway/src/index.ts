@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import express from 'express';
@@ -142,27 +142,27 @@ async function verifyApiKeyUpstream(apiKey: string): Promise<{ account_id: strin
   }
 }
 
-/** Xóa x-danax-* do client gửi (chống spoof), ghi lại từ principal đã verify. */
+/** Xóa x-synapsedx-* do client gửi (chống spoof), ghi lại từ principal đã verify. */
 export function propagatePrincipal(req: express.Request): void {
   const h = req.headers as Record<string, string | string[] | undefined>;
-  delete h['x-danax-user'];
-  delete h['x-danax-org'];
-  delete h['x-danax-account'];
-  delete h['x-danax-scopes'];
-  delete h['x-danax-kind'];
+  delete h['x-synapsedx-user'];
+  delete h['x-synapsedx-org'];
+  delete h['x-synapsedx-account'];
+  delete h['x-synapsedx-scopes'];
+  delete h['x-synapsedx-kind'];
   const p = (req as any).principal;
   if (!p) return;
   if (p.type === 'jwt') {
-    if (p.sub) h['x-danax-user'] = String(p.sub);
-    if (p.org) h['x-danax-org'] = String(p.org);
-    if (p.account) h['x-danax-account'] = String(p.account);
-    if (Array.isArray(p.scopes) && p.scopes.length) h['x-danax-scopes'] = p.scopes.join(',');
-    h['x-danax-kind'] = 'user';
+    if (p.sub) h['x-synapsedx-user'] = String(p.sub);
+    if (p.org) h['x-synapsedx-org'] = String(p.org);
+    if (p.account) h['x-synapsedx-account'] = String(p.account);
+    if (Array.isArray(p.scopes) && p.scopes.length) h['x-synapsedx-scopes'] = p.scopes.join(',');
+    h['x-synapsedx-kind'] = 'user';
   } else if (p.type === 'apikey') {
-    h['x-danax-kind'] = 'apikey';
-    if ((p as any).account) h['x-danax-account'] = String((p as any).account);
+    h['x-synapsedx-kind'] = 'apikey';
+    if ((p as any).account) h['x-synapsedx-account'] = String((p as any).account);
     if (Array.isArray((p as any).scopes) && (p as any).scopes.length) {
-      h['x-danax-scopes'] = (p as any).scopes.join(',');
+      h['x-synapsedx-scopes'] = (p as any).scopes.join(',');
     }
   }
 }
@@ -249,7 +249,7 @@ export function createApp(): express.Express {
 
   app.get('/', (_req, res) =>
     res.json({
-      name: 'danax Gateway (Tier-1 PaaS)',
+      name: 'SynapseDX Gateway (Tier-1 PaaS)',
       version: VERSION,
       docs: ['/health', '/ready', '/metrics'],
       auth: 'Bearer JWT | X-API-Key (except /v1/auth/*)',
@@ -260,7 +260,7 @@ export function createApp(): express.Express {
   // Auth resolver toàn cục. KHÔNG dùng app.use(path, proxy): Express strips
   // mount-prefix khỏi req.url (bookkeeping slashAdded/removed); gán lại req.url
   // sẽ tạo URL rác với exact-path. Dùng pathFilter của proxy v3 + mount ở root.
-  // Sau khi xác thực, gateway XÓA header x-danax-* do client gửi (chống spoof) và
+  // Sau khi xác thực, gateway XÓA header x-synapsedx-* do client gửi (chống spoof) và
   // GHI header từ principal đã verify để upstream tin dùng mà không cần re-verify JWT.
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const urlPath = req.path; // pathname, không query

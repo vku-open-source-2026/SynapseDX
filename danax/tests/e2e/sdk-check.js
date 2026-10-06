@@ -1,7 +1,7 @@
-const { DanaxClient } = require('../../packages/sdk-js/dist/index.js');
+const { SynapseDXClient } = require('../../packages/sdk-js/dist/index.js');
 
 async function main() {
-  const c = new DanaxClient({ baseUrl: process.env.DANAX_BASE_URL || 'http://127.0.0.1:18110' });
+  const c = new SynapseDXClient({ baseUrl: process.env.SYNAPSEDX_BASE_URL || 'http://127.0.0.1:18110' });
   const login = await c.login('sdksim@acme.local');
   c.setToken(login.accessToken);
   console.log('SDK_ME', (await c.me()).user.email);

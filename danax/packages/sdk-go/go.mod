@@ -1,3 +1,3 @@
-module github.com/danax/danax-sdk-go
+module github.com/synapsedx/synapsedx-sdk-go
 
 go 1.22

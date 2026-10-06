@@ -1,6 +1,6 @@
 # Production checklist (Tier-1 PaaS)
 
-Dùng khi đưa danax ra khỏi laptop. Mọi mục đều có sẵn cơ chế — chỉ cần bật.
+Dùng khi đưa synapsedx ra khỏi laptop. Mọi mục đều có sẵn cơ chế — chỉ cần bật.
 
 ## 1. Secret & auth
 - [ ] Đổi **mọi** `*_change_me_*` trong `.env` (`IAM_JWT_SECRET` ≥ 32 ký tự ngẫu nhiên).
@@ -26,7 +26,7 @@ Dùng khi đưa danax ra khỏi laptop. Mọi mục đều có sẵn cơ chế �
 ## 4. Vận hành
 - [ ] Healthcheck/compose `depends_on healthy` đã có; K8s có liveness/readiness
       (xem `infra/k8s/base/all.yaml`). Cảnh báo khi `/ready` → 503.
-- [ ] Pin image digest cho release (`danax/*:0.1.0` → digest), không dùng `latest` cho engine ngoài.
+- [ ] Pin image digest cho release (`synapsedx/*:0.1.0` → digest), không dùng `latest` cho engine ngoài.
 - [ ] Log tập trung (json-file driver mặc định; chuyển Loki/ELK khi cần) + giữ `x-request-id`.
 - [ ] Retention `audit_log` Postgres (cron `DELETE ... WHERE created_at < now() - interval`)
       khi traffic authorize lớn.

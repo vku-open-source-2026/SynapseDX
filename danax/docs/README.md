@@ -1,4 +1,4 @@
-# danax docs
+# SynapseDX docs
 
 | Tài liệu | Nội dung |
 |---|---|

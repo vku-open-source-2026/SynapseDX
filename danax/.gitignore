@@ -1,16 +1,22 @@
-# danax dependencies
+# synapsedx dependencies
 node_modules/
 dist/
 build/
 *.log
-.DS_Store
 
-# env
+# env (never commit real secrets; only .env.example is tracked)
 .env
 !.env.example
+.env.local
+.env.*.local
+
+# local compose overrides (personal ports/volumes tweaks)
+docker-compose.override.yml
 
 # generated TLS certs (per-deploy: bash infra/tls/gen-cert.sh)
 infra/tls/certs/
+*.pem
+*.key
 
 # docker volumes
 data/
@@ -23,12 +29,18 @@ __pycache__/
 *.pyc
 *.egg-info/
 .venv/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
 sdk-python-dist/
 
-# go
-sdk-go-bin/
-
-# IDE
+# OS / IDE
+.DS_Store
+Thumbs.db
+Desktop.ini
 .vscode/
 .idea/
 *.swp
+*.swo
+*~

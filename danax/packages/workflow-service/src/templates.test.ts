@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import { describe, it } from 'node:test';

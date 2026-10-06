@@ -1,8 +1,8 @@
-# danax — Open Layer Platform (Tier-1 PaaS, open source)
+# SynapseDX — Open Layer Platform (Tier-1 PaaS, open source)
 
 Apache-2.0 open-source PaaS core: **API Gateway + IAM (AWS-style) + core data + n8n workflows + SDKs**.
 
-![ci](https://github.com/danax/danax/actions/workflows/ci.yml/badge.svg)
+![ci](https://github.com/synapsedx/synapsedx/actions/workflows/ci.yml/badge.svg)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![sdk-js](https://img.shields.io/badge/sdk-JS%2FTS-green)
 ![sdk-py](https://img.shields.io/badge/sdk-Python-green)
@@ -15,7 +15,7 @@ Apache-2.0 open-source PaaS core: **API Gateway + IAM (AWS-style) + core data + 
 - **Tài liệu mở**: `docs/` (architecture, iam-model, api, quickstart, object-storage, troubleshooting) + `README.md` này.
 - **Đóng góp mở**: `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`, `SECURITY.md`, `GOVERNANCE.md`, `ROADMAP.md`.
 - **Build tái lập**: `Dockerfile` mỗi service, `docker-compose.yml` pin image, `infra/k8s` Kustomize, `.env.example`.
-- **Không fork license lạ**: n8n/Authentik dùng như container ngoài, gọi qua API/OIDC — code danax vẫn thuần Apache-2.0.
+- **Không fork license lạ**: n8n/Authentik dùng như container ngoài, gọi qua API/OIDC — code synapsedx vẫn thuần Apache-2.0.
 
 ## Kiến trúc (xem `docs/architecture.md`)
 ```
@@ -34,14 +34,14 @@ Chi tiết: `docs/quickstart.md`. API: `docs/api.md`. Mô hình phân quyền: `
 
 ## Repo layout
 ```
-packages/gateway           API gateway (proxy, JWT/API-key, principal x-danax-*, rate-limit, /metrics)
+packages/gateway           API gateway (proxy, JWT/API-key, principal x-synapsedx-*, rate-limit, /metrics)
 packages/iam-service       IAM AWS-style + token/SA + authorize/simulator + OIDC (Authentik/Keycloak)
 packages/workflow-service  control-plane n8n (proxy + templates)
-packages/sdk-js            @danax/sdk (TypeScript)
-packages/sdk-python        danax-sdk (Python)
-packages/sdk-go            danax-sdk-go (Go, minimal)
+packages/sdk-js            @synapsedx/sdk (TypeScript)
+packages/sdk-python        synapsedx-sdk (Python)
+packages/sdk-go            synapsedx-sdk-go (Go, minimal)
 packages/console           Management UI kiểu AWS (React+Vite+Tailwind)
-packages/cli               CLI `danax` zero-dependency (Node 18+)
+packages/cli               CLI `synapsedx` zero-dependency (Node 18+)
 infra/postgres/init.sql    schema lõi (orgs/accounts/users/roles/policies/keys/...)
 infra/k8s/base             Kustomize cho K8s
 examples/quickstart        script demo end-to-end
@@ -53,22 +53,22 @@ docs                       architecture/iam-model/api/quickstart/object-storage/
 ## SDK nhanh
 ```ts
 // JS/TS
-import { DanaxClient } from '@danax/sdk';
-const c = new DanaxClient({ baseUrl: 'http://localhost:8080' });
+import { SynapseDXClient } from '@synapsedx/sdk';
+const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
 const { accessToken, user } = await c.login('demo@acme.local');
 c.setToken(accessToken);
 await c.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ```
 ```python
 # Python
-from danax_sdk import DanaxClient
-c = DanaxClient("http://localhost:8080")
+from synapsedx_sdk import SynapseDXClient
+c = SynapseDXClient("http://localhost:8080")
 login = c.login("demo@acme.local"); c.token = login["accessToken"]
 print(c.list_orgs())
 ```
 ```go
 // Go
-c := danax.New("http://localhost:8080")
+c := synapsedx.New("http://localhost:8080")
 out, _ := c.Login("demo@acme.local")
 ```
 
@@ -76,7 +76,7 @@ out, _ := c.Login("demo@acme.local")
 - **Console** (`http://localhost:3000` sau `docker compose up -d console`):
   login `demo@acme.local` / org `acme` → quản trị Org/Account/User/Role/Policy/Key,
   authorize simulator, workflow, audit. Chi tiết: `docs/console.md`.
-- **CLI** (`packages/cli`, zero-dependency): `node packages/cli/bin/danax.js login ...`
+- **CLI** (`packages/cli`, zero-dependency): `node packages/cli/bin/synapsedx.js login ...`
   — xem `packages/cli/README.md`.
 
 ## Cấu hình IdP (Access Management)

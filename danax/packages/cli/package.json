@@ -1,10 +1,10 @@
 {
-  "name": "@danax/cli",
+  "name": "@synapsedx/cli",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "danax CLI - zero-dependency command line for Tier-1 PaaS (Node 18+)",
+  "description": "synapsedx CLI - zero-dependency command line for Tier-1 PaaS (Node 18+)",
   "bin": {
-    "danax": "./bin/danax.js"
+    "synapsedx": "./bin/synapsedx.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js || echo \"no tests\""

@@ -2,16 +2,16 @@
 
 ```bash
 # 1. Tạo secret thật từ ví dụ (KHÔNG commit file đã điền):
-cp infra/k8s/base/secrets.example.yaml /tmp/danax-secrets.yaml
-# ... điền secret vào /tmp/danax-secrets.yaml ...
-kubectl apply -f /tmp/danax-secrets.yaml
+cp infra/k8s/base/secrets.example.yaml /tmp/synapsedx-secrets.yaml
+# ... điền secret vào /tmp/synapsedx-secrets.yaml ...
+kubectl apply -f /tmp/synapsedx-secrets.yaml
 
 # 2. Deploy:
 kubectl apply -k infra/k8s/base
-kubectl -n danax get pods,svc
+kubectl -n synapsedx get pods,svc
 
 # 3. Mở gateway (port-forward khi chưa có ingress):
-kubectl -n danax port-forward svc/gateway 8080:80
+kubectl -n synapsedx port-forward svc/gateway 8080:80
 curl localhost:8080/health
 ```
 

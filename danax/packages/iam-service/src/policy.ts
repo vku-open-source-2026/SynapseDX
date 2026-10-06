@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * AWS IAM-style policy evaluation: explicit Deny wins, then Allow, default deny.
  */
@@ -24,7 +24,7 @@ export function matchPattern(pattern: string, value: string): boolean {
 
 export interface AuthzRequest {
   action: string;   // e.g. "workflow:Execute"
-  resource: string; // e.g. "arn:danax:acme:prod:workflow:etl-nightly" or "*"
+  resource: string; // e.g. "arn:synapsedx:acme:prod:workflow:etl-nightly" or "*"
 }
 
 export type ConditionContext = Record<string, string | number | boolean | undefined>;

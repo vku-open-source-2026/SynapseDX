@@ -1,8 +1,8 @@
 {
-  "name": "@danax/workflow-service",
+  "name": "@synapsedx/workflow-service",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "danax Workflow - proxy + template management for n8n",
+  "description": "synapsedx Workflow - proxy + template management for n8n",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

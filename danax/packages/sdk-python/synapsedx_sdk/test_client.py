@@ -3,7 +3,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from danax_sdk import DanaxClient, DanaxError
+from synapsedx_sdk import SynapseDXClient, SynapseDXError
 
 _seen: dict = {}
 
@@ -37,13 +37,13 @@ def test_trim_and_headers():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = DanaxClient(base + "/")
+        c = SynapseDXClient(base + "/")
         assert c.base_url == base
         c.token = "t1"
         c.list_orgs()
         assert _seen["auth"] == "Bearer t1", _seen
         assert _seen["path"] == "/v1/orgs"
-        c2 = DanaxClient(base, api_key="k1")
+        c2 = SynapseDXClient(base, api_key="k1")
         c2.list_templates()
         assert _seen["key"] == "k1", _seen
     finally:
@@ -51,16 +51,16 @@ def test_trim_and_headers():
 
 
 def test_network_error_wrapped():
-    c = DanaxClient("http://127.0.0.1:1", timeout=2)
+    c = SynapseDXClient("http://127.0.0.1:1", timeout=2)
     try:
         c.list_orgs()
-    except DanaxError as e:
-        assert "danax" in str(e)
+    except SynapseDXError as e:
+        assert "synapsedx" in str(e)
         return
-    raise AssertionError("expected DanaxError")
+    raise AssertionError("expected SynapseDXError")
 
 
 def test_import():
-    from danax_sdk import DanaxClient
-    c = DanaxClient("http://localhost:8080")
+    from synapsedx_sdk import SynapseDXClient
+    c = SynapseDXClient("http://localhost:8080")
     assert c.base_url == "http://localhost:8080"

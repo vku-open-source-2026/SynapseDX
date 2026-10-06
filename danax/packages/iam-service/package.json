@@ -1,8 +1,8 @@
 {
-  "name": "@danax/iam-service",
+  "name": "@synapsedx/iam-service",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "danax IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
+  "description": "synapsedx IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

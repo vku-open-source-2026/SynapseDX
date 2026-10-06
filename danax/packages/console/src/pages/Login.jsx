@@ -38,7 +38,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-md p-8 w-full max-w-md">
         <h1 className="text-3xl font-semibold text-center bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-          danax Console
+          SynapseDX Console
         </h1>
         <p className="text-center text-normal-text text-sm mt-2 mb-6">
           Quản trị Tier-1 PaaS · Gateway <span className="text-main-blue">{baseUrl()}</span>
@@ -69,8 +69,8 @@ export default function Login() {
               </Field>
             </>
           ) : (
-            <Field label="X-API-Key (danax_...)">
-              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="danax_..." />
+            <Field label="X-API-Key (synapsedx_...)">
+              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="synapsedx_..." />
             </Field>
           )}
           <Btn type="submit" disabled={busy} className="w-full">
@@ -80,7 +80,7 @@ export default function Login() {
         <p className="text-xs text-normal-text mt-4 text-center">
           Dev login cấp token trực tiếp · Production dùng OIDC (Authentik/Keycloak).
           <br />
-          <Link to="/welcome" className="text-main-blue">Giới thiệu danax</Link>
+          <Link to="/welcome" className="text-main-blue">Giới thiệu synapsedx</Link>
           {' · '}
           <Link to="/api-docs" className="text-main-blue">API Docs</Link>
         </p>

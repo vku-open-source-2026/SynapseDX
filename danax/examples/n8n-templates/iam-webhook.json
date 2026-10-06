@@ -2,7 +2,7 @@
   "name": "iam-webhook",
   "nodes": [
     { "id": "c1c2c3d4-0001-4000-8000-000000000001", "name": "IAMEvent", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "webhookId": "c1c2c3d4-0002-4000-8000-000000000002", "position": [200, 300], "parameters": { "path": "iam-event", "httpMethod": "POST" } },
-    { "id": "c1c2c3d4-0003-4000-8000-000000000003", "name": "Calldanax", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [420, 300], "parameters": { "url": "http://gateway:8080/v1/orgs", "method": "GET" } }
+    { "id": "c1c2c3d4-0003-4000-8000-000000000003", "name": "CallAPI", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [420, 300], "parameters": { "url": "http://gateway:8080/v1/orgs", "method": "GET" } }
   ],
-  "connections": { "IAMEvent": { "main": [[{ "node": "Calldanax", "type": "main", "index": 0 }]] } }
+  "connections": { "IAMEvent": { "main": [[{ "node": "CallAPI", "type": "main", "index": 0 }]] } }
 }

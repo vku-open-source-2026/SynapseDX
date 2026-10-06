@@ -1,6 +1,6 @@
 # Governance
 
-danax is a community project under Apache-2.0.
+synapsedx is a community project under Apache-2.0.
 
 ## Roles
 - **Contributors**: anyone with a merged PR.
@@ -12,4 +12,4 @@ danax is a community project under Apache-2.0.
 - `CHANGELOG.md` updated per release.
 
 ## Trademark
-"danax" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.
+"synapsedx" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.

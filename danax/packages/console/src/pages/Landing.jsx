@@ -32,7 +32,7 @@ export default function Landing() {
           cho hạ tầng của bạn
         </h1>
         <p className="mt-4 text-normal-text max-w-2xl mx-auto">
-          danax là Tier-1 PaaS open source (Apache-2.0): API gateway, IAM phong cách AWS,
+          synapsedx là Tier-1 PaaS open source (Apache-2.0): API gateway, IAM phong cách AWS,
           cụm dữ liệu lõi và workflow n8n — quản trị qua Console, SDK đa ngôn ngữ và CLI.
         </p>
         <div className="mt-6 flex justify-center gap-3">
@@ -70,7 +70,7 @@ open http://localhost:3000   # login demo@acme.local / org acme`}
       </main>
 
       <footer className="pb-10 text-center text-xs text-normal-text">
-        danax · Apache-2.0 · Tier-1 PaaS
+        synapsedx · Apache-2.0 · Tier-1 PaaS
       </footer>
     </div>
   );

@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { api } from './api.js';
 
 const AuthCtx = createContext(null);
-const KEY = 'danax.console.auth';
+const KEY = 'synapsedx.console.auth';
 
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(() => {

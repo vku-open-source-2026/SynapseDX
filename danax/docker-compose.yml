@@ -1,21 +1,21 @@
-name: danax
+name: synapsedx
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-danax}
-      POSTGRES_USER: ${POSTGRES_USER:-danax}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-danax_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-synapsedx}
+      POSTGRES_USER: ${POSTGRES_USER:-synapsedx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-synapsedx_password_change_me}
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-danax}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-synapsedx}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   redis:
     image: redis:7-alpine
@@ -27,7 +27,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   # Object storage S3-compatible (mac dinh S3Mock nhe, du cho MVP).
   # Production: thay image bang MinIO (quay.io/minio/minio) hoac AWS S3 that,
@@ -40,30 +40,30 @@ services:
       - s3data:/data
     ports:
       - "${S3_HOST_PORT:-9090}:9090"
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   s3-init:
     image: amazon/aws-cli:latest
-    entrypoint: ["sh", "-c", "for i in $(seq 1 30); do aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 mb s3://$${S3_BUCKET:-danax-core} && break || sleep 2; done; aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 ls || true"]
+    entrypoint: ["sh", "-c", "for i in $(seq 1 30); do aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 mb s3://$${S3_BUCKET:-synapsedx-core} && break || sleep 2; done; aws --endpoint-url http://s3:9090 --region $${AWS_DEFAULT_REGION:-us-east-1} s3 ls || true"]
     environment:
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-test}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-test}
       AWS_DEFAULT_REGION: ${S3_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET:-danax-core}
+      S3_BUCKET: ${S3_BUCKET:-synapsedx-core}
     depends_on:
       - s3
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   authentik-postgres-init:
     image: postgres:16-alpine
     environment:
-      PGPASSWORD: ${POSTGRES_PASSWORD:-danax_password_change_me}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-synapsedx_password_change_me}
     command: >
-      sh -c "psql -h postgres -U $${POSTGRES_USER:-danax} -d $${POSTGRES_DB:-danax} -c \"CREATE USER authentik WITH PASSWORD '$${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}';\" -c 'CREATE DATABASE authentik OWNER authentik;' || true"
+      sh -c "psql -h postgres -U $${POSTGRES_USER:-synapsedx} -d $${POSTGRES_DB:-synapsedx} -c \"CREATE USER authentik WITH PASSWORD '$${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}';\" -c 'CREATE DATABASE authentik OWNER authentik;' || true"
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   authentik-server:
     image: ghcr.io/goauthentik/server:2024.10
@@ -86,7 +86,7 @@ services:
     ports:
       - "${AUTHENTIK_HTTPS_PORT:-19443}:9443"
       - "${AUTHENTIK_HTTP_PORT:-19000}:9000"
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   authentik-worker:
     image: ghcr.io/goauthentik/server:2024.10
@@ -104,7 +104,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   # LUU Y: OIDC_ISSUER la URL NOI BO trong mang docker (authentik-server:9000).
   # Tu browser redirect dung host port AUTHENTIK_HTTP_PORT (mac dinh 19000).
@@ -121,9 +121,9 @@ services:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-danax}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER:-danax}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-danax_password_change_me}
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-synapsedx}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER:-synapsedx}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-synapsedx_password_change_me}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Ho_Chi_Minh}
       N8N_API_KEY: ${N8N_API_KEY:-}
     ports:
@@ -133,23 +133,23 @@ services:
         condition: service_healthy
     volumes:
       - n8ndata:/home/node/.n8n
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   iam:
     build:
       context: ./packages/iam-service
-    image: danax/iam:0.2.0
+    image: synapsedx/iam:0.2.0
     environment:
       PORT: 4001
-      DATABASE_URL: postgres://${POSTGRES_USER:-danax}:${POSTGRES_PASSWORD:-danax_password_change_me}@postgres:5432/${POSTGRES_DB:-danax}
+      DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
       REDIS_URL: redis://redis:6379
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       IAM_JWT_EXPIRES_IN: ${IAM_JWT_EXPIRES_IN:-3600}
       IAM_REFRESH_EXPIRES_IN: ${IAM_REFRESH_EXPIRES_IN:-2592000}
       IAM_ALLOW_DEV_LOGIN: ${IAM_ALLOW_DEV_LOGIN:-true}
       OIDC_PROVIDER: ${OIDC_PROVIDER:-authentik}
-      OIDC_ISSUER: ${OIDC_ISSUER:-http://authentik-server:9000/application/o/danax/}
-      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-danax-platform}
+      OIDC_ISSUER: ${OIDC_ISSUER:-http://authentik-server:9000/application/o/synapsedx/}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-synapsedx-platform}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
     ports:
       - "${IAM_HOST_PORT:-4001}:4001"
@@ -164,12 +164,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   workflow:
     build:
       context: ./packages/workflow-service
-    image: danax/workflow:0.2.0
+    image: synapsedx/workflow:0.2.0
     environment:
       PORT: 4002
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
@@ -186,12 +186,12 @@ services:
     depends_on:
       - n8n
       - iam
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   gateway:
     build:
       context: ./packages/gateway
-    image: danax/gateway:0.2.0
+    image: synapsedx/gateway:0.2.0
     environment:
       PORT: 8080
       IAM_SERVICE_URL: http://iam:4001
@@ -217,20 +217,20 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
   console:
     build:
       context: ./packages/console
-    image: danax/console:0.2.0
+    image: synapsedx/console:0.2.0
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).
-      DANAX_PUBLIC_BASE_URL: ${DANAX_PUBLIC_BASE_URL:-http://localhost:8080}
+      SYNAPSEDX_PUBLIC_BASE_URL: ${SYNAPSEDX_PUBLIC_BASE_URL:-http://localhost:8080}
     ports:
       - "${CONSOLE_HOST_PORT:-3000}:80"
     depends_on:
       - gateway
-    networks: [danax-net]
+    networks: [synapsedx-net]
 
 volumes:
   pgdata:
@@ -239,5 +239,5 @@ volumes:
   n8ndata:
 
 networks:
-  danax-net:
+  synapsedx-net:
     driver: bridge

@@ -2,7 +2,7 @@
 
 ## v0.1 (this release — Tier-1 PaaS MVP) ✅
 - [x] API Gateway: proxy (pathFilter, no strip bugs), JWT/API-key (+strict verify mode),
-      principal `x-danax-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
+      principal `x-synapsedx-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
       proxy timeout, CORS gating, `/ready` aggregate, Prometheus, graceful shutdown
 - [x] IAM: Organization/Account/User/Role/Policy AWS-style + Conditions
       (StringEquals/StringLike/IfExists) + `POST /v1/authorize` + dry-run simulator + audit log
@@ -20,7 +20,7 @@
 - [ ] Enforce API-key scopes at gateway (central) + audit retention job
 - [ ] License check in CI (forbid GPL in dependency tree) + SBOM release artifact
 - [ ] S3Bucket abstraction API (presigned URLs, đổi backend MinIO/S3 thật qua env)
-- [ ] n8n credential auto-provisioning + execution webhooks → danax events
+- [ ] n8n credential auto-provisioning + execution webhooks → synapsedx events
 - [ ] e2e with real Postgres (testcontainers) + load test gateway
 - [ ] Helm chart + production hardening guide
 

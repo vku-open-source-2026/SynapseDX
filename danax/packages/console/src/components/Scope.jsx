@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 
-const ORG_KEY = 'danax.console.org';
-const ACC_KEY = 'danax.console.acc';
+const ORG_KEY = 'synapsedx.console.org';
+const ACC_KEY = 'synapsedx.console.acc';
 
 export function useScope() {
   const { headers } = useAuth();

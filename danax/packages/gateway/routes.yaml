@@ -1,4 +1,4 @@
-# danax Gateway routing table.
+# SynapseDX Gateway routing table.
 # path prefix -> upstream. Auth mode: none|jwt|apikey|either
 routes:
   - path: /v1/auth

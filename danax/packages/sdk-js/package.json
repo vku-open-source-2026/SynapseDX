@@ -1,8 +1,8 @@
 {
-  "name": "@danax/sdk",
+  "name": "@synapsedx/sdk",
   "version": "0.2.0",
   "license": "Apache-2.0",
-  "description": "danax SDK for JavaScript/TypeScript",
+  "description": "synapsedx SDK for JavaScript/TypeScript",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

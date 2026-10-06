@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# danax e2e smoke — chạy sau `docker compose up` hoặc dev local.
+# synapsedx e2e smoke — chạy sau `docker compose up` hoặc dev local.
 # Không fail-hard khi n8n/authentik chưa cấu hình: chỉ assert core IAM+gateway.
 set -u
-BASE="${DANAX_BASE_URL:-http://localhost:8080}"
+BASE="${SYNAPSEDX_BASE_URL:-http://localhost:8080}"
 IAM_DIRECT="${IAM_URL:-http://localhost:4001}"
 pass=0; fail=0
 check() { # $1 name, $2... command
   local name="$1"; shift
   if "$@" >/dev/null 2>&1; then echo "PASS $name"; pass=$((pass+1)); else echo "FAIL $name"; fail=$((fail+1)); fi
 }
-echo "== danax smoke vs $BASE =="
+echo "== synapsedx smoke vs $BASE =="
 check gateway-health curl -sf "$BASE/health"
 check iam-health curl -sf "$IAM_DIRECT/health"
 # login dev

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import express from 'express';
@@ -56,8 +56,8 @@ export function createApp(): express.Express {
   // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
   app.get('/v1/auth/oidc/config', (_req, res) => {
     res.json({
-      issuer: process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/danax/',
-      clientId: process.env.OIDC_CLIENT_ID || 'danax-platform',
+      issuer: process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/synapsedx/',
+      clientId: process.env.OIDC_CLIENT_ID || 'synapsedx-platform',
       redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:4001/v1/auth/oidc/callback',
       provider: process.env.OIDC_PROVIDER || 'authentik',
       note: 'Cấu hình Authentik/Keycloak làm upstream IdP. IAM giữ shadow user + phân quyền org/account/role/policy.',

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 danax Contributors
+ * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Token helpers tests (memory backend — no DATABASE_URL set here).
  */
@@ -29,7 +29,7 @@ describe('refresh + api keys (memory)', () => {
     assert.equal(rec?.user_id, 'u1');
   });
   it('unknown refresh rejected', async () => {
-    assert.equal(await consumeRefresh('danax_rt_bogus'), null);
+    assert.equal(await consumeRefresh('synapsedx_rt_bogus'), null);
   });
   it('expired refresh rejected', async () => {
     const rt = newRefreshToken();
@@ -60,10 +60,10 @@ describe('refresh + api keys (memory)', () => {
   });
   it('api key roundtrip', async () => {
     const k = await createApiKeyRecord('acc1', 'u1', 't', ['*'], null);
-    assert.ok(k.value.startsWith('danax_'));
+    assert.ok(k.value.startsWith('synapsedx_'));
     const v = await verifyApiKey(k.value);
     assert.equal(v?.account_id, 'acc1');
-    assert.equal(await verifyApiKey('danax_bogus'), null);
+    assert.equal(await verifyApiKey('synapsedx_bogus'), null);
   });
   it('expired api key rejected', async () => {
     const k = await createApiKeyRecord('acc1', 'u1', 't', ['*'], new Date(Date.now() - 1000));

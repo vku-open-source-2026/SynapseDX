@@ -20,7 +20,7 @@ export default function PublicHeader() {
           to="/"
           className="text-xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent"
         >
-          danax
+          synapsedx
         </Link>
         <nav className="hidden md:flex items-center gap-1 text-sm">
           {LINKS.map((l) => (

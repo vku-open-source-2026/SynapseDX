@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Báo lỗi danax (gateway, IAM, workflow, SDK, compose)
+about: Báo lỗi synapsedx (gateway, IAM, workflow, SDK, compose)
 title: "fix: "
 labels: bug
 ---
@@ -14,7 +14,7 @@ labels: bug
 3.
 
 ## Môi trường
-- danax version/tag hoặc commit:
+- synapsedx version/tag hoặc commit:
 - Chạy bằng: [ ] docker compose [ ] k8s [ ] dev local
 - OS:
 
