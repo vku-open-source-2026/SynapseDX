@@ -3,10 +3,12 @@
 # Idempotent: chay lai lan 2 van OK (tai su dung tai nguyen da co khi gap 409).
 set -euo pipefail
 BASE="${OLP_BASE_URL:-http://localhost:8080}"
+ORGSLUG="${DEMO_ORG_SLUG:-acme}"
+ACCSLUG="${DEMO_ACCOUNT_SLUG:-prod}"
 auth_h() { echo "Authorization: Bearer $TOK"; }
 
 echo "== login =="
-curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d'{"email":"demo@acme.local","orgSlug":"acme"}' | tee /tmp/olp-login.json
+curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d"{\"email\":\"demo@${ORGSLUG}.local\",\"orgSlug\":\"${ORGSLUG}\"}" | tee /tmp/olp-login.json
 TOK=$(jq -r .accessToken /tmp/olp-login.json)
 USER_ID=$(jq -r .user.id /tmp/olp-login.json)
 echo; echo "== orgs =="
@@ -15,9 +17,9 @@ ORG=$(jq -r '.[0].id' /tmp/orgs.json)
 echo "ORG=$ORG USER_ID=$USER_ID"
 
 echo "== account (tao neu chua co) =="
-ACC_JSON=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$(auth_h)" -d'{"slug":"prod","displayName":"Production"}')
+ACC_JSON=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"slug\":\"$ACCSLUG\",\"displayName\":\"Production\"}")
 if echo "$ACC_JSON" | grep -q '"error":"conflict"'; then
-  ACC=$(curl -s "$BASE/v1/orgs/$ORG/accounts" -H"$(auth_h)" | jq -r '.[] | select(.slug=="prod") | .id')
+  ACC=$(curl -s "$BASE/v1/orgs/$ORG/accounts" -H"$(auth_h)" | jq -r ".[] | select(.slug==\"$ACCSLUG\") | .id")
 else
   ACC=$(echo "$ACC_JSON" | jq -r .id)
 fi

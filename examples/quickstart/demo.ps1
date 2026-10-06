@@ -1,9 +1,11 @@
 #Requires -Version 5.1
 # OLP quickstart cho Windows PowerShell (tương đương examples/quickstart/demo.sh)
 param([string]$Base = "http://localhost:8080")
+$OrgSlug = if ($env:DEMO_ORG_SLUG) { $env:DEMO_ORG_SLUG } else { "acme" }
+$AccSlug = if ($env:DEMO_ACCOUNT_SLUG) { $env:DEMO_ACCOUNT_SLUG } else { "prod" }
 $H = @{}
 Write-Host "== login =="
-$login = Invoke-RestMethod -Method Post "$Base/v1/auth/login" -ContentType "application/json" -Body '{"email":"demo@acme.local","orgSlug":"acme"}'
+$login = Invoke-RestMethod -Method Post "$Base/v1/auth/login" -ContentType "application/json" -Body (@{email="demo@$OrgSlug.local"; orgSlug=$OrgSlug} | ConvertTo-Json)
 $tok = $login.accessToken; $uid = $login.user.id
 $H = @{ Authorization = "Bearer $tok" }
 Write-Host "TOK len=$($tok.Length) UID=$uid"
@@ -12,9 +14,9 @@ $orgs = Invoke-RestMethod "$Base/v1/orgs" -Headers $H
 $org = $orgs[0].id; Write-Host "ORG=$org"
 Write-Host "== create account (idempotent) =="
 try {
-  $acc = Invoke-RestMethod -Method Post "$Base/v1/orgs/$org/accounts" -ContentType "application/json" -Headers $H -Body '{"slug":"prod","displayName":"Production"}'
+  $acc = Invoke-RestMethod -Method Post "$Base/v1/orgs/$org/accounts" -ContentType "application/json" -Headers $H -Body (@{slug=$AccSlug; displayName="Production"} | ConvertTo-Json)
 } catch {
-  $acc = (Invoke-RestMethod "$Base/v1/orgs/$org/accounts" -Headers $H | Where-Object { $_.slug -eq "prod" })[0]
+  $acc = (Invoke-RestMethod "$Base/v1/orgs/$org/accounts" -Headers $H | Where-Object { $_.slug -eq $AccSlug })[0]
 }
 Write-Host "ACC=$($acc.id)"
 Write-Host "== role + policy (idempotent) =="
