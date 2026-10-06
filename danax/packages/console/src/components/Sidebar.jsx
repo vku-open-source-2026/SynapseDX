@@ -13,6 +13,8 @@ import {
   faBolt,
   faListCheck,
   faFlask,
+  faBook,
+  faCode,
 } from '@fortawesome/free-solid-svg-icons';
 
 const ITEMS = [
@@ -27,6 +29,8 @@ const ITEMS = [
   { to: '/workflows', label: 'Workflows', icon: faBolt, match: (p) => p.startsWith('/workflows') },
   { to: '/authorize', label: 'Authorize', icon: faFlask, match: (p) => p.startsWith('/authorize') },
   { to: '/audit', label: 'Audit Log', icon: faListCheck, match: (p) => p.startsWith('/audit') },
+  { to: '/api-docs', label: 'API Docs', icon: faCode, match: (p) => p.startsWith('/api-docs') },
+  { to: '/docs', label: 'Docs', icon: faBook, match: (p) => p.startsWith('/docs') },
 ];
 
 export default function Sidebar() {

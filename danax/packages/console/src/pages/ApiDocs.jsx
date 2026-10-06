@@ -1,0 +1,150 @@
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../lib/auth.jsx';
+import { baseUrl } from '../lib/api.js';
+import { GROUPS } from '../lib/endpoints.js';
+import { Badge, Card, Code, Err, PageTitle } from '../components/ui.jsx';
+
+const METHOD_TONE = { GET: 'blue', POST: 'green', DELETE: 'red' };
+
+export default function ApiDocs() {
+  const { headers, auth } = useAuth();
+  const [open, setOpen] = useState(null);
+  const [body, setBody] = useState('');
+  const [pathVals, setPathVals] = useState({});
+  const [out, setOut] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const key = (g, e) => `${g}:${e.method}:${e.path}`;
+  const toggle = (g, e) => {
+    const k = key(g, e);
+    setOpen(open === k ? null : k);
+    setOut(null);
+    setErr(null);
+    setBody(e.body ? JSON.stringify(e.body, null, 2) : '');
+    setPathVals({});
+  };
+
+  const fillPath = (p) =>
+    p.replace(/:([A-Za-z0-9_]+)/g, (_, n) => {
+      const v = (pathVals[n] || '').trim();
+      if (!v) throw new Error(`Nhập :${n} để gọi thử`);
+      return encodeURIComponent(v);
+    });
+
+  const run = async (e) => {
+    setErr(null);
+    setOut(null);
+    setBusy(true);
+    try {
+      const p = fillPath(e.path);
+      let payload;
+      if (e.method !== 'GET') {
+        try {
+          payload = body.trim() ? JSON.parse(body) : {};
+        } catch {
+          throw new Error('Body không phải JSON hợp lệ');
+        }
+      }
+      const h = { 'Content-Type': 'application/json' };
+      if (headers.token) h.Authorization = `Bearer ${headers.token}`;
+      if (headers.apiKey) h['X-API-Key'] = headers.apiKey;
+      const r = await fetch(`${baseUrl()}${p}`, {
+        method: e.method,
+        headers: h,
+        body: e.method === 'GET' ? undefined : JSON.stringify(payload),
+      });
+      const text = await r.text();
+      let data = text;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        /* keep text */
+      }
+      setOut({ status: r.status, body: data });
+    } catch (ex) {
+      setErr(ex);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PageTitle title="API Docs" sub="Toàn bộ endpoint Tier-1 — bấm để gọi thử với phiên đăng nhập hiện tại" />
+      <Err e={err} />
+      {!auth && (
+        <Card className="mb-4">
+          <p className="text-sm text-normal-text">
+            Bạn đang xem ẩn danh — endpoint public vẫn gọi thử được. <Link to="/login" className="text-main-blue">Đăng nhập</Link> để thử các endpoint cần auth.
+          </p>
+        </Card>
+      )}
+      {GROUPS.map((g) => (
+        <Card key={g.name} className="mb-4">
+          <h3 className="font-semibold text-main-text mb-2">{g.name}</h3>
+          <div className="divide-y divide-slate-100">
+            {g.endpoints.map((e) => {
+              const k = key(g.name, e);
+              const params = [...e.path.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+              return (
+                <div key={k} className="py-2">
+                  <button onClick={() => toggle(g.name, e)} className="w-full flex items-center gap-2 text-left">
+                    <Badge tone={METHOD_TONE[e.method] || 'gray'}>{e.method}</Badge>
+                    <code className="text-xs font-mono text-main-text break-all">{e.path}</code>
+                    <span className="ml-auto text-xs text-normal-text whitespace-nowrap">
+                      {e.auth === 'none' ? 'public' : 'auth'}
+                    </span>
+                  </button>
+                  <p className="text-xs text-normal-text mt-1 ml-1">{e.desc}</p>
+                  {open === k && (
+                    <div className="mt-2 ml-1 p-3 rounded-2xl bg-background">
+                      {params.map((p) => (
+                        <div key={p} className="flex items-center gap-2 mb-2 text-xs">
+                          <span className="font-mono text-main-text w-24">:{p}</span>
+                          <input
+                            value={pathVals[p] || ''}
+                            onChange={(ev) => setPathVals({ ...pathVals, [p]: ev.target.value })}
+                            placeholder={`nhập ${p}…`}
+                            className="flex-1 px-2 py-1 rounded-xl border border-slate-200 text-xs outline-none"
+                          />
+                        </div>
+                      ))}
+                      {e.method !== 'GET' && (
+                        <textarea
+                          value={body}
+                          onChange={(ev) => setBody(ev.target.value)}
+                          rows={6}
+                          spellCheck={false}
+                          className="w-full px-2 py-1 rounded-xl border border-slate-200 text-xs font-mono outline-none mb-2"
+                        />
+                      )}
+                      <button
+                        onClick={() => run(e)}
+                        disabled={busy}
+                        className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
+                      >
+                        {busy ? 'Đang gọi…' : 'Gọi thử'}
+                      </button>
+                      {out && (
+                        <div className="mt-2">
+                          <Badge tone={out.status < 300 ? 'green' : out.status < 500 ? 'amber' : 'red'}>
+                            HTTP {out.status}
+                          </Badge>
+                          <div className="mt-1">
+                            <Code data={out.body} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      ))}
+    </>
+  );
+}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { baseUrl } from '../lib/api.js';
 import { Btn, Err, Field, Input } from '../components/ui.jsx';
@@ -77,6 +77,10 @@ export default function Login() {
         </form>
         <p className="text-xs text-normal-text mt-4 text-center">
           Dev login cấp token trực tiếp · Production dùng OIDC (Authentik/Keycloak).
+          <br />
+          <Link to="/welcome" className="text-main-blue">Giới thiệu danax</Link>
+          {' · '}
+          <Link to="/api-docs" className="text-main-blue">API Docs</Link>
         </p>
       </div>
     </div>

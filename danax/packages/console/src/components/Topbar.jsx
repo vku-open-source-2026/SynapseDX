@@ -38,7 +38,7 @@ export default function Topbar() {
             <Link to="/" onClick={() => setOpen(false)} className="block py-2 text-main-text">
               Dashboard
             </Link>
-            {['orgs', 'accounts', 'users', 'roles', 'policies', 'keys', 'service-accounts', 'workflows', 'authorize', 'audit'].map(
+            {['orgs', 'accounts', 'users', 'roles', 'policies', 'keys', 'service-accounts', 'workflows', 'authorize', 'audit', 'api-docs', 'docs'].map(
               (r) => (
                 <Link key={r} to={`/${r}`} onClick={() => setOpen(false)} className="block py-2 text-main-text capitalize">
                   {r.replace('-', ' ')}

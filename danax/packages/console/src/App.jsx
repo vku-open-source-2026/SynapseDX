@@ -15,6 +15,9 @@ import ServiceAccounts from './pages/ServiceAccounts.jsx';
 import Workflows from './pages/Workflows.jsx';
 import Authorize from './pages/Authorize.jsx';
 import Audit from './pages/Audit.jsx';
+import Landing from './pages/Landing.jsx';
+import ApiDocs from './pages/ApiDocs.jsx';
+import Docs from './pages/Docs.jsx';
 
 function Guard({ children }) {
   const { auth } = useAuth();
@@ -36,7 +39,10 @@ function Shell({ children }) {
 export default function App() {
   return (
     <Routes>
+      <Route path="/welcome" element={<Landing />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/api-docs" element={<Shell><ApiDocs /></Shell>} />
+      <Route path="/docs" element={<Shell><Docs /></Shell>} />
       <Route path="/" element={<Guard><Shell><Dashboard /></Shell></Guard>} />
       <Route path="/orgs" element={<Guard><Shell><Orgs /></Shell></Guard>} />
       <Route path="/accounts" element={<Guard><Shell><Accounts /></Shell></Guard>} />
