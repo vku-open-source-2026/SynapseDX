@@ -21,9 +21,7 @@ services:
       - console
     networks: [synapsedx-net]
 
-  # Behind this terminator the gateway sees the proxy IP — trust one hop so
-  # rate-limit keys use the real client IP (proxy is ours: no spoof risk).
+  # HSTS on gateway responses (TLS edge serves https to clients).
   gateway:
     environment:
-      TRUST_PROXY: "1"
       HSTS_ENABLED: "true"

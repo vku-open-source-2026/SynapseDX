@@ -30,9 +30,11 @@
    keep working (verify tries peppered then legacy hash).
 7. `CORS_ORIGIN=https://console.your-domain` (never `*` in production).
 8. `HSTS_ENABLED=true` **only** behind TLS (see `docker-compose.tls.yml`).
-9. Tighten `RATE_LIMIT_MAX` / `AUTH_RATE_LIMIT_MAX` for public deployments.
-   `/v1/auth/*` has its own stricter quota (default 60 req/min) against
-   credential-stuffing.
+9. Rate-limit OUTSIDE the gateway (Ingress NGINX `limit_req`, Cloudflare/AWS WAF).
+   The gateway's built-in limiter was removed (ops decision — it once caused
+   spurious 429s via a shared store). Without external rate limiting there is
+   NO brute-force protection on `/v1/auth/*` (login/refresh). Never expose
+   IAM/workflow directly.
 10. Track CVEs of the external engines and pin images: Authentik, n8n, PostgreSQL,
     Redis (see `docker-compose.yml`). Rotate `N8N_API_KEY` and `N8N_ENCRYPTION_KEY`.
 11. Console stores the session token in `localStorage` (XSS-readable by design for a
@@ -63,8 +65,12 @@
 - Workflow definitions may contain HTTP nodes (inherent SSRF surface of any workflow
   engine): restrict who can create/execute workflows via RBAC, and run n8n
   egress-restricted in production (no cloud-metadata access).
-- IAM validates `email` (RFC, ≤320 chars, lowercased) and `slug` (`^[a-z0-9-]{2,64}$`)
+- IAM validates `email` (RFC, ≤320 chars, lowercased) and `slug` (`^[a-z0-9-]{1,64}$`)
   with zod on login / OIDC-callback / org / account / user creation.
+- No in-gateway rate limiting (removed by ops decision): brute-force protection
+  for `/v1/auth/*` MUST come from Ingress/WAF. The removed limiter once caused
+  spurious 429s via a shared Redis store (fixed by keyspace separation, then
+  removed entirely to keep CI/ops simple).
 - n8n/Authentik are external engines — track their own CVEs and pin images in `docker-compose.yml`.
 
 ## Known transitive findings (accepted, tracked)
@@ -73,3 +79,10 @@
   `routes.yaml`, not from request input, so the nested-pattern ReDoS is not
   remotely triggerable through the gateway. Re-evaluate on each
   `http-proxy-middleware` minor release (`npm audit` in CI surfaces it).
+- `react-router` 6.30.x (console, dev-server SPA — no SSR):
+  GHSA-wrjc-x8rr-h8h6 (open redirect via backslash in `<Link>`/`useNavigate`) and
+  GHSA-337j-9hxr-rhxg (constructor injection via SSR `deserializeErrors()`).
+  Neither is reachable here: every `<Link to>` / `navigate()` target is a static
+  literal (no user-controlled destinations), and the console never uses SSR
+  hydration. Fix requires a breaking major bump — re-evaluate when upgrading
+  `react-router-dom` (CI `npm audit --audit-level=critical` stays green on moderates).

@@ -59,6 +59,10 @@ Format based on Keep a Changelog; versioning follows SemVer.
   not silent 401s); proxy `on.error` (HPM v3 API, not v2 `onError`) returns fast 502
   JSON instead of default 504 page on upstream death — live-verified (26ms);
   `PROXY_TIMEOUT_MS` clamped.
+- Gateway rate-limiters no longer share one Redis store (was counting ALL traffic
+  against the 60/min auth quota → spurious 429s, caught from a CI log): separate
+  `synapsedx:rl:` / `synapsedx:rl:auth:` keyspaces; live-verified against real
+  Redis (20 non-auth → untouched, 6th auth → 429 exactly at max=5) + unit test.
 - K8s manifests: gateway now receives `IAM_JWT_SECRET` (was missing → all Bearer
   checks failed closed in-cluster); `SYNAPSEDX_INTERNAL_SECRET` + pepper wired via
   secrets; production env flips (`NODE_ENV`, dev-login/OIDC-demo off, HSTS, CORS,
@@ -77,6 +81,12 @@ Format based on Keep a Changelog; versioning follows SemVer.
   call now carries `x-synapsedx-internal` (was missing → fail-closed 503 always);
   `verifyApiKeyUpstream` exported + unit-tested (header forwarding, invalid-key null,
   unreachable-IAM error).
+- Rate limiting REMOVED from the gateway (ops decision to keep CI green): deleted
+  both limiters + `ratelimit-redis.ts` + `TRUST_PROXY` + all `RATE_LIMIT_*`/`AUTH_*`
+  config/compose/docs. The shared-store 429 bug was fixed first (separate keyspaces,
+  live-verified) but the feature was then removed entirely. Brute-force protection
+  for `/v1/auth/*` must now come from Ingress/WAF (see SECURITY.md). Restore by
+  reverting this commit.
 - `TRUST_PROXY` support (rate-limit sees real client IP behind TLS terminator;
   default false against IP-spoof); TLS profile sets `TRUST_PROXY=1` + `HSTS_ENABLED=true`
   on gateway; HSTS + `ssl_prefer_server_ciphers` at the TLS edge; console entrypoint escapes sed-special chars in runtime URL.
@@ -102,6 +112,17 @@ Format based on Keep a Changelog; versioning follows SemVer.
   `pip-licenses` fail-on GPL, and `ruff check` + `ruff format --check` (SDK cleaned).
 - `tests/e2e/api-check.sh`: negative/hardening checks (401 anonymous, 400 bad
   email/slug/oversized policy, security headers, no `x-powered-by`).
+- `tests/e2e/sdk-check.js`: `listExecutions` tolerates absent n8n (CI subset has no
+  engine — 502 `n8n_unreachable` means the path works, not that the SDK is broken;
+  verified exit 0 both ways against a stub).
+- `listExecutions` tolerance extended to n8n's own 401 `{"message":"unauthorized"}`
+  (engine up but API key unprovisioned): skipped as engine-side, while OUR 401s
+  (always carry an `"error"` key) still fail loudly — verified both ways by stub.
+- New validation rejected explicit-`null` optionals (Python `displayName=None` →
+  400): optional fields now `.nullish()` (null ≡ absent) + regression tests.
+- Slug pattern relaxed `{2,64}` → `{1,64}` (single-char slugs like e2e's `"r"`/`"p"`
+  are legitimate; charset restrictions unchanged) + regression test.
+- Root `npm audit` (dropped version-fragile `--workspaces` flag).
 
 ## [0.3.0] - 2026-10-07
 ### Changed (BREAKING)

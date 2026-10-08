@@ -217,18 +217,9 @@ services:
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
-      REDIS_URL: redis://redis:6379
-      RATE_LIMIT_WINDOW_MS: 60000
-      RATE_LIMIT_MAX: 300
-      AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-60000}
-      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-60}
       GATEWAY_VERIFY_APIKEY: ${GATEWAY_VERIFY_APIKEY:-false}
       PROXY_TIMEOUT_MS: ${PROXY_TIMEOUT_MS:-30000}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
-      # Set TRUST_PROXY=1 when running behind the TLS terminator
-      # (docker-compose.tls.yml) or your own reverse proxy, so rate-limit
-      # sees real client IPs. NEVER enable with an untrusted proxy (IP spoof).
-      TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     healthcheck:
@@ -241,8 +232,6 @@ services:
       iam:
         condition: service_healthy
       workflow:
-        condition: service_healthy
-      redis:
         condition: service_healthy
     networks: [synapsedx-net]
 

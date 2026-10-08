@@ -123,15 +123,16 @@ export function createApp(): express.Express {
   // Create workflow from template or raw definition
   app.post('/v1/workflows', async (req, res) => {
     const { name, definition, template } = req.body as any;
-    if (name !== undefined && (typeof name !== 'string' || name.length === 0 || name.length > 200)) {
+    // null ≡ absent for optional fields (SDKs serialize missing values as null).
+    if (name != null && (typeof name !== 'string' || name.length === 0 || name.length > 200)) {
       return res.status(400).json({ error: 'invalid_name', message: 'name must be 1..200 chars' });
     }
-    if (template !== undefined && (typeof template !== 'string' || !/^[a-z0-9-]{1,64}$/.test(template))) {
+    if (template != null && (typeof template !== 'string' || !/^[a-z0-9-]{1,64}$/.test(template))) {
       return res.status(400).json({ error: 'invalid_template', message: 'unknown template (see GET /v1/templates)' });
     }
     let payload: any = definition;
     if (template && !definition) {
-      payload = buildTemplate(template, name);
+      payload = buildTemplate(template, (name as string) || template);
       if (!payload) return res.status(400).json({ error: 'unknown_template', available: listTemplates().map((t) => t.name) });
     }
     if (!payload) return res.status(400).json({ error: 'definition or template required' });

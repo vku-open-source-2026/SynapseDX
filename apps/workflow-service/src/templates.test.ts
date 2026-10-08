@@ -67,4 +67,13 @@ describe('workflow internal gate', () => {
     assert.equal(r.status, 400);
     assert.equal((await r.json()).error, 'invalid_json');
   });
+  it('explicit null name passes validation (proxies to n8n, 502 here)', async () => {
+    // Python SDK serializes missing name as null — must not 400.
+    const r = await fetch(base + '/v1/workflows', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      body: JSON.stringify({ template: 'webhook-to-log', name: null }),
+    });
+    assert.equal(r.status, 502); // validation passed; only n8n is absent
+  });
 });

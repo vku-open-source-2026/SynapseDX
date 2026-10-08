@@ -5,7 +5,6 @@
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import jwt from 'jsonwebtoken';
 import fs from 'fs';
@@ -204,14 +203,6 @@ export function propagatePrincipal(req: express.Request): void {
 export function createApp(): express.Express {
   const app = express();
   app.disable('x-powered-by');
-  // Trust proxy: default false (direct clients). Behind the TLS terminator or
-  // another reverse proxy, set TRUST_PROXY=1 (or CIDR) so rate-limit keys and
-  // req.ip see the real client via X-Forwarded-For instead of the proxy IP.
-  // WARNING: only enable when the proxy is yours — otherwise clients can spoof IPs.
-  const trustProxy = process.env.TRUST_PROXY || 'false';
-  if (trustProxy !== 'false') {
-    app.set('trust proxy', trustProxy === 'true' ? true : (/^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy));
-  }
   // Baseline security headers (no extra dep; gateway is a proxy, not a page server).
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -240,52 +231,14 @@ export function createApp(): express.Express {
     res.setHeader('x-request-id', id);
     next();
   }) as any);
-  // Rate limit: Redis store khi có REDIS_URL (chia sẻ giữa replicas),
-  // fallback memory khi không có (single-instance).
+  // NOTE: rate limiting đã GỠ khỏi gateway theo quyết định vận hành (từng gây 429
+  // oan do share Redis store; đã fix tách keyspace nhưng chủ động tắt để CI và
+  // vận hành đơn giản). Muốn bật lại: revert commit này (xem CHANGELOG).
+  // Production BẮT BUỘC rate-limit ở tầng ngoài (Ingress/WAF/reverse proxy),
+  // đặc biệt cho /v1/auth/* (brute-force login) — xem SECURITY.md.
   // NOTE: không dùng express.json() toàn cục — body-parser sẽ nuốt stream
   // khiến http-proxy-middleware forward body rỗng/bể tới upstream.
   // Gateway là proxy thuần nên giữ nguyên raw body.
-
-  const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
-  const max = Number(process.env.RATE_LIMIT_MAX || 300);
-  let store: any;
-  if (process.env.REDIS_URL) {
-    try {
-      // lazy import để image không cần redis khi chạy single-instance
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { createRedisStore } = require('./ratelimit-redis');
-      store = createRedisStore({ redisUrl: process.env.REDIS_URL, windowMs });
-      console.log('[gateway] rate-limit store: redis');
-    } catch (e: any) {
-      console.error('[gateway] redis store failed, fallback memory:', e.message);
-    }
-  } else {
-    console.log('[gateway] rate-limit store: memory');
-  }
-  const limiter = rateLimit({
-    windowMs,
-    max,
-    ...(store ? { store } : {}),
-    standardHeaders: true,
-    legacyHeaders: false,
-    // Health/metrics/readiness phục vụ orchestrator + LB — không tính vào quota.
-    skip: (req) => ['/health', '/metrics', '/ready'].includes(req.path),
-  });
-  app.use(limiter);
-
-  // Brute-force guard cho login/refresh (credential stuffing vào /v1/auth/*):
-  // quota riêng, chặt hơn nhiều so với limiter chung.
-  const authLimiter = rateLimit({
-    windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 60000),
-    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 60),
-    ...(store ? { store } : {}),
-    standardHeaders: true,
-    legacyHeaders: false,
-    // CORS preflight không phải là login attempt — đừng tính vào quota.
-    skip: (req) => req.method === 'OPTIONS',
-    message: { error: 'rate_limited', message: 'Too many auth attempts, slow down' },
-  });
-  app.use('/v1/auth/', authLimiter as any);
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gateway', version: VERSION, time: new Date().toISOString() }));
   app.get('/metrics', async (_req, res) => {

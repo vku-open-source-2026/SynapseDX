@@ -123,7 +123,23 @@ describe('iam defense-in-depth', () => {
     assert.equal((await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'BAD!!' }, h)).status, 400);
     const role = await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'ok-role' }, h);
     assert.equal(role.status, 201);
+    // Single-char slugs are legitimate (e2e uses "r"/"p") — must be 201, not 400.
+    const tiny = await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'r' }, h);
+    assert.equal(tiny.status, 201);
     assert.equal((await call('POST', `/v1/accounts/${orgId}/keys`, { name: 'k', scopes: 'not-array' }, h)).status, 400);
     assert.equal((await call('POST', '/v1/authorize', { userId: 'u', action: 'x'.repeat(600), resource: '*' }, h)).status, 400);
+  });
+
+  it('explicit null optional fields are accepted (SDK null serialization)', async () => {
+    const login = await call('POST', '/v1/auth/login', { email: 'nullok@acme.local' });
+    const h = { Authorization: `Bearer ${login.data.accessToken}` };
+    const orgs = await call('GET', '/v1/orgs', undefined, h);
+    const orgId = orgs.data[0].id;
+    // Python SDK sends displayName=None -> JSON null; must be 201, not 400.
+    const u = await call('POST', `/v1/orgs/${orgId}/users`, { email: 'nulluser@acme.local', displayName: null }, h);
+    assert.equal(u.status, 201);
+    assert.equal(u.data.email, 'nulluser@acme.local');
+    const r = await call('POST', '/v1/auth/login', { email: 'nulllogin@acme.local', orgSlug: null });
+    assert.equal(r.status, 200);
   });
 });

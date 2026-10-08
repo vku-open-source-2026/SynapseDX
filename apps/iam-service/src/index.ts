@@ -139,7 +139,7 @@ export function createApp(): express.Express {
     const issuer = process.env.OIDC_ISSUER || '';
     const clientId = process.env.OIDC_CLIENT_ID || '';
     const redirectUri = (process.env.OIDC_REDIRECT_URI || '') as string;
-    const org = typeof req.query.org === 'string' && /^[a-z0-9-]{2,64}$/.test(req.query.org) ? req.query.org : 'acme';
+    const org = typeof req.query.org === 'string' && /^[a-z0-9-]{1,64}$/.test(req.query.org) ? req.query.org : 'acme';
     const state = Buffer.from(JSON.stringify({ org, t: Date.now() })).toString('base64url');
     const url = `${issuer.replace(/\/$/, '')}/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=${encodeURIComponent('openid email profile')}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     res.json({ authorizeUrl: url, state });
@@ -169,7 +169,7 @@ export function createApp(): express.Express {
       }
       const schema = z.object({
         email: z.string().trim().toLowerCase().email().max(320),
-        orgSlug: z.string().trim().regex(/^[a-z0-9-]{2,64}$/).optional(),
+        orgSlug: z.string().trim().regex(/^[a-z0-9-]{1,64}$/).nullish(),
       });
       const parsed = schema.safeParse({ email, orgSlug });
       if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
@@ -196,7 +196,7 @@ export function createApp(): express.Express {
     }
     const schema = z.object({
       email: z.string().trim().toLowerCase().email().max(320),
-      orgSlug: z.string().trim().regex(/^[a-z0-9-]{2,64}$/).optional(),
+      orgSlug: z.string().trim().regex(/^[a-z0-9-]{1,64}$/).nullish(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
@@ -278,7 +278,7 @@ export function createApp(): express.Express {
   app.post('/v1/orgs', async (req, res) => {
     try {
       const schema = z.object({
-        slug: z.string().trim().regex(/^[a-z0-9-]{2,64}$/),
+        slug: z.string().trim().regex(/^[a-z0-9-]{1,64}$/),
         displayName: z.string().trim().min(2).max(200),
       });
       const b = schema.parse(req.body);
@@ -296,7 +296,7 @@ export function createApp(): express.Express {
   app.post('/v1/orgs/:orgId/accounts', async (req, res) => {
     try {
       const schema = z.object({
-        slug: z.string().trim().regex(/^[a-z0-9-]{2,64}$/),
+        slug: z.string().trim().regex(/^[a-z0-9-]{1,64}$/),
         displayName: z.string().trim().min(2).max(200),
       });
       const b = schema.parse(req.body);
@@ -313,12 +313,14 @@ export function createApp(): express.Express {
   app.post('/v1/orgs/:orgId/users', async (req, res) => {
     const schema = z.object({
       email: z.string().trim().toLowerCase().email().max(320),
-      displayName: z.string().trim().max(200).optional(),
+      // nullish (not just optional): SDKs often serialize missing fields as
+      // explicit null (e.g. Python display_name=None) — accept both.
+      displayName: z.string().trim().max(200).nullish(),
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
     const { email, displayName } = parsed.data;
-    res.status(201).json(await upsertUser(req.params.orgId, email, displayName));
+    res.status(201).json(await upsertUser(req.params.orgId, email, displayName || undefined));
   });
 
   app.get('/v1/orgs/:orgId/users', async (req, res) => {
@@ -326,13 +328,14 @@ export function createApp(): express.Express {
   });
 
   // ---------- Roles & Policies (AWS-style) ----------
-  const SLUG_RE = /^[a-z0-9-]{2,64}$/;
+  const SLUG_RE = /^[a-z0-9-]{1,64}$/;
   app.post('/v1/accounts/:accountId/roles', async (req, res) => {
     const { slug, description } = req.body as any;
     if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
-      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{2,64}$' });
+      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
-    if (description !== undefined && (typeof description !== 'string' || description.length > 500)) {
+    // null ≡ absent for optional fields (SDKs serialize missing values as null).
+    if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
     res.status(201).json(await createRole(req.params.accountId, slug, description || ''));
@@ -351,8 +354,8 @@ export function createApp(): express.Express {
   app.post('/v1/accounts/:accountId/policies', async (req, res) => {
     const { slug, description, document } = req.body as any;
     if (!slug || !document) return res.status(400).json({ error: 'slug+document required' });
-    if (typeof slug !== 'string' || !/^[a-z0-9-]{2,64}$/.test(slug)) {
-      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{2,64}$' });
+    if (typeof slug !== 'string' || !/^[a-z0-9-]{1,64}$/.test(slug)) {
+      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
     const docErr = validatePolicyDocument(document);
     if (docErr) return res.status(400).json({ error: 'invalid_document', message: docErr });
@@ -465,9 +468,10 @@ export function createApp(): express.Express {
   app.post('/v1/accounts/:accountId/service-accounts', async (req, res) => {
     const { slug, description } = req.body as any;
     if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
-      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{2,64}$' });
+      return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
-    if (description !== undefined && (typeof description !== 'string' || description.length > 500)) {
+    // null ≡ absent for optional fields (SDKs serialize missing values as null).
+    if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
     res.status(201).json(await createServiceAccount(req.params.accountId, slug, description || ''));

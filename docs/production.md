@@ -19,11 +19,11 @@ Dùng khi đưa synapsedx ra khỏi laptop. Mọi mục đều có sẵn cơ ch�
 - [ ] Gateway là điểm vào duy nhất (Ingress + TLS); IAM/workflow/n8n/postgres/redis
       không expose ra internet (ClusterIP / compose network nội bộ).
 - [ ] Siết CORS của gateway theo origin frontend thật (mặc định mở hết cho MVP).
-- [ ] Rate limit: rà `RATE_LIMIT_MAX`/`RATE_LIMIT_WINDOW_MS` theo tải; Redis
-      (`REDIS_URL`) để share giữa replicas. Quota `/v1/auth/*` riêng
-      (`AUTH_RATE_LIMIT_MAX`, mặc định 60/phút).
-- [ ] `HSTS_ENABLED=true` khi đã có TLS; `CORS_ORIGIN` theo origin frontend thật.
+- [ ] Rate limit ở tầng ngoài (Ingress NGINX `limit_req`, Cloudflare/AWS WAF):
+  gateway đã gỡ limiter nội tại — bắt buộc có rate-limit ngoài, đặc biệt
+  `/v1/auth/*` (brute-force login/refresh). Không expose IAM/workflow trực tiếp.
 - [ ] `PROXY_TIMEOUT_MS` theo SLA upstream (mặc định 30s).
+- [ ] `HSTS_ENABLED=true` khi đã có TLS; `CORS_ORIGIN` theo origin frontend thật.
 
 ## 3. Dữ liệu
 - [ ] Postgres: volume bền + backup định kỳ (`pg_dump`, xem `docs/troubleshooting.md`).

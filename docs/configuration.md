@@ -11,14 +11,12 @@ Copy `.env.example` → `.env`, đổi mọi giá trị `*_change_me_*`. Chỉ s
 | `WORKFLOW_SERVICE_URL` | `http://workflow:4002` | upstream workflow |
 | `IAM_JWT_SECRET` | — | **phải trùng** IAM để verify Bearer |
 | `GATEWAY_ROUTES_PATH` | `./routes.yaml` | bảng định tuyến |
-| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | 60000 / 300 | rate limit (bỏ qua `/health`, `/metrics`, `/ready`) |
-| `AUTH_RATE_LIMIT_WINDOW_MS` / `AUTH_RATE_LIMIT_MAX` | 60000 / 60 | quota riêng, chặt hơn cho `/v1/auth/*` (chống brute-force login/refresh) |
 | `GATEWAY_VERIFY_APIKEY` | `false` | `true` → verify `X-API-Key` tập trung qua IAM (fail-closed 503 khi IAM chết); `false` → edge check presence, upstream verify |
 | `PROXY_TIMEOUT_MS` | 30000 | timeout upstream (504 khi quá hạn) |
 | `CORS_ORIGIN` | (mở hết) | `a.com,b.com` → chỉ cho origin đó (production) |
 | `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | credential gateway → iam/workflow (header `x-synapsedx-internal`); **phải trùng** 3 services ở production |
-| `TRUST_PROXY` | `false` | `1`/CIDR khi sau TLS terminator/reverse proxy (rate-limit thấy IP thật); chỉ bật khi proxy là của bạn (chống IP-spoof) |
 | `HSTS_ENABLED` | `false` | `true` → gửi `Strict-Transport-Security` (chỉ bật sau TLS) |
+| ~~`RATE_LIMIT_*` / `AUTH_RATE_LIMIT_*` / `TRUST_PROXY`~~ | — | đã gỡ khỏi gateway (rate-limit ở Ingress/WAF); muốn bật lại: revert commit gỡ limiter |
 | `REDIS_URL` | — (memory) | `redis://...` → rate-limit dùng Redis (share giữa replicas, fail-open khi Redis chết) |
 | `GATEWAY_HOST_PORT` | 8080 | host port (compose only) |
 

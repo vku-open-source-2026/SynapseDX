@@ -13,7 +13,7 @@ Upstream tin dùng trực tiếp, không cần re-verify JWT.
 
 ## Input validation (400 khi sai)
 - `email`: RFC email, ≤320 ký tự, tự lowercase/trim. `slug` (org/account/policy/role):
-  `^[a-z0-9-]{2,64}$`. `displayName`: 2–200 ký tự.
+  `^[a-z0-9-]{1,64}$`. `displayName`: 2–200 ký tự.
 - Policy `document`: `Statement[]` 1–100 entries, `Effect` Allow|Deny, mỗi pattern
   Action/Resource ≤512 ký tự, `Condition` ≤8KB (chống stored-ReDoS/DoS). Dry-run giới
   hạn 20 documents/lần.
