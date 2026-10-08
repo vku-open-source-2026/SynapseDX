@@ -76,6 +76,32 @@ describe('refresh + api keys (memory)', () => {
     assert.equal(await revokeApiKey(k.id), false);
     assert.equal(await revokeApiKey('nope'), false);
   });
+  it('pepper changes stored hash but keeps verify working', async () => {
+    const { hashSecret, hashSecretLegacy } = await import('./db');
+    process.env.IAM_API_KEY_PEPPER = 'test-pepper-32chars-xxxxxxxxxxxx';
+    try {
+      const k = await createApiKeyRecord('acc-pep', null, 'pep', ['*'], null);
+      assert.notEqual(hashSecret(k.value), hashSecretLegacy(k.value));
+      const v = await verifyApiKey(k.value);
+      assert.equal(v?.account_id, 'acc-pep');
+      // refresh tokens honor the pepper too
+      const rt = newRefreshToken();
+      await storeRefresh('upep', rt.hash, new Date(Date.now() + 60000));
+      assert.equal((await consumeRefresh(rt.value))?.user_id, 'upep');
+    } finally {
+      delete process.env.IAM_API_KEY_PEPPER;
+    }
+  });
+  it('pre-pepper (legacy) keys still verify after pepper is set', async () => {
+    const legacy = await createApiKeyRecord('acc-leg', null, 'leg', ['*'], null);
+    process.env.IAM_API_KEY_PEPPER = 'another-pepper-32chars-xxxxxxxxx';
+    try {
+      const v = await verifyApiKey(legacy.value);
+      assert.equal(v?.account_id, 'acc-leg');
+    } finally {
+      delete process.env.IAM_API_KEY_PEPPER;
+    }
+  });
 });
 
 describe('audit log (memory)', () => {

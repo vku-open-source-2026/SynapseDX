@@ -29,8 +29,11 @@ function loadConfig() {
   }
 }
 function saveConfig(cfg) {
-  fs.mkdirSync(CONF_DIR, { recursive: true });
-  fs.writeFileSync(CONF_FILE, JSON.stringify(cfg, null, 2));
+  fs.mkdirSync(CONF_DIR, { recursive: true, mode: 0o700 });
+  // Credentials on disk: owner-only (0600). Token/API key in this file is a
+  // bearer secret — never print it (see cmdConfig redaction below).
+  fs.writeFileSync(CONF_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  try { fs.chmodSync(CONF_FILE, 0o600); } catch { /* non-POSIX (win) */ }
 }
 function baseUrl(opts) {
   return (opts.base || process.env.SYNAPSEDX_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
@@ -145,6 +148,7 @@ function parse(argv) {
     else if (a.startsWith('--org=')) opts.org = a.slice(6);
     else if (a === '--org') opts.org = argv[++i];
     else if (a === '--label') opts.label = argv[++i];
+    else if (a.startsWith('--label=')) opts.label = a.slice(8);
     else args.push(a);
   }
   return { args, opts };
@@ -167,6 +171,7 @@ async function cmdLogin(o) {
   const cfg = loadConfig();
   cfg.baseUrl = baseUrl(o);
   cfg.token = r.accessToken;
+  if (r.refreshToken) cfg.refreshToken = r.refreshToken;
   delete cfg.apiKey;
   saveConfig(cfg);
   if (!o.json) console.log(`logged in as ${r.user.email} (token saved to ${CONF_FILE})`);
@@ -212,47 +217,82 @@ async function cmdAccounts(o) {
     return out(await POST(`/v1/orgs/${org}/accounts`, { slug, displayName: name }, o), o);
   }
   const org = sub && sub !== 'list' ? sub : await orgId(o);
-  return out(await GET(`/v1/orgs/${org}/accounts`, o), o, ['slug', 'display_name', 'id']);
+  return out(await GET(`/v1/orgs/${encodeURIComponent(org)}/accounts`, o), o, ['slug', 'display_name', 'id']);
 }
 async function cmdUsers(o) {
-  const org = await orgId(o, o._[0] !== 'list' ? o._[0] : undefined);
-  return out(await GET(`/v1/orgs/${org}/users`, o), o, ['email', 'display_name', 'id']);
+  const [sub, ...rest] = o._;
+  if (sub === 'create') {
+    const [org, email, name] = rest;
+    need(org, 'org'); need(email, 'email');
+    return out(await POST(`/v1/orgs/${encodeURIComponent(org)}/users`, { email, displayName: name || email }, o), o);
+  }
+  if (sub === 'policies') {
+    need(rest[0], 'user-id');
+    return out(await GET(`/v1/users/${encodeURIComponent(rest[0])}/policies`, o), o);
+  }
+  const org = await orgId(o, sub && sub !== 'list' ? sub : undefined);
+  return out(await GET(`/v1/orgs/${encodeURIComponent(org)}/users`, o), o, ['email', 'display_name', 'id']);
+}
+async function cmdRefresh(o) {
+  const cfg = loadConfig();
+  const rt = o._[0] || process.env.SYNAPSEDX_REFRESH_TOKEN || cfg.refreshToken;
+  need(rt, 'refresh-token (arg | $SYNAPSEDX_REFRESH_TOKEN)');
+  const r = await POST('/v1/auth/refresh', { refreshToken: rt }, o);
+  cfg.baseUrl = baseUrl(o);
+  cfg.token = r.accessToken;
+  if (r.refreshToken) cfg.refreshToken = r.refreshToken;
+  delete cfg.apiKey;
+  saveConfig(cfg);
+  if (!o.json) console.log(`token rotated (saved to ${CONF_FILE})`);
+  else console.log(JSON.stringify(r, null, 2));
+}
+async function cmdLogoutAll(o) {
+  const cfg = loadConfig();
+  const rt = o._[0] || process.env.SYNAPSEDX_REFRESH_TOKEN || cfg.refreshToken;
+  need(rt, 'refresh-token (arg | $SYNAPSEDX_REFRESH_TOKEN)');
+  const r = await POST('/v1/auth/logout-all', { refreshToken: rt }, o);
+  delete cfg.refreshToken;
+  saveConfig(cfg);
+  out(r, o);
+}
+async function cmdVerify(o) {
+  out(await GET('/v1/auth/verify', o), o);
 }
 async function cmdRoles(o) {
   const [sub, ...rest] = o._;
   if (sub === 'create') {
     const [account, slug] = rest;
     need(account, 'account'); need(slug, 'slug');
-    return out(await POST(`/v1/accounts/${account}/roles`, { slug }, o), o);
+    return out(await POST(`/v1/accounts/${encodeURIComponent(account)}/roles`, { slug }, o), o);
   }
   if (sub === 'delete') {
     need(rest[0], 'role-id');
-    return out(await DEL(`/v1/roles/${rest[0]}`, o), o);
+    return out(await DEL(`/v1/roles/${encodeURIComponent(rest[0])}`, o), o);
   }
   need(sub, 'account');
-  return out(await GET(`/v1/accounts/${sub}/roles`, o), o, ['slug', 'id']);
+  return out(await GET(`/v1/accounts/${encodeURIComponent(sub)}/roles`, o), o, ['slug', 'id']);
 }
 async function cmdPolicies(o) {
   const [sub, ...rest] = o._;
   if (sub === 'create') {
     const [account, slug] = rest;
     need(account, 'account'); need(slug, 'slug'); need(o.file, '--file policy.json');
-    return out(await POST(`/v1/accounts/${account}/policies`, { slug, document: readJson(o.file) }, o), o);
+    return out(await POST(`/v1/accounts/${encodeURIComponent(account)}/policies`, { slug, document: readJson(o.file) }, o), o);
   }
   if (sub === 'delete') {
     need(rest[0], 'policy-id');
-    return out(await DEL(`/v1/policies/${rest[0]}`, o), o);
+    return out(await DEL(`/v1/policies/${encodeURIComponent(rest[0])}`, o), o);
   }
   need(sub, 'account');
-  return out(await GET(`/v1/accounts/${sub}/policies`, o), o, ['slug', 'id']);
+  return out(await GET(`/v1/accounts/${encodeURIComponent(sub)}/policies`, o), o, ['slug', 'id']);
 }
 async function cmdAttach(o) {
   need(o._[0], 'role-id'); need(o._[1], 'policy-id');
-  return out(await POST(`/v1/roles/${o._[0]}/attach`, { policyId: o._[1] }, o), o);
+  return out(await POST(`/v1/roles/${encodeURIComponent(o._[0])}/attach`, { policyId: o._[1] }, o), o);
 }
 async function cmdAssign(o) {
   need(o._[0], 'user-id'); need(o._[1], 'role-id');
-  return out(await POST(`/v1/users/${o._[0]}/assign`, { roleId: o._[1] }, o), o);
+  return out(await POST(`/v1/users/${encodeURIComponent(o._[0])}/assign`, { roleId: o._[1] }, o), o);
 }
 async function cmdAuthz(o) {
   const [user, action, resource] = o._;
@@ -275,32 +315,36 @@ async function cmdKeys(o) {
   const [sub, ...rest] = o._;
   if (sub === 'create') {
     need(rest[0], 'account');
-    const r = await POST(`/v1/accounts/${rest[0]}/keys`, { name: o.name || o.label || 'cli', scopes: ['*'] }, o);
+    const r = await POST(`/v1/accounts/${encodeURIComponent(rest[0])}/keys`, { name: o.name || o.label || 'cli', scopes: ['*'] }, o);
     if (!o.json) console.log(`SAVE THIS KEY (shown once):\n${r.apiKey}\nid: ${r.id}`);
     else console.log(JSON.stringify(r, null, 2));
     return;
   }
   if (sub === 'revoke' || sub === 'delete') {
     need(rest[0], 'key-id');
-    return out(await DEL(`/v1/keys/${rest[0]}`, o), o);
+    return out(await DEL(`/v1/keys/${encodeURIComponent(rest[0])}`, o), o);
   }
-  throw new Error(`usage: keys create <account> [--name N] | keys revoke <key-id>`);
+  if (sub === 'verify') {
+    need(rest[0] || o.apikey, 'api-key (arg or --apikey)');
+    return out(await POST('/v1/keys/verify', { apiKey: rest[0] || o.apikey }, o), o);
+  }
+  throw new Error(`usage: keys create <account> [--name N] | keys revoke <key-id> | keys verify <api-key>`);
 }
 async function cmdSa(o) {
   const [sub, ...rest] = o._;
   if (sub === 'create') {
     need(rest[0], 'account'); need(rest[1], 'slug');
-    return out(await POST(`/v1/accounts/${rest[0]}/service-accounts`, { slug: rest[1] }, o), o);
+    return out(await POST(`/v1/accounts/${encodeURIComponent(rest[0])}/service-accounts`, { slug: rest[1] }, o), o);
   }
   if (sub === 'token') {
     need(rest[0], 'sa-id');
-    const r = await POST(`/v1/service-accounts/${rest[0]}/token`, {}, o);
+    const r = await POST(`/v1/service-accounts/${encodeURIComponent(rest[0])}/token`, {}, o);
     if (!o.json) console.log(`SAVE THIS TOKEN (short-lived):\n${r.accessToken}`);
     else console.log(JSON.stringify(r, null, 2));
     return;
   }
   need(sub, 'account');
-  return out(await GET(`/v1/accounts/${sub}/service-accounts`, o), o, ['slug', 'id']);
+  return out(await GET(`/v1/accounts/${encodeURIComponent(sub)}/service-accounts`, o), o, ['slug', 'id']);
 }
 async function cmdWorkflows(o) {
   const [sub, ...rest] = o._;
@@ -309,38 +353,72 @@ async function cmdWorkflows(o) {
     return out(Array.isArray(r) ? r : r.data || r, o, ['id', 'name', 'active']);
   }
   if (sub === 'create') {
-    need(o.template, '--template');
-    return out(await POST('/v1/workflows', { template: o.template, name: o.name }, o), o);
+    if (o.template) {
+      return out(await POST('/v1/workflows', { template: o.template, name: o.name }, o), o);
+    }
+    if (o.file) {
+      const raw = readJson(o.file);
+      // Accept either a full body ({template|definition, name}) or a bare definition.
+      const body = raw && (raw.template || raw.definition) ? raw : { name: o.name || 'synapsedx-workflow', definition: raw };
+      if (o.name && !body.name) body.name = o.name;
+      return out(await POST('/v1/workflows', body, o), o);
+    }
+    throw new Error(`workflows create needs --template T [--name N] or --file definition.json [--name N]`);
   }
   if (['get', 'activate', 'deactivate'].includes(sub)) {
     need(rest[0], 'workflow-id');
     const method = sub === 'get' ? 'GET' : 'POST';
     const suf = sub === 'get' ? '' : `/${sub}`;
-    if (method === 'GET') return out(await GET(`/v1/workflows/${rest[0]}`, o), o);
-    return out(await req('POST', `/v1/workflows/${rest[0]}${suf}`, {}, o), o);
+    const id = encodeURIComponent(rest[0]);
+    if (method === 'GET') return out(await GET(`/v1/workflows/${id}`, o), o);
+    return out(await req('POST', `/v1/workflows/${id}${suf}`, {}, o), o);
   }
   if (sub === 'exec' || sub === 'execute') {
     need(rest[0], 'workflow-id');
-    return out(await POST(`/v1/workflows/${rest[0]}/execute`, {}, o), o);
+    return out(await POST(`/v1/workflows/${encodeURIComponent(rest[0])}/execute`, {}, o), o);
   }
   throw new Error(`unknown workflows subcommand '${sub}'`);
 }
 async function cmdTemplates(o) {
+  const [sub, ...rest] = o._;
+  if (sub && sub !== 'list') {
+    return out(await GET(`/v1/templates/${encodeURIComponent(sub)}`, o), o);
+  }
+  if (sub === 'list' && rest[0]) {
+    return out(await GET(`/v1/templates/${encodeURIComponent(rest[0])}`, o), o);
+  }
   return out(await GET('/v1/templates', o), o, ['name', 'description']);
 }
+async function cmdExecutions(o) {
+  const [sub, ...rest] = o._;
+  if (sub && sub !== 'list') {
+    return out(await GET(`/v1/executions/${encodeURIComponent(sub)}`, o), o);
+  }
+  const qs = o.limit ? `?limit=${encodeURIComponent(o.limit)}` : '';
+  const r = await GET(`/v1/executions${qs}`, o);
+  return out(Array.isArray(r) ? r : r.data || r, o, ['id', 'status', 'workflowId']);
+}
 async function cmdConfig() {
-  console.log(JSON.stringify({ file: CONF_FILE, ...loadConfig(), token: loadConfig().token ? '***' : undefined }, null, 2));
+  const cfg = loadConfig();
+  const redacted = { file: CONF_FILE, baseUrl: cfg.baseUrl };
+  if (cfg.token) redacted.token = '*** (saved)';
+  if (cfg.apiKey) redacted.apiKey = '*** (saved)';
+  if (cfg.refreshToken) redacted.refreshToken = '*** (saved)';
+  console.log(JSON.stringify(redacted, null, 2));
 }
 
 const COMMANDS = {
-  login: { fn: cmdLogin, use: 'login --email E [--org ORG] [--base URL]', doc: 'Dev login, save token' },
+  login: { fn: cmdLogin, use: 'login --email E [--org ORG] [--base URL]', doc: 'Dev login, save token + refresh' },
+  refresh: { fn: cmdRefresh, use: 'refresh [refresh-token]', doc: 'Rotate access token (atomic server-side)' },
+  'logout-all': { fn: cmdLogoutAll, use: 'logout-all [refresh-token]', doc: 'Revoke ALL sessions of token owner' },
+  verify: { fn: cmdVerify, use: 'verify', doc: 'Check current Bearer / API key' },
   'use-key': { fn: cmdUseKey, use: 'use-key <api-key>', doc: 'Save API key instead of token' },
   logout: { fn: async () => { saveConfig({ baseUrl: loadConfig().baseUrl }); console.log('logged out'); }, use: 'logout', doc: 'Clear saved credentials' },
-  config: { fn: cmdConfig, use: 'config', doc: 'Show saved config' },
+  config: { fn: cmdConfig, use: 'config', doc: 'Show saved config (secrets redacted)' },
   whoami: { fn: cmdMe, use: 'whoami', doc: 'Current user (/v1/auth/me)' },
   orgs: { fn: cmdOrgs, use: 'orgs [list|create <slug> [name]]', doc: 'Organizations' },
   accounts: { fn: cmdAccounts, use: 'accounts [org] [list] | accounts create [org] <slug> [name]', doc: 'Accounts' },
-  users: { fn: cmdUsers, use: 'users [org]', doc: 'List users' },
+  users: { fn: cmdUsers, use: 'users [org] | users create <org> <email> [name] | users policies <user-id>', doc: 'Users + effective policies' },
   roles: { fn: cmdRoles, use: 'roles <account> [list] | roles create <account> <slug> | roles delete <id>', doc: 'Roles' },
   policies: { fn: cmdPolicies, use: 'policies <account> [list] | policies create <account> <slug> --file p.json | policies delete <id>', doc: 'Policies' },
   attach: { fn: cmdAttach, use: 'attach <role-id> <policy-id>', doc: 'Attach policy to role' },
@@ -348,14 +426,15 @@ const COMMANDS = {
   authz: { fn: cmdAuthz, use: 'authz <user> <action> <resource> [--context k=v]', doc: 'Authorize check' },
   sim: { fn: cmdSim, use: 'sim --file policy.json <action> <resource> [--context k=v]', doc: 'Policy simulator' },
   audit: { fn: cmdAudit, use: 'audit [--limit N] [--actor ID]', doc: 'Audit log' },
-  keys: { fn: cmdKeys, use: 'keys create <account> [--name N] | keys revoke <key-id>', doc: 'API keys' },
+  keys: { fn: cmdKeys, use: 'keys create <account> [--name N] | keys revoke <key-id> | keys verify <api-key>', doc: 'API keys' },
   sa: { fn: cmdSa, use: 'sa <account> [list] | sa create <account> <slug> | sa token <sa-id>', doc: 'Service accounts' },
-  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows get|activate|deactivate|exec <id>', doc: 'Workflows (n8n)' },
-  templates: { fn: cmdTemplates, use: 'templates', doc: 'Built-in templates' },
+  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows create --file def.json [--name N] | workflows get|activate|deactivate|exec <id>', doc: 'Workflows (n8n)' },
+  executions: { fn: cmdExecutions, use: 'executions [list] [--limit N] | executions <id>', doc: 'Workflow executions' },
+  templates: { fn: cmdTemplates, use: 'templates [list|<name>]', doc: 'Built-in templates' },
 };
 
 function help() {
-  console.log(`synapsedx v${VERSION} — Open Layer Platform CLI (Apache-2.0)
+  console.log(`synapsedx v${VERSION} — SynapseDX CLI (Apache-2.0)
 
 Usage: synapsedx [--base URL] [--token T | --apikey K] [--json] <command> [args]
 

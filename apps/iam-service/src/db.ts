@@ -4,7 +4,7 @@
  * IAM persistence layer — Postgres with in-memory fallback for dev/test.
  */
 import { Pool } from 'pg';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID, createHash, createHmac, timingSafeEqual } from 'crypto';
 
 export interface Organization { id: string; slug: string; display_name: string; created_at?: string }
 export interface Account { id: string; org_id: string; slug: string; display_name: string }
@@ -64,7 +64,34 @@ export async function query<T extends import('pg').QueryResultRow = any>(text: s
 }
 
 export function hashSecret(s: string): string {
+  const pepper = process.env.IAM_API_KEY_PEPPER || '';
+  if (pepper) return createHmac('sha256', pepper).update(s).digest('hex');
+  if (!hashSecret.warned) {
+    hashSecret.warned = true;
+    console.warn('[iam][security] IAM_API_KEY_PEPPER not set — API keys hashed with plain SHA-256 (dev default). Set a pepper in production.');
+  }
   return createHash('sha256').update(s).digest('hex');
+}
+hashSecret.warned = false as boolean;
+
+/** Legacy plain-SHA-256 hash (for verifying keys created before a pepper was set). */
+export function hashSecretLegacy(s: string): string {
+  return createHash('sha256').update(s).digest('hex');
+}
+
+/** Candidate hashes to try on verify: peppered first, then legacy (rotation-safe). */
+export function hashCandidates(s: string): string[] {
+  const pepper = process.env.IAM_API_KEY_PEPPER || '';
+  if (pepper) return [hashSecret(s), hashSecretLegacy(s)];
+  return [hashSecretLegacy(s)];
+}
+
+/** Constant-time string compare (avoid early-exit timing signal on secrets). */
+export function secretsEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
 }
 
 // ---------- high-level CRUD that works on both pg + memory ----------
@@ -225,6 +252,23 @@ export async function getUserById(id: string): Promise<User | null> {
     return r.rows[0] || null;
   }
   return mem.users.get(id) || null;
+}
+
+/** Existence checks for FK-safe attach/assign (404 thay vì 500 khi id lạ). */
+export async function roleExists(id: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('SELECT 1 FROM roles WHERE id=$1', [id]);
+    return r.rows.length > 0;
+  }
+  return mem.roles.has(id);
+}
+
+export async function policyExists(id: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('SELECT 1 FROM policies WHERE id=$1', [id]);
+    return r.rows.length > 0;
+  }
+  return mem.policies.has(id);
 }
 
 export async function deleteRole(id: string): Promise<boolean> {

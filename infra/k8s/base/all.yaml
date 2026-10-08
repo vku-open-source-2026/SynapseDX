@@ -23,6 +23,14 @@ spec:
           env:
             - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: database-url } } }
             - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
+            - { name: IAM_API_KEY_PEPPER, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: api-key-pepper } } }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            # Production hardening (flip from dev defaults):
+            - { name: NODE_ENV, value: "production" }
+            - { name: IAM_ALLOW_DEV_LOGIN, value: "false" }
+            - { name: IAM_ALLOW_OIDC_DEMO_CALLBACK, value: "false" }
+            - { name: HSTS_ENABLED, value: "true" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
           livenessProbe: { httpGet: { path: /health, port: 4001 }, initialDelaySeconds: 10, periodSeconds: 15 }
           readinessProbe: { httpGet: { path: /health, port: 4001 }, initialDelaySeconds: 5, periodSeconds: 10 }
 ---
@@ -55,6 +63,14 @@ spec:
           env:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
             - { name: WORKFLOW_SERVICE_URL, value: "http://workflow:4002" }
+            # Gateway MUST share the JWT secret or every Bearer check fails closed.
+            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+            - { name: CORS_ORIGIN, value: "https://console.example.com" }
+            - { name: GATEWAY_VERIFY_APIKEY, value: "true" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
           livenessProbe: { httpGet: { path: /health, port: 8080 }, initialDelaySeconds: 10, periodSeconds: 15 }
           # readiness = aggregate /ready: chi nhan traffic khi iam + workflow deu len
           readinessProbe: { httpGet: { path: /ready, port: 8080 }, initialDelaySeconds: 15, periodSeconds: 15 }
@@ -88,6 +104,11 @@ spec:
           ports: [{ containerPort: 4002 }]
           env:
             - { name: N8N_BASE_URL, value: "http://n8n:5678" }
+            - { name: N8N_API_KEY, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: n8n-api-key } } }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
           livenessProbe: { httpGet: { path: /health, port: 4002 }, initialDelaySeconds: 15, periodSeconds: 20 }
           readinessProbe: { httpGet: { path: /health, port: 4002 }, initialDelaySeconds: 5, periodSeconds: 10 }
 ---

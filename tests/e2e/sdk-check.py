@@ -9,11 +9,15 @@ print("PY_REFRESH", bool(r["accessToken"]))
 c.token = r["accessToken"]
 org = c.list_orgs()[0]
 acc = c.create_account(org["id"], "pyfull", "PY")
+assert c.list_accounts(org["id"]), "list_accounts empty"
 u = c.create_user(org["id"], "pynu@acme.local")
-role = c._req("POST", f"/v1/accounts/{acc['id']}/roles", {"slug": "r"})
-pol = c._req("POST", f"/v1/accounts/{acc['id']}/policies", {"slug": "p", "document": {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}})
+role = c.create_role(acc["id"], "r")
+pol = c.create_policy(acc["id"], "p", {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]})
 c.attach_policy(role["id"], pol["id"])
 c.assign_role(u["id"], role["id"])
 print("PY_RBAC_OK")
-c.logout(r["refreshToken"])
-print("PY_LOGOUT_OK")
+assert c.user_policies(u["id"]) is not None
+assert c.get_template("webhook-to-log")["name"]
+assert c.list_templates()
+c.logout_all(r["refreshToken"])
+print("PY_LOGOUT_ALL_OK")

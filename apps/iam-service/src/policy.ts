@@ -31,6 +31,13 @@ export type ConditionContext = Record<string, string | number | boolean | undefi
 
 // AWS-style conditions (subset): StringEquals (+ IfExists variants), StringLike.
 // Condition chưa thỏa → statement bị bỏ qua (không match).
+// ReDoS guard: StringLike patterns compile thành RegExp — giới hạn độ dài/số lượng
+// để policy độc hại không thể đốt CPU mỗi lần authorize (xem validatePolicyDocument:
+// cùng giới hạn áp lúc ghi; ở đây fail-closed theo hướng "không match" để 1 statement
+// xấu không thể tự biến thành Allow/Deny trên input bất ngờ).
+const MAX_LIKE_PATTERN_LEN = 256;
+const MAX_LIKE_PATTERNS_PER_KEY = 100;
+
 export function matchCondition(cond: any, ctx: ConditionContext): boolean {
   if (!cond || typeof cond !== 'object') return true;
   for (const [opRaw, kv] of Object.entries(cond)) {
@@ -44,12 +51,15 @@ export function matchCondition(cond: any, ctx: ConditionContext): boolean {
         return false;
       }
       const a = String(actual);
+      if (a.length > 4096) return false; // context value bất thường → không match
       if (op === 'StringEquals') {
         const ok = Array.isArray(v) ? v.map(String).includes(a) : String(v) === a;
         if (!ok) return false;
       } else if (op === 'StringLike') {
         const patterns = (Array.isArray(v) ? v : [v]).map(String);
+        if (patterns.length > MAX_LIKE_PATTERNS_PER_KEY) return false;
         const ok = patterns.some((p) => {
+          if (p.length > MAX_LIKE_PATTERN_LEN) return false;
           // '*' wildcard both sides-safe: escape regex specials trừ '*'
           const re = new RegExp('^' + p.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
           return re.test(a);
@@ -92,6 +102,7 @@ export function readOnlyPolicy(): PolicyDoc {
   return { Version: '2026-01-01', Statement: [{ Effect: 'Allow', Action: ['*:Get', '*:List', '*:Describe', '*:Read'], Resource: '*' }] };
 }
 export function workflowRunnerPolicy(accountSlug: string): PolicyDoc {
+  void accountSlug;
   return {
     Version: '2026-01-01',
     Statement: [
@@ -99,4 +110,45 @@ export function workflowRunnerPolicy(accountSlug: string): PolicyDoc {
       { Effect: 'Deny', Action: ['iam:*', 'org:Delete'], Resource: '*' },
     ],
   };
+}
+
+/**
+ * Validate a policy document BEFORE storing/evaluating it (called by IAM on
+ * createPolicy + authorize/dry-run). Returns an error message, or null when valid.
+ * Caps: statements, pattern lengths, condition size — blocks stored-ReDoS and
+ * oversized documents (DoS via 1mb JSON body full of statements).
+ */
+const MAX_STATEMENTS = 100;
+const MAX_PATTERN_LEN = 512;
+const MAX_CONDITION_BYTES = 8192;
+
+export function validatePolicyDocument(doc: any): string | null {
+  if (!doc || typeof doc !== 'object') return 'document must be an object';
+  if (!Array.isArray((doc as any).Statement)) return 'document.Statement required (AWS IAM style)';
+  const stmts = (doc as any).Statement;
+  if (stmts.length === 0) return 'document.Statement must not be empty';
+  if (stmts.length > MAX_STATEMENTS) return `document.Statement exceeds ${MAX_STATEMENTS} statements`;
+  for (let i = 0; i < stmts.length; i++) {
+    const st = stmts[i];
+    if (!st || typeof st !== 'object') return `Statement[${i}] must be an object`;
+    if (st.Effect !== 'Allow' && st.Effect !== 'Deny') return `Statement[${i}].Effect must be Allow|Deny`;
+    for (const key of ['Action', 'Resource'] as const) {
+      const arr = Array.isArray(st[key]) ? st[key] : [st[key]];
+      if (arr.length === 0 || arr.length > MAX_STATEMENTS) return `Statement[${i}].${key} must have 1..${MAX_STATEMENTS} entries`;
+      for (const p of arr) {
+        if (typeof p !== 'string' || p.length === 0) return `Statement[${i}].${key} entries must be non-empty strings`;
+        if (p.length > MAX_PATTERN_LEN) return `Statement[${i}].${key} pattern exceeds ${MAX_PATTERN_LEN} chars`;
+      }
+    }
+    if (st.Condition !== undefined) {
+      let bytes = 0;
+      try {
+        bytes = Buffer.byteLength(JSON.stringify(st.Condition), 'utf8');
+      } catch {
+        return `Statement[${i}].Condition is not JSON-serializable`;
+      }
+      if (bytes > MAX_CONDITION_BYTES) return `Statement[${i}].Condition exceeds ${MAX_CONDITION_BYTES} bytes`;
+    }
+  }
+  return null;
 }

@@ -41,8 +41,8 @@ biến thể `...IfExists` (bỏ qua key vắng mặt). Toán tử lạ → cons
 | Loại | Định dạng | TTL mặc định | Lưu trữ |
 |---|---|---|---|
 | Access JWT | Bearer `eyJ...` (HS256) | 3600s | stateless, verify bằng `IAM_JWT_SECRET` |
-| Refresh | `synapsedx_rt_...` opaque, **xoay vòng** | 30 ngày | SHA-256 hash trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
-| API key | `synapsedx_...` | tùy chọn/không hết hạn | SHA-256 hash trong `api_keys` + prefix index, `DELETE /v1/keys/:id` để thu hồi |
+| Refresh | `synapsedx_rt_...` opaque, **xoay vòng** | 30 ngày | HMAC-SHA256 hash (với `IAM_API_KEY_PEPPER`; legacy SHA-256 vẫn verify được) trong `refresh_tokens`; dùng 1 lần, logout thu hồi |
+| API key | `synapsedx_...` | tùy chọn/không hết hạn | HMAC-SHA256 hash (pepper, fallback legacy) trong `api_keys` + prefix index, `DELETE /v1/keys/:id` để thu hồi |
 | Service account | Bearer JWT `kind=service-account` | 3600s | stateless, mang `account` scope |
 
 Lưu ý: access JWT stateless nên **không thu hồi lẻ** được — giữ TTL ngắn (1h) và
@@ -61,13 +61,16 @@ Gateway mặc định chỉ check presence ở edge (upstream verify chi tiết)
 - `POST /v1/auth/oidc/callback {email, sub, displayName, orgSlug}` — tạo shadow user + cấp token (production: exchange code bằng `openid-client` rồi lấy email từ id_token).
 - Đổi sang Keycloak chỉ cần đổi `OIDC_ISSUER=https://keycloak/realms/<realm>` + client tương ứng — không đổi code.
 
-## Ví dụ phân quyền end-to-end
+## Ví dụ phân quyền end-to-end (qua gateway — trực tiếp :4001 cần auth, xem SECURITY.md)
 ```bash
-ORG=$(curl -s localhost:4001/v1/orgs | jq -r '.[0].id')
-ACC=$(curl -s localhost:4001/v1/orgs/$ORG/accounts | jq -r '.[0].id // empty')
+GW=localhost:8080
+TOK=$(curl -s -XPOST $GW/v1/auth/login -H'Content-Type: application/json' -d'{"email":"demo@acme.local","orgSlug":"acme"}' | jq -r .accessToken)
+H="Authorization: Bearer $TOK"
+ORG=$(curl -s $GW/v1/orgs -H"$H" | jq -r '.[0].id')
+ACC=$(curl -s $GW/v1/orgs/$ORG/accounts -H"$H" | jq -r '.[0].id // empty')
 # nếu chưa có account:
-ACC=$(curl -s -XPOST localhost:4001/v1/orgs/$ORG/accounts -H'Content-Type: application/json' -d'{"slug":"prod","displayName":"Production"}' | jq -r .id)
-ROLE=$(curl -s -XPOST localhost:4001/v1/accounts/$ACC/roles -H'Content-Type: application/json' -d'{"slug":"etl-runner"}' | jq -r .id)
-POL=$(curl -s -XPOST localhost:4001/v1/accounts/$ACC/policies -H'Content-Type: application/json' -d'{"slug":"run-only","document":{"Version":"2026-01-01","Statement":[{"Effect":"Allow","Action":["workflow:Execute"],"Resource":"*"},{"Effect":"Deny","Action":["iam:*"],"Resource":"*"}]}}' | jq -r .id)
-curl -XPOST localhost:4001/v1/roles/$ROLE/attach -H'Content-Type: application/json' -d"{\"policyId\":\"$POL\"}"
+ACC=$(curl -s -XPOST $GW/v1/orgs/$ORG/accounts -H'Content-Type: application/json' -H"$H" -d'{"slug":"prod","displayName":"Production"}' | jq -r .id)
+ROLE=$(curl -s -XPOST $GW/v1/accounts/$ACC/roles -H'Content-Type: application/json' -H"$H" -d'{"slug":"etl-runner"}' | jq -r .id)
+POL=$(curl -s -XPOST $GW/v1/accounts/$ACC/policies -H'Content-Type: application/json' -H"$H" -d'{"slug":"run-only","document":{"Version":"2026-01-01","Statement":[{"Effect":"Allow","Action":["workflow:Execute"],"Resource":"*"},{"Effect":"Deny","Action":["iam:*"],"Resource":"*"}]}}' | jq -r .id)
+curl -XPOST $GW/v1/roles/$ROLE/attach -H'Content-Type: application/json' -H"$H" -d"{\"policyId\":\"$POL\"}"
 ```

@@ -16,5 +16,8 @@ curl localhost:8080/health
 ```
 
 Ghi chú:
-- `all.yaml` chứa Namespace + Deployments/Services cho `iam`, `gateway`, `workflow`. Postgres/Redis/object-storage(S3)/n8n/Authentik dùng chart/manifest riêng của từng dự án (không bake vào đây để dễ nâng cấp).
+- `all.yaml` chứa Namespace + Deployments/Services cho `iam`, `gateway`, `workflow`, `console`. Postgres/Redis/object-storage(S3)/n8n/Authentik dùng chart/manifest riêng của từng engine.
+- Secrets bắt buộc (`synapsedx-secrets`): `database-url`, `iam-jwt-secret` (gateway + IAM **trùng nhau**),
+  `oidc-client-secret`, `n8n-api-key`, `internal-secret` (gateway + IAM + workflow trùng nhau),
+  `api-key-pepper`. Đổi `console`/`gateway` placeholder (`console.example.com`, `gateway.example.com`) theo domain thật.
 - Production: thêm Ingress + TLS, HPA, PDB, resource limits, và quản lý secret bằng SealedSecrets/External Secrets.

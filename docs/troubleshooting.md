@@ -43,3 +43,23 @@ cat synapsedx-2026-10-06.sql | docker compose exec -T postgres psql -U synapsedx
 
 ## n8n báo lỗi API
 `workflow-service` cần `N8N_API_KEY` (tạo trong n8n Settings → API sau khi lập owner account). Khi chưa có key, `GET /v1/templates` (built-in) vẫn chạy — chỉ proxy sang n8n mới lỗi.
+
+## 401 `Missing or invalid internal credential` gọi trực tiếp :4001/:4002
+`SYNAPSEDX_INTERNAL_SECRET` đã cấu hình thì IAM/workflow chỉ chấp nhận traffic qua
+gateway (header `x-synapsedx-internal`). Gọi trực tiếp service phải kèm header đó,
+hoặc gọi qua gateway `:8080`. Kiểm tra 3 services dùng **cùng** giá trị secret.
+
+## 401 `unauthorized` dù token còn hạn
+Gateway và IAM **phải trùng** `IAM_JWT_SECRET` (K8s: cả 2 Deployment đều mount
+`iam-jwt-secret`). Lệch secret → mọi Bearer đều rớt verify. Trong `NODE_ENV=production`
+service từ chối boot luôn nếu secret yếu/mặc định — đọc log startup.
+
+## 502 `bad_gateway` / 504 khi gọi workflows, executions
+Upstream n8n chưa chạy hoặc `N8N_BASE_URL` sai: 502 JSON ngay (kèm log
+`[gateway] proxy ... failed`), treo quá `PROXY_TIMEOUT_MS` thì 504. Kiểm tra
+`docker compose ps n8n` và `/ready` của gateway.
+
+## 400 `invalid_body` / `invalid_slug` / `invalid_document`
+Validation mới (xem `docs/api.md`): email RFC ≤320 ký tự; slug `^[a-z0-9-]{2,64}$`;
+policy document `Statement[]` 1–100, pattern ≤512 ký tự. CLI/SDK cũ tự build path
+thủ công có thể gửi slug sai — dùng SDK/CLI mới (đã `encodeURIComponent` mọi id).

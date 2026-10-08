@@ -5,9 +5,12 @@
  */
 'use strict';
 
-const { describe, it } = require('node:test');
+const { describe, it, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { execFile } = require('node:child_process');
+const http = require('node:http');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('path');
 
 const BIN = path.join(__dirname, '..', 'bin', 'synapsedx.js');
@@ -20,6 +23,31 @@ function run(...args) {
   });
 }
 
+// Stub "gateway": records the last request, answers canned JSON.
+let last = {};
+let stubBase = '';
+let stub;
+before(
+  () =>
+    new Promise((resolve) => {
+      stub = http
+        .createServer((req, res) => {
+          let body = '';
+          req.on('data', (c) => (body += c));
+          req.on('end', () => {
+            last = { method: req.method, path: req.url, body: body ? JSON.parse(body) : null };
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          });
+        })
+        .listen(0, '127.0.0.1', () => {
+          stubBase = `http://127.0.0.1:${stub.address().port}`;
+          resolve();
+        });
+    }),
+);
+after(() => new Promise((resolve) => stub.close(() => resolve())));
+
 describe('synapsedx cli offline', () => {
   it('--version exits 0', async () => {
     const r = await run('--version');
@@ -30,7 +58,7 @@ describe('synapsedx cli offline', () => {
   it('help lists commands', async () => {
     const r = await run('help');
     assert.equal(r.code, 0);
-    for (const cmd of ['login', 'orgs', 'authz', 'workflows', 'audit', 'keys', 'sa']) {
+    for (const cmd of ['login', 'refresh', 'logout-all', 'verify', 'orgs', 'users', 'authz', 'workflows', 'executions', 'templates', 'audit', 'keys', 'sa']) {
       assert.ok(r.stdout.includes(cmd), cmd);
     }
   });
@@ -43,6 +71,33 @@ describe('synapsedx cli offline', () => {
   it('missing arg exits 2', async () => {
     const r = await run('attach', 'only-one');
     assert.equal(r.code, 2);
+  });
+
+  it('workflows create without template/file explains usage', async () => {
+    const r = await run('workflows', 'create');
+    assert.equal(r.code, 1);
+    assert.match(r.stderr + r.stdout, /--template|--file/);
+  });
+
+  it('workflows create --file posts definition body', async () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-')), 'def.json');
+    fs.writeFileSync(f, JSON.stringify({ nodes: [], connections: {} }));
+    const r = await run('--base', stubBase, 'workflows', 'create', '--file', f, '--name', 'w1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'POST');
+    assert.equal(last.path, '/v1/workflows');
+    assert.equal(last.body.name, 'w1');
+    assert.deepEqual(last.body.definition, { nodes: [], connections: {} });
+  });
+
+  it('users create + policies hit encoded paths', async () => {
+    const r = await run('--base', stubBase, 'users', 'create', 'org1', 'a@b.c', 'A');
+    assert.equal(r.code, 0);
+    assert.equal(last.path, '/v1/orgs/org1/users');
+    assert.equal(last.body.email, 'a@b.c');
+    const r2 = await run('--base', stubBase, 'users', 'policies', 'u 1');
+    assert.equal(r2.code, 0);
+    assert.equal(last.path, '/v1/users/u%201/policies');
   });
 
   it('unreachable base exits 1 with synapsedx error', async () => {

@@ -1,10 +1,11 @@
-.PHONY: help bootstrap build test lint compose-up compose-down compose-logs e2e sdk-check clean
+.PHONY: help bootstrap build test lint license-check compose-up compose-down compose-logs e2e sdk-check clean
 
 help:
 	@echo "synapsedx make targets:"
 	@echo "  bootstrap    - copy .env.example to .env + npm install all"
 	@echo "  build        - build all node packages"
 	@echo "  test         - run unit tests"
+	@echo "  license-check - copyleft gate + SBOM (node tools/license-check.cjs)"
 	@echo "  compose-up   - docker compose up --build -d"
 	@echo "  compose-down - docker compose down"
 	@echo "  e2e          - run e2e smoke script"
@@ -23,6 +24,9 @@ test:
 
 lint:
 	npm run lint --workspaces --if-present || true
+
+license-check:
+	node tools/license-check.cjs --sbom sbom.json
 
 compose-up:
 	docker compose --env-file .env up --build -d

@@ -1,6 +1,8 @@
 """Smoke example for synapsedx-sdk."""
-from synapsedx_sdk import SynapseDXClient
+
 import os
+
+from synapsedx_sdk import SynapseDXClient
 
 base = os.environ.get("SYNAPSEDX_BASE_URL", "http://localhost:8080")
 c = SynapseDXClient(base)

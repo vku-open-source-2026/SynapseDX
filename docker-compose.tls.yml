@@ -10,6 +10,7 @@
 services:
   tls:
     image: nginx:alpine
+    restart: unless-stopped
     ports:
       - "${TLS_HOST_PORT:-8443}:443"
     volumes:
@@ -19,3 +20,8 @@ services:
       - gateway
       - console
     networks: [synapsedx-net]
+
+  # HSTS on gateway responses (TLS edge serves https to clients).
+  gateway:
+    environment:
+      HSTS_ENABLED: "true"
