@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluatePolicies, matchPattern, adminPolicy, workflowRunnerPolicy } from './policy';
+import { evaluatePolicies, matchPattern, matchCondition, adminPolicy, workflowRunnerPolicy, validatePolicyDocument } from './policy';
 
 describe('matchPattern', () => {
   it('star matches all', () => {
@@ -72,5 +72,32 @@ describe('conditions', () => {
   it('unknown operator is conservative (deny)', () => {
     const doc = docWith({ IpAddress: { sourceIp: '10.0.0.0/8' } });
     assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { sourceIp: '10.1.2.3' }).allowed, false);
+  });
+  it('overlong StringLike pattern never matches (ReDoS guard)', () => {
+    const evil = 'a*'.repeat(200); // 400 chars > 256 cap
+    assert.equal(matchCondition({ StringLike: { email: evil } }, { email: 'a@acme.local' }), false);
+  });
+  it('oversized context value never matches', () => {
+    const doc = docWith({ StringLike: { note: '*' } });
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: '*' }, { note: 'x'.repeat(5000) }).allowed, false);
+  });
+});
+
+describe('validatePolicyDocument', () => {
+  it('accepts the admin policy', () => {
+    assert.equal(validatePolicyDocument(adminPolicy()), null);
+  });
+  it('rejects missing/empty Statement', () => {
+    assert.ok(validatePolicyDocument({}));
+    assert.ok(validatePolicyDocument({ Statement: [] }));
+  });
+  it('rejects bad Effect + overlong patterns', () => {
+    assert.ok(validatePolicyDocument({ Statement: [{ Effect: 'Maybe', Action: '*', Resource: '*' }] }));
+    assert.ok(validatePolicyDocument({ Statement: [{ Effect: 'Allow', Action: 'x'.repeat(600), Resource: '*' }] }));
+  });
+  it('rejects statement floods + oversized conditions', () => {
+    const many = Array.from({ length: 101 }, () => ({ Effect: 'Allow', Action: '*', Resource: '*' }));
+    assert.ok(validatePolicyDocument({ Statement: many }));
+    assert.ok(validatePolicyDocument({ Statement: [{ Effect: 'Allow', Action: '*', Resource: '*', Condition: { StringEquals: { k: 'x'.repeat(9000) } } }] }));
   });
 });

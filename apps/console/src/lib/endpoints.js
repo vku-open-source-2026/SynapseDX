@@ -55,6 +55,7 @@ export const GROUPS = [
     name: 'Workflows (n8n)',
     endpoints: [
       { method: 'GET', path: '/v1/templates', auth: 'either', desc: 'Built-in templates' },
+      { method: 'GET', path: '/v1/templates/:name', auth: 'either', desc: 'Chi tiết 1 template' },
       { method: 'GET', path: '/v1/workflows', auth: 'either', desc: 'Workflows trên n8n (proxy)' },
       { method: 'POST', path: '/v1/workflows', auth: 'either', desc: 'Tạo từ template', body: { template: 'webhook-to-log', name: 'demo' } },
       { method: 'GET', path: '/v1/workflows/:id', auth: 'either', desc: 'Chi tiết workflow' },
@@ -62,6 +63,7 @@ export const GROUPS = [
       { method: 'POST', path: '/v1/workflows/:id/deactivate', auth: 'either', desc: 'Tắt' },
       { method: 'POST', path: '/v1/workflows/:id/execute', auth: 'either', desc: 'Execute thủ công', body: {} },
       { method: 'GET', path: '/v1/executions', auth: 'either', desc: 'Lịch sử executions' },
+      { method: 'GET', path: '/v1/executions/:id', auth: 'either', desc: 'Chi tiết 1 execution' },
     ],
   },
   {

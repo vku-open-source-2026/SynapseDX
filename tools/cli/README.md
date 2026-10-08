@@ -24,6 +24,13 @@ synapsedx audit --limit 20
 ## Quy ước
 - Auth: `--base > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://localhost:8080`;
   token/key: `--token/--apikey > env > config`. `synapsedx login` / `synapsedx use-key` lưu vào
-  `~/.synapsedx/config.json`.
+  `~/.synapsedx/config.json` (file 0600, secrets không bao giờ in ra — `config` redact).
+- Ưu tiên env (`$SYNAPSEDX_TOKEN`, `$SYNAPSEDX_API_KEY`, `$SYNAPSEDX_REFRESH_TOKEN`) hoặc
+  config hơn `--token/--apikey` trên dòng lệnh (flag lộ trong `ps`/shell history).
+- Refresh token cũng được lưu (để `refresh` / `logout-all` dùng lại); cũng có thể truyền qua
+  `$SYNAPSEDX_REFRESH_TOKEN`.
 - `--json` in raw JSON (script-friendly); mặc định in bảng gọn.
 - Mọi lệnh đều gọi gateway (`/v1/*`) nên tôn trọng cùng auth/rate-limit.
+- Full lệnh: `login refresh logout-all verify use-key logout config whoami orgs accounts
+  users roles policies attach assign authz sim audit keys sa workflows executions templates`
+  (`synapsedx help`, xem `usage:` từng lệnh).

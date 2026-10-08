@@ -3,6 +3,7 @@ name: synapsedx
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-synapsedx}
       POSTGRES_USER: ${POSTGRES_USER:-synapsedx}
@@ -19,6 +20,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
@@ -34,6 +36,7 @@ services:
   # giu nguyen S3_ENDPOINT/S3_BUCKET/S3_REGION/S3 keys.
   s3:
     image: adobe/s3mock:latest
+    restart: unless-stopped
     environment:
       COM_ADOBE_TESTING_S3MOCK_STORE_FILESYSTEM_ROOT: /data
     volumes:
@@ -68,6 +71,7 @@ services:
   authentik-server:
     image: ghcr.io/goauthentik/server:2024.10
     command: server
+    restart: unless-stopped
     environment:
       AUTHENTIK_POSTGRESQL__HOST: postgres
       AUTHENTIK_POSTGRESQL__NAME: authentik
@@ -91,6 +95,7 @@ services:
   authentik-worker:
     image: ghcr.io/goauthentik/server:2024.10
     command: worker
+    restart: unless-stopped
     environment:
       AUTHENTIK_POSTGRESQL__HOST: postgres
       AUTHENTIK_POSTGRESQL__NAME: authentik
@@ -110,6 +115,7 @@ services:
   # Tu browser redirect dung host port AUTHENTIK_HTTP_PORT (mac dinh 19000).
   n8n:
     image: n8nio/n8n:1.66.0
+    restart: unless-stopped
     environment:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change_me_n8n_32chars_key_1234567890}
       N8N_HOST: n8n
@@ -139,6 +145,7 @@ services:
     build:
       context: ./apps/iam-service
     image: synapsedx/iam:0.3.0
+    restart: unless-stopped
     environment:
       PORT: 4001
       DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
@@ -146,7 +153,14 @@ services:
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       IAM_JWT_EXPIRES_IN: ${IAM_JWT_EXPIRES_IN:-3600}
       IAM_REFRESH_EXPIRES_IN: ${IAM_REFRESH_EXPIRES_IN:-2592000}
+      IAM_API_KEY_PEPPER: ${IAM_API_KEY_PEPPER:-}
       IAM_ALLOW_DEV_LOGIN: ${IAM_ALLOW_DEV_LOGIN:-true}
+      IAM_ALLOW_OIDC_DEMO_CALLBACK: ${IAM_ALLOW_OIDC_DEMO_CALLBACK:-true}
+      # Shared service-to-service credential (must match gateway + workflow).
+      # Empty = dev mode (upstream warns). Production: set a random 32+ char value
+      # and DO NOT publish IAM/WORKFLOW host ports.
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
       OIDC_PROVIDER: ${OIDC_PROVIDER:-authentik}
       OIDC_ISSUER: ${OIDC_ISSUER:-http://authentik-server:9000/application/o/synapsedx/}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-synapsedx-platform}
@@ -170,11 +184,14 @@ services:
     build:
       context: ./apps/workflow-service
     image: synapsedx/workflow:0.3.0
+    restart: unless-stopped
     environment:
       PORT: 4002
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
       N8N_API_KEY: ${N8N_API_KEY:-change_me_n8n_api_key}
       IAM_SERVICE_URL: http://iam:4001
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
     ports:
       - "${WORKFLOW_HOST_PORT:-4002}:4002"
     healthcheck:
@@ -192,16 +209,26 @@ services:
     build:
       context: ./apps/gateway
     image: synapsedx/gateway:0.3.0
+    restart: unless-stopped
     environment:
       PORT: 8080
       IAM_SERVICE_URL: http://iam:4001
       WORKFLOW_SERVICE_URL: http://workflow:4002
+      IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
       REDIS_URL: redis://redis:6379
       RATE_LIMIT_WINDOW_MS: 60000
       RATE_LIMIT_MAX: 300
+      AUTH_RATE_LIMIT_WINDOW_MS: ${AUTH_RATE_LIMIT_WINDOW_MS:-60000}
+      AUTH_RATE_LIMIT_MAX: ${AUTH_RATE_LIMIT_MAX:-60}
       GATEWAY_VERIFY_APIKEY: ${GATEWAY_VERIFY_APIKEY:-false}
       PROXY_TIMEOUT_MS: ${PROXY_TIMEOUT_MS:-30000}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
+      # Set TRUST_PROXY=1 when running behind the TLS terminator
+      # (docker-compose.tls.yml) or your own reverse proxy, so rate-limit
+      # sees real client IPs. NEVER enable with an untrusted proxy (IP spoof).
+      TRUST_PROXY: ${TRUST_PROXY:-false}
     ports:
       - "${GATEWAY_HOST_PORT:-8080}:8080"
     healthcheck:
@@ -223,6 +250,7 @@ services:
     build:
       context: ./apps/console
     image: synapsedx/console:0.3.0
+    restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).
       SYNAPSEDX_PUBLIC_BASE_URL: ${SYNAPSEDX_PUBLIC_BASE_URL:-http://localhost:8080}

@@ -25,7 +25,26 @@ const VERSION = (() => {
   }
 })();
 const IAM_SERVICE_URL = process.env.IAM_SERVICE_URL || 'http://iam:4001';
-const JWT_SECRET = process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min';
+
+/** Fail fast on weak/default JWT secrets in production; warn loudly in dev. */
+function jwtSecret(): string {
+  const s = process.env.IAM_JWT_SECRET || '';
+  const weak = !s || s.includes('change_me') || s.length < 32;
+  if (weak) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[gateway] IAM_JWT_SECRET must be set to a random value ≥32 chars in production');
+    }
+    console.warn('[gateway][security] WARNING: IAM_JWT_SECRET is default/weak — dev only. Gateway and IAM must share the same strong secret.');
+  }
+  return s || 'change_me_super_secret_32chars_min';
+}
+const JWT_SECRET = jwtSecret();
+
+/** Shared service-to-service credential (gateway → iam/workflow). Empty = dev mode (warn). */
+const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+if (!INTERNAL_SECRET) {
+  console.warn('[gateway][security] SYNAPSEDX_INTERNAL_SECRET not set — downstream services cannot tell gateway traffic apart (dev default). Set it in production.');
+}
 
 const register = new client.Registry();
 client.collectDefaultMetrics({ register });
@@ -87,7 +106,7 @@ function authMiddleware(mode: RouteRule['auth']) {
       if (hasBearer) {
         const token = h.slice(7);
         try {
-          const decoded: any = jwt.verify(token, JWT_SECRET);
+          const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam' });
           (req as any).principal = { type: 'jwt', sub: decoded.sub, org: decoded.org, account: decoded.account, scopes: decoded.scopes || [] };
           return next();
         } catch (e) {
@@ -120,14 +139,24 @@ function authMiddleware(mode: RouteRule['auth']) {
   };
 }
 
-async function verifyApiKeyUpstream(apiKey: string): Promise<{ account_id: string; scopes: string[] } | null> {
-  const iam = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
+export async function verifyApiKeyUpstream(
+  apiKey: string,
+  iamBase?: string,
+  internalSecret: string | undefined = INTERNAL_SECRET,
+): Promise<{ account_id: string; scopes: string[] } | null> {
+  const iam = (iamBase || process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
   const ctl = new AbortController();
   const to = setTimeout(() => ctl.abort(), 5000);
   try {
     const r = await fetch(`${iam}/v1/keys/verify`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // IAM requires this when SYNAPSEDX_INTERNAL_SECRET is set (same value
+        // propagatePrincipal attaches to proxied traffic). Without it,
+        // GATEWAY_VERIFY_APIKEY=true + internal secret would fail-closed always.
+        ...(internalSecret ? { 'x-synapsedx-internal': internalSecret } : {}),
+      },
       body: JSON.stringify({ apiKey }),
       signal: ctl.signal,
     });
@@ -150,6 +179,11 @@ export function propagatePrincipal(req: express.Request): void {
   delete h['x-synapsedx-account'];
   delete h['x-synapsedx-scopes'];
   delete h['x-synapsedx-kind'];
+  delete h['x-synapsedx-internal'];
+  // Service-to-service credential: downstream (iam/workflow) requires this header
+  // when SYNAPSEDX_INTERNAL_SECRET is configured. Set AFTER stripping client input
+  // but BEFORE the principal check — unauthenticated routes (/v1/auth/*) need it too.
+  if (INTERNAL_SECRET) h['x-synapsedx-internal'] = INTERNAL_SECRET;
   const p = (req as any).principal;
   if (!p) return;
   if (p.type === 'jwt') {
@@ -169,15 +203,39 @@ export function propagatePrincipal(req: express.Request): void {
 
 export function createApp(): express.Express {
   const app = express();
-  // CORS: mở hết theo mặc định (MVP); production set CORS_ORIGIN=a.com,b.com
+  app.disable('x-powered-by');
+  // Trust proxy: default false (direct clients). Behind the TLS terminator or
+  // another reverse proxy, set TRUST_PROXY=1 (or CIDR) so rate-limit keys and
+  // req.ip see the real client via X-Forwarded-For instead of the proxy IP.
+  // WARNING: only enable when the proxy is yours — otherwise clients can spoof IPs.
+  const trustProxy = process.env.TRUST_PROXY || 'false';
+  if (trustProxy !== 'false') {
+    app.set('trust proxy', trustProxy === 'true' ? true : (/^\d+$/.test(trustProxy) ? Number(trustProxy) : trustProxy));
+  }
+  // Baseline security headers (no extra dep; gateway is a proxy, not a page server).
+  app.use((_req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if ((process.env.HSTS_ENABLED || 'false') === 'true') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+  // CORS: mở hết theo mặc định (MVP/dev); production BẮT BUỘC set CORS_ORIGIN=a.com,b.com
   const corsOrigins = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!corsOrigins.length) {
+    console.warn('[gateway][security] CORS_ORIGIN not set — allowing all origins (dev default). Set it in production.');
+  }
   app.use(cors(corsOrigins.length ? { origin: corsOrigins } : undefined));
   // Log kem request-id de trace gateway -> upstream (header do middleware rid gan ben duoi).
   app.use(morgan(':method :url :status :response-time ms rid=:req[x-request-id]'));
   // Request ID: dùng client gửi lên nếu có, else tự sinh; trả về + forward upstream.
+  // Sanitize: chỉ giữ token chars (tránh CRLF/header-injection làm crash setHeader).
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const incoming = req.headers['x-request-id'] as string;
-    const id = (incoming && incoming.slice(0, 128)) || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    const incoming = String(req.headers['x-request-id'] || '').replace(/[^A-Za-z0-9._~-]/g, '').slice(0, 128);
+    const id = incoming || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     (req.headers as any)['x-request-id'] = id;
     res.setHeader('x-request-id', id);
     next();
@@ -210,8 +268,24 @@ export function createApp(): express.Express {
     ...(store ? { store } : {}),
     standardHeaders: true,
     legacyHeaders: false,
+    // Health/metrics/readiness phục vụ orchestrator + LB — không tính vào quota.
+    skip: (req) => ['/health', '/metrics', '/ready'].includes(req.path),
   });
   app.use(limiter);
+
+  // Brute-force guard cho login/refresh (credential stuffing vào /v1/auth/*):
+  // quota riêng, chặt hơn nhiều so với limiter chung.
+  const authLimiter = rateLimit({
+    windowMs: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 60000),
+    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 60),
+    ...(store ? { store } : {}),
+    standardHeaders: true,
+    legacyHeaders: false,
+    // CORS preflight không phải là login attempt — đừng tính vào quota.
+    skip: (req) => req.method === 'OPTIONS',
+    message: { error: 'rate_limited', message: 'Too many auth attempts, slow down' },
+  });
+  app.use('/v1/auth/', authLimiter as any);
 
   app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'gateway', version: VERSION, time: new Date().toISOString() }));
   app.get('/metrics', async (_req, res) => {
@@ -245,6 +319,15 @@ export function createApp(): express.Express {
   });
 
   const routes = loadRoutes();
+  // Fail fast on operator typos: unknown auth mode would 401 everything silently.
+  for (const r of routes) {
+    if (!['none', 'jwt', 'apikey', 'either'].includes(r.auth)) {
+      throw new Error(`[gateway] invalid auth mode '${r.auth}' for path '${r.path}' (want none|jwt|apikey|either)`);
+    }
+    if (typeof r.path !== 'string' || !r.path.startsWith('/')) {
+      throw new Error(`[gateway] invalid route path '${r.path}' (must start with /)`);
+    }
+  }
   console.log(`[gateway] loaded ${routes.length} routes: ${routes.map((r) => `${r.path}->${expandEnv(r.target)}[${r.auth}]`).join(', ')}`);
 
   app.get('/', (_req, res) =>
@@ -267,7 +350,7 @@ export function createApp(): express.Express {
     if (urlPath === '/' || urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
     const route = findRoute(routes, urlPath);
     if (!route) return res.status(404).json({ error: 'not_found', message: 'No gateway route matched' });
-    (req as any).danaxRoute = route;
+    (req as any).synapsedxRoute = route;
     httpCounter.inc({ route: route.path, status: 'incoming' });
     return authMiddleware(route.auth)(req, res, (err?: any) => {
       if (err) return next(err);
@@ -278,14 +361,30 @@ export function createApp(): express.Express {
 
   for (const r of routes) {
     const target = expandEnv(r.target).replace(/\/$/, '');
+    const proxyTimeoutMs = (() => {
+      const n = Number(process.env.PROXY_TIMEOUT_MS || 30000);
+      return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 300000) : 30000;
+    })();
     const proxy = createProxyMiddleware({
       pathFilter: r.path,
       target,
       changeOrigin: true,
       logLevel: 'warn',
       // Upstream treo thì 504 sau 30s thay vì treo gateway theo.
-      proxyTimeout: Number(process.env.PROXY_TIMEOUT_MS || 30000),
-      timeout: Number(process.env.PROXY_TIMEOUT_MS || 30000),
+      proxyTimeout: proxyTimeoutMs,
+      timeout: proxyTimeoutMs,
+      // HPM v3: error handling qua `on.error` (KHÔNG phải `onError` v2).
+      // Upstream chết giữa chừng (ECONNREFUSED/socket hangup): trả 502 JSON ngay
+      // thay vì trang 504 mặc định của proxy.
+      on: {
+        error: (err: any, _req: any, res: any) => {
+          console.error(`[gateway] proxy ${r.path}->${target} failed:`, err?.message || err);
+          if (!res.headersSent) {
+            res.writeHead(502, { 'Content-Type': 'application/json' });
+          }
+          res.end(JSON.stringify({ error: 'bad_gateway', message: 'upstream unavailable' }));
+        },
+      },
     } as any);
     app.use(proxy as any); // không path → proxy tự filter theo pathFilter, forward nguyên req.url
   }

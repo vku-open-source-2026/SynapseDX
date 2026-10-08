@@ -64,5 +64,14 @@ curl -s -XPOST "$BASE/v1/auth/logout" -H'Content-Type: application/json' -d"{\"r
 [ "$(curl -s "$BASE/v1/templates" -H"$H" | jq 'length')" = "3" ] && ok templates || bad templates ""
 [ -n "$(curl -s -D- -o /dev/null "$BASE/health" | grep -i '^x-request-id:')" ] && ok request-id || bad request-id ""
 
+# negative / hardening checks (phai fail CLOSED)
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/orgs")" = "401" ] && ok anon-denied || bad anon-denied ""
+[ "$(curl -s -o /dev/null -w '%{http_code}' -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d'{"email":"not-an-email"}')" = "400" ] && ok login-bad-email || bad login-bad-email ""
+[ "$(curl -s -o /dev/null -w '%{http_code}' -XPOST "$BASE/v1/orgs" -H'Content-Type: application/json' -H"$H" -d'{"slug":"BAD SLUG!!","displayName":"x"}')" = "400" ] && ok org-bad-slug || bad org-bad-slug ""
+[ "$(curl -s -o /dev/null -w '%{http_code}' -XPOST "$BASE/v1/accounts/$ACC/policies" -H'Content-Type: application/json' -H"$H" -d'{"slug":"evil","document":{"Statement":[{"Effect":"Allow","Action":"'"$(printf 'x%.0s' $(seq 1 600))"'","Resource":"*"}]}}')" = "400" ] && ok policy-too-long || bad policy-too-long ""
+[ "$(curl -s -o /dev/null -w '%{http_code}' -XPOST "$BASE/v1/roles/00000000-0000-0000-0000-000000000000/attach" -H'Content-Type: application/json' -H"$H" -d'{"policyId":"00000000-0000-0000-0000-000000000000"}')" = "404" ] && ok attach-404 || bad attach-404 ""
+curl -s -D- -o /dev/null "$BASE/health" | grep -qi '^x-content-type-options: nosniff' && ok sec-headers || bad sec-headers ""
+[ "$(curl -s -D- -o /dev/null "$BASE/health" | grep -ci '^x-powered-by:')" = "0" ] && ok no-powered-by || bad no-powered-by ""
+
 echo "== result: pass=$pass fail=$fail =="
 [ "$fail" -eq 0 ]

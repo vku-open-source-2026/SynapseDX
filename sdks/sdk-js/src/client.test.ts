@@ -57,4 +57,26 @@ describe('SynapseDXClient', () => {
     const bad = new SynapseDXClient({ baseUrl: 'http://127.0.0.1:1' });
     await assert.rejects(() => bad.listOrgs(), /synapsedx/);
   });
+
+  it('encodes ids in paths', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.getWorkflow('a/b');
+    assert.equal(lastPath, '/v1/workflows/a%2Fb');
+  });
+
+  it('covers new endpoints', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.userPolicies('u1');
+    assert.equal(lastPath, '/v1/users/u1/policies');
+    await c.getTemplate('webhook-to-log');
+    assert.equal(lastPath, '/v1/templates/webhook-to-log');
+    await c.listExecutions('limit=5');
+    assert.equal(lastPath, '/v1/executions?limit=5');
+    await c.executeWorkflow('w1', {});
+    assert.equal(lastPath, '/v1/workflows/w1/execute');
+    await c.verifyApiKey('k');
+    assert.equal(lastPath, '/v1/keys/verify');
+    await c.deactivateWorkflow('w1');
+    assert.equal(lastPath, '/v1/workflows/w1/deactivate');
+  });
 });

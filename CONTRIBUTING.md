@@ -9,9 +9,11 @@ Thanks for considering contributing. synapsedx follows standard open-source prac
 
 ## Workflow
 1. Fork → branch (`feat/<scope>`, `fix/<scope>`, `docs/<scope>`).
-2. `make bootstrap && make build && make test`.
+2. `make bootstrap && make build && make test && make license-check`.
 3. Keep PRs small and focused; include tests for behavior changes.
 4. Run `docker compose config` and relevant service tests before pushing.
+5. New dependencies must be permissively licensed (MIT/ISC/Apache-2.0/BSD) — the CI
+   copyleft gate (`tools/license-check.cjs`) fails on GPL/AGPL/LGPL and friends.
 5. Open PR against `main` with: what/why, how tested, docs updated if API changed.
 
 ## Dev loop

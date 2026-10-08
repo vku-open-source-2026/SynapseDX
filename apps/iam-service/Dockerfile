@@ -4,7 +4,12 @@ COPY package.json package-lock.json* ./
 RUN npm install --production=false || npm install
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
+RUN npm run build \
+ && rm -f dist/*.test.js dist/*.test.d.ts \
+ && npm prune --omit=dev \
+ && chown -R node:node /app
 ENV PORT=4001
 EXPOSE 4001
+# Least privilege: never run as root (ports >1024, no need for root).
+USER node
 CMD ["node", "dist/index.js"]

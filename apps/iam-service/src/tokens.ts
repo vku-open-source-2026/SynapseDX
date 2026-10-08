@@ -4,12 +4,37 @@
  * Token management: JWT access tokens + opaque refresh tokens + API keys.
  */
 import jwt from 'jsonwebtoken';
-import { randomBytes, randomUUID, createHash } from 'crypto';
-import { query, useDb, __mem, hashSecret } from './db';
+import { randomBytes, randomUUID } from 'crypto';
+import { query, useDb, __mem, hashSecret, hashCandidates } from './db';
 
-const JWT_SECRET = process.env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min';
-const ACCESS_TTL = Number(process.env.IAM_JWT_EXPIRES_IN || 3600);
-const REFRESH_TTL = Number(process.env.IAM_REFRESH_EXPIRES_IN || 2592000);
+/** Fail fast on weak/default JWT secrets in production; warn loudly in dev. */
+function jwtSecret(): string {
+  const s = process.env.IAM_JWT_SECRET || '';
+  const weak = !s || s.includes('change_me') || s.length < 32;
+  if (weak) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('[iam] IAM_JWT_SECRET must be set to a random value ≥32 chars in production');
+    }
+    console.warn('[iam][security] WARNING: IAM_JWT_SECRET is default/weak — dev only. Set a random ≥32-char secret before exposing anything.');
+  }
+  return s || 'change_me_super_secret_32chars_min';
+}
+
+const JWT_SECRET = jwtSecret();
+
+function ttl(name: string, fallback: number, min: number, max: number): number {
+  const raw = Number(process.env[name] ?? fallback);
+  if (!Number.isFinite(raw)) {
+    console.warn(`[iam][security] ${name} is not a number — using default ${fallback}`);
+    return fallback;
+  }
+  return Math.min(Math.max(Math.floor(raw), min), max);
+}
+
+// Clamp TTLs so a garbage env can't produce NaN/negative expiries (login 500s,
+// immortal tokens, or instantly-dead refresh).
+const ACCESS_TTL = ttl('IAM_JWT_EXPIRES_IN', 3600, 60, 86400);
+const REFRESH_TTL = ttl('IAM_REFRESH_EXPIRES_IN', 2592000, 3600, 315360000);
 
 /** Thời điểm hết hạn refresh token mới (dùng REFRESH_TTL, mặc định 30 ngày). */
 export function refreshExpiry(): Date {
@@ -31,12 +56,17 @@ export function signAccess(claims: AccessClaims): { token: string; expiresIn: nu
 }
 
 export function verifyAccess(token: string): AccessClaims {
-  return jwt.verify(token, JWT_SECRET) as AccessClaims;
+  return jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam' }) as AccessClaims;
 }
 
 export function newRefreshToken(): { value: string; hash: string } {
   const value = 'synapsedx_rt_' + randomBytes(32).toString('base64url');
-  return { value, hash: createHash('sha256').update(value).digest('hex') };
+  return { value, hash: hashSecret(value) };
+}
+
+/** Resolve a presented refresh token to its stored hash (peppered or legacy). */
+function refreshHashes(value: string): string[] {
+  return hashCandidates(value);
 }
 
 export async function storeRefresh(userId: string, hash: string, expiresAt: Date): Promise<void> {
@@ -48,7 +78,14 @@ export async function storeRefresh(userId: string, hash: string, expiresAt: Date
 }
 
 export async function consumeRefresh(value: string): Promise<{ user_id: string } | null> {
-  const hash = createHash('sha256').update(value).digest('hex');
+  for (const hash of refreshHashes(value)) {
+    const hit = await consumeRefreshByHash(hash);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function consumeRefreshByHash(hash: string): Promise<{ user_id: string } | null> {
   if (useDb()) {
     const r = await query('SELECT user_id, expires_at, revoked_at FROM refresh_tokens WHERE token_hash=$1', [hash]);
     const row = r.rows[0];
@@ -62,15 +99,16 @@ export async function consumeRefresh(value: string): Promise<{ user_id: string }
   return { user_id: rec.user_id };
 }
 
-/** Thu hồi refresh token (dùng khi rotate hoặc logout). */
+/** Thu hồi refresh token (dùng khi rotate hoặc logout). Thu hồi mọi candidate hash (peppered + legacy). */
 export async function revokeRefresh(value: string): Promise<void> {
-  const hash = createHash('sha256').update(value).digest('hex');
-  if (useDb()) {
-    await query('UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=$1', [hash]);
-    return;
+  for (const hash of refreshHashes(value)) {
+    if (useDb()) {
+      await query('UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [hash]);
+    } else {
+      const rec = __mem.refresh.get(hash);
+      if (rec && !rec.revoked_at) rec.revoked_at = new Date().toISOString();
+    }
   }
-  const rec = __mem.refresh.get(hash);
-  if (rec) rec.revoked_at = new Date().toISOString();
 }
 
 /**
@@ -78,7 +116,14 @@ export async function revokeRefresh(value: string): Promise<void> {
  * dùng cùng RT thì chỉ 1 thành công — chống replay tuyệt đối.
  */
 export async function consumeAndRevokeRefresh(value: string): Promise<{ user_id: string } | null> {
-  const hash = createHash('sha256').update(value).digest('hex');
+  for (const hash of refreshHashes(value)) {
+    const hit = await consumeAndRevokeByHash(hash);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function consumeAndRevokeByHash(hash: string): Promise<{ user_id: string } | null> {
   if (useDb()) {
     const r = await query(
       `UPDATE refresh_tokens SET revoked_at=now()
@@ -142,7 +187,17 @@ export async function revokeApiKey(id: string): Promise<boolean> {
   return false;
 }
 
-export async function verifyApiKey(raw: string): Promise<{ account_id: string; scopes: string[] } | null> {  const hash = hashSecret(raw);
+export async function verifyApiKey(raw: string): Promise<{ account_id: string; scopes: string[] } | null> {
+  if (!raw || typeof raw !== 'string' || raw.length > 512) return null;
+  // Thử peppered hash trước, legacy sau (rotation-safe cho key cũ).
+  for (const hash of hashCandidates(raw)) {
+    const hit = await verifyApiKeyByHash(hash);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+async function verifyApiKeyByHash(hash: string): Promise<{ account_id: string; scopes: string[] } | null> {
   if (useDb()) {
     const r = await query('SELECT account_id, scopes, expires_at, revoked_at FROM api_keys WHERE key_hash=$1', [hash]);
     const row = r.rows[0];

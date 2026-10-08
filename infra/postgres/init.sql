@@ -125,6 +125,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at DESC);
 
+-- FK-column indexes: list-by-parent queries + ON DELETE CASCADE fan-out
+-- (unique constraints above already index slug/email/hash lookups).
+CREATE INDEX IF NOT EXISTS idx_accounts_org ON accounts(org_id);
+CREATE INDEX IF NOT EXISTS idx_users_org ON users(org_id);
+CREATE INDEX IF NOT EXISTS idx_roles_account ON roles(account_id);
+CREATE INDEX IF NOT EXISTS idx_policies_account ON policies(account_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_account ON api_keys(account_id);
+CREATE INDEX IF NOT EXISTS idx_service_accounts_account ON service_accounts(account_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_account ON workflows(account_id);
+
 -- Seed demo org for quickstart (idempotent)
 INSERT INTO organizations (slug, display_name)
 VALUES ('acme', 'ACME Demo Organization')

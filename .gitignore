@@ -18,6 +18,9 @@ infra/tls/certs/
 *.pem
 *.key
 
+# generated SBOM (CI regenerates: node tools/license-check.cjs --sbom sbom.json)
+sbom.json
+
 # docker volumes
 data/
 pgdata/

@@ -40,7 +40,7 @@ apps/iam-service           AWS-style IAM + token/SA + authorize/simulator + OIDC
 apps/workflow-service      n8n control-plane (proxy + templates)
 sdks/sdk-js                @synapsedx/sdk (TypeScript)
 sdks/sdk-python            synapsedx-sdk (Python)
-sdks/sdk-go                synapsedx-sdk-go (Go, minimal)
+sdks/sdk-go                synapsedx-sdk-go (Go, full API parity)
 tools/cli                  Zero-dependency CLI `synapsedx` (Node 18+)
 infra/postgres/init.sql    Core schema (orgs/accounts/users/roles/policies/keys/...)
 infra/k8s/base             Kustomize for K8s
@@ -69,8 +69,11 @@ print(c.list_orgs())
 ```go
 // Go
 c := synapsedx.New("http://localhost:8080")
-out, _ := c.Login("demo@acme.local")
+out, _ := c.Login("demo@acme.local", "acme")
 ```
+All three SDKs + the CLI cover the full API (`docs/api.md`): auth/refresh/logout,
+orgs/accounts/users, roles/policies/attach/assign, authorize + dry-run, audit,
+API keys, service accounts, workflows/templates/executions.
 
 ## Access: Console UI & CLI
 - **Console** (`http://localhost:3000` after `docker compose up -d console`):

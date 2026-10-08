@@ -19,10 +19,18 @@ jobs:
       - run: npm install --workspaces
       - run: npm run build --workspaces --if-present
       - run: npm run test --workspaces --if-present
+      # Prod-dep audit: fails only on CRITICAL (the known HIGH `braces` advisory is
+      # accepted + tracked in SECURITY.md — fix would be a breaking downgrade).
+      - run: npm audit --omit=dev --audit-level=critical --workspaces --if-present
+      # Copyleft gate (zero-dep script) + SBOM artifact.
+      - run: node tools/license-check.cjs --sbom sbom.json
+      - uses: actions/upload-artifact@v4
+        with: { name: sbom, path: sbom.json }
       - run: go vet ./... && go test ./...
         working-directory: sdks/sdk-go
-      - run: pip install ./sdks/sdk-python
+      - run: pip install "./sdks/sdk-python[dev]" && pip install pip-licenses && pip-licenses --fail-on="GPL;AGPL;LGPL"
       - run: pytest sdks/sdk-python -q
+      - run: ruff check sdks/sdk-python && ruff format --check sdks/sdk-python
       - run: docker compose config
   docker:
     runs-on: ubuntu-latest
