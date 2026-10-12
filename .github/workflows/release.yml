@@ -41,7 +41,14 @@ jobs:
         with: { node-version: 20, registry-url: https://registry.npmjs.org }
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
-      - run: npm publish --workspace=sdks/sdk-js --access public
+      # Idempotent: skip when this exact version already exists (re-runs stay green).
+      - run: |
+          PKG_VER=$(node -p "require('./sdks/sdk-js/package.json').version")
+          if npm view "@synapsedx/sdk@$PKG_VER" version >/dev/null 2>&1; then
+            echo "npm: @synapsedx/sdk@$PKG_VER already published — skipping."
+          else
+            npm publish --workspace=sdks/sdk-js --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -63,6 +70,7 @@ jobs:
         with:
           packages-dir: sdks/sdk-python/dist/
           verbose: true
+          skip-existing: true # re-runs stay green when the version already exists
 
   publish-images:
     runs-on: ubuntu-latest
