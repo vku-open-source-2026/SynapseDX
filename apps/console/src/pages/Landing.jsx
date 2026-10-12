@@ -10,6 +10,7 @@ import {
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import PublicHeader from '../components/PublicHeader.jsx';
+import { appDashboardUrl, isCanonicalAppHost } from '../lib/site.js';
 
 const FEATURES = [
   { icon: faShieldHalved, title: 'IAM kiểu AWS', text: 'Organization → Account → User → Role → Policy JSON (Allow/Deny, Condition), authorize + simulator + audit log.' },
@@ -21,6 +22,9 @@ const FEATURES = [
 ];
 
 export default function Landing() {
+  // Web chinh (@): nut Mo Console tro ve canonical app (cloud.*) theo env.
+  const offSite = !isCanonicalAppHost();
+  const openConsoleHref = appDashboardUrl();
   return (
     <div className="min-h-screen">
       <PublicHeader />
@@ -36,9 +40,15 @@ export default function Landing() {
           cụm dữ liệu lõi và workflow n8n — quản trị qua Console, SDK đa ngôn ngữ và CLI.
         </p>
         <div className="mt-6 flex justify-center gap-3">
-          <Link to="/login" className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
-            Mở Console
-          </Link>
+          {offSite ? (
+            <a href={openConsoleHref} className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
+              Mở Console
+            </a>
+          ) : (
+            <Link to="/login" className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
+              Mở Console
+            </Link>
+          )}
           <Link to="/api-docs" className="px-6 py-2.5 rounded-2xl bg-white font-medium text-main-text shadow-md">
             Khám phá API
           </Link>

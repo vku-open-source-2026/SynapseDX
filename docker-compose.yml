@@ -61,6 +61,7 @@ services:
     image: postgres:16-alpine
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD:-synapsedx_password_change_me}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}
     command: >
       sh -c "psql -h postgres -U $${POSTGRES_USER:-synapsedx} -d $${POSTGRES_DB:-synapsedx} -c \"CREATE USER authentik WITH PASSWORD '$${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}';\" -c 'CREATE DATABASE authentik OWNER authentik;' || true"
     depends_on:
@@ -73,13 +74,13 @@ services:
     command: server
     restart: unless-stopped
     environment:
-      AUTHENTIK_POSTGRESQL__HOST: postgres
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__HOST: ${AUTHENTIK_POSTGRESQL__HOST:-postgres}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRESQL__NAME:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRESQL__USER:-authentik}
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}
-      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__HOST: ${AUTHENTIK_REDIS__HOST:-redis}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change_me_authentik_secret_key_60chars_min_xxxxxxxxxxxxxxxx}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,13 +98,13 @@ services:
     command: worker
     restart: unless-stopped
     environment:
-      AUTHENTIK_POSTGRESQL__HOST: postgres
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__HOST: ${AUTHENTIK_POSTGRESQL__HOST:-postgres}
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRESQL__NAME:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRESQL__USER:-authentik}
       AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRESQL__PASSWORD:-authentik_pw_change_me}
-      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_REDIS__HOST: ${AUTHENTIK_REDIS__HOST:-redis}
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-change_me_authentik_secret_key_60chars_min_xxxxxxxxxxxxxxxx}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}
     depends_on:
       postgres:
         condition: service_healthy
@@ -118,9 +119,10 @@ services:
     restart: unless-stopped
     environment:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change_me_n8n_32chars_key_1234567890}
-      N8N_HOST: n8n
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
+      N8N_HOST: ${N8N_HOST:-n8n}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
       # Local dev qua http: cookie Secure se khong duoc gui -> dat false.
       # Production sau TLS: dat N8N_SECURE_COOKIE=true.
       N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
@@ -149,7 +151,7 @@ services:
     environment:
       PORT: 4001
       DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       IAM_JWT_EXPIRES_IN: ${IAM_JWT_EXPIRES_IN:-3600}
       IAM_REFRESH_EXPIRES_IN: ${IAM_REFRESH_EXPIRES_IN:-2592000}
@@ -189,7 +191,7 @@ services:
       PORT: 4002
       N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
       N8N_API_KEY: ${N8N_API_KEY:-change_me_n8n_api_key}
-      IAM_SERVICE_URL: http://iam:4001
+      IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
     ports:
@@ -212,8 +214,8 @@ services:
     restart: unless-stopped
     environment:
       PORT: 8080
-      IAM_SERVICE_URL: http://iam:4001
-      WORKFLOW_SERVICE_URL: http://workflow:4002
+      IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
+      WORKFLOW_SERVICE_URL: ${WORKFLOW_SERVICE_URL:-http://workflow:4002}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
@@ -243,6 +245,8 @@ services:
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).
       SYNAPSEDX_PUBLIC_BASE_URL: ${SYNAPSEDX_PUBLIC_BASE_URL:-http://localhost:8080}
+      # Canonical app URL (cloud.*): web chinh @ redirect login ve day theo env.
+      CONSOLE_APP_URL: ${CONSOLE_APP_URL:-}
     ports:
       - "${CONSOLE_HOST_PORT:-3000}:80"
     depends_on:

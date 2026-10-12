@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faBars, faRightToBracket, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../lib/auth.jsx';
+import { appDashboardUrl, appLoginUrl, isCanonicalAppHost } from '../lib/site.js';
 
 const LINKS = [
   { to: '/', label: 'Trang chủ' },
@@ -13,6 +14,11 @@ const LINKS = [
 export default function PublicHeader() {
   const [open, setOpen] = useState(false);
   const { auth } = useAuth();
+  // Multi-domain: web chinh (@) redirect Dang nhap/Console ve canonical app (cloud.*) theo env.
+  const offSite = !isCanonicalAppHost();
+  const authHref = auth ? appDashboardUrl() : appLoginUrl();
+  const authLabel = auth ? 'Console' : 'Đăng nhập';
+  const authMobileLabel = auth ? 'Vào Console' : 'Đăng nhập';
   return (
     <header className="fixed z-50 top-0 left-0 w-full bg-white/70 backdrop-blur-md shadow-sm">
       <div className="flex items-center justify-between px-4 mx-auto max-w-6xl h-16">
@@ -28,13 +34,23 @@ export default function PublicHeader() {
               {l.label}
             </Link>
           ))}
-          <Link
-            to={auth ? '/dashboard' : '/login'}
-            className="ml-2 px-4 py-1.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end"
-          >
-            <FontAwesomeIcon icon={faRightToBracket} className="mr-1" />
-            {auth ? 'Console' : 'Đăng nhập'}
-          </Link>
+          {offSite ? (
+            <a
+              href={authHref}
+              className="ml-2 px-4 py-1.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end"
+            >
+              <FontAwesomeIcon icon={faRightToBracket} className="mr-1" />
+              {authLabel}
+            </a>
+          ) : (
+            <Link
+              to={auth ? '/dashboard' : '/login'}
+              className="ml-2 px-4 py-1.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end"
+            >
+              <FontAwesomeIcon icon={faRightToBracket} className="mr-1" />
+              {authLabel}
+            </Link>
+          )}
         </nav>
         <button onClick={() => setOpen(!open)} className="md:hidden text-xl text-normal-text">
           <FontAwesomeIcon icon={open ? faXmark : faBars} />
@@ -47,13 +63,23 @@ export default function PublicHeader() {
               {l.label}
             </Link>
           ))}
-          <Link
-            to={auth ? '/dashboard' : '/login'}
-            onClick={() => setOpen(false)}
-            className="block py-2 text-sm font-medium text-main-blue"
-          >
-            {auth ? 'Vào Console' : 'Đăng nhập'}
-          </Link>
+          {offSite ? (
+            <a
+              href={authHref}
+              onClick={() => setOpen(false)}
+              className="block py-2 text-sm font-medium text-main-blue"
+            >
+              {authMobileLabel}
+            </a>
+          ) : (
+            <Link
+              to={auth ? '/dashboard' : '/login'}
+              onClick={() => setOpen(false)}
+              className="block py-2 text-sm font-medium text-main-blue"
+            >
+              {authMobileLabel}
+            </Link>
+          )}
         </div>
       )}
     </header>

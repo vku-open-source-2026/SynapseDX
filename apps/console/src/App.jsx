@@ -20,10 +20,19 @@ import Landing from './pages/Landing.jsx';
 import ApiDocs from './pages/ApiDocs.jsx';
 import Docs from './pages/Docs.jsx';
 
+import { appLoginUrl, isCanonicalAppHost } from './lib/site.js';
+
 function Guard({ children }) {
   const { auth } = useAuth();
   const loc = useLocation();
-  if (!auth) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
+  if (!auth) {
+    // Multi-domain: web chinh (@) khong giu session — day ve canonical app (cloud.*) theo env.
+    if (!isCanonicalAppHost()) {
+      window.location.href = appLoginUrl();
+      return null;
+    }
+    return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
+  }
   return children;
 }
 

@@ -1,0 +1,64 @@
+# Prod overlay cho synapsedx.sbs (dung kem compose chinh):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Edge cong khai duy nhat: nginx :80/:443 (synapsedx.sbs, cloud.*, api.* + LE).
+# Moi service khac bind 127.0.0.1 qua .env (debug local), khong public.
+# Authentik/n8n/s3/postgres/redis: chi trong network noi bo.
+
+services:
+  gateway:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+
+  iam:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+
+  workflow:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+
+  console:
+    environment:
+      NODE_ENV: production
+
+  n8n:
+    environment:
+      NODE_ENV: production
+
+  # TLS terminator + Certbot webroot (renew khong downtime).
+  nginx:
+    build:
+      context: ./infra/prod
+    image: synapsedx/edge:0.3.0
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-synapsedx.sbs}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - certbot-www:/var/www/certbot:ro
+      - letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - gateway
+      - console
+    networks: [synapsedx-net]
+
+  certbot:
+    image: certbot/certbot:latest
+    restart: "no"
+    # Entrypoint mac dinh cua image la `certbot`: `run --rm certbot certonly ...`
+    # se thanh `certbot certonly ...`. Service thuong truc chi de giu volumes.
+    entrypoint: ["certbot"]
+    command: ["--version"]
+    volumes:
+      - certbot-www:/var/www/certbot
+      - letsencrypt:/etc/letsencrypt
+    networks: [synapsedx-net]
+
+volumes:
+  certbot-www:
+  letsencrypt:
