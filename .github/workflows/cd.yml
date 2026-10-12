@@ -64,14 +64,15 @@ jobs:
       - name: Preflight secrets
         run: |
           if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "::warning::NPM_TOKEN chua set — bo qua npm publish (them secret loai Automation trong npmjs.com → repo Settings → Secrets)."
+            echo "::warning::NPM_TOKEN not set — npm publish will fail. Add an Automation token in npmjs.com, then repo Settings → Secrets and variables → Actions → NPM_TOKEN."
           fi
-          echo "PyPI dung Trusted Publishing (can cau hinh 1 lan tren pypi.org: project synapsedx-sdk → Trusted Publisher = repo+workflow nay)."
+          echo "PyPI uses Trusted Publishing (configure once on pypi.org: project synapsedx-sdk → Trusted Publisher = this repo + workflow cd.yml)."
 
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
+      # Publish directly: the token is empty only when setup is missing,
+      # which npm reports clearly. (secrets.* is not allowed in `if:`.)
       - name: Publish npm (sdk + cli, tag dev)
-        if: ${{ secrets.NPM_TOKEN != '' }}
         run: |
           npm publish --workspace=sdks/sdk-js --tag dev --access public
           npm publish --workspace=tools/cli --tag dev --access public
