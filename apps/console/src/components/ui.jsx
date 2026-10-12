@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 import React from 'react';
 
 export function Card({ className = '', children }) {

@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 // synapsedx API client (fetch-based, mirrors @synapsedx/sdk). Apache-2.0.
 export function baseUrl() {
   if (typeof window !== 'undefined' && window.SYNAPSEDX_CONFIG?.BASE_URL) {

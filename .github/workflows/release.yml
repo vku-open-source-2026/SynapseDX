@@ -12,10 +12,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: https://registry.npmjs.org }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
       - run: npm run build --workspaces --if-present
+      # Open-format release assets (tar.gz / whl / npm tgz — no zip/rar).
+      - name: Build release assets
+        run: |
+          set -e
+          mkdir -p release-assets
+          npm pack --workspace=sdks/sdk-js --pack-destination release-assets
+          npm pack --workspace=tools/cli --pack-destination release-assets
+          pip install build >/dev/null
+          python -m build sdks/sdk-python --outdir release-assets
+          sha256sum release-assets/* > release-assets/SHA256SUMS
+          ls -l release-assets
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          files: release-assets/*
 
   publish-sdk-js:
     runs-on: ubuntu-latest

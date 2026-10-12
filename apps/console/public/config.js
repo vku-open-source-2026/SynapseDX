@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 /* Runtime config — replaced at container start (see docker-entrypoint.sh).
    Local dev default points at the gateway on localhost. */
 window.SYNAPSEDX_CONFIG = {

@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 // Canonical app host helpers (multi-domain deploy).
 // Prod: @ (synapsedx.sbs) la web chinh/landing, cloud.* la frontend app chinh.
 // Nut Dang nhap / Mo Console o domain phu phai tro ve canonical APP_URL theo env.

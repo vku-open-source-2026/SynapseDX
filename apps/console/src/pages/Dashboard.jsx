@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';

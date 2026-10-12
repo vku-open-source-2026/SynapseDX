@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, authStore } from './api.js';
 

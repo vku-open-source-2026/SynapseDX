@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 // Offline tests for the console api client (silent refresh). No platform needed.
 // Run: node --test src/lib/*.test.mjs (Node 18+).
 import { describe, it, beforeEach } from 'node:test';

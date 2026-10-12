@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 SynapseDX Contributors
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ */
 // API catalog for the in-console API docs (mirrors docs/api.md). Apache-2.0.
 export const GROUPS = [
   {
