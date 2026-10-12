@@ -47,3 +47,6 @@ Desktop.ini
 *.swp
 *.swo
 *~
+
+# local admin credentials (never commit)
+.notes/

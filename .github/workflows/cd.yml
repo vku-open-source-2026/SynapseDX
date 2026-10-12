@@ -1,0 +1,120 @@
+name: cd
+
+# CD cho main: gate (tai su dung ci.yml) + publish kenh DEV.
+# - npm:  <base>-dev.<run_number> voi dist-tag `dev` (`latest` giu cho release tag v*).
+# - PyPI: <base>.dev<run_number> (PEP 440 dev release — pip mac dinh KHONG cai).
+# - GHCR: tag `main` + `main-<sha>` (khong dung `latest`).
+# Bo qua publish cho commit docs/chore: them `[skip publish]` vao message.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # PyPI Trusted Publishing (OIDC, khong can token secret)
+
+# Publish phai tuan tu: khong cancel ban dang chay do (tranh publish do dang).
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: ci
+    if: "!contains(github.event.head_commit.message, '[skip publish]')"
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+
+      # Version dev dong tu root package.json + run number (khong commit tro lai).
+      - name: Compute dev versions
+        id: ver
+        run: |
+          BASE=$(node -p "require('./package.json').version")
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "npm=$BASE-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "pep=$BASE.dev${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp dev versions (workspace only, no commit)
+        run: |
+          node -e "
+            const fs = require('fs');
+            for (const f of ['sdks/sdk-js/package.json', 'tools/cli/package.json']) {
+              const p = JSON.parse(fs.readFileSync(f, 'utf8'));
+              p.version = '${{ steps.ver.outputs.npm }}';
+              fs.writeFileSync(f, JSON.stringify(p, null, 2) + '\n');
+            }
+          "
+          sed -i 's/^version = "${{ steps.ver.outputs.base }}"$/version = "${{ steps.ver.outputs.pep }}"/' sdks/sdk-python/pyproject.toml
+          grep -H '"version":\|^version = ' sdks/sdk-js/package.json tools/cli/package.json sdks/sdk-python/pyproject.toml
+
+      - name: Preflight secrets
+        run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "::warning::NPM_TOKEN chua set — bo qua npm publish (them secret loai Automation trong npmjs.com → repo Settings → Secrets)."
+          fi
+          echo "PyPI dung Trusted Publishing (can cau hinh 1 lan tren pypi.org: project synapsedx-sdk → Trusted Publisher = repo+workflow nay)."
+
+      - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
+      - run: cp LICENSE sdks/sdk-js/LICENSE
+      - name: Publish npm (sdk + cli, tag dev)
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: |
+          npm publish --workspace=sdks/sdk-js --tag dev --access public
+          npm publish --workspace=tools/cli --tag dev --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Build + publish PyPI (trusted publisher, no token)
+        run: |
+          pip install build
+          python -m build sdks/sdk-python --outdir dist/
+      - name: Upload PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          verbose: true
+
+      - name: Login GHCR
+        uses: docker/login-action@v6
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build + push images (main channel)
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          SHA="${{ steps.ver.outputs.sha }}"
+          for SVC in gateway iam workflow console; do
+            case "$SVC" in
+              gateway) CTX=apps/gateway ;;
+              iam) CTX=apps/iam-service ;;
+              workflow) CTX=apps/workflow-service ;;
+              console) CTX=apps/console ;;
+            esac
+            docker build -t "ghcr.io/$OWNER/synapsedx-$SVC:main" -t "ghcr.io/$OWNER/synapsedx-$SVC:main-$SHA" "$CTX"
+            docker push "ghcr.io/$OWNER/synapsedx-$SVC:main"
+            docker push "ghcr.io/$OWNER/synapsedx-$SVC:main-$SHA"
+          done
+
+      - name: Summary
+        run: |
+          {
+            echo "## CD (dev channel) — ${{ github.sha }}";
+            echo "- npm: \`@synapsedx/sdk@${{ steps.ver.outputs.npm }}\`, \`@synapsedx/cli@${{ steps.ver.outputs.npm }}\` (tag \`dev\`)";
+            echo "- PyPI: \`synapsedx-sdk==${{ steps.ver.outputs.pep }}\` (\`pip install --pre\` moi thay)";
+            echo "- GHCR: \`ghcr.io/${{ github.repository_owner }}/synapsedx-{gateway,iam,workflow,console}:main(-${{ steps.ver.outputs.sha }})\`";
+          } >> "$GITHUB_STEP_SUMMARY"
