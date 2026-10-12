@@ -48,20 +48,21 @@ jobs:
   publish-sdk-python:
     runs-on: ubuntu-latest
     needs: release
+    permissions:
+      contents: read
+      id-token: write # PyPI Trusted Publishing (OIDC, no token secret)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install build twine
+      - run: pip install build
       - run: cp LICENSE sdks/sdk-python/LICENSE
       - run: python -m build sdks/sdk-python
-      # (Khong dung if: secrets.* o day — template workflow khong cho.
-      #  Thieu secret thi step fail ro rang, can sua truoc khi release.)
-      - run: twine upload dist/* --non-interactive
-        working-directory: sdks/sdk-python
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Upload PyPI (trusted publisher)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdks/sdk-python/dist/
+          verbose: true
 
   publish-images:
     runs-on: ubuntu-latest
