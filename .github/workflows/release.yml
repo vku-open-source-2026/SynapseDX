@@ -26,13 +26,7 @@ jobs:
         with: { node-version: 20, registry-url: https://registry.npmjs.org }
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
-      # Can secret NPM_TOKEN (npm access token, automation) truoc khi publish that.
-      # (Dieu kien secrets.* chi dung duoc o cap step, khong phai cap job.)
-      - name: Preflight NPM_TOKEN
-        if: ${{ secrets.NPM_TOKEN == '' }}
-        run: echo "::warning::NPM_TOKEN chua set — bo qua npm publish."
       - run: npm publish --workspace=sdks/sdk-js --access public
-        if: ${{ secrets.NPM_TOKEN != '' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -46,13 +40,10 @@ jobs:
       - run: pip install build twine
       - run: cp LICENSE sdks/sdk-python/LICENSE
       - run: python -m build sdks/sdk-python
-      # (Dieu kien secrets.* chi dung duoc o cap step, khong phai cap job.)
-      - name: Preflight PYPI_API_TOKEN
-        if: ${{ secrets.PYPI_API_TOKEN == '' }}
-        run: echo "::warning::PYPI_API_TOKEN chua set — bo qua PyPI publish."
+      # (Khong dung if: secrets.* o day — template workflow khong cho.
+      #  Thieu secret thi step fail ro rang, can sua truoc khi release.)
       - run: twine upload dist/* --non-interactive
         working-directory: sdks/sdk-python
-        if: ${{ secrets.PYPI_API_TOKEN != '' }}
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
