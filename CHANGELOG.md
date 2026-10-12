@@ -124,6 +124,15 @@ Format based on Keep a Changelog; versioning follows SemVer.
   are legitimate; charset restrictions unchanged) + regression test.
 - Root `npm audit` (dropped version-fragile `--workspaces` flag).
 
+## [0.3.1] - 2026-10-12
+### Fixed
+- Console multi-domain: canonical `APP_URL` redirect (@ → cloud), CSP allow
+  Google Fonts, Apache-2.0 headers on all source files.
+- Prod edge: nginx + Certbot (LE) overlay `docker-compose.prod.yml`, all secrets
+  via `.env` (`.notes/` local admin credentials, git-ignored).
+- CI/CD: `ci.yml` (non-main + PR), `cd.yml` (main → dev channel publish),
+  `release.yml` attaches open-format assets (tar.gz/whl/tgz + SHA256SUMS).
+
 ## [0.3.0] - 2026-10-07
 ### Changed (BREAKING)
 - Tái cấu trúc monorepo chuẩn: `apps/` (console, gateway, iam-service,

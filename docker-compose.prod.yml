@@ -32,7 +32,7 @@ services:
   nginx:
     build:
       context: ./infra/prod
-    image: synapsedx/edge:0.3.0
+    image: synapsedx/edge:0.3.1
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-synapsedx.sbs}

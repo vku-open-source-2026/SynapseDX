@@ -146,7 +146,7 @@ services:
   iam:
     build:
       context: ./apps/iam-service
-    image: synapsedx/iam:0.3.0
+    image: synapsedx/iam:0.3.1
     restart: unless-stopped
     environment:
       PORT: 4001
@@ -185,7 +185,7 @@ services:
   workflow:
     build:
       context: ./apps/workflow-service
-    image: synapsedx/workflow:0.3.0
+    image: synapsedx/workflow:0.3.1
     restart: unless-stopped
     environment:
       PORT: 4002
@@ -210,7 +210,7 @@ services:
   gateway:
     build:
       context: ./apps/gateway
-    image: synapsedx/gateway:0.3.0
+    image: synapsedx/gateway:0.3.1
     restart: unless-stopped
     environment:
       PORT: 8080
@@ -240,7 +240,7 @@ services:
   console:
     build:
       context: ./apps/console
-    image: synapsedx/console:0.3.0
+    image: synapsedx/console:0.3.1
     restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

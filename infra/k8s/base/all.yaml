@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: iam
-          image: ghcr.io/synapsedx/iam:0.3.0
+          image: ghcr.io/synapsedx/iam:0.3.1
           ports: [{ containerPort: 4001 }]
           env:
             - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: database-url } } }
@@ -58,7 +58,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: ghcr.io/synapsedx/gateway:0.3.0
+          image: ghcr.io/synapsedx/gateway:0.3.1
           ports: [{ containerPort: 8080 }]
           env:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
@@ -100,7 +100,7 @@ spec:
     spec:
       containers:
         - name: workflow
-          image: ghcr.io/synapsedx/workflow:0.3.0
+          image: ghcr.io/synapsedx/workflow:0.3.1
           ports: [{ containerPort: 4002 }]
           env:
             - { name: N8N_BASE_URL, value: "http://n8n:5678" }
@@ -136,7 +136,7 @@ spec:
     spec:
       containers:
         - name: console
-          image: ghcr.io/synapsedx/console:0.3.0
+          image: ghcr.io/synapsedx/console:0.3.1
           ports: [{ containerPort: 80 }]
           env:
             # URL gateway ma TRINH DUYET goi toi (Ingress/TLS ben ngoai) - doi theo domain that.
