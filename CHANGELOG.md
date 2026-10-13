@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
+### Added
+- Real OIDC Authorization Code flow in IAM (`apps/iam-service/src/oidc.ts`, zero new
+  dependencies): HMAC-signed `state`, IdP discovery + JWKS caching, asymmetric-only
+  ID-token verification (issuer/audience checks), shadow-user upsert from verified
+  claims. `POST /v1/auth/oidc/callback {code, state}` now works in production; the
+  demo-email path stays dev-only behind `IAM_ALLOW_OIDC_DEMO_CALLBACK`.
+- Console SSO round-trip: `/oidc/callback` page (single-use code POST, tokens never
+  touch the URL) + "Continue with SSO" on `/login`. Set `OIDC_REDIRECT_URI` to the
+  Console page (e.g. `https://cloud.example.com/oidc/callback`).
+- CLI one-line installer (`tools/cli/install.sh`, mirrored at `/install.sh` on the web
+  frontend): `curl -fsSL https://synapsedx.sbs/install.sh | sh`. CLI tarball slimmed
+  via `files: ["bin", "README.md"]`; `npx -y @synapsedx/cli@latest` verified live.
+### Changed
+- All user-facing documentation and Console UI strings translated to English
+  (`README.md`, `docs/*.md`, Console pages, template descriptions, CLI README).
 ### Added (SDK/CLI full-system coverage)
 - Go SDK rewritten to full API parity: auth (login/refresh/logout/logout-all/verify/me),
   orgs/accounts/users (+effective policies), roles/policies/attach/assign, authorize +
@@ -135,37 +150,37 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [0.3.0] - 2026-10-07
 ### Changed (BREAKING)
-- Tái cấu trúc monorepo chuẩn: `apps/` (console, gateway, iam-service,
-  workflow-service — deployables, có Dockerfile, không publish) vs `sdks/`
+- Standard monorepo restructure: `apps/` (console, gateway, iam-service,
+  workflow-service — deployables with Dockerfiles, never published) vs `sdks/`
   (sdk-js, sdk-python, sdk-go) + `tools/cli` (distributables). npm workspaces:
-  `apps/*`, `tools/*`, `sdks/sdk-js`. Mọi CI path, compose context, docs,
-  SDK/CLI references cập nhật theo.
-- Repo dời về folder `SynapseDX/` (bỏ lớp `danax/` lồng nhau).
-- Đổi tên dự án danax → SynapseDX: packages `@synapsedx/*`, `synapsedx-sdk`
+  `apps/*`, `tools/*`, `sdks/sdk-js`. All CI paths, compose contexts, docs,
+  SDK/CLI references updated accordingly.
+- Repo moved into the `SynapseDX/` folder (dropped the nested `danax/` layer).
+- Project renamed danax → SynapseDX: packages `@synapsedx/*`, `synapsedx-sdk`
   (PyPI), `synapsedx-sdk-go`, CLI `synapsedx` (`~/.synapsedx`), images
   `synapsedx/*`, K8s namespace `synapsedx`, key prefix `synapsedx_*`,
   OIDC `synapsedx-platform`, domain `synapsedx.local`, DB `synapsedx`.
 ### Added
-- Console: trang chủ `/` công khai (header nav) tách bạch trang console sau login
-  (sidebar nav); `/api-docs`, `/docs` công khai; Dashboard dời về `/dashboard`.
+- Console: public home `/` (header nav) separated from post-login console pages
+  (sidebar nav); public `/api-docs`, `/docs`; Dashboard moved to `/dashboard`.
 
 ## [0.2.0] - 2026-10-06
 ### Added
 - Console: AWS-style management UI (React 18 + Vite + Tailwind, BWD look:
-  Poppins, gradient `#4FACFE→#00F2FE`, sidebar + FontAwesome) — Dashboard (ready),
+  Poppins, `#4FACFE→#00F2FE` gradients, sidebar + FontAwesome) — Dashboard (ready),
   Organizations/Accounts/Users/Roles/Policies (JSON editor)/API Keys/Service
-  Accounts/Workflows/Authorize simulator/Audit Log; login email+org hoặc API key;
-  runtime backend URL qua `config.js` (`SYNAPSEDX_PUBLIC_BASE_URL`); compose service
+  Accounts/Workflows/Authorize simulator/Audit Log; email+org or API-key sign-in;
+  runtime backend URL via `config.js` (`SYNAPSEDX_PUBLIC_BASE_URL`); compose service
   `:3000`, K8s Deployment/Service, Nginx SPA image `synapsedx/console`.
-- CLI `synapsedx` zero-dependency (Node 18+): login/use-key/logout, orgs/accounts/users,
-  roles/policies/attach/assign, authz/sim (kèm `--context`), audit, keys
-  create/revoke, sa create/token, workflows/templates, config; `--json` cho script;
-  config `~/.synapsedx/config.json`; unit tests offline (exit-code chuẩn).
-- K8s: console Deployment/Service; release workflow publish thêm `synapsedx-console`.
-- Console (tiếp): trang chủ giới thiệu `/welcome`, API Docs tương tác
-  (try-it mọi endpoint), Docs Console/SDK trong app.
+- `synapsedx` CLI, zero-dependency (Node 18+): login/use-key/logout, orgs/accounts/users,
+  roles/policies/attach/assign, authz/sim (with `--context`), audit, keys
+  create/revoke, sa create/token, workflows/templates, config; `--json` for scripts;
+  `~/.synapsedx/config.json`; offline unit tests (standard exit codes).
+- K8s: console Deployment/Service; release workflow additionally publishes `synapsedx-console`.
+- Console (cont.): intro home page `/welcome`, interactive API Docs
+  (try-it for every endpoint), in-app Console/SDK Docs.
 ### Changed (BREAKING)
-- Đổi tên dự án OLP → synapsedx: packages `@synapsedx/*`, `synapsedx-sdk` (PyPI),
+- Project renamed OLP → synapsedx: packages `@synapsedx/*`, `synapsedx-sdk` (PyPI),
   `synapsedx-sdk-go`, CLI `synapsedx`, images `synapsedx/*`, K8s namespace `synapsedx`,
   key prefix `synapsedx_*`, OIDC `synapsedx-platform`, domain `synapsedx.local`.
 

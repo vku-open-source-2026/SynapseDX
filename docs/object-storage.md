@@ -1,24 +1,33 @@
 # Object storage (S3-compatible)
 
-synapsedx dùng API S3 chuẩn cho mọi object (backup workflow, artifact, upload...), nên backend đổi được mà không đổi code gọi.
+SynapseDX speaks the standard S3 API for all objects (workflow backups, artifacts,
+uploads...), so the backend can be swapped without changing any calling code.
 
-## Mặc định: S3Mock (local/dev)
-- Service `s3` (`adobe/s3mock`, Apache-2.0), endpoint nội bộ `http://s3:9090`, ngoài máy `http://localhost:9090` (`S3_HOST_PORT`).
-- Bucket `synapsedx-core` (`S3_BUCKET`) tự tạo bởi service `s3-init` (aws-cli + retry loop).
-- Dùng thử:
+## Default: S3Mock (local/dev)
+
+- Service `s3` (`adobe/s3mock`, Apache-2.0), internal endpoint `http://s3:9090`,
+  outside the machine `http://localhost:9090` (`S3_HOST_PORT`).
+- Bucket `synapsedx-core` (`S3_BUCKET`) is auto-created by the `s3-init` service
+  (aws-cli + retry loop).
+- Try it:
   ```bash
   export AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test AWS_DEFAULT_REGION=us-east-1
   aws --endpoint-url http://localhost:9090 s3 ls
   echo hello | aws --endpoint-url http://localhost:9090 s3 cp - s3://synapsedx-core/hello.txt
   ```
 
-## Production: MinIO hoặc AWS S3
-- MinIO: thay service `s3` bằng `quay.io/minio/minio` (`server /data --console-address ":9001"`),
-  `s3-init` bằng `minio/mc` (`mc alias set ... && mc mb -p ...`), giữ nguyên tên service + env `S3_*`
+## Production: MinIO or AWS S3
+
+- MinIO: replace the `s3` service with `quay.io/minio/minio`
+  (`server /data --console-address ":9001"`), `s3-init` with `minio/mc`
+  (`mc alias set ... && mc mb -p ...`), keep the service name + `S3_*` env
   (map `S3_ENDPOINT=http://s3:9000`).
-- AWS S3 thật: bỏ service `s3`/`s3-init`, set `S3_ENDPOINT=https://s3.<region>.amazonaws.com` + key thật.
-- Lịch sử: bản đầu dùng `minio/minio` trên Docker Hub, nhưng repo đó đã bị gỡ (pull lỗi
-  `repository does not exist`) nên mặc định chuyển sang S3Mock — xem `NOTICE`.
+- Real AWS S3: drop the `s3`/`s3-init` services, set
+  `S3_ENDPOINT=https://s3.<region>.amazonaws.com` + real keys.
+- History: the first revision used `minio/minio` on Docker Hub, but that repo was
+  removed (pull error `repository does not exist`), so the default moved to S3Mock —
+  see `NOTICE`.
 
 ## Roadmap
-- `v0.2`: API `Bucket` trong IAM/workflow (presigned URL upload/download qua `S3_ENDPOINT`), xem `ROADMAP.md`.
+
+- `v0.2`: `Bucket` API in IAM/workflow (presigned upload/download URLs via `S3_ENDPOINT`), see `ROADMAP.md`.

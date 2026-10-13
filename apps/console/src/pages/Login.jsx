@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
-import { baseUrl } from '../lib/api.js';
+import { api, baseUrl } from '../lib/api.js';
 import { Btn, Err, Field, Input } from '../components/ui.jsx';
 
 export default function Login() {
@@ -20,6 +20,17 @@ export default function Login() {
 
   if (auth) return <Navigate to="/dashboard" replace />;
 
+  const submitSso = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      const start = await api.oidcStart(org || 'acme');
+      window.location.href = start.authorizeUrl;
+    } catch (ex) {
+      setErr(ex);
+      setBusy(false);
+    }
+  };
   const submit = async (e) => {
     e.preventDefault();
     setErr(null);
@@ -27,7 +38,7 @@ export default function Login() {
     try {
       if (mode === 'email') await login(email, org || 'acme');
       else {
-        if (!apiKey) throw new Error('Nhập API key');
+        if (!apiKey) throw new Error('Enter an API key');
         loginWithKey(apiKey);
       }
       nav('/dashboard', { replace: true });
@@ -45,7 +56,7 @@ export default function Login() {
           SynapseDX Console
         </h1>
         <p className="text-center text-normal-text text-sm mt-2 mb-6">
-          Quản trị Tier-1 PaaS · Gateway <span className="text-main-blue">{baseUrl()}</span>
+          Tier-1 PaaS admin · Gateway <span className="text-main-blue">{baseUrl()}</span>
         </p>
         <div className="flex gap-2 mb-5">
           {['email', 'apikey'].map((m) => (
@@ -78,13 +89,26 @@ export default function Login() {
             </Field>
           )}
           <Btn type="submit" disabled={busy} className="w-full">
-            <span className="block w-full text-center">{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</span>
+            <span className="block w-full text-center">{busy ? 'Signing in…' : 'Sign in'}</span>
           </Btn>
         </form>
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-slate-200" />
+          <span className="text-xs text-normal-text">or</span>
+          <div className="flex-1 h-px bg-slate-200" />
+        </div>
+        <button
+          type="button"
+          onClick={submitSso}
+          disabled={busy}
+          className="w-full py-2.5 rounded-2xl text-sm font-medium bg-background text-main-text disabled:opacity-50"
+        >
+          {busy ? 'Redirecting…' : 'Continue with SSO'}
+        </button>
         <p className="text-xs text-normal-text mt-4 text-center">
-          Dev login cấp token trực tiếp · Production dùng OIDC (Authentik/Keycloak).
+          Email sign-in is for development · Production uses SSO (Authentik/Keycloak) or API keys.
           <br />
-          <Link to="/welcome" className="text-main-blue">Giới thiệu synapsedx</Link>
+          <Link to="/welcome" className="text-main-blue">About synapsedx</Link>
           {' · '}
           <Link to="/api-docs" className="text-main-blue">API Docs</Link>
         </p>

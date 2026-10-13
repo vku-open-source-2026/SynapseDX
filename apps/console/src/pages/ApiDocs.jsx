@@ -33,7 +33,7 @@ export default function ApiDocs() {
   const fillPath = (p) =>
     p.replace(/:([A-Za-z0-9_]+)/g, (_, n) => {
       const v = (pathVals[n] || '').trim();
-      if (!v) throw new Error(`Nhập :${n} để gọi thử`);
+      if (!v) throw new Error(`Enter :${n} to try the call`);
       return encodeURIComponent(v);
     });
 
@@ -48,7 +48,7 @@ export default function ApiDocs() {
         try {
           payload = body.trim() ? JSON.parse(body) : {};
         } catch {
-          throw new Error('Body không phải JSON hợp lệ');
+          throw new Error('Body is not valid JSON');
         }
       }
       const h = { 'Content-Type': 'application/json' };
@@ -76,12 +76,12 @@ export default function ApiDocs() {
 
   return (
     <>
-      <PageTitle title="API Docs" sub="Toàn bộ endpoint Tier-1 — bấm để gọi thử với phiên đăng nhập hiện tại" />
+      <PageTitle title="API Docs" sub="Every Tier-1 endpoint — click to try it with your current session" />
       <Err e={err} />
       {!auth && (
         <Card className="mb-4">
           <p className="text-sm text-normal-text">
-            Bạn đang xem ẩn danh — endpoint public vẫn gọi thử được. <Link to="/login" className="text-main-blue">Đăng nhập</Link> để thử các endpoint cần auth.
+            You are browsing anonymously — public endpoints can still be tried. <Link to="/login" className="text-main-blue">Sign in</Link> to try endpoints that need auth.
           </p>
         </Card>
       )}
@@ -110,7 +110,7 @@ export default function ApiDocs() {
                           <input
                             value={pathVals[p] || ''}
                             onChange={(ev) => setPathVals({ ...pathVals, [p]: ev.target.value })}
-                            placeholder={`nhập ${p}…`}
+                            placeholder={`enter ${p}…`}
                             className="flex-1 px-2 py-1 rounded-xl border border-slate-200 text-xs outline-none"
                           />
                         </div>
@@ -129,7 +129,7 @@ export default function ApiDocs() {
                         disabled={busy}
                         className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
                       >
-                        {busy ? 'Đang gọi…' : 'Gọi thử'}
+                        {busy ? 'Calling…' : 'Try it'}
                       </button>
                       {out && (
                         <div className="mt-2">

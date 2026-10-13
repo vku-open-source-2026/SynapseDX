@@ -27,17 +27,17 @@ export default function Audit() {
 
   return (
     <>
-      <PageTitle title="Audit Log" sub="Mọi authorize decision, mới nhất trước" />
+      <PageTitle title="Audit Log" sub="Every authorize decision, newest first" />
       <Err e={err} />
       <div className="flex gap-2 mb-4">
-        <Input placeholder="Lọc theo actor id (user)…" value={actor} onChange={(e) => setActor(e.target.value)} />
+        <Input placeholder="Filter by actor id (user)…" value={actor} onChange={(e) => setActor(e.target.value)} />
         <button onClick={load} className="px-4 py-2 rounded-2xl bg-slate-100 text-sm text-main-text">
-          Lọc
+          Filter
         </button>
       </div>
       <Card>
         {rows.length ? (
-          <Table head={['Thời gian', 'Actor', 'Action', 'Resource', 'Quyết định']}>
+          <Table head={['Time', 'Actor', 'Action', 'Resource', 'Decision']}>
             {rows.map((a) => (
               <tr key={a.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4 text-xs whitespace-nowrap">{new Date(a.created_at).toLocaleString()}</td>
@@ -51,7 +51,7 @@ export default function Audit() {
             ))}
           </Table>
         ) : (
-          <Empty text="Chưa có bản ghi audit" />
+          <Empty text="No audit records yet" />
         )}
       </Card>
     </>

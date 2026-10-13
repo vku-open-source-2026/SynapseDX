@@ -1,9 +1,16 @@
 # synapsedx SDK for Python
+
 Apache-2.0. See root LICENSE. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
+
+Requires Python 3.10+. Single runtime dependency: `requests>=2.28`.
+
+## Install
 
 ```bash
 pip install synapsedx-sdk
 ```
+
+## Quick start
 
 ```python
 from synapsedx_sdk import SynapseDXClient
@@ -19,17 +26,8 @@ c.create_workflow_from_template("webhook-to-log", "demo")
 
 Auth: `SynapseDXClient(base_url, token=..., api_key=...)`, or `set_token(jwt)` /
 `set_api_key(key)` after login. `timeout` configurable (default 15s).
-See `synapsedx_sdk/example.py` and [docs/api.md](../../docs/api.md).
 
-## Full method coverage (mirrors `docs/api.md`)
+## Full documentation
 
-- Auth: `login`, `refresh`, `logout`, `logout_all`, `verify`, `me`
-- Orgs/accounts/users: `list_orgs`, `create_org`, `list_accounts`, `create_account`,
-  `list_users`, `create_user`, `user_policies`
-- IAM: `create_role`, `list_roles`, `delete_role`, `create_policy`, `list_policies`,
-  `delete_policy`, `attach_policy`, `assign_role`, `authorize`, `simulate`,
-  `list_audit`, `create_api_key`, `revoke_api_key`, `verify_api_key`,
-  `create_service_account`, `list_service_accounts`, `service_account_token`
-- Workflows: `list_workflows`, `get_workflow`, `create_workflow_from_template`,
-  `create_workflow`, `activate_workflow`, `deactivate_workflow`, `execute_workflow`,
-  `list_templates`, `get_template`, `list_executions`, `get_execution`
+See **[docs/sdk-python.md](../../docs/sdk-python.md)** for the complete API reference —
+constructor, auth, all methods with signatures, parameters, return types, and examples.

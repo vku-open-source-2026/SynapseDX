@@ -6,6 +6,10 @@
   "bin": {
     "synapsedx": "./bin/synapsedx.js"
   },
+  "files": [
+    "bin",
+    "README.md"
+  ],
   "scripts": {
     "test": "node --test test/*.test.js || echo \"no tests\""
   },

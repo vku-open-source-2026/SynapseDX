@@ -1,39 +1,56 @@
 # SynapseDX Console (management UI)
 
-Giao diện quản trị kiểu AWS Console cho Tier-1 PaaS: sidebar điều hướng theo
-service, Org/Account switcher, CRUD IAM, authorize simulator, workflow, audit log.
+An AWS-Console-style admin UI for the Tier-1 PaaS: service-based sidebar navigation,
+Org/Account switcher, IAM CRUD, authorize simulator, workflows, audit log.
 
-- Stack: React 18 + Vite + Tailwind, phong cách BWD (Poppins, gradient
-  `#4FACFE → #00F2FE`, nền `#f6f7fb`, card trắng `rounded-3xl`).
-- Auth: dev login (email+org) hoặc API key, lưu localStorage. Mọi gọi API đi
-  thẳng tới gateway (CORS mở mặc định) với Bearer/`X-API-Key`.
+- Stack: React 18 + Vite + Tailwind (Poppins, `#4FACFE → #00F2FE` gradients,
+  `#f6f7fb` background, white `rounded-3xl` cards).
+- Auth: dev sign-in (email+org), SSO via OIDC (`/oidc/callback` round-trip), or API key;
+  sessions live in localStorage. All API calls go straight to the gateway (CORS open
+  by default) with Bearer / `X-API-Key`.
 
-## Chạy
+## Run
 
 ```bash
-# cùng compose với platform (console ở :3000)
+# together with the platform (console on :3000)
 docker compose up -d --build postgres redis s3 iam workflow gateway console
-# mở http://localhost:3000 → login demo@acme.local / org acme
+# open http://localhost:3000 → sign in demo@acme.local / org acme
 ```
 
-Đổi cổng/host backend:
+Change the port/backend host:
+
 ```bash
 CONSOLE_HOST_PORT=13000 SYNAPSEDX_PUBLIC_BASE_URL=http://localhost:18080 \
 GATEWAY_HOST_PORT=18080 docker compose up -d --build console gateway ...
 ```
-`SYNAPSEDX_PUBLIC_BASE_URL` **phải là URL trình duyệt gọi được** (không phải tên
-service docker) — container tự chèn vào `config.js` lúc khởi động
-(`apps/console/docker-entrypoint.sh`).
 
-## Dev frontend
+`SYNAPSEDX_PUBLIC_BASE_URL` **must be a browser-reachable URL** (not a docker service
+name) — the container injects it into `config.js` at startup
+(`apps/console/docker-entrypoint.sh`). `CONSOLE_APP_URL` is the canonical app host used
+for cross-domain sign-in redirects (see multi-domain deploys in `infra/prod/`).
+
+## SSO sign-in
+
+`GET /v1/auth/oidc/start?org=<slug>` returns an `authorizeUrl`; after the IdP
+redirects back to `/oidc/callback?code&state`, the page POSTs the single-use code to
+`/v1/auth/oidc/callback`, stores the minted tokens and lands on `/dashboard`. Tokens
+never appear in the URL.
+
+For this to work, `OIDC_REDIRECT_URI` must point at the Console page, e.g.
+`https://cloud.example.com/oidc/callback` (not the API endpoint).
+
+## Frontend dev
 
 ```bash
 cd apps/console
 npm install
-npm run dev   # :3000, proxy /api -> localhost:8080 nếu cần
+npm run dev   # :3000, /api proxies to localhost:8080 when needed
 ```
 
-## Trang
+## Pages
+
 Dashboard (ready/metrics) · Organizations · Accounts · Users · Roles ·
 Policies (JSON editor + dry-run) · API Keys · Service Accounts · Workflows
-(templates + tạo trên n8n) · Authorize (simulator + authorize thật) · Audit Log.
+(templates + create on n8n) · Authorize (simulator + live authorize) · Audit Log.
+Public pages: Landing (`/`, install instructions), API Docs (try-it explorer), Docs
+(SDK/CLI snippets), Login, OIDC callback.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# synapsedx e2e smoke — chạy sau `docker compose up` hoặc dev local.
-# Không fail-hard khi n8n/authentik chưa cấu hình: chỉ assert core IAM+gateway.
+# synapsedx e2e smoke — run after `docker compose up` or local dev.
+# No fail-hard when n8n/authentik are unconfigured: only asserts core IAM+gateway.
 set -u
 BASE="${SYNAPSEDX_BASE_URL:-http://localhost:8080}"
 IAM_DIRECT="${IAM_URL:-http://localhost:4001}"

@@ -52,6 +52,25 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  publish-cli:
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+      - run: cp LICENSE tools/cli/LICENSE 2>/dev/null || true
+      # Idempotent: skip when this exact version already exists (re-runs stay green).
+      - run: |
+          PKG_VER=$(node -p "require('./tools/cli/package.json').version")
+          if npm view "@synapsedx/cli@$PKG_VER" version >/dev/null 2>&1; then
+            echo "npm: @synapsedx/cli@$PKG_VER already published — skipping."
+          else
+            npm publish --workspace=tools/cli --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   publish-sdk-python:
     runs-on: ubuntu-latest
     needs: release

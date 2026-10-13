@@ -55,7 +55,7 @@ export default function ServiceAccounts() {
 
   return (
     <>
-      <PageTitle title="Service Accounts" sub="Identity cho máy (JWT kind=service-account)" right={<Btn onClick={() => setOpen(true)}>+ Tạo</Btn>} />
+      <PageTitle title="Service Accounts" sub="Machine identity (kind=service-account JWTs)" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
@@ -66,27 +66,27 @@ export default function ServiceAccounts() {
                 <td className="py-2 pr-4 font-medium text-main-text">{s.slug}</td>
                 <td className="py-2 pr-4 text-xs text-normal-text font-mono">{s.id?.slice(0, 8)}…</td>
                 <td className="py-2 text-right">
-                  <button onClick={() => issue(s.id)} className="text-xs text-main-blue">Cấp token</button>
+                  <button onClick={() => issue(s.id)} className="text-xs text-main-blue">Mint token</button>
                 </td>
               </tr>
             ))}
           </Table>
         ) : (
-          <Empty text="Chọn account để xem service accounts" />
+          <Empty text="Pick an account to see its service accounts" />
         )}
       </Card>
       {open && (
-        <Modal title="Tạo Service Account" onClose={() => setOpen(false)}>
+        <Modal title="New service account" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-worker" />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}
       {token && (
-        <Modal title="Service token (lưu ngay!)" onClose={() => setToken(null)}>
+        <Modal title="Service token (save it now!)" onClose={() => setToken(null)}>
           <Code data={token} />
         </Modal>
       )}

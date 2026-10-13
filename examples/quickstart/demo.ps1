@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# synapsedx quickstart cho Windows PowerShell (tương đương examples/quickstart/demo.sh)
+# synapsedx quickstart for Windows PowerShell (equivalent of examples/quickstart/demo.sh)
 param([string]$Base = "http://localhost:8080")
 $OrgSlug = if ($env:DEMO_ORG_SLUG) { $env:DEMO_ORG_SLUG } else { "acme" }
 $AccSlug = if ($env:DEMO_ACCOUNT_SLUG) { $env:DEMO_ACCOUNT_SLUG } else { "prod" }
@@ -32,6 +32,6 @@ $a = Invoke-RestMethod -Method Post "$Base/v1/authorize" -ContentType "applicati
 Write-Host ("allowed=" + $a.allowed)
 Write-Host "== api key =="
 $k = Invoke-RestMethod -Method Post "$Base/v1/accounts/$($acc.id)/keys" -ContentType "application/json" -Headers $H -Body '{"name":"demo","scopes":["*"]}'
-Write-Host ("prefix=" + $k.prefix + " (lưu apiKey ngay, chỉ hiện 1 lần)")
-Write-Host "== templates (bằng X-API-Key) =="
+Write-Host ("prefix=" + $k.prefix + " (save apiKey now, shown only once)")
+Write-Host "== templates (via X-API-Key) =="
 Invoke-RestMethod "$Base/v1/templates" -Headers @{"X-API-Key"=$k.apiKey} | ForEach-Object { $_.name }

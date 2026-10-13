@@ -1,10 +1,16 @@
-# `@synapsedx/sdk` — synapsedx SDK for JavaScript/TypeScript
+# `@synapsedx/sdk` — SynapseDX SDK for JavaScript/TypeScript
 
 Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
+
+Zero runtime dependencies. Works in Node 18+ and browsers (fetch-based).
+
+## Install
 
 ```bash
 npm install @synapsedx/sdk
 ```
+
+## Quick start
 
 ```ts
 import { SynapseDXClient } from '@synapsedx/sdk';
@@ -18,19 +24,10 @@ await c.authorize(user.id, 'workflow:Execute', '*');
 await c.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ```
 
-Auth: `setToken(jwt)` (Bearer) hoặc `setApiKey(key)` (`X-API-Key`).
-`timeoutMs` tuỳ chọn (mặc định 15000).
-Xem thêm `src/example.ts` và [docs/api.md](../../docs/api.md).
+Auth: `setToken(jwt)` (Bearer) or `setApiKey(key)` (`X-API-Key`).
+Optional `timeoutMs` (default 15000).
 
-## Full method coverage (mirrors `docs/api.md`)
+## Full documentation
 
-- Auth: `login`, `refresh`, `logout`, `logoutAll`, `verify`, `me`
-- Orgs/accounts/users: `listOrgs`, `createOrg`, `listAccounts`, `createAccount`,
-  `listUsers`, `createUser`, `userPolicies`
-- IAM: `createRole`, `listRoles`, `deleteRole`, `createPolicy`, `listPolicies`,
-  `deletePolicy`, `attachPolicy`, `assignRole`, `authorize`, `simulate`,
-  `listAudit`, `createApiKey`, `revokeApiKey`, `verifyApiKey`,
-  `createServiceAccount`, `listServiceAccounts`, `serviceAccountToken`
-- Workflows: `listWorkflows`, `getWorkflow`, `createWorkflowFromTemplate`,
-  `createWorkflow`, `activateWorkflow`, `deactivateWorkflow`, `executeWorkflow`,
-  `listTemplates`, `getTemplate`, `listExecutions`, `getExecution`
+See **[docs/sdk-js.md](../../docs/sdk-js.md)** for the complete API reference —
+constructor, auth, all methods with signatures, parameters, return types, and examples.

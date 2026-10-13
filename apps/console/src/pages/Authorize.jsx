@@ -34,19 +34,19 @@ export default function Authorize() {
       try {
         ctx = context.trim() ? JSON.parse(context) : {};
       } catch {
-        throw new Error('Context không phải JSON hợp lệ');
+        throw new Error('Context is not valid JSON');
       }
       if (dry) {
         let docs;
         try {
           docs = JSON.parse(doc);
         } catch {
-          throw new Error('Document không phải JSON hợp lệ');
+          throw new Error('Document is not valid JSON');
         }
         const docsArr = Array.isArray(docs) ? docs : [docs];
         setOut(await api.simulate(docsArr, action, resource, ctx, headers));
       } else {
-        if (!userId) throw new Error('Nhập userId để authorize thật');
+        if (!userId) throw new Error('Enter a userId for a live authorize check');
         setOut(await api.authorize(userId, action, resource, ctx, headers));
       }
     } catch (e) {
@@ -56,17 +56,17 @@ export default function Authorize() {
 
   return (
     <>
-      <PageTitle title="Authorize" sub="Kiểm tra phân quyền: dry-run simulator hoặc authorize thật theo user" />
+      <PageTitle title="Authorize" sub="Check permissions: dry-run simulator or live per-user authorize" />
       <Err e={err} />
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
-          <Field label="Action (vd workflow:Execute)">
+          <Field label="Action (e.g. workflow:Execute)">
             <Input value={action} onChange={(e) => setAction(e.target.value)} />
           </Field>
-          <Field label="Resource (vd * hoặc arn:synapsedx:...)">
+          <Field label="Resource (e.g. * or arn:synapsedx:...)">
             <Input value={resource} onChange={(e) => setResource(e.target.value)} />
           </Field>
-          <Field label="Context JSON (cho Condition)">
+          <Field label="Context JSON (for Condition)">
             <textarea value={context} onChange={(e) => setContext(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue" />
           </Field>
           <div className="flex gap-2">
@@ -74,14 +74,14 @@ export default function Authorize() {
           </div>
         </Card>
         <Card>
-          <Field label="Policy documents (cho dry-run)">
+          <Field label="Policy documents (for dry-run)">
             <textarea value={doc} onChange={(e) => setDoc(e.target.value)} rows={10} className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue" />
           </Field>
-          <Field label="User ID (cho authorize thật)">
-            <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="uuid user" />
+          <Field label="User ID (for live authorize)">
+            <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="user uuid" />
           </Field>
           <Btn kind="ghost" onClick={() => run(false)}>
-            Authorize thật
+            Live authorize
           </Btn>
         </Card>
       </div>

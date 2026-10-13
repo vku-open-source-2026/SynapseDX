@@ -2,9 +2,20 @@
 
 Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
 
+Zero external dependencies (standard library only). Requires Go >= 1.22.
+
+## Install
+
 ```bash
-go get github.com/synapsedx/synapsedx-sdk-go
+# via the monorepo replace directive
+go mod edit -replace github.com/synapsedx/synapsedx-sdk-go=./sdks/sdk-go
+go mod tidy
+
+# or from the registry
+go get github.com/synapsedx/synapsedx-sdk-go@latest
 ```
+
+## Quick start
 
 ```go
 import synapsedx "github.com/synapsedx/synapsedx-sdk-go"
@@ -21,7 +32,10 @@ users, roles, policies, authorize + dry-run, audit, API keys (+verify), service
 accounts (+token), workflows (list/get/create from template or raw/activate/
 deactivate/execute), templates, executions.
 
-Cần Go ≥ 1.22 để chạy `go test ./...`. Xem thêm [docs/api.md](../../docs/api.md).
+## Full documentation
 
-Forks: đổi module path `github.com/synapsedx/synapsedx-sdk-go` trong `go.mod` theo repo của bạn
-(Go resolve package qua git tag, không cần publish registry riêng).
+See **[docs/sdk-go.md](../../docs/sdk-go.md)** for the complete API reference —
+client construction, auth, all methods with signatures, parameters, return types, and examples.
+
+Forks: change the `github.com/synapsedx/synapsedx-sdk-go` module path in `go.mod` to your repo
+(Go resolves packages via git tags, no separate registry publish needed).

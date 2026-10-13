@@ -59,7 +59,7 @@ export default function Policies() {
   };
 
   const remove = async (id) => {
-    if (!window.confirm('Xóa policy này?')) return;
+    if (!window.confirm('Delete this policy?')) return;
     try {
       await api.deletePolicy(id, headers);
       load();
@@ -70,7 +70,7 @@ export default function Policies() {
 
   return (
     <>
-      <PageTitle title="Policies" sub="JSON AWS-style: Allow/Deny + Action/Resource + Condition" right={<Btn onClick={() => setOpen(true)}>+ Tạo</Btn>} />
+      <PageTitle title="Policies" sub="AWS-style JSON: Allow/Deny + Action/Resource + Condition" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
@@ -81,28 +81,28 @@ export default function Policies() {
                 <td className="py-2 pr-4 font-medium text-main-text">{p.slug}</td>
                 <td className="py-2 pr-4">{p.document?.Statement?.length || 0}</td>
                 <td className="py-2 pr-4">
-                  <button onClick={() => setView(p)} className="text-xs text-main-blue">Xem JSON</button>
+                  <button onClick={() => setView(p)} className="text-xs text-main-blue">View JSON</button>
                 </td>
                 <td className="py-2 text-right">
-                  <button onClick={() => remove(p.id)} className="text-xs text-red-500">Xóa</button>
+                  <button onClick={() => remove(p.id)} className="text-xs text-red-500">Delete</button>
                 </td>
               </tr>
             ))}
           </Table>
         ) : (
-          <Empty text="Chọn account để xem policies" />
+          <Empty text="Pick an account to see its policies" />
         )}
       </Card>
       {open && (
-        <Modal title="Tạo Policy" onClose={() => setOpen(false)}>
+        <Modal title="New policy" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="run-only" />
             </Field>
-            <Field label="Document JSON">
+            <Field label="JSON document">
               <textarea value={doc} onChange={(e) => setDoc(e.target.value)} rows={12} className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue" />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}

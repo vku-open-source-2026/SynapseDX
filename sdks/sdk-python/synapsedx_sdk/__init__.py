@@ -12,7 +12,7 @@ import requests
 
 
 class SynapseDXError(Exception):
-    """Mọi lỗi SDK đều là SynapseDXError (network hoặc HTTP)."""
+    """All SDK errors surface as SynapseDXError (network or HTTP)."""
 
 
 __all__ = ["SynapseDXClient", "SynapseDXError"]

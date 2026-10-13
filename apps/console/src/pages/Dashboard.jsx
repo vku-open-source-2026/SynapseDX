@@ -33,9 +33,9 @@ export default function Dashboard() {
     <>
       <PageTitle
         title="Dashboard"
-        sub="Tình trạng cụm Tier-1 PaaS"
+        sub="Tier-1 PaaS cluster status"
         right={
-          <button onClick={load} className="text-normal-text hover:text-main-blue" title="Tải lại">
+          <button onClick={load} className="text-normal-text hover:text-main-blue" title="Reload">
             <FontAwesomeIcon icon={faRotate} />
           </button>
         }
@@ -52,7 +52,7 @@ export default function Dashboard() {
               />
             </div>
             <p className="text-xs text-normal-text mt-2">
-              {u.ok ? `OK · ${u.ms}ms · HTTP ${u.status}` : 'Không reachable'}
+              {u.ok ? `OK · ${u.ms}ms · HTTP ${u.status}` : 'Unreachable'}
             </p>
           </Card>
         ))}
@@ -65,7 +65,7 @@ export default function Dashboard() {
         </Card>
       </div>
       <Card>
-        <h3 className="font-semibold text-main-text mb-3">Lối tắt quản trị</h3>
+        <h3 className="font-semibold text-main-text mb-3">Admin shortcuts</h3>
         {ready ? (
           <div className="flex flex-wrap gap-2 text-sm">
             <Link to="/orgs" className="px-3 py-1.5 rounded-2xl bg-background hover:text-main-blue">Organizations</Link>
@@ -74,7 +74,7 @@ export default function Dashboard() {
             <Link to="/audit" className="px-3 py-1.5 rounded-2xl bg-background hover:text-main-blue">Audit log</Link>
           </div>
         ) : (
-          <Empty text="Đang tải trạng thái…" />
+          <Empty text="Loading status…" />
         )}
       </Card>
     </>

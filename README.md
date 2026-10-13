@@ -1,102 +1,166 @@
-# SynapseDX — Open Layer Platform (Tier-1 PaaS, open source)
+# SynapseDX — the open PaaS for your infrastructure
 
-Apache-2.0 open-source PaaS core: **API Gateway + IAM (AWS-style) + core data + n8n workflows + SDKs**.
+[![CI](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml/badge.svg)](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vku-open-source-2026/SynapseDX)](https://github.com/vku-open-source-2026/SynapseDX/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![npm SDK](https://img.shields.io/npm/v/@synapsedx/sdk)](https://www.npmjs.com/package/@synapsedx/sdk)
+[![npm CLI](https://img.shields.io/npm/v/@synapsedx/cli)](https://www.npmjs.com/package/@synapsedx/cli)
+[![PyPI SDK](https://img.shields.io/pypi/v/synapsedx-sdk)](https://pypi.org/project/synapsedx-sdk/)
 
-![ci](https://github.com/synapsedx/synapsedx/actions/workflows/ci.yml/badge.svg)
-![license](https://img.shields.io/badge/license-Apache--2.0-blue)
-![sdk-js](https://img.shields.io/badge/sdk-JS%2FTS-green)
-![sdk-py](https://img.shields.io/badge/sdk-Python-green)
+**SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
+management, a core data cluster, and n8n workflows — operated through a web Console,
+SDKs in three languages, and a zero-dependency CLI.**
 
-> **Tier 1 = PaaS**: single entry point (gateway), access management (IAM), core data cluster, workflows. No lock-in: Authentik/Keycloak and n8n run as external engines via OIDC/REST.
+No lock-in: Authentik/Keycloak and n8n run as external engines, integrated over
+standard OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
 
-## Open-source compliance
-- **Permissive license**: `LICENSE` Apache-2.0 for the platform and all SDKs; `NOTICE` acknowledges third-party components.
-- **Public development**: monorepo, Conventional Commits, PR template, CI (`ci.yml`) + release (`release.yml`), `CHANGELOG.md`.
-- **Open documentation**: `docs/` (architecture, iam-model, api, quickstart, object-storage, troubleshooting) + this `README.md`.
-- **Open contributions**: `CONTRIBUTING.md` (DCO sign-off), `CODE_OF_CONDUCT.md`, `SECURITY.md`, `GOVERNANCE.md`, `ROADMAP.md`.
-- **Reproducible builds**: per-service `Dockerfile`, pinned images in `docker-compose.yml`, Kustomize in `infra/k8s`, `.env.example`.
-- **No foreign-license forks**: n8n/Authentik are consumed as external containers, called via API/OIDC — synapsedx code remains pure Apache-2.0.
+- 🌐 **Live demo:** [synapsedx.sbs](https://synapsedx.sbs) · Console: [cloud.synapsedx.sbs](https://cloud.synapsedx.sbs) · API: `https://api.synapsedx.sbs/health`
+- 📦 **Install:** `npm i @synapsedx/sdk` · `pip install synapsedx-sdk` · `npx @synapsedx/cli` · Go SDK via the monorepo (see below)
+- 🚀 **Self-host:** `docker compose up -d --build` (details below)
 
-## Architecture (see `docs/architecture.md`)
-```
-Client → Gateway :8080 ─┬─► IAM :4001 (Org/Account/Role/Policy + token + OIDC Authentik/Keycloak)
-                         └─► Workflow :4002 ─► n8n :5678
-                         Postgres :5432 / Redis :6379 / S3 (S3Mock) :9090
-```
+## Why SynapseDX
 
-## Run in 3 commands
+| Capability | What you get |
+|---|---|
+| **API Gateway** | Single entry point: JWT/API-key auth, principal propagation (`x-synapsedx-*`), edge rate limiting, tracing, aggregate `/ready`, Prometheus `/metrics` |
+| **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log |
+| **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
+| **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
+| **Workflows** | Control plane over external n8n: versioned templates, activate/execute, execution history |
+| **Clients** | TypeScript, Python and Go SDKs with full API parity, zero-dependency CLI, admin Console |
+
+## Try it in 30 seconds
+
+No install needed — point the clients at the live demo:
+
 ```bash
-cp .env.example .env        # then replace the *_change_me_* secrets
-docker compose up --build -d
-curl localhost:8080/health && curl localhost:4001/health && curl localhost:4002/health
-```
-Details: `docs/quickstart.md`. API: `docs/api.md`. Authorization model: `docs/iam-model.md`. Table of contents: `docs/README.md`.
-
-## Repo layout
-```
-apps/console               AWS-style management UI (React+Vite+Tailwind)
-apps/gateway               API gateway (proxy, JWT/API-key, principal x-synapsedx-*, rate-limit, /metrics)
-apps/iam-service           AWS-style IAM + token/SA + authorize/simulator + OIDC (Authentik/Keycloak)
-apps/workflow-service      n8n control-plane (proxy + templates)
-sdks/sdk-js                @synapsedx/sdk (TypeScript)
-sdks/sdk-python            synapsedx-sdk (Python)
-sdks/sdk-go                synapsedx-sdk-go (Go, full API parity)
-tools/cli                  Zero-dependency CLI `synapsedx` (Node 18+)
-infra/postgres/init.sql    Core schema (orgs/accounts/users/roles/policies/keys/...)
-infra/k8s/base             Kustomize for K8s
-examples/quickstart        End-to-end demo script
-examples/n8n-templates     Sample workflow JSON
-tests/e2e                  Smoke tests (sh/ps1) + SDK live check
-docs                       architecture/iam-model/api/quickstart/object-storage/troubleshooting
+# CLI, straight from the registry (Node 18+)
+npx -y @synapsedx/cli@latest --base https://api.synapsedx.sbs login --email demo@acme.local
+npx -y @synapsedx/cli@latest --base https://api.synapsedx.sbs orgs
 ```
 
-## Quick SDK examples
+```python
+# Python SDK
+pip install synapsedx-sdk
+```
+
+```python
+from synapsedx_sdk import SynapseDXClient
+c = SynapseDXClient("https://api.synapsedx.sbs")
+login = c.login("demo@acme.local")
+c.set_api_key("<your-key>")  # create one in the Console: cloud.synapsedx.sbs → Keys
+print(c.list_orgs())
+```
+
+Or open the [Console](https://cloud.synapsedx.sbs) and sign in with an API key.
+
+## Install
+
+```bash
+# JavaScript / TypeScript
+npm install @synapsedx/sdk
+
+# Python (3.9+)
+pip install synapsedx-sdk
+
+# Go (1.22+) — the SDK lives in this monorepo (sdks/sdk-go); wire it with a
+# replace directive (a standalone module repo is planned — the monorepo path
+# contains uppercase letters, which Go module paths forbid):
+#   go mod edit -replace github.com/synapsedx/synapsedx-sdk-go=<checkout>/sdks/sdk-go
+
+# CLI — one-line installer (Node 18+, no clone needed)
+curl -fsSL https://synapsedx.sbs/install.sh | sh
+# ..or run without installing anything:
+npx -y @synapsedx/cli@latest --help
+```
+
 ```ts
-// JS/TS
+// TypeScript
 import { SynapseDXClient } from '@synapsedx/sdk';
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseDXClient({ baseUrl: 'https://api.synapsedx.sbs' });
 const { accessToken, user } = await c.login('demo@acme.local');
 c.setToken(accessToken);
 await c.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ```
-```python
-# Python
-from synapsedx_sdk import SynapseDXClient
-c = SynapseDXClient("http://localhost:8080")
-login = c.login("demo@acme.local"); c.token = login["accessToken"]
-print(c.list_orgs())
-```
-```go
-// Go
-c := synapsedx.New("http://localhost:8080")
-out, _ := c.Login("demo@acme.local", "acme")
-```
-All three SDKs + the CLI cover the full API (`docs/api.md`): auth/refresh/logout,
-orgs/accounts/users, roles/policies/attach/assign, authorize + dry-run, audit,
-API keys, service accounts, workflows/templates/executions.
 
-## Access: Console UI & CLI
-- **Console** (`http://localhost:3000` after `docker compose up -d console`):
-  login `demo@acme.local` / org `acme` → manage Org/Account/User/Role/Policy/Key,
-  authorize simulator, workflows, audit. Details: `docs/console.md`.
-- **CLI** (`tools/cli`, zero-dependency): `node tools/cli/bin/synapsedx.js login ...`
-  — see `tools/cli/README.md`.
+All clients cover the full API (`docs/api.md`): auth/refresh/logout, orgs/accounts/users,
+roles/policies/attach/assign, authorize + dry-run, audit, API keys, service accounts,
+workflows/templates/executions.
 
-## IdP configuration (Access Management)
-- Default is **Authentik** (internal `authentik-server:9000`, external `http://localhost:19000`), see `infra/authentik/README.md`.
-- Prefer **Keycloak**? Just change `OIDC_ISSUER=https://<keycloak>/realms/<realm>` + client id/secret — IAM stays the same (federated OIDC, shadow user + internal authorization).
+## Self-host
+
+```bash
+cp .env.example .env   # then replace every *_change_me_* secret
+docker compose up -d --build
+curl localhost:8080/health && curl localhost:4001/health && curl localhost:4002/health
+open http://localhost:3000   # sign in: demo@acme.local / org acme
+```
+
+Production (TLS, edge rate limiting, hardened secrets): `docker-compose.prod.yml` +
+`infra/prod/` (nginx + Let's Encrypt via Certbot). Full checklist: `docs/production.md`.
+
+| Layer | Endpoint (local) | Notes |
+|---|---|---|
+| Console | `http://localhost:3000` | Admin UI (React + Vite) |
+| Gateway | `http://localhost:8080` | The only public API in production |
+| IAM | `http://localhost:4001` | Internal (behind gateway in prod) |
+| Workflow | `http://localhost:4002` | Internal (behind gateway in prod) |
+
+## Architecture
+
+```
+Client → Gateway :8080 ─┬─► IAM :4001 (Org/Account/Role/Policy + tokens + OIDC)
+                         └─► Workflow :4002 ─► n8n :5678 (external engine)
+                         Postgres :5432 / Redis :6379 / S3-compatible :9090
+```
+
+Authentik (or Keycloak) acts purely as a federated IdP over OIDC; IAM keeps the shadow
+user and all authorization. Details: `docs/architecture.md`, `docs/iam-model.md`.
+
+## Repository layout
+
+```
+apps/console               Admin UI (React + Vite + Tailwind)
+apps/gateway               API gateway (proxy, JWT/API-key, principal headers, /metrics)
+apps/iam-service           IAM + tokens + authorize/simulator + real OIDC code flow
+apps/workflow-service      n8n control plane (proxy + versioned templates)
+sdks/sdk-js                @synapsedx/sdk (TypeScript, zero runtime deps)
+sdks/sdk-python            synapsedx-sdk (Python, requests only)
+sdks/sdk-go                synapsedx-sdk-go (Go, stdlib only)
+tools/cli                  synapsedx CLI (zero deps, Node 18+) + install.sh
+infra/prod                 Production edge: nginx + Certbot overlay
+infra/k8s/base             Kustomize manifests for Kubernetes
+infra/postgres/init.sql    Core schema (orgs/accounts/users/roles/policies/keys/…)
+examples/quickstart        End-to-end demo script
+tests/e2e                  Smoke tests + live SDK checks
+docs                       Start at docs/README.md
+```
+
+## Documentation
+
+| Guide | Content |
+|---|---|
+| `docs/quickstart.md` | Run in 3 commands, your first flow |
+| `docs/api.md` | Complete API reference |
+| `docs/iam-model.md` | Authorization model with examples |
+| `docs/configuration.md` | Every environment variable |
+| `docs/production.md` | Production checklist (secrets, TLS, edge) |
+| `docs/console.md` | Operating the Console |
+| `docs/object-storage.md` | S3-compatible storage backends |
+| `docs/troubleshooting.md` | Common failures and fixes |
 
 ## Common commands
+
 | Command | Description |
 |---|---|
-| `make bootstrap` | copy .env + npm install |
-| `make build` / `make test` | build/test entire monorepo |
-| `make compose-up` / `make compose-down` | start/stop platform |
-| `bash tests/e2e/smoke.sh` | smoke test gateway+iam+workflow |
-| `bash tests/e2e/api-check.sh` | full API e2e (23 checks, requires jq) |
-| `make sdk-check` | live SDK check JS + Python (requires running gateway) |
+| `make bootstrap` | Copy `.env` + install all workspaces |
+| `make build` / `make test` | Build / test the entire monorepo |
+| `make compose-up` / `make compose-down` | Start / stop the platform |
+| `bash tests/e2e/api-check.sh` | Full API e2e (requires `jq`) |
+| `make sdk-check` | Live SDK check, JS + Python (needs a running gateway) |
 
-## Contributing / Security / License
-- Contributing: `CONTRIBUTING.md`. Code of conduct: `CODE_OF_CONDUCT.md`. Governance: `GOVERNANCE.md`. Roadmap: `ROADMAP.md`.
-- Security: `SECURITY.md` (do not open public issues for vulnerabilities).
-- License: Apache-2.0 (`LICENSE`), third-party: (`NOTICE`).
+## Contributing · Security · License
+
+- Contributing: [`CONTRIBUTING.md`](CONTRIBUTING.md) · Code of conduct: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) · Governance: [`GOVERNANCE.md`](GOVERNANCE.md) · Roadmap: [`ROADMAP.md`](ROADMAP.md) · Changelog: [`CHANGELOG.md`](CHANGELOG.md)
+- Security: please **do not** open public issues for vulnerabilities — see [`SECURITY.md`](SECURITY.md).
+- License: Apache-2.0 ([`LICENSE`](LICENSE)), third-party notices: [`NOTICE`](NOTICE), [`THIRD-PARTY.md`](THIRD-PARTY.md).

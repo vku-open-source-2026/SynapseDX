@@ -1,23 +1,23 @@
-## Tóm tắt
-<!-- Mô tả ngắn gọn thay đổi -->
+## Summary
+<!-- One-paragraph change description -->
 
-## Loại thay đổi
-- [ ] feat (tính năng mới)
-- [ ] fix (sửa lỗi)
-- [ ] docs (tài liệu)
+## Change type
+- [ ] feat (new feature)
+- [ ] fix (bug fix)
+- [ ] docs (documentation)
 - [ ] chore/refactor/test
 
-## Liên quan
-<!-- Closes #... (nếu có) -->
+## Related
+<!-- Closes #... (if any) -->
 
-## Kiểm thử
-<!-- Lệnh đã chạy + kết quả, ví dụ:
+## Testing
+<!-- Commands run + results, e.g.:
 - npm run build --workspace=apps/gateway
 - bash tests/e2e/smoke.sh (pass=...)
 -->
 
 ## Checklist
-- [ ] Đã chạy build + test liên quan
-- [ ] Đã cập nhật docs (`docs/`, README) nếu đổi API/hành vi
-- [ ] `docker compose config` vẫn hợp lệ (nếu đổi compose/infra)
-- [ ] Commit đã sign-off (`git commit -s`, DCO)
+- [ ] Ran the related build + tests
+- [ ] Updated docs (`docs/`, README) if API/behavior changed
+- [ ] `docker compose config` still valid (if compose/infra changed)
+- [ ] Commits signed off (`git commit -s`, DCO)

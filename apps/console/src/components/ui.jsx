@@ -91,7 +91,7 @@ export function Badge({ tone = 'gray', children }) {
   );
 }
 
-export function Empty({ text = 'Chưa có dữ liệu' }) {
+export function Empty({ text = 'No data yet' }) {
   return <p className="text-normal-text text-sm py-6 text-center">{text}</p>;
 }
 

@@ -45,7 +45,7 @@ export default function Roles() {
   };
 
   const remove = async (id) => {
-    if (!window.confirm('Xóa role này?')) return;
+    if (!window.confirm('Delete this role?')) return;
     try {
       await api.deleteRole(id, headers);
       load();
@@ -56,7 +56,7 @@ export default function Roles() {
 
   return (
     <>
-      <PageTitle title="Roles" sub="Gán cho user, đính kèm policy (như AWS IAM Role)" right={<Btn onClick={() => setOpen(true)}>+ Tạo</Btn>} />
+      <PageTitle title="Roles" sub="Assigned to users, policies attached (like AWS IAM roles)" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
@@ -67,22 +67,22 @@ export default function Roles() {
                 <td className="py-2 pr-4 font-medium text-main-text">{r.slug}</td>
                 <td className="py-2 pr-4 text-xs text-normal-text font-mono">{r.id?.slice(0, 8)}…</td>
                 <td className="py-2 text-right">
-                  <button onClick={() => remove(r.id)} className="text-xs text-red-500">Xóa</button>
+                  <button onClick={() => remove(r.id)} className="text-xs text-red-500">Delete</button>
                 </td>
               </tr>
             ))}
           </Table>
         ) : (
-          <Empty text="Chọn account để xem roles" />
+          <Empty text="Pick an account to see its roles" />
         )}
       </Card>
       {open && (
-        <Modal title="Tạo Role" onClose={() => setOpen(false)}>
+        <Modal title="New role" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-runner" />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}

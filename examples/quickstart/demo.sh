@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quickstart end-to-end: login -> org/account -> role/policy -> authorize -> workflow template
-# Idempotent: chay lai lan 2 van OK (tai su dung tai nguyen da co khi gap 409).
+# Idempotent: re-running is safe (reuses existing resources on 409).
 set -euo pipefail
 BASE="${SYNAPSEDX_BASE_URL:-http://localhost:8080}"
 ORGSLUG="${DEMO_ORG_SLUG:-acme}"
@@ -16,7 +16,7 @@ curl -s "$BASE/v1/orgs" -H"$(auth_h)" | tee /tmp/orgs.json; echo
 ORG=$(jq -r '.[0].id' /tmp/orgs.json)
 echo "ORG=$ORG USER_ID=$USER_ID"
 
-echo "== account (tao neu chua co) =="
+echo "== account (create if missing) =="
 ACC_JSON=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$(auth_h)" -d"{\"slug\":\"$ACCSLUG\",\"displayName\":\"Production\"}")
 if echo "$ACC_JSON" | grep -q '"error":"conflict"'; then
   ACC=$(curl -s "$BASE/v1/orgs/$ORG/accounts" -H"$(auth_h)" | jq -r ".[] | select(.slug==\"$ACCSLUG\") | .id")
@@ -39,5 +39,5 @@ curl -s -XPOST "$BASE/v1/authorize" -H'Content-Type: application/json' -H"$(auth
 echo "== api key =="
 curl -s -XPOST "$BASE/v1/accounts/$ACC/keys" -H'Content-Type: application/json' -H"$(auth_h)" -d'{"name":"demo","scopes":["*"]}' | tee /tmp/key.json; echo
 KEY=$(jq -r .apiKey /tmp/key.json)
-echo "== templates (bằng X-API-Key, không cần Bearer) =="
+echo "== templates (via X-API-Key, no Bearer needed) =="
 curl -s "$BASE/v1/templates" -H"X-API-Key: $KEY" | jq -r '.[].name'

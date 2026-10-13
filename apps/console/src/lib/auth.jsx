@@ -56,6 +56,15 @@ export function AuthProvider({ children }) {
     return r;
   }, []);
 
+  // SSO: exchange an IdP authorization `code` (+ signed `state`) for platform
+  // tokens. The code is single-use and short-lived — safe to POST from the
+  // callback page, and never lands in history (unlike tokens in URLs).
+  const loginWithOidc = useCallback(async (code, state) => {
+    const r = await api.oidcCallback(code, state);
+    setAuth({ token: r.accessToken, refreshToken: r.refreshToken, user: r.user, email: r.user?.email });
+    return r;
+  }, []);
+
   const loginWithKey = useCallback((apiKey) => setAuth({ apiKey }), []);
   // Server-side logout: revoke the refresh token so it can't be reused after
   // the browser session is gone (best-effort — local state clears regardless).
@@ -66,7 +75,7 @@ export function AuthProvider({ children }) {
   }, [auth?.refreshToken]);
 
   return (
-    <AuthCtx.Provider value={{ auth, headers, login, loginWithKey, logout, setAuth }}>
+    <AuthCtx.Provider value={{ auth, headers, login, loginWithKey, loginWithOidc, logout, setAuth }}>
       {children}
     </AuthCtx.Provider>
   );

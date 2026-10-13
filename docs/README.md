@@ -1,16 +1,20 @@
 # SynapseDX docs
 
-| Tài liệu | Nội dung |
+| Guide | Content |
 |---|---|
-| [quickstart.md](quickstart.md) | Chạy 3 lệnh, luồng đầu tiên, Authentik/n8n/S3 setup |
-| [architecture.md](architecture.md) | Kiến trúc Tier-1 PaaS + quyết định kỹ thuật |
-| [iam-model.md](iam-model.md) | Mô hình Organization/Account/Role/Policy + token |
-| [api.md](api.md) | API reference đầy đủ qua gateway |
-| [configuration.md](configuration.md) | Bảng env toàn stack |
-| [object-storage.md](object-storage.md) | S3 backend (S3Mock mặc định, MinIO/S3 prod) |
-| [troubleshooting.md](troubleshooting.md) | Port bận, curl Windows, 404 gateway, backup/restore |
-| [console.md](console.md) | Management UI (chạy, cấu hình, dev frontend) |
-| [production.md](production.md) | Checklist production (secret, TLS, backup, pin image) |
+| [quickstart.md](quickstart.md) | 3 commands to run, first flow, Authentik/n8n/S3 setup |
+| [architecture.md](architecture.md) | Tier-1 PaaS architecture + technical decisions |
+| [iam-model.md](iam-model.md) | Organization/Account/Role/Policy model + tokens + OIDC |
+| [api.md](api.md) | Full API reference via the gateway |
+| [configuration.md](configuration.md) | Environment table for the whole stack |
+| [object-storage.md](object-storage.md) | S3 backends (default S3Mock, MinIO/S3 in prod) |
+| [troubleshooting.md](troubleshooting.md) | Busy ports, Windows curl, gateway 404s, backup/restore, OIDC errors |
+| [console.md](console.md) | Management UI (run, configure, SSO, frontend dev) |
+| [production.md](production.md) | Production checklist (secrets, TLS, backups, image pinning) |
+| [sdk-js.md](sdk-js.md) | JavaScript/TypeScript SDK — install, auth, full API reference |
+| [sdk-python.md](sdk-python.md) | Python SDK — install, auth, full API reference |
+| [sdk-go.md](sdk-go.md) | Go SDK — install, auth, full API reference |
+| [cli.md](cli.md) | CLI — install, configuration, all commands |
 
-Bắt đầu từ [../README.md](../README.md) → [quickstart.md](quickstart.md).
-Đóng góp: [../CONTRIBUTING.md](../CONTRIBUTING.md). Vận hành K8s: [../infra/k8s/README.md](../infra/k8s/README.md).
+Start at [../README.md](../README.md) → [quickstart.md](quickstart.md).
+Contributing: [../CONTRIBUTING.md](../CONTRIBUTING.md). K8s operations: [../infra/k8s/README.md](../infra/k8s/README.md).

@@ -1,16 +1,16 @@
-# Architecture — synapsedx Tier-1 PaaS
+# Architecture — SynapseDX Tier-1 PaaS
 
 ```
                     ┌─────────────┐   OIDC    ┌──────────────┐
-                    │  Authentik  │◄─────────►│   Keycloak   │  (chọn 1, ngoài cụm)
-                    │  (mặc định) │   (alt)   │  (tương thích)│
+                    │  Authentik  │◄─────────►│   Keycloak   │  (pick one, outside the cluster)
+                    │  (default)  │   (alt)   │  (compatible)│
                     └──────┬──────┘           └──────────────┘
-                           │ sub/email
+                           │ sub/email (verified ID token)
                     ┌──────▼──────────────────────────────────┐
                     │ IAM service (:4001)                     │
                     │ Org→Account→User→Role→Policy (AWS-style)│
                     │ token: JWT + refresh + API key + SA     │
-                    │ Postgres (bảng orgs/accounts/...)       │
+                    │ Postgres (orgs/accounts/... tables)     │
                     └──────┬──────────────────────┬───────────┘
                            │ verify                │ authorize()
               ┌────────────▼────────┐    ┌─────────▼───────────┐
@@ -21,19 +21,35 @@
                            │                     │ REST
                     ┌───────▼───────┐      ┌──────▼──────┐
                     │ Postgres/Redis│      │  N8N (:5678) │
-                    │ S3Mock (S3)   │      │  engine ngoài│
-                    └───────────────┘      └─────────────┘
+                    │ S3Mock (S3)   │      │ external    │
+                    └───────────────┘      │ engine      │
+                                           └─────────────┘
 ```
 
-## Tầng 1 = PaaS
-- **API Gateway**: điểm vào duy nhất, xác thực (JWT/API key), strip + ghi lại header `x-synapsedx-*` từ principal đã verify (chống spoof), rate-limit (Redis khi có `REDIS_URL`, fail-open), định tuyến theo `routes.yaml`, metrics Prometheus.
-- **Access Management (IAM)**: mô hình AWS — Organization (như AWS Organization), Account (như AWS Account), User/Role/Policy JSON (như IAM policy), `POST /v1/authorize` đánh giá Allow/Deny. Authentik/Keycloak chỉ làm IdP federated qua OIDC; IAM giữ shadow user + toàn bộ phân quyền.
-- **Token**: JWT ngắn hạn (Bearer), refresh token xoay vòng (opaque, hash trong DB), API key dài hạn kiểu `synapsedx_...` (hash + prefix), service account cho workload.
-- **Cụm dữ liệu lõi**: Postgres 16 (source of truth), Redis (cache/rate-limit/session), S3Mock (object storage S3-compatible, bucket `synapsedx-core`; production đổi sang MinIO/S3 thật qua `S3_ENDPOINT`).
-- **Workflow**: n8n là engine ngoài (SUL, không fork), `workflow-service` là control-plane: proxy API, template versioned, execute.
+## Tier 1 = PaaS
 
-## Quyết định kỹ thuật
-- Node 20 + TypeScript cho cả 3 service để dễ đóng góp; Postgres driver `pg`, không ORM để SQL minh bạch.
-- Gateway dùng `http-proxy-middleware`, xác thực nhẹ tại edge + verify sâu tại IAM (`/v1/auth/verify`).
-- Mọi secret qua env; không hardcode. Compose healthcheck đầy đủ.
-- SDK mỏng, fetch/requests/net-http, không phụ thuộc nặng.
+- **API Gateway**: the single entry point — authentication (JWT/API key), stripping +
+  re-stamping `x-synapsedx-*` headers from the verified principal (anti-spoofing),
+  rate limiting (Redis when `REDIS_URL` is set, fail-open), routing via `routes.yaml`,
+  Prometheus metrics.
+- **Access Management (IAM)**: the AWS model — Organization (like AWS Organizations),
+  Account (like AWS Accounts), User/Role/JSON Policy (like IAM policies),
+  `POST /v1/authorize` evaluates Allow/Deny. Authentik/Keycloak are only federated
+  IdPs over OIDC (real Authorization Code flow with JWKS-verified ID tokens); IAM keeps
+  the shadow user plus all authorization data.
+- **Tokens**: short-lived JWT (Bearer), rotating opaque refresh tokens, long-lived
+  `synapsedx_...` API keys (hash + prefix), service accounts for workloads.
+- **Core data cluster**: Postgres 16 (source of truth), Redis (cache/rate-limit/session),
+  S3Mock (S3-compatible object storage, bucket `synapsedx-core`; swap to MinIO/real S3
+  in production via `S3_ENDPOINT`).
+- **Workflow**: n8n is an external engine (SUL, never forked); `workflow-service` is the
+  control plane: API proxy, versioned templates, execute.
+
+## Technical decisions
+
+- Node 20 + TypeScript for all 3 services for easy contributions; `pg` driver, no ORM,
+  so the SQL stays transparent.
+- Gateway uses `http-proxy-middleware`: light auth at the edge + deep verification at
+  IAM (`/v1/auth/verify`).
+- All secrets via env; nothing hardcoded. Full compose healthchecks.
+- Thin SDKs: fetch/requests/net-http, no heavy dependencies.

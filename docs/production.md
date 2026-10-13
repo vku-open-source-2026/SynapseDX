@@ -1,47 +1,54 @@
 # Production checklist (Tier-1 PaaS)
 
-Dùng khi đưa synapsedx ra khỏi laptop. Mọi mục đều có sẵn cơ chế — chỉ cần bật.
+Use when taking SynapseDX off your laptop. Every item already has a mechanism — just switch it on.
 
-## 1. Secret & auth
-- [ ] Đổi **mọi** `*_change_me_*` trong `.env` (`IAM_JWT_SECRET` ≥ 32 ký tự ngẫu nhiên,
-      gateway + IAM trùng nhau; production boot fail nếu còn default).
-- [ ] `SYNAPSEDX_INTERNAL_SECRET` giống nhau ở gateway + iam + workflow, rồi gỡ
-      `ports:` của IAM/workflow khỏi host/internet (chỉ gateway public).
-- [ ] `IAM_ALLOW_DEV_LOGIN=false` (chỉ còn OIDC).
-- [ ] `IAM_ALLOW_OIDC_DEMO_CALLBACK=false` (demo callback mạo danh được email bất kỳ).
-- [ ] `IAM_API_KEY_PEPPER` ngẫu nhiên (HMAC cho hash key lúc nghỉ).
-- [ ] `GATEWAY_VERIFY_APIKEY=true` nếu client dùng API key (verify tập trung, fail-closed).
-- [ ] Authentik/Keycloak chạy sau TLS; `OIDC_ISSUER` dùng URL https nội bộ đúng.
-- [ ] Secret K8s qua SealedSecrets/External Secrets, **không** commit file đã điền
-      (xem `infra/k8s/base/secrets.example.yaml`).
+## 1. Secrets & auth
 
-## 2. Mạng & TLS
-- [ ] Gateway là điểm vào duy nhất (Ingress + TLS); IAM/workflow/n8n/postgres/redis
-      không expose ra internet (ClusterIP / compose network nội bộ).
-- [ ] Siết CORS của gateway theo origin frontend thật (mặc định mở hết cho MVP).
-- [ ] Rate limit ở tầng ngoài (Ingress NGINX `limit_req`, Cloudflare/AWS WAF):
-  gateway đã gỡ limiter nội tại — bắt buộc có rate-limit ngoài, đặc biệt
-  `/v1/auth/*` (brute-force login/refresh). Không expose IAM/workflow trực tiếp.
-- [ ] `PROXY_TIMEOUT_MS` theo SLA upstream (mặc định 30s).
-- [ ] `HSTS_ENABLED=true` khi đã có TLS; `CORS_ORIGIN` theo origin frontend thật.
+- [ ] Replace **every** `*_change_me_*` in `.env` (`IAM_JWT_SECRET` ≥ 32 random chars,
+      identical on gateway + IAM; production boot fails on defaults).
+- [ ] Same `SYNAPSEDX_INTERNAL_SECRET` on gateway + iam + workflow, then remove the
+      `ports:` of IAM/workflow from host/internet (gateway only is public).
+- [ ] `IAM_ALLOW_DEV_LOGIN=false` (SSO + API keys only).
+- [ ] `IAM_ALLOW_OIDC_DEMO_CALLBACK=false` (the demo callback accepts any caller-supplied email).
+- [ ] Random `IAM_API_KEY_PEPPER` (HMAC for at-rest key hashes).
+- [ ] `GATEWAY_VERIFY_APIKEY=true` when clients use API keys (centralized verification, fail-closed).
+- [ ] Authentik/Keycloak behind TLS; `OIDC_ISSUER` uses the correct internal https URL.
+- [ ] Point `OIDC_REDIRECT_URI` at the Console `/oidc/callback` page so the real
+      Authorization Code flow completes in the browser.
+- [ ] K8s secrets via SealedSecrets/External Secrets — **never** commit filled-in files
+      (see `infra/k8s/base/secrets.example.yaml`).
 
-## 3. Dữ liệu
-- [ ] Postgres: volume bền + backup định kỳ (`pg_dump`, xem `docs/troubleshooting.md`).
-- [ ] Object storage: đổi S3Mock → MinIO/S3 thật (`docs/object-storage.md`).
-- [ ] Redis AOF đã bật trong compose; K8s dùng chart redis có persistence.
-- [ ] DB đã tồn tại từ trước: `init.sql` chỉ chạy lần đầu — apply thủ công các
-  `CREATE INDEX IF NOT EXISTS idx_*` mới trong `infra/postgres/init.sql`
-  (idempotent, chạy lại an toàn) để list/DELETE CASCADE không seq-scan.
+## 2. Network & TLS
 
-## 4. Vận hành
-- [ ] `restart: unless-stopped` đã có sẵn cho mọi service dài hạn trong compose;
-  K8s có liveness/readiness (xem `infra/k8s/base/all.yaml`). Cảnh báo khi `/ready` → 503.
-- [ ] Pin image digest cho release (`synapsedx/*:0.1.0` → digest), không dùng `latest` cho engine ngoài.
-- [ ] Log tập trung (json-file driver mặc định; chuyển Loki/ELK khi cần) + giữ `x-request-id`.
-- [ ] Retention `audit_log` Postgres (cron `DELETE ... WHERE created_at < now() - interval`)
-      khi traffic authorize lớn.
-- [ ] Định kỳ `npm audit`, theo dõi advisory đã ghi nhận trong `SECURITY.md`.
+- [ ] Gateway is the single entry point (Ingress + TLS); IAM/workflow/n8n/postgres/redis
+      are not internet-exposed (ClusterIP / internal compose network).
+- [ ] Lock down the gateway CORS to the real frontend origins (MVP default is wide open).
+- [ ] Rate limiting at the outer layer (Ingress NGINX `limit_req`, Cloudflare/AWS WAF):
+      the gateway's built-in limiter was removed — outer rate limiting is mandatory, especially
+      `/v1/auth/*` (brute-force login/refresh). Never expose IAM/workflow directly.
+- [ ] `PROXY_TIMEOUT_MS` per upstream SLA (default 30s).
+- [ ] `HSTS_ENABLED=true` once TLS exists; `CORS_ORIGIN` set to the real frontend origins.
 
-## 5. Nâng cấp
-- [ ] Đọc `CHANGELOG.md` + `ROADMAP.md` trước khi lên tag mới; chạy
-      `tests/e2e/api-check.sh` sau mỗi lần nâng cấp.
+## 3. Data
+
+- [ ] Postgres: durable volume + periodic backups (`pg_dump`, see `docs/troubleshooting.md`).
+- [ ] Object storage: S3Mock → MinIO/real S3 (`docs/object-storage.md`).
+- [ ] Redis AOF already on in compose; on K8s use a redis chart with persistence.
+- [ ] Pre-existing DB: `init.sql` only runs on first init — manually apply new
+      `CREATE INDEX IF NOT EXISTS idx_*` from `infra/postgres/init.sql`
+      (idempotent, safe to re-run) so list/DELETE CASCADE paths don't seq-scan.
+
+## 4. Operations
+
+- [ ] `restart: unless-stopped` is already set for every long-lived compose service;
+      K8s has liveness/readiness (see `infra/k8s/base/all.yaml`). Alert when `/ready` → 503.
+- [ ] Pin image digests for releases (`synapsedx/*:0.1.0` → digest), never `latest` for external engines.
+- [ ] Centralized logs (default json-file driver; move to Loki/ELK when needed) + keep `x-request-id`.
+- [ ] `audit_log` Postgres retention (cron `DELETE ... WHERE created_at < now() - interval`)
+      under heavy authorize traffic.
+- [ ] Periodic `npm audit`; track advisories recorded in `SECURITY.md`.
+
+## 5. Upgrades
+
+- [ ] Read `CHANGELOG.md` + `ROADMAP.md` before moving to a new tag; run
+      `tests/e2e/api-check.sh` after every upgrade.

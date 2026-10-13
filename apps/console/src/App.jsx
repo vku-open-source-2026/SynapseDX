@@ -9,6 +9,7 @@ import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
 import PublicHeader from './components/PublicHeader.jsx';
 import Login from './pages/Login.jsx';
+import OidcCallback from './pages/OidcCallback.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Orgs from './pages/Orgs.jsx';
 import Accounts from './pages/Accounts.jsx';
@@ -40,7 +41,7 @@ function Guard({ children }) {
   return children;
 }
 
-// Trang ngoài: navigate chính bằng header phía trên.
+// Public pages: primary navigation via the header above.
 function PublicLayout({ children }) {
   return (
     <div className="min-h-screen">
@@ -50,7 +51,7 @@ function PublicLayout({ children }) {
   );
 }
 
-// Trang trong console (sau login): navigate chính bằng sidebar.
+// In-console pages (after sign-in): primary navigation via the sidebar.
 function ConsoleLayout({ children }) {
   return (
     <div className="min-h-screen">
@@ -67,6 +68,7 @@ export default function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/welcome" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/oidc/callback" element={<OidcCallback />} />
       <Route path="/api-docs" element={<PublicLayout><ApiDocs /></PublicLayout>} />
       <Route path="/docs" element={<PublicLayout><Docs /></PublicLayout>} />
       <Route path="/dashboard" element={<Guard><ConsoleLayout><Dashboard /></ConsoleLayout></Guard>} />

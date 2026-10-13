@@ -204,9 +204,9 @@ export function createApp(): express.Express {
 
 export function listTemplates() {
   return [
-    { name: 'webhook-to-log', description: 'Webhook nhận event từ gateway -> ghi log -> trả lời 200' },
-    { name: 'cron-etl', description: 'Cron mỗi đêm -> fetch IAM health -> transform -> log' },
-    { name: 'iam-webhook', description: 'Nhận sự kiện IAM (user.created) -> gọi lại synapsedx API' },
+    { name: 'webhook-to-log', description: 'Webhook receives a gateway event -> writes a log -> replies 200' },
+    { name: 'cron-etl', description: 'Nightly cron -> fetches IAM health -> transforms -> logs' },
+    { name: 'iam-webhook', description: 'Receives IAM events (user.created) -> calls back into the synapsedx API' },
   ];
 }
 

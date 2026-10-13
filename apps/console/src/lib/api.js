@@ -102,6 +102,9 @@ const del = (path, auth) => req(path, { method: 'DELETE', ...auth });
 
 export const api = {
   login: (email, orgSlug) => post('/v1/auth/login', { email, orgSlug }),
+  oidcStart: (orgSlug) => get(`/v1/auth/oidc/start${orgSlug ? `?org=${encodeURIComponent(orgSlug)}` : ''}`),
+  oidcCallback: (code, state) => post('/v1/auth/oidc/callback', { code, state }),
+  oidcConfig: () => get('/v1/auth/oidc/config'),
   refresh: (refreshToken) => post('/v1/auth/refresh', { refreshToken }),
   logoutServer: (refreshToken) =>
     post('/v1/auth/logout', { refreshToken }).catch(() => ({ ok: false })),

@@ -24,12 +24,12 @@ export default function Users() {
 
   return (
     <>
-      <PageTitle title="Users" sub="Shadow user federated từ Authentik/Keycloak (email + OIDC sub)" />
+      <PageTitle title="Users" sub="Shadow users federated from Authentik/Keycloak (email + OIDC sub)" />
       <Err e={err} />
       <ScopeBar scope={scope} showAccount={false} />
       <Card>
         {rows.length ? (
-          <Table head={['Email', 'Tên', 'OIDC sub', 'Vai trò']}>
+          <Table head={['Email', 'Name', 'OIDC sub', 'Roles']}>
             {rows.map((u) => (
               <Row key={u.id} u={u} headers={headers} />
             ))}

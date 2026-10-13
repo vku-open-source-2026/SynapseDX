@@ -22,6 +22,11 @@ function jwtSecret(): string {
 
 const JWT_SECRET = jwtSecret();
 
+/** Shared HMAC/JWT secret (also signs OIDC `state`; see oidc.ts). */
+export function getJwtSecret(): string {
+  return JWT_SECRET;
+}
+
 function ttl(name: string, fallback: number, min: number, max: number): number {
   const raw = Number(process.env[name] ?? fallback);
   if (!Number.isFinite(raw)) {

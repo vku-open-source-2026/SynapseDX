@@ -48,12 +48,12 @@ export default function Accounts() {
 
   return (
     <>
-      <PageTitle title="Accounts" sub="Môi trường trong org: prod, staging… (như AWS Account)" right={<Btn onClick={() => setOpen(true)}>+ Tạo</Btn>} />
+      <PageTitle title="Accounts" sub="Environments in an org: prod, staging… (like AWS Accounts)" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} showAccount={false} />
       <Card>
         {rows.length ? (
-          <Table head={['Slug', 'Tên hiển thị', 'ID']}>
+          <Table head={['Slug', 'Display name', 'ID']}>
             {rows.map((a) => (
               <tr key={a.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4 font-medium text-main-text">{a.slug}</td>
@@ -63,19 +63,19 @@ export default function Accounts() {
             ))}
           </Table>
         ) : (
-          <Empty text="Chọn organization để xem accounts" />
+          <Empty text="Pick an organization to see its accounts" />
         )}
       </Card>
       {open && (
-        <Modal title="Tạo Account" onClose={() => setOpen(false)}>
+        <Modal title="New account" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
-            <Field label="Slug (duy nhất trong org)">
+            <Field label="Slug (unique in the org)">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="prod" />
             </Field>
-            <Field label="Tên hiển thị">
+            <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production" />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}

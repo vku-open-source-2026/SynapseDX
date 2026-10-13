@@ -30,7 +30,7 @@ export default function Topbar() {
         <span className="text-xs text-normal-text max-w-56 truncate">{auth?.email || auth?.apiKey?.slice(0, 16) || ''}</span>
         <button
           onClick={logout}
-          title="Đăng xuất"
+          title="Sign out"
           className="w-9 h-9 rounded-full bg-white shadow-md text-normal-text hover:text-red-500"
         >
           <FontAwesomeIcon icon={faRightFromBracket} />
@@ -50,7 +50,7 @@ export default function Topbar() {
               ),
             )}
             <button onClick={() => { logout(); setOpen(false); }} className="block py-2 text-red-500">
-              Đăng xuất
+              Sign out
             </button>
           </div>
         </div>

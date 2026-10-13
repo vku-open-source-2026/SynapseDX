@@ -10,7 +10,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { appDashboardUrl, appLoginUrl, isCanonicalAppHost } from '../lib/site.js';
 
 const LINKS = [
-  { to: '/', label: 'Trang chủ' },
+  { to: '/', label: 'Home' },
   { to: '/api-docs', label: 'API Docs' },
   { to: '/docs', label: 'Docs' },
 ];
@@ -21,8 +21,8 @@ export default function PublicHeader() {
   // Multi-domain: web chinh (@) redirect Dang nhap/Console ve canonical app (cloud.*) theo env.
   const offSite = !isCanonicalAppHost();
   const authHref = auth ? appDashboardUrl() : appLoginUrl();
-  const authLabel = auth ? 'Console' : 'Đăng nhập';
-  const authMobileLabel = auth ? 'Vào Console' : 'Đăng nhập';
+  const authLabel = auth ? 'Console' : 'Sign in';
+  const authMobileLabel = auth ? 'Open Console' : 'Sign in';
   return (
     <header className="fixed z-50 top-0 left-0 w-full bg-white/70 backdrop-blur-md shadow-sm">
       <div className="flex items-center justify-between px-4 mx-auto max-w-6xl h-16">

@@ -33,33 +33,33 @@ export default function Keys() {
 
   return (
     <>
-      <PageTitle title="API Keys" sub="Key dài hạn synapsedx_* — chỉ hiện 1 lần khi tạo" right={<Btn onClick={() => setOpen(true)}>+ Tạo key</Btn>} />
+      <PageTitle title="API Keys" sub="Long-lived synapsedx_* keys — shown only once at creation" right={<Btn onClick={() => setOpen(true)}>+ New key</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
         <p className="text-sm text-normal-text">
-          Key thuộc account <b className="text-main-text">{scope.accounts.find((a) => a.id === scope.accountId)?.slug || '—'}</b>.
-          Thu hồi key cũ bằng <code className="text-xs">DELETE /v1/keys/:id</code> (lấy id từ response lúc tạo).
+          Keys belong to account <b className="text-main-text">{scope.accounts.find((a) => a.id === scope.accountId)?.slug || '—'}</b>.
+          Revoke old keys with <code className="text-xs">DELETE /v1/keys/:id</code> (take the id from the creation response).
         </p>
-        {!scope.accountId && <Empty text="Chọn account trước" />}
+        {!scope.accountId && <Empty text="Pick an account first" />}
       </Card>
       {created && (
-        <Modal title="API key mới (lưu ngay!)" onClose={() => setCreated(null)}>
+        <Modal title="New API key (save it now!)" onClose={() => setCreated(null)}>
           <Code data={{ id: created.id, prefix: created.prefix, apiKey: created.apiKey }} />
         </Modal>
       )}
       {open && (
-        <Modal title="Tạo API key" onClose={() => setOpen(false)}>
+        <Modal title="New API key" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
-            <Field label="Tên key">
+            <Field label="Key name">
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}
       <p className="mt-3 text-xs text-normal-text">
-        <Badge>Tip</Badge> Bật <code>GATEWAY_VERIFY_APIKEY=true</code> để gateway verify key tập trung.
+        <Badge>Tip</Badge> Enable <code>GATEWAY_VERIFY_APIKEY=true</code> for centralized gateway key verification.
       </p>
     </>
   );

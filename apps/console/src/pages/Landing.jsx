@@ -17,12 +17,12 @@ import PublicHeader from '../components/PublicHeader.jsx';
 import { appDashboardUrl, isCanonicalAppHost } from '../lib/site.js';
 
 const FEATURES = [
-  { icon: faShieldHalved, title: 'IAM kiểu AWS', text: 'Organization → Account → User → Role → Policy JSON (Allow/Deny, Condition), authorize + simulator + audit log.' },
-  { icon: faKey, title: 'Token đa dạng', text: 'JWT ngắn hạn, refresh xoay vòng nguyên tử, API key, service account, OIDC Authentik/Keycloak.' },
-  { icon: faBolt, title: 'API Gateway', text: 'Điểm vào duy nhất: auth, rate-limit Redis, principal propagation, tracing, /ready aggregate.' },
-  { icon: faLayerGroup, title: 'Cụm dữ liệu lõi', text: 'Postgres + Redis + S3-compatible, schema versioned, seed idempotent, backup/restore.' },
-  { icon: faRobot, title: 'Workflow n8n', text: 'Control-plane trên engine ngoài: templates versioned, activate/execute, trigger thật.' },
-  { icon: faWandMagicSparkles, title: 'SDK + CLI + UI', text: 'JS/TS, Python, Go, CLI zero-dep và Console quản trị — cùng một API.' },
+  { icon: faShieldHalved, title: 'AWS-style IAM', text: 'Organization → Account → User → Role → JSON Policy (Allow/Deny, Condition), authorize + simulator + audit log.' },
+  { icon: faKey, title: 'Flexible tokens', text: 'Short-lived JWT, atomic rotating refresh, API keys, service accounts, OIDC via Authentik/Keycloak.' },
+  { icon: faBolt, title: 'API Gateway', text: 'Single entry point: auth, edge rate-limiting, principal propagation, tracing, aggregate /ready.' },
+  { icon: faLayerGroup, title: 'Core data cluster', text: 'Postgres + Redis + S3-compatible storage, versioned schema, idempotent seed, backup/restore.' },
+  { icon: faRobot, title: 'n8n workflows', text: 'Control plane over an external engine: versioned templates, activate/execute, real triggers.' },
+  { icon: faWandMagicSparkles, title: 'SDKs + CLI + UI', text: 'JS/TS, Python, Go, a zero-dependency CLI and an admin Console — one API.' },
 ];
 
 export default function Landing() {
@@ -35,30 +35,42 @@ export default function Landing() {
 
       <main className="mx-auto max-w-6xl px-4 pt-32 pb-16 text-center">
         <h1 className="text-4xl md:text-5xl font-bold text-main-text leading-tight">
-          Nền tảng PaaS <span className="bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">mở</span>
+          The <span className="bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">open</span>
           <br />
-          cho hạ tầng của bạn
+          PaaS for your infrastructure
         </h1>
         <p className="mt-4 text-normal-text max-w-2xl mx-auto">
-          synapsedx là Tier-1 PaaS open source (Apache-2.0): API gateway, IAM phong cách AWS,
-          cụm dữ liệu lõi và workflow n8n — quản trị qua Console, SDK đa ngôn ngữ và CLI.
+          SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): API gateway, AWS-style IAM,
+          core data cluster and n8n workflows — managed via Console, multi-language SDKs and CLI.
         </p>
         <div className="mt-6 flex justify-center gap-3">
           {offSite ? (
             <a href={openConsoleHref} className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
-              Mở Console
+              Open Console
             </a>
           ) : (
             <Link to="/login" className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
-              Mở Console
+              Open Console
             </Link>
           )}
           <Link to="/api-docs" className="px-6 py-2.5 rounded-2xl bg-white font-medium text-main-text shadow-md">
-            Khám phá API
+            Explore the API
           </Link>
         </div>
         <div className="mt-6 inline-block bg-white rounded-2xl shadow-sm px-4 py-2 text-xs font-mono text-main-text">
           docker compose up -d --build
+        </div>
+
+        <div className="mt-8 mx-auto max-w-2xl bg-white rounded-3xl shadow-md p-6 text-left">
+          <h2 className="font-semibold text-main-text">Install the CLI</h2>
+          <p className="text-sm text-normal-text mt-1 mb-3">
+            One line, no clone needed — or run it instantly with npx (Node 18+).
+          </p>
+          <pre className="bg-background rounded-2xl p-4 text-xs font-mono overflow-x-auto text-main-text">
+{`curl -fsSL https://synapsedx.sbs/install.sh | sh
+# ..or without installing anything:
+npx -y @synapsedx/cli@latest --help`}
+          </pre>
         </div>
 
         <div className="mt-14 grid md:grid-cols-3 gap-4 text-left">
@@ -74,11 +86,11 @@ export default function Landing() {
         </div>
 
         <div className="mt-14 bg-white rounded-3xl shadow-md p-8 text-left">
-          <h2 className="text-2xl font-semibold text-main-text">Chạy trong 3 lệnh</h2>
+          <h2 className="text-2xl font-semibold text-main-text">Self-host in 3 commands</h2>
           <pre className="mt-3 bg-background rounded-2xl p-4 text-xs font-mono overflow-x-auto text-main-text">
-{`cp .env.example .env   # đổi secret change_me_*
+{`cp .env.example .env   # then replace every *_change_me_* secret
 docker compose up -d --build
-open http://localhost:3000   # login demo@acme.local / org acme`}
+open http://localhost:3000   # sign in: demo@acme.local / org acme`}
           </pre>
         </div>
       </main>

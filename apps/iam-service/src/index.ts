@@ -17,6 +17,7 @@ import {
 import { evaluatePolicies, validatePolicyDocument } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess } from './tokens';
 import { secretsEqual } from './db';
+import { signState, exchangeCode, oidcSettings, OidcError } from './oidc';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4001);
@@ -124,47 +125,63 @@ export function createApp(): express.Express {
     console.warn('[iam][security] IAM_ALLOW_OIDC_DEMO_CALLBACK=true — OIDC callback trusts caller-supplied email (impersonation possible). Set false in production.');
   }
 
-  // ---------- OIDC discovery (Authentik hoặc Keycloak) ----------
+  // ---------- OIDC discovery (Authentik, Keycloak, or any OIDC IdP) ----------
   app.get('/v1/auth/oidc/config', (_req, res) => {
+    const cfg = oidcSettings();
     res.json({
-      issuer: process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/synapsedx/',
-      clientId: process.env.OIDC_CLIENT_ID || 'synapsedx-platform',
-      redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:4001/v1/auth/oidc/callback',
-      provider: process.env.OIDC_PROVIDER || 'authentik',
-      note: 'Cấu hình Authentik/Keycloak làm upstream IdP. IAM giữ shadow user + phân quyền org/account/role/policy.',
+      issuer: cfg.issuer,
+      clientId: cfg.clientId,
+      redirectUri: cfg.redirectUri,
+      provider: cfg.provider,
+      codeExchange: true,
+      demoCallback: (process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true',
+      note: 'Federated OIDC upstream. IAM keeps the shadow user + org/account/role/policy authorization.',
     });
   });
 
   app.get('/v1/auth/oidc/start', (req, res) => {
-    const issuer = process.env.OIDC_ISSUER || '';
-    const clientId = process.env.OIDC_CLIENT_ID || '';
-    const redirectUri = (process.env.OIDC_REDIRECT_URI || '') as string;
+    const cfg = oidcSettings();
     const org = typeof req.query.org === 'string' && /^[a-z0-9-]{1,64}$/.test(req.query.org) ? req.query.org : 'acme';
-    const state = Buffer.from(JSON.stringify({ org, t: Date.now() })).toString('base64url');
-    const url = `${issuer.replace(/\/$/, '')}/authorize?client_id=${encodeURIComponent(clientId)}&response_type=code&scope=${encodeURIComponent('openid email profile')}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
+    // HMAC-signed state binds the org + a 10-minute expiry (verified in /callback).
+    const state = signState(org);
+    const url = `${cfg.issuer.replace(/\/*$/, '')}/authorize?client_id=${encodeURIComponent(cfg.clientId)}&response_type=code&scope=${encodeURIComponent('openid email profile')}&redirect_uri=${encodeURIComponent(cfg.redirectUri)}&state=${state}`;
     res.json({ authorizeUrl: url, state });
   });
 
-  // Callback: trong bản MVP nhận `email` (do IdP trả về sau khi exchange code — ở production dùng openid-client).
-  // Hỗ trợ cả code exchange thật nếu OIDC_ISSUER reachable, fallback demo.
-  // CẢNH BÁO BẢO MẬT: chế độ demo tin `email` do caller gửi — cho phép mạo danh bất kỳ
-  // user nào. Mặc định bật cho dev (IAM_ALLOW_OIDC_DEMO_CALLBACK=true); production BẮT BUỘC
-  // set IAM_ALLOW_OIDC_DEMO_CALLBACK=false — khi đó endpoint chỉ chấp nhận `code` (để IdP
-  // exchange thật) và từ chối email thô.
+  // Callback: two modes.
+  // 1. Real Authorization Code flow (`code` + signed `state`): exchanged at the
+  //    IdP token endpoint and the ID token is signature-verified against the
+  //    IdP JWKS. Works in every environment, including production.
+  // 2. Demo email callback (dev only): trusts the caller-supplied email, hence
+  //    impersonation-prone. Disable in production with
+  //    IAM_ALLOW_OIDC_DEMO_CALLBACK=false.
   app.post('/v1/auth/oidc/callback', async (req, res) => {
     try {
       const demoAllowed = (process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true';
-      const { email, sub, displayName, orgSlug, code } = req.body as any;
-      if (!demoAllowed) {
-        if (!code) {
-          return res.status(501).json({
-            error: 'oidc_code_required',
-            message: 'Demo email callback is disabled (IAM_ALLOW_OIDC_DEMO_CALLBACK=false). Provide an authorization `code` for real IdP exchange (requires openid-client flow).',
-          });
+      const { email, sub, displayName, orgSlug, code, state } = req.body as any;
+      if (typeof code === 'string' && code) {
+        if (typeof state !== 'string' || !state) {
+          return res.status(400).json({ error: 'oidc_state_required', message: 'Signed `state` from /v1/auth/oidc/start is required with `code`.' });
         }
+        try {
+          const id = await exchangeCode(code, state);
+          const org = (await getOrgBySlug(id.org)) || (await createOrganization(id.org, id.org));
+          const user = await upsertUser(org.id, id.email, id.displayName, id.sub);
+          const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
+          const rt = newRefreshToken();
+          await storeRefresh(user.id, rt.hash, refreshExpiry());
+          return res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
+        } catch (e: any) {
+          if (e instanceof OidcError) {
+            return res.status(e.status).json({ error: e.code, message: e.message });
+          }
+          throw e;
+        }
+      }
+      if (!demoAllowed) {
         return res.status(501).json({
-          error: 'oidc_not_configured',
-          message: 'Real code exchange needs an OIDC client (openid-client) — not wired in this build. Enable the demo callback only in dev.',
+          error: 'oidc_code_required',
+          message: 'Demo email callback is disabled (IAM_ALLOW_OIDC_DEMO_CALLBACK=false). Provide an authorization `code` (+ signed `state`) for real IdP exchange.',
         });
       }
       const schema = z.object({

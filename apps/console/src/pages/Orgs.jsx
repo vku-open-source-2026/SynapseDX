@@ -33,11 +33,11 @@ export default function Orgs() {
 
   return (
     <>
-      <PageTitle title="Organizations" sub="Tenant gốc — như AWS Organization" right={<Btn onClick={() => setOpen(true)}>+ Tạo</Btn>} />
+      <PageTitle title="Organizations" sub="Root tenants — like AWS Organizations" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <Card>
         {orgs.length ? (
-          <Table head={['Slug', 'Tên hiển thị', 'ID']}>
+          <Table head={['Slug', 'Display name', 'ID']}>
             {orgs.map((o) => (
               <tr key={o.id} className="border-t border-slate-100">
                 <td className="py-2 pr-4 font-medium text-main-text">{o.slug}</td>
@@ -51,18 +51,18 @@ export default function Orgs() {
         )}
       </Card>
       <p className="mt-3 text-xs text-normal-text">
-        <Badge>Tip</Badge> Chọn org ở trang Accounts để xem account bên trong.
+        <Badge>Tip</Badge> Pick an org on the Accounts page to see its accounts.
       </p>
       {open && (
-        <Modal title="Tạo Organization" onClose={() => setOpen(false)}>
+        <Modal title="New organization" onClose={() => setOpen(false)}>
           <form onSubmit={create}>
-            <Field label="Slug (duy nhất)">
+            <Field label="Slug (unique)">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="acme" />
             </Field>
-            <Field label="Tên hiển thị">
+            <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ACME Corp" />
             </Field>
-            <Btn type="submit">Tạo</Btn>
+            <Btn type="submit">Create</Btn>
           </form>
         </Modal>
       )}

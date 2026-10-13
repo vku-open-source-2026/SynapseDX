@@ -26,8 +26,8 @@ npm run dev --workspace=apps/gateway          # :8080
 # e2e smoke:
 bash tests/e2e/smoke.sh
 ```
-Windows không có `make`: gọi trực tiếp `docker compose ...` / `npm run ...`
-như trên (xem thêm `tests/e2e/smoke.ps1`, `examples/quickstart/demo.ps1`).
+Windows without `make`: call `docker compose ...` / `npm run ...` directly
+as above (see also `tests/e2e/smoke.ps1`, `examples/quickstart/demo.ps1`).
 
 ## Commit style
 Conventional Commits: `feat(iam): ...`, `fix(gateway): ...`, `docs: ...`, `chore: ...`.
