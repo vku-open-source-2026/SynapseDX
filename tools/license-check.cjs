@@ -22,8 +22,11 @@ const ALLOW = new Set(
   (allowIdx >= 0 ? args[allowIdx + 1] : '').split(',').map((s) => s.trim()).filter(Boolean),
 );
 
-// Strong copyleft: FAIL the gate (incompatible with Apache-2.0 distribution).
-const FORBIDDEN = [/^GPL/i, /AGPL/i, /CPAL/i, /EUPL/i];
+// Strong copyleft + source-available / ethical / non-compete licenses:
+// FAIL the gate (incompatible with Apache-2.0 distribution, or not OSI-approved).
+// NOTE: this gate only sees the npm tree — Python/Go/images are audited
+// separately (see THIRD-PARTY.md). Keep this list in sync with that file.
+const FORBIDDEN = [/^GPL/i, /AGPL/i, /CPAL/i, /EUPL/i, /SSPL/i, /RSAL/i, /BUSL/i, /Sustainable Use/i, /Hippocratic/i, /Ethical/i, /Commons Clause/i, /Commons-Clause/i, /Elastic License/i, /PolyForm/i, /Prosperity/i, /NC-/i, /NonCommercial/i];
 // Weak/file-level copyleft (LGPL/MPL/EPL/CDDL/OSL): tolerated as runtime
 // dependencies, but flagged for a human to review (static linking, patches…).
 const REVIEW = [/^LGPL/i, /MPL/i, /EPL/i, /CDDL/i, /OSL/i];

@@ -85,7 +85,14 @@ export default function Login() {
             </>
           ) : (
             <Field label="X-API-Key (synapsedx_...)">
-              <Input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="synapsedx_..." />
+              <Input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="synapsedx_..."
+              />
             </Field>
           )}
           <Btn type="submit" disabled={busy} className="w-full">

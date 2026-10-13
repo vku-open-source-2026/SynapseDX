@@ -86,12 +86,12 @@ export function hashCandidates(s: string): string[] {
   return [hashSecretLegacy(s)];
 }
 
-/** Constant-time string compare (avoid early-exit timing signal on secrets). */
+/** Constant-time string compare (hash-then-compare to hide length via timing). */
 export function secretsEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return timingSafeEqual(ba, bb);
+  if (typeof a !== 'string' || typeof b !== 'string' || !a || !b) return false;
+  const ha = createHash('sha256').update(a).digest();
+  const hb = createHash('sha256').update(b).digest();
+  return timingSafeEqual(ha, hb);
 }
 
 // ---------- high-level CRUD that works on both pg + memory ----------

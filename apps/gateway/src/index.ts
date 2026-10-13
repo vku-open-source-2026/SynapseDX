@@ -42,7 +42,17 @@ const JWT_SECRET = jwtSecret();
 /** Shared service-to-service credential (gateway → iam/workflow). Empty = dev mode (warn). */
 const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
 if (!INTERNAL_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('[gateway] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+  }
   console.warn('[gateway][security] SYNAPSEDX_INTERNAL_SECRET not set — downstream services cannot tell gateway traffic apart (dev default). Set it in production.');
+}
+
+/** Fail-closed API-key verification: default true; explicit false only allowed in dev. */
+export function isVerifyApiKeyEnabled(): boolean {
+  const raw = process.env.GATEWAY_VERIFY_APIKEY;
+  if (raw === undefined || raw === '') return true;
+  return raw === 'true';
 }
 
 const register = new client.Registry();
@@ -98,14 +108,15 @@ function loadRoutes(): RouteRule[] {
 function authMiddleware(mode: RouteRule['auth']) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (mode === 'none') return next();
-    const h = req.headers.authorization || '';
+    const h = String(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : (req.headers.authorization || ''));
     const hasBearer = h.startsWith('Bearer ');
-    const apiKey = (req.headers['x-api-key'] as string) || '';
+    const apiKeyRaw = req.headers['x-api-key'] as string | string[] | undefined;
+    const apiKey = Array.isArray(apiKeyRaw) ? (apiKeyRaw[0] || '') : (apiKeyRaw || '');
     if (mode === 'jwt' || mode === 'either') {
       if (hasBearer) {
         const token = h.slice(7);
         try {
-          const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam' });
+          const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
           (req as any).principal = { type: 'jwt', sub: decoded.sub, org: decoded.org, account: decoded.account, scopes: decoded.scopes || [] };
           return next();
         } catch (e) {
@@ -116,9 +127,9 @@ function authMiddleware(mode: RouteRule['auth']) {
     }
     if (mode === 'apikey' || mode === 'either') {
       if (apiKey) {
-        // Mặc định: edge check presence, upstream verify chi tiết.
-        // GATEWAY_VERIFY_APIKEY=true: verify tập trung qua IAM (fail-closed khi IAM chết).
-        if ((process.env.GATEWAY_VERIFY_APIKEY || 'false') === 'true') {
+        // Fail-closed by default: verify API keys against IAM.
+        // GATEWAY_VERIFY_APIKEY=false is dev-only (presence check) and forbidden in prod.
+        if (isVerifyApiKeyEnabled()) {
           verifyApiKeyUpstream(apiKey).then(
             (info) => {
               if (!info) return res.status(401).json({ error: 'invalid_api_key' });
@@ -129,6 +140,10 @@ function authMiddleware(mode: RouteRule['auth']) {
           );
           return;
         }
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(500).json({ error: 'misconfigured', message: 'GATEWAY_VERIFY_APIKEY=false is forbidden in production' });
+        }
+        console.warn('[gateway][security] accepting unverified X-API-Key (GATEWAY_VERIFY_APIKEY=false, dev only)');
         (req as any).principal = { type: 'apikey' };
         return next();
       }
@@ -201,6 +216,9 @@ export function propagatePrincipal(req: express.Request): void {
 }
 
 export function createApp(): express.Express {
+  if (process.env.NODE_ENV === 'production' && !isVerifyApiKeyEnabled()) {
+    throw new Error('[gateway] GATEWAY_VERIFY_APIKEY=false is forbidden in production (auth bypass). Set true.');
+  }
   const app = express();
   app.disable('x-powered-by');
   // Baseline security headers (no extra dep; gateway is a proxy, not a page server).
@@ -231,11 +249,25 @@ export function createApp(): express.Express {
     res.setHeader('x-request-id', id);
     next();
   }) as any);
-  // NOTE: rate limiting đã GỠ khỏi gateway theo quyết định vận hành (từng gây 429
-  // oan do share Redis store; đã fix tách keyspace nhưng chủ động tắt để CI và
-  // vận hành đơn giản). Muốn bật lại: revert commit này (xem CHANGELOG).
-  // Production BẮT BUỘC rate-limit ở tầng ngoài (Ingress/WAF/reverse proxy),
-  // đặc biệt cho /v1/auth/* (brute-force login) — xem SECURITY.md.
+  // In-memory edge rate limiting (per-IP; outer Ingress/WAF still required in prod
+  // for DDoS, but this stops single-IP brute-force / /ready fan-out amplification).
+  const hits = new Map<string, { n: number; reset: number }>();
+  const WINDOW_MS = 60_000;
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
+  }, WINDOW_MS).unref?.();
+  function edgeLimit(max: number) {
+    return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+      const ip = String(req.ip || req.socket?.remoteAddress || 'anon').slice(0, 64);
+      const now = Date.now();
+      const cur = hits.get(ip + ':' + max);
+      if (!cur || cur.reset < now) { hits.set(ip + ':' + max, { n: 1, reset: now + WINDOW_MS }); return next(); }
+      cur.n++;
+      if (cur.n > max) return res.status(429).json({ error: 'rate_limited', message: 'Too many requests, slow down' });
+      return next();
+    };
+  }
   // NOTE: không dùng express.json() toàn cục — body-parser sẽ nuốt stream
   // khiến http-proxy-middleware forward body rỗng/bể tới upstream.
   // Gateway là proxy thuần nên giữ nguyên raw body.
@@ -251,7 +283,8 @@ export function createApp(): express.Express {
   });
 
   // Aggregate readiness: gateway + các upstream chính (timeout ngắn, không fail hard).
-  app.get('/ready', async (_req, res) => {
+  // Rate-limited: mỗi hit quạt 1:2 upstream nên phải giới hạn.
+  app.get('/ready', edgeLimit(30) as any, async (_req, res) => {
     async function probe(name: string, url: string): Promise<{ name: string; ok: boolean; status?: number; ms?: number }> {
       const t0 = Date.now();
       try {
@@ -298,6 +331,8 @@ export function createApp(): express.Express {
   // sẽ tạo URL rác với exact-path. Dùng pathFilter của proxy v3 + mount ở root.
   // Sau khi xác thực, gateway XÓA header x-synapsedx-* do client gửi (chống spoof) và
   // GHI header từ principal đã verify để upstream tin dùng mà không cần re-verify JWT.
+  // Auth endpoints (/v1/auth/*) đi thẳng nhưng vẫn giới hạn brute-force.
+  app.use('/v1/auth/' as any, edgeLimit(120) as any);
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const urlPath = req.path; // pathname, không query
     if (urlPath === '/' || urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
@@ -332,10 +367,12 @@ export function createApp(): express.Express {
       on: {
         error: (err: any, _req: any, res: any) => {
           console.error(`[gateway] proxy ${r.path}->${target} failed:`, err?.message || err);
-          if (!res.headersSent) {
-            res.writeHead(502, { 'Content-Type': 'application/json' });
-          }
-          res.end(JSON.stringify({ error: 'bad_gateway', message: 'upstream unavailable' }));
+          try {
+            if (!res.headersSent && !res.writableEnded) {
+              res.writeHead(502, { 'Content-Type': 'application/json' });
+            }
+            if (!res.writableEnded) res.end(JSON.stringify({ error: 'bad_gateway', message: 'upstream unavailable' }));
+          } catch { /* socket already dead */ }
         },
       },
     } as any);
@@ -347,7 +384,8 @@ export function createApp(): express.Express {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);
-    res.status(500).json({ error: 'gateway_error', message: err?.message || 'internal error' });
+    if (res.headersSent || res.writableEnded) return;
+    res.status(500).json({ error: 'gateway_error' });
   });
   return app;
 }

@@ -61,7 +61,7 @@ export function signAccess(claims: AccessClaims): { token: string; expiresIn: nu
 }
 
 export function verifyAccess(token: string): AccessClaims {
-  return jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam' }) as AccessClaims;
+  return jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] }) as AccessClaims;
 }
 
 export function newRefreshToken(): { value: string; hash: string } {
@@ -143,6 +143,22 @@ async function consumeAndRevokeByHash(hash: string): Promise<{ user_id: string }
   if (new Date(rec.expires_at).getTime() < Date.now()) return null;
   rec.revoked_at = new Date().toISOString();
   return { user_id: rec.user_id };
+}
+
+/** Lookup owner of a refresh token even if revoked/expired (reuse-detection). */
+export async function findRefreshOwner(value: string): Promise<{ user_id: string } | null> {
+  for (const hash of refreshHashes(value)) {
+    if (useDb()) {
+      try {
+        const r = await query('SELECT user_id FROM refresh_tokens WHERE token_hash=$1', [hash]);
+        if (r.rows[0]) return { user_id: r.rows[0].user_id };
+      } catch { /* ignore */ }
+    } else {
+      const rec = __mem.refresh.get(hash);
+      if (rec) return { user_id: rec.user_id };
+    }
+  }
+  return null;
 }
 
 /** Thu hồi TẤT CẢ refresh token của user (mất thiết bị). Trả về số token bị thu hồi. */

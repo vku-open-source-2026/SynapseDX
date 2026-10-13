@@ -167,6 +167,7 @@ services:
       OIDC_ISSUER: ${OIDC_ISSUER:-http://authentik-server:9000/application/o/synapsedx/}
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-synapsedx-platform}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
+      OIDC_STATE_SECRET: ${OIDC_STATE_SECRET:-}
     ports:
       - "${IAM_HOST_PORT:-4001}:4001"
     healthcheck:
@@ -219,7 +220,7 @@ services:
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
-      GATEWAY_VERIFY_APIKEY: ${GATEWAY_VERIFY_APIKEY:-false}
+      GATEWAY_VERIFY_APIKEY: ${GATEWAY_VERIFY_APIKEY:-true}
       PROXY_TIMEOUT_MS: ${PROXY_TIMEOUT_MS:-30000}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
     ports:
@@ -253,11 +254,54 @@ services:
       - gateway
     networks: [synapsedx-net]
 
+  # ---- Monitoring (Prometheus, optional but on by default) ----
+  # Tat khi khong can: docker compose stop prometheus postgres-exporter redis-exporter
+  # Query UI: Prometheus bieu thuc tai http://localhost:9091 (xem docs/monitoring.md).
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    volumes:
+      - prometheusdata:/prometheus
+      - ./infra/monitoring/prometheus:/etc/prometheus:ro
+    ports:
+      - "${PROMETHEUS_HOST_PORT:-9091}:9090"
+    depends_on:
+      - gateway
+      - postgres-exporter
+      - redis-exporter
+    networks: [synapsedx-net]
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: ${REDIS_URL:-redis://redis:6379}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
 volumes:
   pgdata:
   redisdata:
   s3data:
   n8ndata:
+  prometheusdata:
 
 networks:
   synapsedx-net:

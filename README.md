@@ -129,6 +129,7 @@ sdks/sdk-python            synapsedx-sdk (Python, requests only)
 sdks/sdk-go                synapsedx-sdk-go (Go, stdlib only)
 tools/cli                  synapsedx CLI (zero deps, Node 18+) + install.sh
 infra/prod                 Production edge: nginx + Certbot overlay
+infra/monitoring           Prometheus (scrape gateway/PG/Redis + alert rules)
 infra/k8s/base             Kustomize manifests for Kubernetes
 infra/postgres/init.sql    Core schema (orgs/accounts/users/roles/policies/keys/…)
 examples/quickstart        End-to-end demo script

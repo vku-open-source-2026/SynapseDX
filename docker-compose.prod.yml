@@ -9,22 +9,33 @@ services:
     environment:
       NODE_ENV: production
       HSTS_ENABLED: "true"
+      GATEWAY_VERIFY_APIKEY: "true"
 
   iam:
     environment:
       NODE_ENV: production
       HSTS_ENABLED: "true"
+      IAM_ALLOW_DEV_LOGIN: "false"
+      IAM_ALLOW_OIDC_DEMO_CALLBACK: "false"
+    # Unpublish internal API in prod (gateway-only access via docker network).
+    # Requires Compose v2.24+ (!reset). Fallback is .env bind 127.0.0.1.
+    ports: !reset []
 
   workflow:
     environment:
       NODE_ENV: production
       HSTS_ENABLED: "true"
-
-  console:
-    environment:
-      NODE_ENV: production
+    ports: !reset []
 
   n8n:
+    environment:
+      NODE_ENV: production
+    ports: !reset []
+
+  prometheus:
+    ports: !reset []
+
+  console:
     environment:
       NODE_ENV: production
 

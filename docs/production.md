@@ -46,6 +46,10 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism â€
 - [ ] Centralized logs (default json-file driver; move to Loki/ELK when needed) + keep `x-request-id`.
 - [ ] `audit_log` Postgres retention (cron `DELETE ... WHERE created_at < now() - interval`)
       under heavy authorize traffic.
+- [ ] Monitoring: confirm Prometheus scrapes gateway/PG/Redis (`/targets` all up)
+      and the `GatewayDown`/`PostgresDown`/`RedisDown` alerts are visible
+      (see `docs/monitoring.md`). The Prometheus port stays internal in prod
+      (port-forward only).
 - [ ] Periodic `npm audit`; track advisories recorded in `SECURITY.md`.
 
 ## 5. Upgrades

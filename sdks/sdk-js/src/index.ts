@@ -81,6 +81,13 @@ export class SynapseDXClient {
   }
   verify() { return this.req('/v1/auth/verify'); }
   me() { return this.req('/v1/auth/me'); }
+  oidcConfig() { return this.req('/v1/auth/oidc/config'); }
+  oidcStart(org = 'acme') { return this.req(`/v1/auth/oidc/start?org=${encodeURIComponent(org)}`); }
+  oidcCallback(code: string, state: string) {
+    return this.req<{ accessToken: string; refreshToken: string; user: any }>('/v1/auth/oidc/callback', {
+      method: 'POST', body: JSON.stringify({ code, state }),
+    });
+  }
 
   // ---- orgs/accounts ----
   listOrgs(): Promise<any[]> { return this.req('/v1/orgs'); }

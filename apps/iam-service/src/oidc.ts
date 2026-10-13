@@ -73,10 +73,15 @@ function b64u(o: unknown): string {
   return Buffer.from(JSON.stringify(o)).toString('base64url');
 }
 
-/** state = base64url({org,t,n}).hmac — HMAC key is the IAM JWT secret. */
+function stateSecret(): string {
+  // Separate key for OIDC state HMAC so a leaked JWT secret alone doesn't forge state.
+  return process.env.OIDC_STATE_SECRET || getJwtSecret();
+}
+
+/** state = base64url({org,t,n}).hmac — HMAC key is OIDC_STATE_SECRET (fallback JWT secret). */
 export function signState(org: string): string {
   const payload = b64u({ org, t: Date.now(), n: randomBytes(16).toString('hex') });
-  const sig = createHmac('sha256', getJwtSecret()).update(payload).digest('hex');
+  const sig = createHmac('sha256', stateSecret()).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }
 
@@ -85,7 +90,7 @@ export function verifyState(state: string): { org: string } {
   if (parts.length !== 2 || !parts[0] || !parts[1]) {
     throw new OidcError('oidc_bad_state', 'Invalid OIDC state (format).', 400);
   }
-  const want = createHmac('sha256', getJwtSecret()).update(parts[0]).digest();
+  const want = createHmac('sha256', stateSecret()).update(parts[0]).digest();
   let got: Buffer;
   try {
     got = Buffer.from(parts[1], 'hex');
@@ -141,6 +146,25 @@ async function discover(issuer: string): Promise<any> {
   // from redirecting the exchange at a rogue token endpoint mid-flight.
   if (typeof doc.issuer === 'string' && doc.issuer.replace(/\/*$/, '/') !== issuer) {
     throw new OidcError('oidc_issuer_mismatch', 'IdP issuer mismatch (possible misconfiguration).', 502);
+  }
+  // Production guard: IdP endpoints must share the issuer origin (blocks discovery-doc
+  // redirect to rogue hosts) and use https (blocks credential + code interception).
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const issuerOrigin = new URL(issuer).origin;
+      for (const k of ['token_endpoint', 'jwks_uri', 'authorization_endpoint'] as const) {
+        const u = new URL(String(doc[k]));
+        if (u.origin !== issuerOrigin) {
+          throw new OidcError('oidc_endpoint_origin', `IdP ${k} is not on the issuer origin.`, 502);
+        }
+        if (u.protocol !== 'https:') {
+          throw new OidcError('oidc_insecure_endpoint', `IdP ${k} must use https in production.`, 502);
+        }
+      }
+    } catch (e: any) {
+      if (e instanceof OidcError) throw e;
+      throw new OidcError('oidc_discovery_failed', 'IdP discovery endpoints are not valid URLs.', 502);
+    }
   }
   doc.__issuer = issuer;
   discovery = { at: Date.now(), value: doc };
@@ -241,7 +265,19 @@ export async function exchangeCode(code: string, state: string): Promise<Verifie
   if (!email || email.length > 320 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new OidcError('oidc_no_email', 'IdP did not release an email claim (check client scopes).', 502);
   }
-  const sub = String(claims.sub || '').slice(0, 320) || email;
-  const displayName = String(claims.name || claims.preferred_username || email).slice(0, 200);
+  // Require verified email when the IdP releases the claim (prevents impersonation
+  // via unverified addresses). IdPs that omit the claim are still accepted.
+  if ('email_verified' in claims && claims.email_verified !== true && claims.email_verified !== 'true') {
+    throw new OidcError('oidc_email_unverified', 'IdP email address is not verified.', 502);
+  }
+  // OIDC `sub` is mandatory — never fall back to email (weak binding).
+  const rawSub = typeof claims.sub === 'string' ? claims.sub.trim() : '';
+  if (!rawSub) {
+    throw new OidcError('oidc_no_sub', 'IdP did not release a sub claim.', 502);
+  }
+  const sub = rawSub.slice(0, 320);
+  const rawName = String(claims.name || claims.preferred_username || email).trim();
+  // Strip control chars / angle brackets (stored-XSS hardening for console rendering).
+  const displayName = rawName.replace(/[\u0000-\u001f\u007f<>]/g, '').slice(0, 200) || email;
   return { org, email, sub, displayName };
 }

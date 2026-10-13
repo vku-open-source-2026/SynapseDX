@@ -27,7 +27,7 @@ export default function Topbar() {
         </div>
       </header>
       <div className="hidden lg:flex fixed top-0 right-0 p-4 z-40 items-center gap-3">
-        <span className="text-xs text-normal-text max-w-56 truncate">{auth?.email || auth?.apiKey?.slice(0, 16) || ''}</span>
+        <span className="text-xs text-normal-text max-w-56 truncate">{auth?.email || (auth?.apiKey ? 'API key ••••' : '')}</span>
         <button
           onClick={logout}
           title="Sign out"

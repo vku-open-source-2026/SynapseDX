@@ -171,6 +171,48 @@ func (c *Client) Me() (map[string]any, error) {
 	return out, nil
 }
 
+// OIDCConfig returns the IdP discovery info (issuer, client, demo-callback flag).
+func (c *Client) OIDCConfig() (map[string]any, error) {
+	b, err := c.do("GET", "/v1/auth/oidc/config", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OIDCStart begins the SSO round-trip (returns authorizeUrl + signed state).
+func (c *Client) OIDCStart(org string) (map[string]any, error) {
+	if org == "" {
+		org = "acme"
+	}
+	b, err := c.do("GET", "/v1/auth/oidc/start?org="+url.QueryEscape(org), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// OIDCCallback exchanges an IdP authorization code (+ signed state) for tokens.
+func (c *Client) OIDCCallback(code, state string) (map[string]any, error) {
+	b, err := c.do("POST", "/v1/auth/oidc/callback", map[string]any{"code": code, "state": state})
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ---------- orgs / accounts / users ----------
 
 func (c *Client) ListOrgs() ([]any, error) {

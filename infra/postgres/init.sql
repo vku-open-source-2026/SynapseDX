@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(org_id, email)
 );
+-- OIDC federation: one external_sub maps to at most one shadow user (NULLs excluded).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_sub ON users(external_sub) WHERE external_sub IS NOT NULL;
+-- Case-insensitive email lookup (Foo@x vs foo@x must not duplicate).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_org_email_lower ON users(org_id, lower(email));
 
 -- Roles (per account scope)
 CREATE TABLE IF NOT EXISTS roles (
@@ -79,6 +83,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_prefix ON api_keys(key_prefix);
+CREATE INDEX IF NOT EXISTS idx_api_keys_expiry ON api_keys(expires_at) WHERE revoked_at IS NULL;
 
 -- Service accounts (machine identity inside account)
 CREATE TABLE IF NOT EXISTS service_accounts (
@@ -105,7 +110,7 @@ CREATE TABLE IF NOT EXISTS workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   slug TEXT NOT NULL,
-  n8n_workflow_id TEXT,
+  n8n_workflow_id TEXT UNIQUE,
   definition JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(account_id, slug)
@@ -124,6 +129,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, decision);
+CREATE INDEX IF NOT EXISTS idx_refresh_expiry ON refresh_tokens(expires_at) WHERE revoked_at IS NULL;
+-- NOTE: audit_log grows unbounded (every authorize/dry-run is a row). Schedule
+-- retention (e.g. pg_cron DELETE WHERE created_at < now() - interval '90 days')
+-- or partition by month before production scale.
 
 -- FK-column indexes: list-by-parent queries + ON DELETE CASCADE fan-out
 -- (unique constraints above already index slug/email/hash lookups).
@@ -140,3 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_workflows_account ON workflows(account_id);
 INSERT INTO organizations (slug, display_name)
 VALUES ('acme', 'ACME Demo Organization')
 ON CONFLICT (slug) DO NOTHING;
+-- Seed demo account to match DEMO_ACCOUNT_SLUG=prod (dev-login/quickstart orphan fix).
+INSERT INTO accounts (org_id, slug, display_name)
+SELECT id, 'prod', 'Production' FROM organizations WHERE slug='acme'
+ON CONFLICT DO NOTHING;

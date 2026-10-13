@@ -110,9 +110,12 @@ describe('iam defense-in-depth', () => {
   it('attach/assign validate references (404, not 500)', async () => {
     const login = await call('POST', '/v1/auth/login', { email: 'ref@acme.local' });
     const h = { Authorization: `Bearer ${login.data.accessToken}` };
-    assert.equal((await call('POST', '/v1/roles/nope/attach', { policyId: 'nope' }, h)).status, 404);
-    assert.equal((await call('POST', '/v1/users/nope/assign', { roleId: 'nope' }, h)).status, 404);
+    const missingRole = '11111111-1111-4111-8111-111111111111';
+    const missingPolicy = '22222222-2222-4222-8222-222222222222';
+    assert.equal((await call('POST', `/v1/roles/${missingRole}/attach`, { policyId: missingPolicy }, h)).status, 404);
+    assert.equal((await call('POST', `/v1/users/${missingRole}/assign`, { roleId: missingRole }, h)).status, 404);
     assert.equal((await call('POST', '/v1/roles/nope/attach', {}, h)).status, 400);
+    assert.equal((await call('POST', '/v1/roles/nope/attach', { policyId: 'nope' }, h)).status, 400);
   });
 
   it('creation endpoints validate slugs/scopes', async () => {

@@ -24,5 +24,8 @@ Third-party components (each under its own license — see also THIRD-PARTY.md):
   each consumed as container images, not linked code.
 - Node.js runtime dependencies (Express, jsonwebtoken, http-proxy-middleware, …) — MIT/ISC/Apache-2.0;
   see each package.json + package-lock.json for the exact resolved tree.
-- React + Vite + Tailwind (console) — MIT.
-- Python `requests` (sdk-python) — Apache-2.0. Go stdlib only (sdk-go) — BSD-3-Clause.
+- React + Vite + Tailwind (console) — MIT; FontAwesome free icons —
+  CC-BY-4.0 (attribution: Fonticons, Inc., https://fontawesome.com/license/free).
+- Python `requests` (sdk-python) — Apache-2.0 (incl. `certifi` MPL-2.0 CA bundle). Go stdlib only (sdk-go) — BSD-3-Clause.
+- Monitoring images: Prometheus — Apache-2.0; PG/Redis exporters —
+  Apache-2.0/MIT. Optional MinIO backend — AGPL-3.0 (opt-in only).

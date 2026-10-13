@@ -9,17 +9,17 @@ function toArr(x: string | string[]): string[] {
   return Array.isArray(x) ? x : [x];
 }
 
-// minimatch-lite: supports '*' and 'prefix:*' and exact
+// minimatch-lite: '*' matches any sequence (including ':'), exact otherwise.
+// 'prefix:*' therefore requires the ':' boundary — no over-match of 'prefixEvil'.
 export function matchPattern(pattern: string, value: string): boolean {
   if (pattern === '*') return true;
-  if (pattern.endsWith(':*')) {
-    const prefix = pattern.slice(0, -2);
-    return value === prefix || value.startsWith(prefix + ':') || value.startsWith(prefix);
-  }
-  if (pattern.endsWith('*')) {
-    return value.startsWith(pattern.slice(0, -1));
-  }
-  return pattern === value;
+  if (!pattern.includes('*')) return pattern === value;
+  // Bare service prefix still matches 'service:*' (legacy behavior).
+  if (pattern.endsWith(':*') && value === pattern.slice(0, -2)) return true;
+  // Escape regex specials except '*' (which becomes '.*'); ':' stays literal so
+  // 'workflow:*' -> ^workflow:.*$ does NOT match 'workflowEvil:x'.
+  const re = new RegExp('^' + pattern.split('*').map((s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
+  try { return re.test(value); } catch { return false; }
 }
 
 export interface AuthzRequest {
@@ -102,11 +102,11 @@ export function readOnlyPolicy(): PolicyDoc {
   return { Version: '2026-01-01', Statement: [{ Effect: 'Allow', Action: ['*:Get', '*:List', '*:Describe', '*:Read'], Resource: '*' }] };
 }
 export function workflowRunnerPolicy(accountSlug: string): PolicyDoc {
-  void accountSlug;
+  const safe = /^[a-z0-9-]{1,64}$/.test(accountSlug || '') ? accountSlug : '*';
   return {
     Version: '2026-01-01',
     Statement: [
-      { Effect: 'Allow', Action: ['workflow:Execute', 'workflow:Read'], Resource: '*' },
+      { Effect: 'Allow', Action: ['workflow:Execute', 'workflow:Read'], Resource: safe === '*' ? '*' : `arn:synapsedx:*:${safe}:*` },
       { Effect: 'Deny', Action: ['iam:*', 'org:Delete'], Resource: '*' },
     ],
   };

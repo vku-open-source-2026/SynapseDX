@@ -15,7 +15,7 @@ import {
   listRoles, listPolicies, logAudit, listAudit, roleExists, policyExists,
 } from './db';
 import { evaluatePolicies, validatePolicyDocument } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess } from './tokens';
 import { secretsEqual } from './db';
 import { signState, exchangeCode, oidcSettings, OidcError } from './oidc';
 
@@ -30,7 +30,77 @@ const VERSION = (() => {
   }
 })();
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(s: string): boolean { return UUID_RE.test(s || ''); }
+function firstHeader(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] || '') : (v || '');
+}
+/** Strip control chars / angle brackets to blunt stored-XSS via display names. */
+function sanitizeName(s: string, max = 200): string {
+  return String(s || '').trim().replace(/[\u0000-\u001f\u007f<>]/g, '').slice(0, max);
+}
+/** Cap caller-supplied audit context (DoS via 1mb JSON body full of context). */
+function capContext(ctx: any, maxBytes = 8192): any {
+  if (!ctx || typeof ctx !== 'object') return {};
+  try {
+    let raw = JSON.stringify(ctx);
+    if (Buffer.byteLength(raw, 'utf8') <= maxBytes) return ctx;
+    const out: any = {};
+    for (const [k, v] of Object.entries(ctx)) {
+      if (Buffer.byteLength(JSON.stringify(out), 'utf8') > maxBytes) break;
+      const vs = String(JSON.stringify(v) || '').slice(0, 512);
+      try { out[String(k).slice(0, 64)] = JSON.parse(vs); } catch { out[String(k).slice(0, 64)] = vs.slice(0, 512); }
+    }
+    return out;
+  } catch { return {}; }
+}
+function noStore(res: express.Response): void {
+  res.setHeader('Cache-Control', 'no-store');
+}
+export function isDevLoginEnabled(): boolean {
+  if (IS_PROD) return false; // fail-closed in production regardless of env
+  return (process.env.IAM_ALLOW_DEV_LOGIN || 'true') === 'true';
+}
+export function isDemoCallbackEnabled(): boolean {
+  if (IS_PROD) return false;
+  return (process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true';
+}
+/** Tiny in-memory rate limiter (no Redis dep): per-IP token bucket. */
+function rateLimit(max: number, windowMs: number) {
+  const hits = new Map<string, { n: number; reset: number }>();
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of hits) if (v.reset < now) hits.delete(k);
+  }, windowMs).unref?.();
+  void timer;
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = String(req.ip || req.socket?.remoteAddress || 'anon').slice(0, 64);
+    const now = Date.now();
+    const cur = hits.get(ip);
+    if (!cur || cur.reset < now) { hits.set(ip, { n: 1, reset: now + windowMs }); return next(); }
+    cur.n++;
+    if (cur.n > max) return res.status(429).json({ error: 'rate_limited', message: 'Too many requests, slow down' });
+    return next();
+  };
+}
+
 export function createApp(): express.Express {
+  // Fail-closed production guards (checked at boot, before serving anything).
+  if (IS_PROD) {
+    if ((process.env.IAM_ALLOW_DEV_LOGIN || 'false') === 'true') {
+      throw new Error('[iam] IAM_ALLOW_DEV_LOGIN=true is forbidden in production (passwordless mint). Set false.');
+    }
+    if ((process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'false') === 'true') {
+      throw new Error('[iam] IAM_ALLOW_OIDC_DEMO_CALLBACK=true is forbidden in production (impersonation). Set false.');
+    }
+    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
+      throw new Error('[iam] SYNAPSEDX_INTERNAL_SECRET must be set in production (else :4001 is reachable directly).');
+    }
+    if (!process.env.DATABASE_URL) {
+      throw new Error('[iam] DATABASE_URL must be set in production (in-memory fallback would split-brain).');
+    }
+  }
   const app = express();
   app.disable('x-powered-by');
   // Baseline security headers (no extra dep; API-only service).
@@ -44,7 +114,14 @@ export function createApp(): express.Express {
     }
     next();
   });
-  app.use(cors());
+  app.use(cors((() => {
+    const origins = (process.env.CORS_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+    if (!origins.length) {
+      if (!IS_PROD) console.warn('[iam][security] CORS_ORIGIN not set — allowing all origins (dev default). Set it in production.');
+      return undefined;
+    }
+    return { origin: origins } as any;
+  })()));
   app.use(morgan(':method :url :status :response-time ms rid=:req[x-request-id]'));
   // Echo/propagate x-request-id (gateway sets it; direct callers get one generated
   // here so every response is traceable). Sanitized like the gateway.
@@ -72,21 +149,37 @@ export function createApp(): express.Express {
     const p = req.path;
     if (p === '/health' || PUBLIC_EXACT.has(p) || PUBLIC_PREFIXES.some((x) => p.startsWith(x))) return next();
     if (INTERNAL_SECRET) {
-      const got = (req.headers['x-synapsedx-internal'] as string) || '';
+      const got = firstHeader(req.headers['x-synapsedx-internal'] as any);
       if (!got || !secretsEqual(got, INTERNAL_SECRET)) {
         return res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid internal credential' });
       }
-      return next();
+      // Defense-in-depth: internal secret alone is NOT enough — also require a
+      // valid caller credential (gateway forwards the original Authorization).
+      // /v1/keys/verify is the sole exception (gateway calls it with internal only).
+      if (p === '/v1/keys/verify') return next();
+      const h = firstHeader(req.headers.authorization as any);
+      if (h.startsWith('Bearer ')) {
+        try { verifyAccess(h.slice(7)); return next(); } catch { /* fall through */ }
+      }
+      const apiKey = firstHeader(req.headers['x-api-key'] as any);
+      if (apiKey) {
+        verifyApiKey(apiKey).then(
+          (rec) => (rec ? next() : res.status(401).json({ error: 'invalid_api_key' })),
+          (e) => next(e),
+        );
+        return;
+      }
+      return res.status(401).json({ error: 'unauthorized', message: 'Provide Bearer JWT or X-API-Key' });
     }
     // Dev fallback (no internal secret): verify caller credential directly.
-    const h = req.headers.authorization || '';
+    const h = firstHeader(req.headers.authorization as any);
     if (h.startsWith('Bearer ')) {
       try {
         verifyAccess(h.slice(7));
         return next();
       } catch { /* fall through to apikey */ }
     }
-    const apiKey = (req.headers['x-api-key'] as string) || '';
+    const apiKey = firstHeader(req.headers['x-api-key'] as any);
     if (apiKey) {
       verifyApiKey(apiKey).then(
         (rec) => (rec ? next() : res.status(401).json({ error: 'invalid_api_key' })),
@@ -116,14 +209,18 @@ export function createApp(): express.Express {
       );
   }
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', version: VERSION, db: useDb() ? 'postgres' : 'memory', time: new Date().toISOString() }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'iam', version: VERSION, ...(IS_PROD ? {} : { db: useDb() ? 'postgres' : 'memory' }), time: new Date().toISOString() }));
 
-  if ((process.env.IAM_ALLOW_DEV_LOGIN || 'true') === 'true') {
+  if (isDevLoginEnabled()) {
     console.warn('[iam][security] IAM_ALLOW_DEV_LOGIN=true — passwordless dev login ENABLED (any email gets a token). Set false in production.');
   }
-  if ((process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true') {
+  if (isDemoCallbackEnabled()) {
     console.warn('[iam][security] IAM_ALLOW_OIDC_DEMO_CALLBACK=true — OIDC callback trusts caller-supplied email (impersonation possible). Set false in production.');
   }
+
+  // Brute-force guard for credential endpoints (in-memory; edge WAF still required in prod).
+  const authLimiter = rateLimit(60, 60_000);
+  app.use('/v1/auth/', authLimiter as any);
 
   // ---------- OIDC discovery (Authentik, Keycloak, or any OIDC IdP) ----------
   app.get('/v1/auth/oidc/config', (_req, res) => {
@@ -134,7 +231,7 @@ export function createApp(): express.Express {
       redirectUri: cfg.redirectUri,
       provider: cfg.provider,
       codeExchange: true,
-      demoCallback: (process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true',
+      demoCallback: isDemoCallbackEnabled(),
       note: 'Federated OIDC upstream. IAM keeps the shadow user + org/account/role/policy authorization.',
     });
   });
@@ -157,8 +254,8 @@ export function createApp(): express.Express {
   //    IAM_ALLOW_OIDC_DEMO_CALLBACK=false.
   app.post('/v1/auth/oidc/callback', async (req, res) => {
     try {
-      const demoAllowed = (process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'true') === 'true';
-      const { email, sub, displayName, orgSlug, code, state } = req.body as any;
+      const demoAllowed = isDemoCallbackEnabled();
+      const { email, sub, displayName, orgSlug, code, state } = (req.body || {}) as any;
       if (typeof code === 'string' && code) {
         if (typeof state !== 'string' || !state) {
           return res.status(400).json({ error: 'oidc_state_required', message: 'Signed `state` from /v1/auth/oidc/start is required with `code`.' });
@@ -170,6 +267,7 @@ export function createApp(): express.Express {
           const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
           const rt = newRefreshToken();
           await storeRefresh(user.id, rt.hash, refreshExpiry());
+          noStore(res);
           return res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
         } catch (e: any) {
           if (e instanceof OidcError) {
@@ -192,13 +290,14 @@ export function createApp(): express.Express {
       if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
       const normEmail = parsed.data.email;
       const slug = parsed.data.orgSlug || 'acme';
-      const safeName = typeof displayName === 'string' && displayName.trim() ? displayName.trim().slice(0, 200) : normEmail;
-      const safeSub = typeof sub === 'string' ? sub.slice(0, 320) : normEmail;
+      const safeName = sanitizeName(typeof displayName === 'string' && displayName.trim() ? displayName : normEmail);
+      const safeSub = sanitizeName(typeof sub === 'string' && sub.trim() ? sub : normEmail, 320);
       const org = (await getOrgBySlug(slug)) || (await createOrganization(slug, slug));
       const user = await upsertUser(org.id, normEmail, safeName, safeSub);
       const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
       const rt = newRefreshToken();
       await storeRefresh(user.id, rt.hash, refreshExpiry());
+      noStore(res);
       res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
     } catch (e: any) {
       res.status(500).json({ error: 'oidc_callback_failed', message: e.message });
@@ -208,7 +307,7 @@ export function createApp(): express.Express {
   // Dev login: cấp token trực tiếp theo email. TẮT ở production bằng
   // IAM_ALLOW_DEV_LOGIN=false (khi đó chỉ còn OIDC callback + refresh).
   app.post('/v1/auth/login', async (req, res) => {
-    if ((process.env.IAM_ALLOW_DEV_LOGIN || 'true') !== 'true') {
+    if (!isDevLoginEnabled()) {
       return res.status(403).json({ error: 'dev_login_disabled', message: 'Use OIDC flow' });
     }
     const schema = z.object({
@@ -224,24 +323,34 @@ export function createApp(): express.Express {
     const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
     const rt = newRefreshToken();
     await storeRefresh(user.id, rt.hash, refreshExpiry());
+    noStore(res);
     res.json({ accessToken: token, expiresIn, refreshToken: rt.value, user });
   });
 
   // Refresh xoay vòng NGUYÊN TỬ: consume+revoke 1 bước → replay/race đều rớt.
+  // Reuse signal: RT đã dùng rồi mà dùng lại → 401 + log để monitoring phát hiện
+  // đánh cắp (không auto-revoke cả family để tránh giết nhầm winner trong race
+  // hợp lệ; caller nghi ngờ gọi /v1/auth/logout-all).
   app.post('/v1/auth/refresh', async (req, res) => {
-    const { refreshToken } = req.body as any;
+    const { refreshToken } = (req.body || {}) as any;
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
     const rec = await consumeAndRevokeRefresh(refreshToken);
-    if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
+    if (!rec) {
+      const owner = await findRefreshOwner(refreshToken).catch(() => null);
+      if (owner) console.warn(`[iam][security] refresh reuse detected for user ${owner.user_id} — possible theft, recommend logout-all`);
+      return res.status(401).json({ error: 'invalid_refresh' });
+    }
     const rt = newRefreshToken();
     await storeRefresh(rec.user_id, rt.hash, refreshExpiry());
-    const { token, expiresIn } = signAccess({ sub: rec.user_id });
+    const user = await getUserById(rec.user_id).catch(() => null);
+    const { token, expiresIn } = signAccess(user ? { sub: user.id, email: user.email, org: user.org_id } : { sub: rec.user_id });
+    noStore(res);
     res.json({ accessToken: token, expiresIn, refreshToken: rt.value });
   });
 
   // Logout: thu hồi refresh token.
   app.post('/v1/auth/logout', async (req, res) => {
-    const { refreshToken } = req.body as any;
+    const { refreshToken } = (req.body || {}) as any;
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
     await revokeRefresh(refreshToken);
     res.json({ ok: true });
@@ -250,7 +359,7 @@ export function createApp(): express.Express {
   // Logout mọi nơi: dùng refreshToken còn hiệu lực để chứng minh sở hữu,
   // rồi thu hồi TẤT CẢ session của chính user đó (không nhận userId tùy ý).
   app.post('/v1/auth/logout-all', async (req, res) => {
-    const { refreshToken } = req.body as any;
+    const { refreshToken } = (req.body || {}) as any;
     if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
     const rec = await consumeRefresh(refreshToken);
     if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
@@ -260,7 +369,7 @@ export function createApp(): express.Express {
 
   // Who-am-I: user record của chính Bearer token.
   app.get('/v1/auth/me', async (req, res) => {
-    const h = req.headers.authorization || '';
+    const h = firstHeader(req.headers.authorization as any);
     if (!h.startsWith('Bearer ')) return res.status(401).json({ error: 'unauthorized' });
     try {
       const decoded: any = verifyAccess(h.slice(7));
@@ -272,8 +381,8 @@ export function createApp(): express.Express {
     }
   });
 
-  app.get('/v1/auth/verify', async (req, res) => {    const h = req.headers.authorization || '';
-    const apiKey = (req.headers['x-api-key'] as string) || '';
+  app.get('/v1/auth/verify', async (req, res) => {    const h = firstHeader(req.headers.authorization as any);
+    const apiKey = firstHeader(req.headers['x-api-key'] as any);
     if (h.startsWith('Bearer ')) {
       try {
         const decoded = verifyAccess(h.slice(7));
@@ -299,9 +408,9 @@ export function createApp(): express.Express {
         displayName: z.string().trim().min(2).max(200),
       });
       const b = schema.parse(req.body);
-      res.status(201).json(await createOrganization(b.slug, b.displayName));
+      res.status(201).json(await createOrganization(sanitizeName(b.slug, 64), sanitizeName(b.displayName)));
     } catch (e: any) {
-      if (e?.code === '23505' || /exists|duplicate/i.test(e?.message || '')) {
+      if (e?.code === '23505' || e?.status === 409) {
         return res.status(409).json({ error: 'conflict', message: 'organization slug exists' });
       }
       res.status(400).json({ error: 'invalid_body', message: e.message });
@@ -309,17 +418,21 @@ export function createApp(): express.Express {
   });
 
   // ---------- Accounts ----------
-  app.get('/v1/orgs/:orgId/accounts', async (req, res) => res.json(await listAccounts(req.params.orgId)));
+  app.get('/v1/orgs/:orgId/accounts', async (req, res) => {
+    if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
+    res.json(await listAccounts(req.params.orgId));
+  });
   app.post('/v1/orgs/:orgId/accounts', async (req, res) => {
+    if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
     try {
       const schema = z.object({
         slug: z.string().trim().regex(/^[a-z0-9-]{1,64}$/),
         displayName: z.string().trim().min(2).max(200),
       });
       const b = schema.parse(req.body);
-      res.status(201).json(await createAccount(req.params.orgId, b.slug, b.displayName));
+      res.status(201).json(await createAccount(req.params.orgId, b.slug, sanitizeName(b.displayName)));
     } catch (e: any) {
-      if (e?.code === '23505' || /exists|duplicate/i.test(e?.message || '')) {
+      if (e?.code === '23505' || e?.status === 409) {
         return res.status(409).json({ error: 'conflict', message: 'account slug exists' });
       }
       res.status(400).json({ error: 'invalid_body', message: e.message });
@@ -328,6 +441,7 @@ export function createApp(): express.Express {
 
   // ---------- Users ----------
   app.post('/v1/orgs/:orgId/users', async (req, res) => {
+    if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
     const schema = z.object({
       email: z.string().trim().toLowerCase().email().max(320),
       // nullish (not just optional): SDKs often serialize missing fields as
@@ -337,17 +451,19 @@ export function createApp(): express.Express {
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
     const { email, displayName } = parsed.data;
-    res.status(201).json(await upsertUser(req.params.orgId, email, displayName || undefined));
+    res.status(201).json(await upsertUser(req.params.orgId, email, displayName ? sanitizeName(displayName) : undefined));
   });
 
   app.get('/v1/orgs/:orgId/users', async (req, res) => {
+    if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
     res.json(await listUsers(req.params.orgId));
   });
 
   // ---------- Roles & Policies (AWS-style) ----------
   const SLUG_RE = /^[a-z0-9-]{1,64}$/;
   app.post('/v1/accounts/:accountId/roles', async (req, res) => {
-    const { slug, description } = req.body as any;
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    const { slug, description } = (req.body || {}) as any;
     if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
       return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
@@ -355,42 +471,49 @@ export function createApp(): express.Express {
     if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
-    res.status(201).json(await createRole(req.params.accountId, slug, description || ''));
+    res.status(201).json(await createRole(req.params.accountId, slug, sanitizeName(description || '')));
   });
 
   app.get('/v1/accounts/:accountId/roles', async (req, res) => {
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
     res.json(await listRoles(req.params.accountId));
   });
 
   app.delete('/v1/roles/:roleId', async (req, res) => {
+    if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
     const ok = await deleteRole(req.params.roleId);
     if (!ok) return res.status(404).json({ error: 'role_not_found' });
     res.json({ ok: true });
   });
 
   app.post('/v1/accounts/:accountId/policies', async (req, res) => {
-    const { slug, description, document } = req.body as any;
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    const { slug, description, document } = (req.body || {}) as any;
     if (!slug || !document) return res.status(400).json({ error: 'slug+document required' });
     if (typeof slug !== 'string' || !/^[a-z0-9-]{1,64}$/.test(slug)) {
       return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
     const docErr = validatePolicyDocument(document);
     if (docErr) return res.status(400).json({ error: 'invalid_document', message: docErr });
-    res.status(201).json(await createPolicy(req.params.accountId, slug, description || '', document));
+    res.status(201).json(await createPolicy(req.params.accountId, slug, sanitizeName(description || ''), document));
   });
 
   app.get('/v1/accounts/:accountId/policies', async (req, res) => {
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
     res.json(await listPolicies(req.params.accountId));
   });
 
   app.delete('/v1/policies/:policyId', async (req, res) => {
+    if (!isUuid(req.params.policyId)) return res.status(400).json({ error: 'invalid_id', message: 'policyId must be a UUID' });
     const ok = await deletePolicy(req.params.policyId);
     if (!ok) return res.status(404).json({ error: 'policy_not_found' });
     res.json({ ok: true });
   });
 
   app.post('/v1/roles/:roleId/attach', async (req, res) => {
+    if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
     if (!req.body?.policyId) return res.status(400).json({ error: 'policyId required' });
+    if (typeof req.body.policyId === 'string' && !isUuid(req.body.policyId)) return res.status(404).json({ error: 'policy_not_found' });
     const [roleOk, polOk] = await Promise.all([roleExists(req.params.roleId), policyExists(req.body.policyId)]);
     if (!roleOk) return res.status(404).json({ error: 'role_not_found' });
     if (!polOk) return res.status(404).json({ error: 'policy_not_found' });
@@ -398,7 +521,9 @@ export function createApp(): express.Express {
     res.json({ ok: true });
   });
   app.post('/v1/users/:userId/assign', async (req, res) => {
+    if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
     if (!req.body?.roleId) return res.status(400).json({ error: 'roleId required' });
+    if (typeof req.body.roleId === 'string' && !isUuid(req.body.roleId)) return res.status(404).json({ error: 'role_not_found' });
     const [user, roleOk] = await Promise.all([getUserById(req.params.userId), roleExists(req.body.roleId)]);
     if (!user) return res.status(404).json({ error: 'user_not_found' });
     if (!roleOk) return res.status(404).json({ error: 'role_not_found' });
@@ -410,14 +535,15 @@ export function createApp(): express.Express {
   // context: caller cung cấp thêm (vd {hour, sourceIp}); server luôn ép
   // user/org/email từ DB (caller không override được) để Condition đáng tin.
   app.post('/v1/authorize', async (req, res) => {
-    const { userId, action, resource, context } = req.body as any;
+    const { userId, action, resource, context } = (req.body || {}) as any;
     if (!userId || !action || !resource) return res.status(400).json({ error: 'userId+action+resource required' });
+    if (typeof userId !== 'string' || !isUuid(userId)) return res.status(400).json({ error: 'invalid_userId', message: 'userId must be a UUID' });
     if (typeof action !== 'string' || action.length > 512 || typeof resource !== 'string' || resource.length > 2048) {
       return res.status(400).json({ error: 'invalid_action_resource', message: 'action ≤512 chars, resource ≤2048 chars' });
     }
     const docs = await policiesForUser(userId);
     const user = await getUserById(userId);
-    const ctx = { ...(context || {}), user: userId, org: user?.org_id, email: user?.email };
+    const ctx = { ...capContext(context), user: userId, org: user?.org_id, email: user?.email };
     const verdict = evaluatePolicies(docs, { action, resource }, ctx);
     await logAudit({ actor_type: 'user', actor_id: userId, action, resource, decision: verdict.allowed, context: ctx }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
@@ -425,7 +551,7 @@ export function createApp(): express.Express {
 
   // Dry-run simulator (không cần user): đánh giá documents inline, như AWS IAM Policy Simulator.
   app.post('/v1/authorize/dry-run', async (req, res) => {
-    const { documents, action, resource, context } = req.body as any;
+    const { documents, action, resource, context } = (req.body || {}) as any;
     if (!Array.isArray(documents) || !action || !resource) {
       return res.status(400).json({ error: 'documents[]+action+resource required' });
     }
@@ -437,8 +563,9 @@ export function createApp(): express.Express {
       const docErr = validatePolicyDocument(d);
       if (docErr) return res.status(400).json({ error: 'invalid_document', message: docErr });
     }
-    const verdict = evaluatePolicies(documents, { action, resource }, context || {});
-    await logAudit({ actor_type: 'dry-run', actor_id: '', action, resource, decision: verdict.allowed, context: context || {} }).catch(() => undefined);
+    const capped = capContext(context);
+    const verdict = evaluatePolicies(documents, { action, resource }, capped);
+    await logAudit({ actor_type: 'dry-run', actor_id: '', action, resource, decision: verdict.allowed, context: capped }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: documents.length });
   });
 
@@ -451,7 +578,8 @@ export function createApp(): express.Express {
 
   // ---------- API keys ----------
   app.post('/v1/accounts/:accountId/keys', async (req, res) => {
-    const { userId, name, scopes, expiresInSeconds } = req.body as any;
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    const { userId, name, scopes, expiresInSeconds } = (req.body || {}) as any;
     const keyName = name || 'default';
     if (typeof keyName !== 'string' || keyName.length === 0 || keyName.length > 100) {
       return res.status(400).json({ error: 'invalid_name', message: 'name must be 1..100 chars' });
@@ -470,12 +598,13 @@ export function createApp(): express.Express {
   });
 
   app.post('/v1/keys/verify', async (req, res) => {
-    const rec = await verifyApiKey(req.body.apiKey || '');
+    const rec = await verifyApiKey((req.body || {}).apiKey || '');
     if (!rec) return res.status(401).json({ valid: false });
     res.json({ valid: true, ...rec });
   });
 
   app.delete('/v1/keys/:id', async (req, res) => {
+    if (!isUuid(req.params.id)) return res.status(404).json({ error: 'key_not_found' });
     const ok = await revokeApiKey(req.params.id);
     if (!ok) return res.status(404).json({ error: 'key_not_found' });
     res.json({ ok: true });
@@ -483,7 +612,8 @@ export function createApp(): express.Express {
 
   // ---------- Service accounts (machine identity) ----------
   app.post('/v1/accounts/:accountId/service-accounts', async (req, res) => {
-    const { slug, description } = req.body as any;
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    const { slug, description } = (req.body || {}) as any;
     if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
       return res.status(400).json({ error: 'invalid_slug', message: 'slug must match ^[a-z0-9-]{1,64}$' });
     }
@@ -491,15 +621,20 @@ export function createApp(): express.Express {
     if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
-    res.status(201).json(await createServiceAccount(req.params.accountId, slug, description || ''));
+    res.status(201).json(await createServiceAccount(req.params.accountId, slug, sanitizeName(description || '')));
   });
 
   app.get('/v1/accounts/:accountId/service-accounts', async (req, res) => {
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
     res.json(await listServiceAccounts(req.params.accountId));
   });
 
   // Cấp JWT cho service account (kind=service-account, mang account scope).
+  // Hardening: callers cannot escalate to '*' unless they already hold '*' —
+  // the requested scopes must be a subset of the caller's own scopes when the
+  // caller presents an API-key/JWT with limited scopes (gateway-propagated).
   app.post('/v1/service-accounts/:id/token', async (req, res) => {
+    if (!isUuid(req.params.id)) return res.status(404).json({ error: 'service_account_not_found' });
     const sa = await getServiceAccount(req.params.id);
     if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
     const scopes: string[] = req.body?.scopes || ['*'];
@@ -507,12 +642,18 @@ export function createApp(): express.Express {
         scopes.some((s) => typeof s !== 'string' || s.length === 0 || s.length > 200)) {
       return res.status(400).json({ error: 'invalid_scopes', message: 'scopes must be 1..100 non-empty strings ≤200 chars' });
     }
+    const callerScopes = firstHeader(req.headers['x-synapsedx-scopes'] as any).split(',').map((s) => s.trim()).filter(Boolean);
+    if (callerScopes.length && !callerScopes.includes('*') && scopes.includes('*')) {
+      return res.status(403).json({ error: 'scope_escalation', message: 'Cannot mint wildcard scope from a limited caller' });
+    }
     const { token, expiresIn } = signAccess({ sub: sa.id, account: sa.account_id, scopes, kind: 'service-account' });
+    noStore(res);
     res.json({ accessToken: token, expiresIn, serviceAccount: sa });
   });
 
   // Liệt kê policy của user (hữu ích khi debug authorize).
   app.get('/v1/users/:userId/policies', async (req, res) => {
+    if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
     res.json(await policiesForUser(req.params.userId));
   });
 
@@ -525,8 +666,12 @@ export function createApp(): express.Express {
     if (err?.status === 400 || err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && /JSON/i.test(err.message))) {
       return res.status(400).json({ error: 'invalid_json', message: 'Request body is not valid JSON' });
     }
-    if (err?.code === '23505' || /exists|duplicate/i.test(err?.message || '')) {
+    if (err?.code === '23505' || err?.status === 409) {
       return res.status(409).json({ error: 'conflict', message: 'duplicate slug' });
+    }
+    // Malformed UUID in Postgres (invalid_text_representation): 400, not 500.
+    if (err?.code === '22P02' || /invalid_text_representation|invalid input syntax for.*uuid/i.test(err?.message || '')) {
+      return res.status(400).json({ error: 'invalid_id', message: 'malformed UUID' });
     }
     // Race check-then-insert (id bị xóa giữa chừng) → FK violation → 404, không 500.
     if (err?.code === '23503' || /foreign key|violates foreign/i.test(err?.message || '')) {

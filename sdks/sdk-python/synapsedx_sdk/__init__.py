@@ -61,7 +61,12 @@ class SynapseDXClient:
             raise SynapseDXError(
                 f"synapsedx {r.status_code} {path}: {r.text[:500]}"
             ) from e
-        return r.json() if r.text else None
+        if not r.text:
+            return None
+        try:
+            return r.json()
+        except Exception:
+            return r.text  # non-JSON body (parity with JS SDK text fallback)
 
     # ---- auth ----
     def login(self, email: str, org_slug: str = "acme") -> dict:
@@ -83,6 +88,16 @@ class SynapseDXClient:
 
     def me(self) -> dict:
         return self._req("GET", "/v1/auth/me")
+
+    # ---- OIDC (SSO authorization-code flow) ----
+    def oidc_config(self) -> dict:
+        return self._req("GET", "/v1/auth/oidc/config")
+
+    def oidc_start(self, org: str = "acme") -> dict:
+        return self._req("GET", f"/v1/auth/oidc/start?org={quote(org, safe='')}")
+
+    def oidc_callback(self, code: str, state: str) -> dict:
+        return self._req("POST", "/v1/auth/oidc/callback", {"code": code, "state": state})
 
     # ---- orgs ----
     def list_orgs(self) -> list:

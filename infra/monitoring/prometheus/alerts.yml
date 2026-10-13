@@ -1,0 +1,29 @@
+# SynapseDX alert rules (load via rule_files in prometheus.yml).
+# Wire Alertmanager later; until then alerts show on the Prometheus /alerts page.
+groups:
+  - name: synapsedx
+    interval: 30s
+    rules:
+      - alert: GatewayDown
+        expr: up{job="gateway"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "SynapseDX gateway is down"
+          description: "Prometheus cannot scrape gateway:8080/metrics for >1m."
+
+      - alert: PostgresDown
+        expr: up{job="postgres"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Postgres exporter is down"
+          description: "postgres-exporter:9187 unreachable for >2m (check postgres + exporter)."
+
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Redis exporter is down"
+          description: "redis-exporter:9121 unreachable for >2m (check redis + exporter)."

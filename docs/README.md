@@ -10,6 +10,7 @@
 | [object-storage.md](object-storage.md) | S3 backends (default S3Mock, MinIO/S3 in prod) |
 | [troubleshooting.md](troubleshooting.md) | Busy ports, Windows curl, gateway 404s, backup/restore, OIDC errors |
 | [console.md](console.md) | Management UI (run, configure, SSO, frontend dev) |
+| [monitoring.md](monitoring.md) | Prometheus (run, targets, alerts, useful queries) |
 | [production.md](production.md) | Production checklist (secrets, TLS, backups, image pinning) |
 | [sdk-js.md](sdk-js.md) | JavaScript/TypeScript SDK — install, auth, full API reference |
 | [sdk-python.md](sdk-python.md) | Python SDK — install, auth, full API reference |

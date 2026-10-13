@@ -5,8 +5,14 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$DIR/certs"
 export MSYS_NO_PATHCONV=1
-KEYOUT="$(cygpath -w "$DIR/certs/synapsedx.local.key")"
-CRTOUT="$(cygpath -w "$DIR/certs/synapsedx.local.crt")"
+# Portable: prefer plain paths (Linux/macOS); only use cygpath on Git-Bash/Cygwin.
+if command -v cygpath >/dev/null 2>&1; then
+  KEYOUT="$(cygpath -w "$DIR/certs/synapsedx.local.key")"
+  CRTOUT="$(cygpath -w "$DIR/certs/synapsedx.local.crt")"
+else
+  KEYOUT="$DIR/certs/synapsedx.local.key"
+  CRTOUT="$DIR/certs/synapsedx.local.crt"
+fi
 openssl req -x509 -newkey rsa:2048 -sha256 -days 825 -nodes \
   -keyout "$KEYOUT" \
   -out "$CRTOUT" \
