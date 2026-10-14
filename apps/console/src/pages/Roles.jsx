@@ -13,27 +13,37 @@ export default function Roles() {
   const scope = useScope();
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [slug, setSlug] = useState('');
 
   const load = async () => {
     if (!scope.accountId) {
       setRows([]);
+      setLoaded(true);
       return;
     }
+    setErr(null);
     try {
-      setRows(await api.roles(scope.accountId, headers));
+      const v = await api.roles(scope.accountId, headers);
+      setRows(Array.isArray(v) ? v : []);
     } catch (e) {
       setErr(e);
+    } finally {
+      setLoaded(true);
     }
   };
 
   useEffect(() => {
     load();
-  }, [scope.accountId]);
+  }, [scope.accountId, headers]);
 
   const create = async (e) => {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
     try {
       await api.createRole(scope.accountId, slug, headers);
       setOpen(false);
@@ -41,6 +51,8 @@ export default function Roles() {
       load();
     } catch (ex) {
       setErr(ex);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -60,7 +72,9 @@ export default function Roles() {
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
-        {rows.length ? (
+        {!loaded ? (
+          <Empty text="Loading…" />
+        ) : rows.length ? (
           <Table head={['Slug', 'ID', '']}>
             {rows.map((r) => (
               <tr key={r.id} className="border-t border-slate-100">
@@ -73,7 +87,7 @@ export default function Roles() {
             ))}
           </Table>
         ) : (
-          <Empty text="Pick an account to see its roles" />
+          <Empty text={scope.accountId ? 'No roles yet' : 'Pick an account to see its roles'} />
         )}
       </Card>
       {open && (
@@ -82,7 +96,7 @@ export default function Roles() {
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-runner" />
             </Field>
-            <Btn type="submit">Create</Btn>
+            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
           </form>
         </Modal>
       )}

@@ -123,6 +123,14 @@ export async function getOrgBySlug(slug: string): Promise<Organization | null> {
   return mem.orgsBySlug.get(slug) || null;
 }
 
+export async function getOrgById(id: string): Promise<Organization | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, slug, display_name FROM organizations WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return mem.orgs.get(id) || null;
+}
+
 export async function createAccount(orgId: string, slug: string, display_name: string): Promise<Account> {
   if (pool) {
     const r = await pool.query('INSERT INTO accounts (org_id, slug, display_name) VALUES ($1,$2,$3) RETURNING id, org_id, slug, display_name', [orgId, slug, display_name]);
@@ -271,6 +279,48 @@ export async function policyExists(id: string): Promise<boolean> {
   return mem.policies.has(id);
 }
 
+/** Full-row lookups for cross-tenant scoping (attach/assign/mint). */
+export async function getRoleById(id: string): Promise<Role | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description FROM roles WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return mem.roles.get(id) || null;
+}
+
+export async function getPolicyById(id: string): Promise<Policy | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, account_id, slug, description, document FROM policies WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return mem.policies.get(id) || null;
+}
+
+export async function getAccountById(id: string): Promise<Account | null> {
+  if (pool) {
+    const r = await pool.query('SELECT id, org_id, slug, display_name FROM accounts WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  return mem.accounts.get(id) || null;
+}
+
+/** Account ids where the user holds at least one role (tenant membership). */
+export async function accountsForUser(userId: string): Promise<string[]> {
+  if (pool) {
+    const r = await pool.query(
+      'SELECT DISTINCT r.account_id FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1',
+      [userId],
+    );
+    return r.rows.map((x) => x.account_id);
+  }
+  const out = new Set<string>();
+  for (const rid of mem.userRoles.get(userId) || []) {
+    const role = mem.roles.get(rid);
+    if (role) out.add(role.account_id);
+  }
+  return [...out];
+}
+
 export async function deleteRole(id: string): Promise<boolean> {
   if (pool) {
     const r = await pool.query('DELETE FROM roles WHERE id=$1', [id]);
@@ -297,8 +347,7 @@ export interface AuditEntry {
   context?: any;
 }
 
-export async function logAudit(e: AuditEntry): Promise<void> {
-  if (pool) {
+export async function logAudit(e: AuditEntry): Promise<void> {  if (pool) {
     await pool.query(
       'INSERT INTO audit_log (actor_type, actor_id, action, resource, decision, context) VALUES ($1,$2,$3,$4,$5,$6)',
       [e.actor_type, e.actor_id, e.action, e.resource || '', !!e.decision, e.context || {}],
@@ -323,6 +372,27 @@ export async function listAudit(limit = 50, actorId?: string): Promise<any[]> {
   const all: any[] = (((__mem as any).audit as any[]) || []).slice().reverse();
   const filtered = actorId ? all.filter((a) => a.actor_id === actorId) : all;
   return filtered.slice(0, lim);
+}
+
+/** Retention purge: delete audit rows older than `olderThanDays` (batched).
+ *  Non-positive input is a no-op (retention disabled by default). */
+export async function purgeAudit(olderThanDays: number, batch = 1000): Promise<number> {
+  if (!(olderThanDays > 0) || !Number.isFinite(olderThanDays)) return 0;
+  const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
+  const lim = Math.min(Math.max(Math.floor(batch) || 1000, 1), 10000);
+  if (pool) {
+    // Postgres has no DELETE..LIMIT: batch via id sub-select.
+    const r = await pool.query(
+      'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE created_at < $1 LIMIT $2)',
+      [cutoff, lim],
+    );
+    return r.rowCount || 0;
+  }
+  const arr: any[] = ((__mem as any).audit as any[]) || [];
+  const kept = arr.filter((a) => String(a.created_at || '') >= cutoff).slice(-10000);
+  const removed = arr.length - kept.length;
+  (__mem as any).audit = kept;
+  return removed;
 }
 
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }

@@ -18,7 +18,12 @@
               │ proxy + JWT/API key │───►│ proxy n8n + template│
               │ rate-limit + metrics│    │                     │
               └────────────┬────────┘    └─────────┬───────────┘
-                           │                     │ REST
+                           │              ┌────────▼───────────┐
+                           │              │ AI svc (:4003)     │
+                           │              │ testing assistant  │
+                           │              │ (LLM, server-side) │
+                           │              └────────┬───────────┘
+                           │                     │ REST (OpenRouter)
                     ┌───────▼───────┐      ┌──────▼──────┐
                     │ Postgres/Redis│      │  N8N (:5678) │
                     │ S3Mock (S3)   │      │ external    │
@@ -43,11 +48,14 @@
   S3Mock (S3-compatible object storage, bucket `synapsedx-core`; swap to MinIO/real S3
   in production via `S3_ENDPOINT`).
 - **Workflow**: n8n is an external engine (SUL, never forked); `workflow-service` is the
-  control plane: API proxy, versioned templates, execute.
+  control plane: API proxy, versioned templates, webhook-triggered execute, definition editor.
+- **AI assistant**: `ai-service` answers testing questions on the Console API Docs
+  (decision model picks the endpoint, LLM fills the try-it form; key server-side only,
+  per-principal rate limit). Guidance-only — not a public API, not in the catalog.
 
 ## Technical decisions
 
-- Node 20 + TypeScript for all 3 services for easy contributions; `pg` driver, no ORM,
+- Node 20 + TypeScript for all services for easy contributions; `pg` driver, no ORM,
   so the SQL stays transparent.
 - Gateway uses `http-proxy-middleware`: light auth at the edge + deep verification at
   IAM (`/v1/auth/verify`).

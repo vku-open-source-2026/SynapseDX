@@ -23,10 +23,11 @@ standard OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
 | Capability | What you get |
 |---|---|
 | **API Gateway** | Single entry point: JWT/API-key auth, principal propagation (`x-synapsedx-*`), edge rate limiting, tracing, aggregate `/ready`, Prometheus `/metrics` |
-| **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log |
+| **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log, tenant isolation on every write (role-based, same-org fallback) |
 | **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
 | **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
-| **Workflows** | Control plane over external n8n: versioned templates, activate/execute, execution history |
+| **Workflows** | Control plane over external n8n: versioned templates, activate/deactivate/execute (real webhook triggers), execution history, definition editor |
+| **AI assistant** | Chatbot on the API Docs page: decision model picks the endpoint, LLM pre-fills the try-it form (server-side key, guidance-only, never public) |
 | **Clients** | TypeScript, Python and Go SDKs with full API parity, zero-dependency CLI, admin Console |
 
 ## Try it in 30 seconds

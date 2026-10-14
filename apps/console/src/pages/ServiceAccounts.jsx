@@ -13,28 +13,38 @@ export default function ServiceAccounts() {
   const scope = useScope();
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [slug, setSlug] = useState('');
   const [token, setToken] = useState(null);
 
   const load = async () => {
     if (!scope.accountId) {
       setRows([]);
+      setLoaded(true);
       return;
     }
+    setErr(null);
     try {
-      setRows(await api.serviceAccounts(scope.accountId, headers));
+      const v = await api.serviceAccounts(scope.accountId, headers);
+      setRows(Array.isArray(v) ? v : []);
     } catch (e) {
       setErr(e);
+    } finally {
+      setLoaded(true);
     }
   };
 
   useEffect(() => {
     load();
-  }, [scope.accountId]);
+  }, [scope.accountId, headers]);
 
   const create = async (e) => {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
     try {
       await api.createSA(scope.accountId, slug, headers);
       setOpen(false);
@@ -42,6 +52,8 @@ export default function ServiceAccounts() {
       load();
     } catch (ex) {
       setErr(ex);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -59,7 +71,9 @@ export default function ServiceAccounts() {
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>
-        {rows.length ? (
+        {!loaded ? (
+          <Empty text="Loading…" />
+        ) : rows.length ? (
           <Table head={['Slug', 'ID', '']}>
             {rows.map((s) => (
               <tr key={s.id} className="border-t border-slate-100">
@@ -72,7 +86,7 @@ export default function ServiceAccounts() {
             ))}
           </Table>
         ) : (
-          <Empty text="Pick an account to see its service accounts" />
+          <Empty text={scope.accountId ? 'No service accounts yet' : 'Pick an account to see its service accounts'} />
         )}
       </Card>
       {open && (
@@ -81,7 +95,7 @@ export default function ServiceAccounts() {
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-worker" />
             </Field>
-            <Btn type="submit">Create</Btn>
+            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
           </form>
         </Modal>
       )}

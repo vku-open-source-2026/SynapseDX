@@ -75,14 +75,27 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
   // persist via the store, and retry the original call. Never loops (one retry).
   // Skipped only for the token-minting endpoints themselves (login/refresh/
   // logout/callback) — /v1/auth/me and /v1/auth/verify DO retry.
+  // Cross-tab race: refresh tokens are single-use, so a sibling tab may have
+  // already rotated while this call was in flight. The store reads localStorage
+  // (shared across tabs) — if it already holds a newer access token, retry with
+  // it instead of burning a rotation; if our rotation lost to a sibling's,
+  // pick up the winner's token instead of logging the user out.
   const NO_RETRY = new Set([
     '/v1/auth/login', '/v1/auth/refresh', '/v1/auth/logout',
     '/v1/auth/logout-all', '/v1/auth/oidc/callback',
   ]);
   if (r.status === 401 && !_retried && token && !NO_RETRY.has(path)) {
+    const stored = authStore.get()?.token;
+    if (stored && stored !== token) {
+      return req(path, { method, body, token: stored, apiKey, _retried: true });
+    }
     const rotated = await rotateOnce();
     if (rotated) {
       return req(path, { method, body, token: rotated.accessToken, apiKey, _retried: true });
+    }
+    const winner = authStore.get()?.token;
+    if (winner && winner !== token) {
+      return req(path, { method, body, token: winner, apiKey, _retried: true });
     }
   }
   const text = await r.text();
@@ -98,14 +111,20 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
 
 const get = (path, auth) => req(path, { ...auth });
 const post = (path, body, auth) => req(path, { method: 'POST', body, ...auth });
+const put = (path, body, auth) => req(path, { method: 'PUT', body, ...auth });
 const del = (path, auth) => req(path, { method: 'DELETE', ...auth });
+// Generic call through the session-aware client (silent refresh on 401).
+// Pages that fetch() directly bypass token rotation — use this instead.
+const call = (method, path, body, auth) => req(path, { method, body, ...auth });
 
 export const api = {
+  call,
   login: (email, orgSlug) => post('/v1/auth/login', { email, orgSlug }),
   oidcStart: (orgSlug) => get(`/v1/auth/oidc/start${orgSlug ? `?org=${encodeURIComponent(orgSlug)}` : ''}`),
   oidcCallback: (code, state) => post('/v1/auth/oidc/callback', { code, state }),
   oidcConfig: () => get('/v1/auth/oidc/config'),
   refresh: (refreshToken) => post('/v1/auth/refresh', { refreshToken }),
+  logoutAll: (refreshToken) => post('/v1/auth/logout-all', { refreshToken }),
   logoutServer: (refreshToken) =>
     post('/v1/auth/logout', { refreshToken }).catch(() => ({ ok: false })),
   me: (a) => get('/v1/auth/me', a),
@@ -115,6 +134,8 @@ export const api = {
   createAccount: (orgId, slug, displayName, a) =>
     post(`/v1/orgs/${encodeURIComponent(orgId)}/accounts`, { slug, displayName }, a),
   users: (orgId, a) => get(`/v1/orgs/${encodeURIComponent(orgId)}/users`, a),
+  createUser: (orgId, email, displayName, a) =>
+    post(`/v1/orgs/${encodeURIComponent(orgId)}/users`, displayName ? { email, displayName } : { email }, a),
   roles: (accountId, a) => get(`/v1/accounts/${encodeURIComponent(accountId)}/roles`, a),
   createRole: (accountId, slug, a) => post(`/v1/accounts/${encodeURIComponent(accountId)}/roles`, { slug }, a),
   deleteRole: (roleId, a) => del(`/v1/roles/${encodeURIComponent(roleId)}`, a),
@@ -133,10 +154,27 @@ export const api = {
   audit: (limit, actor, a) =>
     get(`/v1/audit?limit=${limit || 50}${actor ? `&actor=${encodeURIComponent(actor)}` : ''}`, a),
   createKey: (accountId, name, a) => post(`/v1/accounts/${encodeURIComponent(accountId)}/keys`, { name, scopes: ['*'] }, a),
+  listKeys: (accountId, a) => get(`/v1/accounts/${encodeURIComponent(accountId)}/keys`, a),
   serviceAccounts: (accountId, a) => get(`/v1/accounts/${encodeURIComponent(accountId)}/service-accounts`, a),
   createSA: (accountId, slug, a) => post(`/v1/accounts/${encodeURIComponent(accountId)}/service-accounts`, { slug }, a),
   saToken: (id, a) => post(`/v1/service-accounts/${encodeURIComponent(id)}/token`, {}, a),
   templates: (a) => get('/v1/templates', a),
   workflows: (a) => get('/v1/workflows', a),
   createWorkflow: (template, name, a) => post('/v1/workflows', { template, name }, a),
+  workflow: (id, a) => get(`/v1/workflows/${encodeURIComponent(id)}`, a),
+  updateWorkflow: (id, patch, a) => put(`/v1/workflows/${encodeURIComponent(id)}`, patch, a),
+  deleteWorkflow: (id, a) => del(`/v1/workflows/${encodeURIComponent(id)}`, a),
+  activateWorkflow: (id, a) => post(`/v1/workflows/${encodeURIComponent(id)}/activate`, {}, a),
+  deactivateWorkflow: (id, a) => post(`/v1/workflows/${encodeURIComponent(id)}/deactivate`, {}, a),
+  executeWorkflow: (id, input, a) => post(`/v1/workflows/${encodeURIComponent(id)}/execute`, input ?? {}, a),
+  executions: (params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/executions${s ? `?${s}` : ''}`, a);
+  },
+  execution: (id, a) => get(`/v1/executions/${encodeURIComponent(id)}`, a),
+  agent: (question, history, a) => post('/v1/ai/agent', { question, history }, a),
 };

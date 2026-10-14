@@ -88,8 +88,14 @@ export default function Authorize() {
       {out && (
         <Card className="mt-4">
           <div className="flex items-center gap-2 mb-2">
-            <Badge tone={out.allowed ? 'green' : 'red'}>{out.allowed ? 'ALLOW' : 'DENY'}</Badge>
-            {out.matchedBy && <span className="text-xs text-normal-text">matched by {out.matchedBy}</span>}
+            {typeof out.allowed === 'boolean' ? (
+              <>
+                <Badge tone={out.allowed ? 'green' : 'red'}>{out.allowed ? 'ALLOW' : 'DENY'}</Badge>
+                {out.matchedBy && <span className="text-xs text-normal-text">matched by {out.matchedBy}</span>}
+              </>
+            ) : (
+              <Badge tone="amber">Unexpected response shape</Badge>
+            )}
           </div>
           <Code data={out} />
         </Card>

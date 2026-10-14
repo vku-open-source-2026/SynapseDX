@@ -208,6 +208,34 @@ services:
       - iam
     networks: [synapsedx-net]
 
+  ai:
+    build:
+      context: ./apps/ai-service
+    image: synapsedx/ai:0.3.1
+    restart: unless-stopped
+    environment:
+      PORT: 4003
+      AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_DECISION_MODEL: ${AI_DECISION_MODEL:-inception/mercury-2.5}
+      AI_LLM_MODEL: ${AI_LLM_MODEL:-apodex/apodex-1.1-mini:free}
+      AI_LLM_FALLBACK_MODEL: ${AI_LLM_FALLBACK_MODEL:-inception/mercury-2.5}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
+      AI_RATE_LIMIT: ${AI_RATE_LIMIT:-30}
+      AI_RETRIES: ${AI_RETRIES:-2}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${AI_SERVICE_HOST_PORT:-127.0.0.1:4003}:4003"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4003/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [synapsedx-net]
+
   gateway:
     build:
       context: ./apps/gateway
@@ -217,6 +245,7 @@ services:
       PORT: 8080
       IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       WORKFLOW_SERVICE_URL: ${WORKFLOW_SERVICE_URL:-http://workflow:4002}
+      AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:4003}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
@@ -235,6 +264,8 @@ services:
       iam:
         condition: service_healthy
       workflow:
+        condition: service_healthy
+      ai:
         condition: service_healthy
     networks: [synapsedx-net]
 

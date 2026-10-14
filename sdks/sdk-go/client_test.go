@@ -26,6 +26,7 @@ func echoServer(t *testing.T, seen map[string]string) *httptest.Server {
 			strings.HasSuffix(p, "/roles") ||
 			strings.HasSuffix(p, "/policies") ||
 			strings.HasSuffix(p, "/service-accounts") ||
+			strings.HasSuffix(p, "/keys") ||
 			p == "/v1/templates" || p == "/v1/workflows" || p == "/v1/audit")
 		if isList {
 			_, _ = w.Write([]byte(`[]`))
@@ -184,6 +185,24 @@ func TestWorkflowCoverage(t *testing.T) {
 	}
 	if _, err := c.ExecuteWorkflow("w1", nil); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := c.UpdateWorkflow("w1", map[string]any{"name": "renamed"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/workflows/w1" {
+		t.Fatalf("update: %v", seen)
+	}
+	if err := c.DeleteWorkflow("w1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/workflows/w1" || seen["method"] != "DELETE" {
+		t.Fatalf("delete: %v", seen)
+	}
+	if _, err := c.ListAPIKeys("a1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/accounts/a1/keys" {
+		t.Fatalf("list keys: %v", seen)
 	}
 	if _, err := c.ListTemplates(); err != nil {
 		t.Fatal(err)

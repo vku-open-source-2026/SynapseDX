@@ -11,23 +11,33 @@ export default function Orgs() {
   const { headers } = useAuth();
   const [orgs, setOrgs] = useState([]);
   const [err, setErr] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
 
-  const load = () => api.orgs(headers).then(setOrgs).catch(setErr);
-  useEffect(load, []);
+  const load = () => {
+    setErr(null);
+    api.orgs(headers).then((v) => setOrgs(Array.isArray(v) ? v : [])).catch(setErr).finally(() => setLoaded(true));
+  };
+  useEffect(load, [headers]);
 
   const create = async (e) => {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
     try {
-      await api.createOrg(slug, name);
+      await api.createOrg(slug, name, headers);
       setOpen(false);
       setSlug('');
       setName('');
       load();
     } catch (ex) {
       setErr(ex);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -36,7 +46,9 @@ export default function Orgs() {
       <PageTitle title="Organizations" sub="Root tenants — like AWS Organizations" right={<Btn onClick={() => setOpen(true)}>+ New</Btn>} />
       <Err e={err} />
       <Card>
-        {orgs.length ? (
+        {!loaded ? (
+          <Empty text="Loading…" />
+        ) : orgs.length ? (
           <Table head={['Slug', 'Display name', 'ID']}>
             {orgs.map((o) => (
               <tr key={o.id} className="border-t border-slate-100">
@@ -62,7 +74,7 @@ export default function Orgs() {
             <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ACME Corp" />
             </Field>
-            <Btn type="submit">Create</Btn>
+            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
           </form>
         </Modal>
       )}

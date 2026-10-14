@@ -187,6 +187,23 @@ export function createApp(): express.Express {
     res.json({ status: 'ok', service: 'workflow', version: VERSION, ...(IS_PROD_WF ? {} : { n8n: N8N_BASE_URL }), n8nStatus: (n8n as any).status, time: new Date().toISOString() });
   });
 
+/** Path :id guard shared by the single-workflow proxies (length + CRLF,
+ *  mirroring execute/PUT — oversized ids never reach n8n). */
+function checkId(id: unknown): string | null {
+  const s = String(id || '');
+  if (!s || s.length > 128 || /[\r\n]/.test(s)) return null;
+  return s;
+}
+
+function idGate(req: any, res: any): string | null {
+  const id = checkId(req.params.id);
+  if (id === null) {
+    res.status(400).json({ error: 'invalid_id' });
+    return null;
+  }
+  return id;
+}
+
   // List workflows (proxy)
   app.get('/v1/workflows', async (_req, res) => {
     const r = await n8nFetch('/api/v1/workflows');
@@ -195,7 +212,9 @@ export function createApp(): express.Express {
 
   // Get one workflow (proxy)
   app.get('/v1/workflows/:id', async (req, res) => {
-    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}`);
+    const id = idGate(req, res);
+    if (id === null) return;
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}`);
     res.status(r.status).json(r.body);
   });
 
@@ -208,6 +227,9 @@ export function createApp(): express.Express {
     }
     if (template != null && (typeof template !== 'string' || !/^[a-z0-9-]{1,64}$/.test(template))) {
       return res.status(400).json({ error: 'invalid_template', message: 'unknown template (see GET /v1/templates)' });
+    }
+    if (template != null && definition != null) {
+      return res.status(400).json({ error: 'ambiguous_source', message: 'pass either template or definition, not both' });
     }
     const fromTemplate = Boolean(template && !definition);
     let payload: any = definition;
@@ -223,28 +245,93 @@ export function createApp(): express.Express {
     res.status(r.status).json(r.body);
   });
 
-  // Execute workflow (n8n webhook or manual trigger proxy)
+  // Update workflow name and/or definition (full SSRF validation — an edited
+  // definition is untrusted input exactly like a created one).
+  app.put('/v1/workflows/:id', async (req, res) => {
+    const id = String(req.params.id || '');
+    if (!id || id.length > 128 || /[\r\n]/.test(id)) return res.status(400).json({ error: 'invalid_id' });
+    const { name, definition } = (req.body || {}) as any;
+    if (name == null && definition == null) {
+      return res.status(400).json({ error: 'invalid_body', message: 'name and/or definition required' });
+    }
+    if (name != null && (typeof name !== 'string' || name.length === 0 || name.length > 200)) {
+      return res.status(400).json({ error: 'invalid_name', message: 'name must be 1..200 chars' });
+    }
+    let patch: any = {};
+    if (name != null) patch.name = name;
+    if (definition != null) {
+      const defErr = validateDefinition(definition);
+      if (defErr) return res.status(400).json({ error: 'invalid_definition', message: defErr });
+      patch = { ...patch, nodes: (definition as any).nodes || [], connections: (definition as any).connections || {} };
+    }
+    // n8n PUT requires full nodes — and we never wipe server-side settings:
+    // merge onto the current definition (rename-only and settings preserve).
+    // A `settings` key inside `definition`, if any, is intentionally ignored.
+    const cur = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}`);
+    if (cur.status !== 200) return res.status(cur.status).json(cur.body);
+    patch = {
+      nodes: patch.nodes ?? cur.body?.nodes ?? [],
+      connections: patch.connections ?? cur.body?.connections ?? {},
+      settings: cur.body?.settings ?? {},
+      ...(patch.name != null ? { name: patch.name } : {}),
+    };
+    let patchSize = 0;
+    try { patchSize = Buffer.byteLength(JSON.stringify(patch), 'utf8'); } catch { return res.status(400).json({ error: 'invalid_body' }); }
+    if (patchSize > 200 * 1024) return res.status(400).json({ error: 'payload_too_large', message: 'definition ≤200KB' });
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    });
+    res.status(r.status).json(r.body);
+  });
+
+  // Execute workflow by firing its webhook trigger. n8n's public API has NO
+  // generic "run" endpoint — external execution means POSTing the input to
+  // the workflow's registered production webhook URL (active workflows only).
   app.post('/v1/workflows/:id/execute', async (req, res) => {
     const id = String(req.params.id || '');
     if (!id || id.length > 128 || /[\r\n]/.test(id)) return res.status(400).json({ error: 'invalid_id' });
     let bodySize = 0;
     try { bodySize = Buffer.byteLength(JSON.stringify(req.body || {}), 'utf8'); } catch { return res.status(400).json({ error: 'invalid_body' }); }
     if (bodySize > 200 * 1024) return res.status(400).json({ error: 'payload_too_large', message: 'execute body ≤200KB' });
-    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}/execute`, {
-      method: 'POST',
-      body: JSON.stringify(req.body || {}),
-    });
+    // 1. Load the workflow to find its webhook trigger path.
+    const wf = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}`);
+    if (wf.status !== 200) return res.status(wf.status).json(wf.body);
+    if (!wf.body?.active) {
+      return res.status(409).json({ error: 'workflow_inactive', message: 'Activate the workflow first (POST /v1/workflows/:id/activate) — n8n only serves webhooks of active workflows' });
+    }
+    const hook = findWebhookTrigger(wf.body);
+    if (!hook) {
+      return res.status(400).json({ error: 'no_webhook_trigger', message: 'This workflow has no webhook trigger — only webhook-triggered workflows can be executed via API' });
+    }
+    // 2. Fire the production webhook on our own n8n host (path comes from
+    // the stored workflow definition, never from caller input — no SSRF).
+    // The node's declared method is honored (a GET-only webhook fired with
+    // POST would 404 and look "inactive" — the old bug).
+    const hasBody = hook.method !== 'GET' && hook.method !== 'HEAD';
+    const r = await n8nFetch(`/webhook/${hook.path}`, {
+      method: hook.method,
+      body: hasBody ? JSON.stringify(req.body || {}) : undefined,
+    }, 25000);
+    // Deactivated between step 1 and 2 → n8n answers 404: translate to 409.
+    if (r.status === 404) {
+      return res.status(409).json({ error: 'workflow_inactive', message: 'n8n has no registered webhook for this path — the workflow may have been deactivated' });
+    }
     res.status(r.status).json(r.body);
   });
 
   // Activate / deactivate (proxy)
   app.post('/v1/workflows/:id/activate', async (req, res) => {
-    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}/activate`, { method: 'POST' });
+    const id = idGate(req, res);
+    if (id === null) return;
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}/activate`, { method: 'POST' });
     res.status(r.status).json(r.body);
   });
 
   app.post('/v1/workflows/:id/deactivate', async (req, res) => {
-    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(req.params.id)}/deactivate`, { method: 'POST' });
+    const id = idGate(req, res);
+    if (id === null) return;
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
     res.status(r.status).json(r.body);
   });
 
@@ -255,7 +342,11 @@ export function createApp(): express.Express {
     const qs = new URLSearchParams();
     for (const k of allow) {
       const v = req.query[k];
-      if (typeof v === 'string' && v.length <= 256) qs.set(k, v);
+      if (typeof v !== 'string' || v.length > 256) continue;
+      if ((k === 'limit' || k === 'offset') && !/^\d{1,4}$/.test(v)) {
+        return res.status(400).json({ error: 'invalid_query', message: `${k} must be a 0..9999 integer` });
+      }
+      qs.set(k, v);
     }
     const suffix = [...qs].length ? `?${qs.toString()}` : '';
     const r = await n8nFetch(`/api/v1/executions${suffix}`);
@@ -264,7 +355,17 @@ export function createApp(): express.Express {
 
   // Get one execution (proxy)
   app.get('/v1/executions/:id', async (req, res) => {
-    const r = await n8nFetch(`/api/v1/executions/${encodeURIComponent(req.params.id)}`);
+    const id = idGate(req, res);
+    if (id === null) return;
+    const r = await n8nFetch(`/api/v1/executions/${encodeURIComponent(id)}`);
+    res.status(r.status).json(r.body);
+  });
+
+  // Delete a workflow on n8n.
+  app.delete('/v1/workflows/:id', async (req, res) => {
+    const id = idGate(req, res);
+    if (id === null) return;
+    const r = await n8nFetch(`/api/v1/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
     res.status(r.status).json(r.body);
   });
 
@@ -285,6 +386,9 @@ export function createApp(): express.Express {
     if (err?.status === 400 || err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && /JSON/i.test(err.message))) {
       return res.status(400).json({ error: 'invalid_json', message: 'Request body is not valid JSON' });
     }
+    if (err?.status === 413 || err?.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'payload_too_large', message: 'Request body exceeds the size limit' });
+    }
     res.status(500).json({ error: 'internal' });
   });
   return app;
@@ -299,6 +403,37 @@ export function listTemplates() {
 }
 
 export { isBlockedUrl, validateDefinition, findSsrfUrl };
+
+/** Webhook trigger of a workflow: validated path + declared HTTP method. */
+export interface WebhookTrigger {
+  path: string;
+  method: string;
+}
+
+export function findWebhookTrigger(workflow: any): WebhookTrigger | null {
+  try {
+    const nodes = workflow?.nodes;
+    if (!Array.isArray(nodes)) return null;
+    for (const n of nodes) {
+      if ((n as any)?.type !== 'n8n-nodes-base.webhook') continue;
+      const p = String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '');
+      if (!p || p.length > 128) continue;
+      if (!/^[A-Za-z0-9_.\/-]+$/.test(p)) continue;
+      if (p.split('/').includes('..')) continue;
+      const raw = String((n as any)?.parameters?.httpMethod || 'POST').toUpperCase();
+      const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(raw) ? raw : 'POST';
+      return { path: p, method };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/** First webhook trigger path of a workflow definition, or null.
+ *  The path becomes a URL segment on OUR OWN n8n host only (never a
+ *  caller-supplied URL — no SSRF); '..' and overlong paths rejected. */
+export function findWebhookPath(workflow: any): string | null {
+  return findWebhookTrigger(workflow)?.path || null;
+}
 
 export function buildTemplate(name: string, workflowName?: string): any | null {
   const wname = workflowName || name;

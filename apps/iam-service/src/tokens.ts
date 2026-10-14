@@ -189,7 +189,7 @@ export async function createApiKeyRecord(accountId: string, userId: string | nul
     return { id: r.rows[0].id, value: raw, prefix };
   }
   const id = randomUUID();
-  __mem.apiKeys.set(hash, { id, account_id: accountId, user_id: userId, key_prefix: prefix, name, scopes, expires_at: expiresAt?.toISOString() || null, revoked_at: null });
+  __mem.apiKeys.set(hash, { id, account_id: accountId, user_id: userId, key_prefix: prefix, name, scopes, expires_at: expiresAt?.toISOString() || null, revoked_at: null, created_at: new Date().toISOString() });
   return { id, value: raw, prefix };
 }
 
@@ -206,6 +206,59 @@ export async function revokeApiKey(id: string): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** Lookup by id for tenant-scoped revoke (safe fields only). */
+export async function findApiKeyById(id: string): Promise<{ account_id: string } | null> {
+  if (useDb()) {
+    const r = await query('SELECT account_id FROM api_keys WHERE id=$1', [id]);
+    return r.rows[0] || null;
+  }
+  for (const rec of __mem.apiKeys.values()) {
+    if (rec.id === id) return { account_id: rec.account_id };
+  }
+  return null;
+}
+
+/** Safe key listing (id/prefix/metadata only — hashes and secret values NEVER leave the server). */
+export interface ApiKeyInfo {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string | null;
+}
+
+export async function listApiKeys(accountId: string): Promise<ApiKeyInfo[]> {
+  if (useDb()) {
+    const r = await query(
+      'SELECT id, name, key_prefix AS prefix, scopes, expires_at, revoked_at, created_at FROM api_keys WHERE account_id=$1 ORDER BY created_at DESC LIMIT 500',
+      [accountId],
+    );
+    return r.rows.map((x) => ({
+      id: x.id,
+      name: x.name,
+      prefix: x.prefix,
+      scopes: x.scopes || [],
+      expires_at: x.expires_at ? new Date(x.expires_at).toISOString() : null,
+      revoked_at: x.revoked_at ? new Date(x.revoked_at).toISOString() : null,
+      created_at: x.created_at ? new Date(x.created_at).toISOString() : null,
+    }));
+  }
+  return [...__mem.apiKeys.values()]
+    .filter((rec) => rec.account_id === accountId)
+    .slice(0, 500)
+    .map((rec) => ({
+      id: rec.id,
+      name: rec.name,
+      prefix: rec.key_prefix,
+      scopes: rec.scopes || [],
+      expires_at: rec.expires_at || null,
+      revoked_at: rec.revoked_at || null,
+      created_at: rec.created_at || null,
+    }));
 }
 
 export async function verifyApiKey(raw: string): Promise<{ account_id: string; scopes: string[] } | null> {

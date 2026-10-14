@@ -90,6 +90,37 @@ describe('synapsedx cli offline', () => {
     assert.deepEqual(last.body.definition, { nodes: [], connections: {} });
   });
 
+  it('workflows update PUTs name/definition', async () => {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cli-')), 'def.json');
+    fs.writeFileSync(f, JSON.stringify({ nodes: [{ type: 'x' }], connections: {} }));
+    const r = await run('--base', stubBase, 'workflows', 'update', 'w1', '--name', 'w2', '--file', f);
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'PUT');
+    assert.equal(last.path, '/v1/workflows/w1');
+    assert.equal(last.body.name, 'w2');
+    assert.deepEqual(last.body.definition, { nodes: [{ type: 'x' }], connections: {} });
+  });
+
+  it('workflows update without flags explains usage', async () => {
+    const r = await run('workflows', 'update', 'w1');
+    assert.equal(r.code, 1);
+    assert.match(r.stderr + r.stdout, /--name|--file/);
+  });
+
+  it('workflows delete hits the workflow path', async () => {
+    const r = await run('--base', stubBase, 'workflows', 'delete', 'w1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'DELETE');
+    assert.equal(last.path, '/v1/workflows/w1');
+  });
+
+  it('keys list hits the account keys path', async () => {
+    const r = await run('--base', stubBase, 'keys', 'list', 'a1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'GET');
+    assert.equal(last.path, '/v1/accounts/a1/keys');
+  });
+
   it('users create + policies hit encoded paths', async () => {
     const r = await run('--base', stubBase, 'users', 'create', 'org1', 'a@b.c', 'A');
     assert.equal(r.code, 0);

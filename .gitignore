@@ -1,6 +1,7 @@
 # synapsedx dependencies
 node_modules/
 dist/
+dist-ssr/
 build/
 *.log
 

@@ -64,13 +64,20 @@ configured). Upstreams trust these directly without re-verifying the JWT.
 - `POST /v1/roles/:roleId/attach {policyId}`
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
-- `POST /v1/authorize {userId, action, resource, context?}` → `{allowed, matchedBy}` (context is merged with DB-backed user/org/email)
+- `POST /v1/authorize {userId, action, resource, context?}` → `{allowed, matchedBy}` (context is merged with DB-backed user/org/email; unknown userId → `200 {allowed:false}` by contract, not 404)
+- `POST /v1/roles/:roleId/attach {policyId}` (policy must live in the role's account — `403 cross_account` otherwise); `POST /v1/users/:userId/assign {roleId}` (role's account must be in the user's org — `403 cross_org` otherwise)
+- Tenant isolation on every write: creating/attaching/assigning/deleting roles,
+  policies, keys, service accounts, accounts and users requires caller membership
+  in the target tenant (role-based, or same-org fallback; service-account tokens stay
+  strictly account-bound) — otherwise `403 forbidden`. Reads stay open; org creation
+  stays open (bootstrap).
 - `POST /v1/authorize/dry-run {documents[], action, resource, context?}` → `{allowed}` (simulator, no user needed)
 - `GET /v1/audit?limit=50&actor=<id>` → authorize-decision audit log (newest first, limit clamped 1..200)
 
 ## Keys
 
 - `POST /v1/accounts/:accountId/keys {name, scopes, expiresInSeconds?}` → `{apiKey (shown once), id, prefix}`
+- `GET /v1/accounts/:accountId/keys` → key metadata list (id/name/prefix/scopes/expiry/revoked — never secret values)
 - `POST /v1/keys/verify {apiKey}` → `{valid, account_id, scopes}`
 - `DELETE /v1/keys/:id` → revokes the key
 
@@ -85,15 +92,17 @@ configured). Upstreams trust these directly without re-verifying the JWT.
 - `GET /v1/templates` / `GET /v1/templates/:name`
 - `GET /v1/workflows` (n8n proxy)
 - `GET /v1/workflows/:id` (n8n proxy)
+- `DELETE /v1/workflows/:id` (n8n proxy)
 - `POST /v1/workflows/:id/activate` / `POST /v1/workflows/:id/deactivate` (n8n proxy)
 - `POST /v1/workflows {name, template} | {name, definition}`
-- `POST /v1/workflows/:id/execute {input}`
+- `PUT /v1/workflows/:id {name?, definition?}` (SSRF/size-validated, ≤200KB; merged onto current nodes, server-side settings preserved)
+- `POST /v1/workflows/:id/execute {input}` (fires the workflow's webhook trigger — must be active: 409 `workflow_inactive` when off, 400 `no_webhook_trigger` when it has no webhook node)
 - `GET /v1/executions` (only an allowlist of query params is forwarded: `limit, offset, workflowId, status, includeData`) / `GET /v1/executions/:id`
 
 ## Health / Metrics
 
 - `GET /health` (each service + gateway)
-- `GET /ready` (gateway: aggregates iam + workflow, 503 when degraded)
+- `GET /ready` (gateway: aggregates iam + workflow + ai, 503 when degraded)
 - `GET /metrics` (gateway, Prometheus)
 
 ## Tracing

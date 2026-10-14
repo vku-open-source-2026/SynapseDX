@@ -387,6 +387,16 @@ Revokes an API key.
 synapsedx keys revoke key_abc123
 ```
 
+#### `keys list`
+```bash
+synapsedx keys list <account>
+```
+Lists key metadata (id/prefix only — never secret values).
+
+```bash
+synapsedx keys list acc_abc123
+```
+
 #### `keys verify`
 ```bash
 synapsedx keys verify <api-key>
@@ -494,6 +504,26 @@ Triggers a manual execution (proxied to the engine).
 
 ```bash
 synapsedx workflows exec wf_abc123
+```
+
+#### `workflows update`
+```bash
+synapsedx workflows update <workflow-id> [--name <name>] [--file <definition.json>]
+```
+Updates a workflow's name and/or n8n definition (at least one of `--name`/`--file`).
+
+```bash
+synapsedx workflows update wf_abc123 --name renamed
+```
+
+#### `workflows delete`
+```bash
+synapsedx workflows delete <workflow-id>
+```
+Deletes a workflow on the engine (`rm` is an alias).
+
+```bash
+synapsedx workflows delete wf_abc123
 ```
 
 ### Templates

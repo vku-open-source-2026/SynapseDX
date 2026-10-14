@@ -193,6 +193,10 @@ class SynapseDXClient:
     def revoke_api_key(self, key_id: str) -> dict:
         return self._req("DELETE", f"/v1/keys/{quote(key_id, safe='')}")
 
+    def list_api_keys(self, account_id: str) -> Any:
+        """List key metadata (id/prefix only — never secret values)."""
+        return self._req("GET", f"/v1/accounts/{quote(account_id, safe='')}/keys")
+
     def verify_api_key(self, api_key: str) -> dict:
         """Check a raw API key via the internal verify endpoint."""
         return self._req("POST", "/v1/keys/verify", {"apiKey": api_key})
@@ -282,6 +286,21 @@ class SynapseDXClient:
         return self._req(
             "POST", "/v1/workflows", {"name": name, "definition": definition}
         )
+
+    def update_workflow(
+        self, wf_id: str, name: str | None = None, definition: dict | None = None
+    ) -> Any:
+        """Update a workflow's name and/or definition."""
+        patch: dict = {}
+        if name is not None:
+            patch["name"] = name
+        if definition is not None:
+            patch["definition"] = definition
+        return self._req("PUT", f"/v1/workflows/{quote(wf_id, safe='')}", patch)
+
+    def delete_workflow(self, wf_id: str) -> Any:
+        """Delete a workflow on the engine."""
+        return self._req("DELETE", f"/v1/workflows/{quote(wf_id, safe='')}")
 
     def list_executions(self, query: str = "") -> Any:
         """Proxy the engine execution list (e.g. query='limit=20')."""

@@ -35,6 +35,7 @@ class Echo(BaseHTTPRequestHandler):
 
     do_GET = _send
     do_POST = _send
+    do_PUT = _send
     do_DELETE = _send
 
     def log_message(self, *a):  # silent
@@ -116,5 +117,12 @@ def test_full_coverage_paths():
         doc = {"Statement": [{"Effect": "Allow", "Action": "*", "Resource": "*"}]}
         c.create_workflow("n", doc)
         assert _seen["path"] == "/v1/workflows"
+        c.update_workflow("w1", name="renamed")
+        assert _seen["path"] == "/v1/workflows/w1"
+        c.delete_workflow("w1")
+        assert _seen["path"] == "/v1/workflows/w1"
+        assert _seen["method"] == "DELETE"
+        c.list_api_keys("a1")
+        assert _seen["path"] == "/v1/accounts/a1/keys"
     finally:
         srv.shutdown()

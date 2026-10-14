@@ -5,11 +5,12 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
-import { baseUrl } from '../lib/api.js';
+import { api } from '../lib/api.js';
 import { GROUPS } from '../lib/endpoints.js';
 import { Badge, Card, Code, Err, PageTitle } from '../components/ui.jsx';
+import Chatbot from '../components/Chatbot.jsx';
 
-const METHOD_TONE = { GET: 'blue', POST: 'green', DELETE: 'red' };
+const METHOD_TONE = { GET: 'blue', POST: 'green', PUT: 'amber', DELETE: 'red' };
 
 export default function ApiDocs() {
   const { headers, auth } = useAuth();
@@ -51,27 +52,36 @@ export default function ApiDocs() {
           throw new Error('Body is not valid JSON');
         }
       }
-      const h = { 'Content-Type': 'application/json' };
-      if (headers.token) h.Authorization = `Bearer ${headers.token}`;
-      if (headers.apiKey) h['X-API-Key'] = headers.apiKey;
-      const r = await fetch(`${baseUrl()}${p}`, {
-        method: e.method,
-        headers: h,
-        body: e.method === 'GET' ? undefined : JSON.stringify(payload),
-      });
-      const text = await r.text();
-      let data = text;
+      // api.call goes through the session client: expired access tokens
+      // rotate silently instead of 401ing until a full reload.
+      // HTTP errors still surface with their real status + body below.
       try {
-        data = text ? JSON.parse(text) : null;
-      } catch {
-        /* keep text */
+        const data = await api.call(e.method, p, e.method === 'GET' ? undefined : payload, headers);
+        setOut({ status: 200, body: data });
+      } catch (ex) {
+        if (ex && typeof ex.status === 'number') setOut({ status: ex.status, body: ex.body ?? null });
+        else throw ex;
       }
-      setOut({ status: r.status, body: data });
     } catch (ex) {
       setErr(ex);
     } finally {
       setBusy(false);
     }
+  };
+
+  // Chatbot "Open in docs": load the agent suggestion into the try-it form below.
+  const openInDocs = (sug, sugBody, sugPathVals) => {
+    const g = GROUPS.find((x) => x.endpoints.some((e) => e.method === sug.method && e.path === sug.path));
+    if (!g) return false;
+    setBody(sugBody);
+    setPathVals(sugPathVals);
+    setOut(null);
+    setErr(null);
+    setOpen(`${g.name}:${sug.method}:${sug.path}`);
+    requestAnimationFrame(() => {
+      document.getElementById('api-groups')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return true;
   };
 
   return (
@@ -85,6 +95,7 @@ export default function ApiDocs() {
           </p>
         </Card>
       )}
+      <div id="api-groups">
       {GROUPS.map((g) => (
         <Card key={g.name} className="mb-4">
           <h3 className="font-semibold text-main-text mb-2">{g.name}</h3>
@@ -149,6 +160,8 @@ export default function ApiDocs() {
           </div>
         </Card>
       ))}
+      </div>
+      <Chatbot auth={auth} headers={headers} onOpenInDocs={openInDocs} />
     </>
   );
 }

@@ -328,7 +328,12 @@ async function cmdKeys(o) {
     need(rest[0] || o.apikey, 'api-key (arg or --apikey)');
     return out(await POST('/v1/keys/verify', { apiKey: rest[0] || o.apikey }, o), o);
   }
-  throw new Error(`usage: keys create <account> [--name N] | keys revoke <key-id> | keys verify <api-key>`);
+  if (sub === 'list') {
+    need(rest[0], 'account');
+    const r = await GET(`/v1/accounts/${encodeURIComponent(rest[0])}/keys`, o);
+    return out(Array.isArray(r) ? r : [], o, ['id', 'name', 'prefix', 'revoked_at']);
+  }
+  throw new Error(`usage: keys create <account> [--name N] | keys list <account> | keys revoke <key-id> | keys verify <api-key>`);
 }
 async function cmdSa(o) {
   const [sub, ...rest] = o._;
@@ -376,6 +381,23 @@ async function cmdWorkflows(o) {
   if (sub === 'exec' || sub === 'execute') {
     need(rest[0], 'workflow-id');
     return out(await POST(`/v1/workflows/${encodeURIComponent(rest[0])}/execute`, {}, o), o);
+  }
+  if (sub === 'update') {
+    need(rest[0], 'workflow-id');
+    const patch = {};
+    if (o.name) patch.name = o.name;
+    if (o.file) {
+      const raw = readJson(o.file);
+      patch.definition = raw && raw.definition ? raw.definition : raw;
+    }
+    if (!patch.name && !patch.definition) {
+      throw new Error(`workflows update needs --name N and/or --file definition.json`);
+    }
+    return out(await req('PUT', `/v1/workflows/${encodeURIComponent(rest[0])}`, patch, o), o);
+  }
+  if (sub === 'delete' || sub === 'rm') {
+    need(rest[0], 'workflow-id');
+    return out(await DEL(`/v1/workflows/${encodeURIComponent(rest[0])}`, o), o);
   }
   throw new Error(`unknown workflows subcommand '${sub}'`);
 }
@@ -426,9 +448,9 @@ const COMMANDS = {
   authz: { fn: cmdAuthz, use: 'authz <user> <action> <resource> [--context k=v]', doc: 'Authorize check' },
   sim: { fn: cmdSim, use: 'sim --file policy.json <action> <resource> [--context k=v]', doc: 'Policy simulator' },
   audit: { fn: cmdAudit, use: 'audit [--limit N] [--actor ID]', doc: 'Audit log' },
-  keys: { fn: cmdKeys, use: 'keys create <account> [--name N] | keys revoke <key-id> | keys verify <api-key>', doc: 'API keys' },
+  keys: { fn: cmdKeys, use: 'keys create <account> [--name N] | keys list <account> | keys revoke <key-id> | keys verify <api-key>', doc: 'API keys' },
   sa: { fn: cmdSa, use: 'sa <account> [list] | sa create <account> <slug> | sa token <sa-id>', doc: 'Service accounts' },
-  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows create --file def.json [--name N] | workflows get|activate|deactivate|exec <id>', doc: 'Workflows (n8n)' },
+  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows create --file def.json [--name N] | workflows get|activate|deactivate|exec|update|delete [--name N] [--file def.json] <id>', doc: 'Workflows (n8n)' },
   executions: { fn: cmdExecutions, use: 'executions [list] [--limit N] | executions <id>', doc: 'Workflow executions' },
   templates: { fn: cmdTemplates, use: 'templates [list|<name>]', doc: 'Built-in templates' },
 };

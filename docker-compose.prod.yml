@@ -27,6 +27,12 @@ services:
       HSTS_ENABLED: "true"
     ports: !reset []
 
+  ai:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+    ports: !reset []
+
   n8n:
     environment:
       NODE_ENV: production

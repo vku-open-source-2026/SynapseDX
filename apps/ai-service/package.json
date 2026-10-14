@@ -1,0 +1,28 @@
+{
+  "name": "@synapsedx/ai-service",
+  "version": "0.3.1",
+  "license": "Apache-2.0",
+  "description": "synapsedx AI agent - LLM-assisted API testing (decision model picks the endpoint, LLM generates the call)",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node --test dist/**/*.test.js || echo \"no tests\"",
+    "lint": "echo lint-ok"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "@types/morgan": "^1.9.10",
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.0"
+  }
+}

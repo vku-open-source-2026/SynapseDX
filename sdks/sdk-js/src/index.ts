@@ -137,6 +137,9 @@ export class SynapseDXClient {
   revokeApiKey(keyId: string) {
     return this.req(`/v1/keys/${encodeURIComponent(keyId)}`, { method: 'DELETE' });
   }
+  listApiKeys(accountId: string) {
+    return this.req(`/v1/accounts/${encodeURIComponent(accountId)}/keys`);
+  }
   verifyApiKey(apiKey: string) {
     return this.req(`/v1/keys/verify`, { method: 'POST', body: JSON.stringify({ apiKey }) });
   }
@@ -166,6 +169,12 @@ export class SynapseDXClient {
   }
   createWorkflow(name: string, definition: any) {
     return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ name, definition }) });
+  }
+  updateWorkflow(id: string, patch: { name?: string; definition?: any }) {
+    return this.req(`/v1/workflows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) });
+  }
+  deleteWorkflow(id: string) {
+    return this.req(`/v1/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
   listTemplates() { return this.req('/v1/templates'); }
   getTemplate(name: string) { return this.req(`/v1/templates/${encodeURIComponent(name)}`); }

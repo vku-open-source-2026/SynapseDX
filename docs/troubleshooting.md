@@ -1,5 +1,37 @@
 # Troubleshooting
 
+## 502 from nginx right after recreating `console`/`gateway`
+
+nginx resolves `upstream` hostnames once at (re)load and caches the container IP.
+Recreating a container changes its IP → `connect() failed (111: Connection refused)`
+in `docker logs synapsedx-nginx-1`. Fix without downtime:
+
+```bash
+docker exec synapsedx-nginx-1 nginx -s reload
+```
+
+Rule of thumb for prod: always deploy with both files
+(`docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build …`)
+and reload nginx afterwards whenever `console` or `gateway` was recreated.
+
+## Chatbot answers 502 `llm_error` / `endpoint_not_found`
+
+- `LLM returned no content` / `did not return valid JSON`: free-tier reasoning
+  models intermittently return empty/truncated replies — the service retries
+  `AI_RETRIES` times (default 2) then tries a different-provider fallback model
+  (`AI_LLM_FALLBACK_MODEL`); persistent failures mean the providers are having a
+  bad spell, try alternative models.
+- `User not found` 401 from OpenRouter: the key is a provisioning key — use a normal
+  API key for `AI_API_KEY`.
+- `endpoint_not_found` for how-to questions is by design: the agent answers with
+  `guidance` text instead of a try-it form (no single endpoint fits).
+
+## Blank white page after navigating in the Console
+
+A render error used to unmount the whole app. Current builds wrap all routes in an
+`ErrorBoundary`: you get a recovery card (Reload / Dashboard) plus a `[console]
+render failed` log line with the component stack — paste both when reporting.
+
 ## Port already in use (EADDRINUSE / Bind for ... failed)
 
 Dev machines often already run something (e.g. a web server on `:8080`, Postgres on

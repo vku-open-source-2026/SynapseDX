@@ -123,13 +123,16 @@ describe('iam defense-in-depth', () => {
     const h = { Authorization: `Bearer ${login.data.accessToken}` };
     const orgs = await call('GET', '/v1/orgs', undefined, h);
     const orgId = orgs.data[0].id;
-    assert.equal((await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'BAD!!' }, h)).status, 400);
-    const role = await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'ok-role' }, h);
+    const acc = await call('POST', `/v1/orgs/${orgId}/accounts`, { slug: 'valacc', displayName: 'Val Acc' }, h);
+    assert.equal(acc.status, 201);
+    const accId = acc.data.id;
+    assert.equal((await call('POST', `/v1/accounts/${accId}/roles`, { slug: 'BAD!!' }, h)).status, 400);
+    const role = await call('POST', `/v1/accounts/${accId}/roles`, { slug: 'ok-role' }, h);
     assert.equal(role.status, 201);
     // Single-char slugs are legitimate (e2e uses "r"/"p") — must be 201, not 400.
-    const tiny = await call('POST', `/v1/accounts/${orgId}/roles`, { slug: 'r' }, h);
+    const tiny = await call('POST', `/v1/accounts/${accId}/roles`, { slug: 'r' }, h);
     assert.equal(tiny.status, 201);
-    assert.equal((await call('POST', `/v1/accounts/${orgId}/keys`, { name: 'k', scopes: 'not-array' }, h)).status, 400);
+    assert.equal((await call('POST', `/v1/accounts/${accId}/keys`, { name: 'k', scopes: 'not-array' }, h)).status, 400);
     assert.equal((await call('POST', '/v1/authorize', { userId: 'u', action: 'x'.repeat(600), resource: '*' }, h)).status, 400);
   });
 

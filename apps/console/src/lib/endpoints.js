@@ -50,6 +50,7 @@ export const GROUPS = [
     name: 'API Keys & Service Accounts',
     endpoints: [
       { method: 'POST', path: '/v1/accounts/:accountId/keys', auth: 'either', desc: 'Create a key (shown once)', body: { name: 'demo' } },
+      { method: 'GET', path: '/v1/accounts/:accountId/keys', auth: 'either', desc: 'List key metadata (id/prefix only, never secrets)' },
       { method: 'POST', path: '/v1/keys/verify', auth: 'either', desc: 'Verify a key', body: { apiKey: '<key>' } },
       { method: 'DELETE', path: '/v1/keys/:id', auth: 'either', desc: 'Revoke a key' },
       { method: 'GET', path: '/v1/accounts/:accountId/service-accounts', auth: 'either', desc: 'Service accounts' },
@@ -65,6 +66,8 @@ export const GROUPS = [
       { method: 'GET', path: '/v1/workflows', auth: 'either', desc: 'Workflows on n8n (proxied)' },
       { method: 'POST', path: '/v1/workflows', auth: 'either', desc: 'Create from a template', body: { template: 'webhook-to-log', name: 'demo' } },
       { method: 'GET', path: '/v1/workflows/:id', auth: 'either', desc: 'Workflow details' },
+      { method: 'DELETE', path: '/v1/workflows/:id', auth: 'either', desc: 'Delete a workflow on n8n' },
+      { method: 'PUT', path: '/v1/workflows/:id', auth: 'either', desc: 'Update name/definition', body: { name: 'demo', definition: { nodes: [], connections: {} } } },
       { method: 'POST', path: '/v1/workflows/:id/activate', auth: 'either', desc: 'Activate' },
       { method: 'POST', path: '/v1/workflows/:id/deactivate', auth: 'either', desc: 'Deactivate' },
       { method: 'POST', path: '/v1/workflows/:id/execute', auth: 'either', desc: 'Execute manually', body: {} },

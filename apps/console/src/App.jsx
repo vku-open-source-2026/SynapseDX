@@ -8,6 +8,8 @@ import { useAuth } from './lib/auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Topbar from './components/Topbar.jsx';
 import PublicHeader from './components/PublicHeader.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
+import { ScopeProvider } from './components/Scope.jsx';
 import Login from './pages/Login.jsx';
 import OidcCallback from './pages/OidcCallback.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -55,22 +57,38 @@ function PublicLayout({ children }) {
 function ConsoleLayout({ children }) {
   return (
     <div className="min-h-screen">
-      <Sidebar />
-      <Topbar />
-      <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-8 pb-12 max-w-6xl">{children}</main>
+      <ScopeProvider>
+        <Sidebar />
+        <Topbar />
+        <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-8 pb-12 max-w-6xl">{children}</main>
+      </ScopeProvider>
     </div>
   );
 }
 
+// Docs pages: public when anonymous, console layout (sidebar) once signed in.
+function DocsLayout({ children }) {
+  const { auth } = useAuth();
+  return auth ? <ConsoleLayout>{children}</ConsoleLayout> : <PublicLayout>{children}</PublicLayout>;
+}
+
+// Reset the error boundary on navigation: a recovered route must not keep
+// showing a previous page's fallback.
+function ResettingBoundary({ children }) {
+  const { pathname } = useLocation();
+  return <ErrorBoundary key={pathname}>{children}</ErrorBoundary>;
+}
+
 export default function App() {
   return (
+    <ResettingBoundary>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/welcome" element={<Navigate to="/" replace />} />
       <Route path="/login" element={<Login />} />
       <Route path="/oidc/callback" element={<OidcCallback />} />
-      <Route path="/api-docs" element={<PublicLayout><ApiDocs /></PublicLayout>} />
-      <Route path="/docs" element={<PublicLayout><Docs /></PublicLayout>} />
+      <Route path="/api-docs" element={<DocsLayout><ApiDocs /></DocsLayout>} />
+      <Route path="/docs" element={<DocsLayout><Docs /></DocsLayout>} />
       <Route path="/dashboard" element={<Guard><ConsoleLayout><Dashboard /></ConsoleLayout></Guard>} />
       <Route path="/orgs" element={<Guard><ConsoleLayout><Orgs /></ConsoleLayout></Guard>} />
       <Route path="/accounts" element={<Guard><ConsoleLayout><Accounts /></ConsoleLayout></Guard>} />
@@ -84,5 +102,6 @@ export default function App() {
       <Route path="/audit" element={<Guard><ConsoleLayout><Audit /></ConsoleLayout></Guard>} />
       <Route path="*" element={<Landing />} />
     </Routes>
+    </ResettingBoundary>
   );
 }

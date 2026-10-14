@@ -12,10 +12,11 @@ import {
   createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
   attachPolicy, assignRole, policiesForUser, useDb, deleteRole, deletePolicy,
   createServiceAccount, listServiceAccounts, getServiceAccount,
-  listRoles, listPolicies, logAudit, listAudit, roleExists, policyExists,
+  listRoles, listPolicies, logAudit, listAudit, purgeAudit,
+  getRoleById, getPolicyById, getAccountById, accountsForUser, getOrgById,
 } from './db';
 import { evaluatePolicies, validatePolicyDocument } from './policy';
-import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess } from './tokens';
+import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess, listApiKeys, findApiKeyById } from './tokens';
 import { secretsEqual } from './db';
 import { signState, exchangeCode, oidcSettings, OidcError } from './oidc';
 
@@ -57,6 +58,92 @@ function capContext(ctx: any, maxBytes = 8192): any {
 }
 function noStore(res: express.Response): void {
   res.setHeader('Cache-Control', 'no-store');
+}
+/** Tenant membership of the caller: account ids they may act for.
+ *  Prefers the gateway-stamped header (verified principal) — but ONLY when
+ *  the internal secret is configured (prod): without it, direct callers could
+ *  spoof any x-synapsedx-* header, so stamped values are ignored and the
+ *  presented credential is always verified directly. Null = unresolvable. */
+async function resolveCallerAccounts(req: express.Request, trustStamped: boolean): Promise<string[] | null> {
+  if (trustStamped) {
+    const stamped = firstHeader(req.headers['x-synapsedx-account'] as any);
+    if (stamped) return [stamped];
+  }
+  const h = firstHeader(req.headers.authorization as any);
+  if (h.startsWith('Bearer ')) {
+    try {
+      const claims = verifyAccess(h.slice(7));
+      if (claims.account) return [claims.account];
+      if (claims.sub) return await accountsForUser(claims.sub);
+      return [];
+    } catch {
+      return null;
+    }
+  }
+  const apiKey = firstHeader(req.headers['x-api-key'] as any);
+  if (apiKey) {
+    try {
+      const rec = await verifyApiKey(apiKey);
+      return rec?.account_id ? [rec.account_id] : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** Owning org of the caller (same stamped-trust rule as accounts).
+ *  Service-account (machine) tokens are strictly account-bound → null. */
+async function resolveCallerOrg(req: express.Request, trustStamped: boolean): Promise<string | null> {
+  if (trustStamped) {
+    const so = firstHeader(req.headers['x-synapsedx-org'] as any);
+    if (so) return so;
+  }
+  const h = firstHeader(req.headers.authorization as any);
+  if (h.startsWith('Bearer ')) {
+    try {
+      const claims = verifyAccess(h.slice(7));
+      if (claims.kind === 'service-account') return null;
+      if (!claims.sub) return null;
+      const user = await getUserById(claims.sub);
+      return user?.org_id || null;
+    } catch {
+      return null;
+    }
+  }
+  const apiKey = firstHeader(req.headers['x-api-key'] as any);
+  if (apiKey) {
+    try {
+      const rec = await verifyApiKey(apiKey);
+      if (!rec?.account_id) return null;
+      const acc = await getAccountById(rec.account_id);
+      return acc?.org_id || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** May the caller act for `accountId`? Role-based account membership first,
+ *  then same-org fallback (login JWTs carry org but no account, and fresh
+ *  users hold no roles yet — without this the bootstrap flow could never mint
+ *  its first token). Tenant boundary stays the org. Machine
+ *  (service-account) tokens are account-bound: no org fallback. */
+async function canActForAccount(req: express.Request, trustStamped: boolean, accountId: string): Promise<boolean> {
+  const accounts = await resolveCallerAccounts(req, trustStamped);
+  if (accounts && accounts.includes(accountId)) return true;
+  const org = await resolveCallerOrg(req, trustStamped);
+  if (!org) return false;
+  const acc = await getAccountById(accountId);
+  return !!acc && acc.org_id === org;
+}
+
+/** May the caller act for `orgId`? Same stamped-trust rule; service-account
+ *  tokens are account-scoped, never org-scoped. */
+async function canActForOrg(req: express.Request, trustStamped: boolean, orgId: string): Promise<boolean> {
+  const org = await resolveCallerOrg(req, trustStamped);
+  return !!org && org === orgId;
 }
 export function isDevLoginEnabled(): boolean {
   if (IS_PROD) return false; // fail-closed in production regardless of env
@@ -143,6 +230,27 @@ export function createApp(): express.Express {
   if (!INTERNAL_SECRET) {
     console.warn('[iam][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production so only the gateway can reach IAM.');
   }
+  // Stamped x-synapsedx-* headers are trusted ONLY when the secret is set:
+  // without it, direct callers could spoof any tenant header (dev default).
+  const TRUST_STAMPED = INTERNAL_SECRET.length > 0;
+  // Audit retention (opt-in): hourly purge of rows older than N days.
+  // Default 0 = disabled (zero behavior change); prod sets e.g. 180.
+  const RETENTION_DAYS = (() => {
+    const n = Number(process.env.AUDIT_RETENTION_DAYS || 0);
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 3650) : 0;
+  })();
+  if (RETENTION_DAYS > 0) {
+    const sweep = () => {
+      purgeAudit(RETENTION_DAYS).then(
+        (n) => {
+          if (n > 0) console.log(`[iam] audit retention: purged ${n} rows older than ${RETENTION_DAYS}d`);
+        },
+        (e) => console.error('[iam] audit retention failed:', e?.message || e),
+      );
+    };
+    setInterval(sweep, 60 * 60 * 1000).unref?.();
+    setTimeout(sweep, 30_000).unref?.();
+  }
   const PUBLIC_PREFIXES = ['/v1/auth/'];
   const PUBLIC_EXACT = new Set(['/v1/auth']);
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -165,7 +273,7 @@ export function createApp(): express.Express {
       if (apiKey) {
         verifyApiKey(apiKey).then(
           (rec) => (rec ? next() : res.status(401).json({ error: 'invalid_api_key' })),
-          (e) => next(e),
+          () => res.status(503).json({ error: 'iam_unavailable', message: 'credential store unreachable' }),
         );
         return;
       }
@@ -183,7 +291,7 @@ export function createApp(): express.Express {
     if (apiKey) {
       verifyApiKey(apiKey).then(
         (rec) => (rec ? next() : res.status(401).json({ error: 'invalid_api_key' })),
-        (e) => next(e),
+        () => res.status(503).json({ error: 'iam_unavailable', message: 'credential store unreachable' }),
       );
       return;
     }
@@ -333,7 +441,7 @@ export function createApp(): express.Express {
   // hợp lệ; caller nghi ngờ gọi /v1/auth/logout-all).
   app.post('/v1/auth/refresh', async (req, res) => {
     const { refreshToken } = (req.body || {}) as any;
-    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+    if (!refreshToken) return res.status(400).json({ error: 'invalid_refresh_token', message: 'refreshToken required' });
     const rec = await consumeAndRevokeRefresh(refreshToken);
     if (!rec) {
       const owner = await findRefreshOwner(refreshToken).catch(() => null);
@@ -351,7 +459,7 @@ export function createApp(): express.Express {
   // Logout: thu hồi refresh token.
   app.post('/v1/auth/logout', async (req, res) => {
     const { refreshToken } = (req.body || {}) as any;
-    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+    if (!refreshToken) return res.status(400).json({ error: 'invalid_refresh_token', message: 'refreshToken required' });
     await revokeRefresh(refreshToken);
     res.json({ ok: true });
   });
@@ -360,7 +468,7 @@ export function createApp(): express.Express {
   // rồi thu hồi TẤT CẢ session của chính user đó (không nhận userId tùy ý).
   app.post('/v1/auth/logout-all', async (req, res) => {
     const { refreshToken } = (req.body || {}) as any;
-    if (!refreshToken) return res.status(400).json({ error: 'refreshToken required' });
+    if (!refreshToken) return res.status(400).json({ error: 'invalid_refresh_token', message: 'refreshToken required' });
     const rec = await consumeRefresh(refreshToken);
     if (!rec) return res.status(401).json({ error: 'invalid_refresh' });
     const revoked = await revokeAllRefresh(rec.user_id);
@@ -396,7 +504,7 @@ export function createApp(): express.Express {
       if (!rec) return res.status(401).json({ valid: false });
       return res.json({ valid: true, type: 'apikey', ...rec });
     }
-    return res.status(400).json({ error: 'provide Bearer or X-API-Key' });
+    return res.status(400).json({ error: 'credential_required', message: 'provide Bearer or X-API-Key' });
   });
 
   // ---------- Organizations ----------
@@ -430,6 +538,10 @@ export function createApp(): express.Express {
         displayName: z.string().trim().min(2).max(200),
       });
       const b = schema.parse(req.body);
+      if (!(await getOrgById(req.params.orgId))) return res.status(404).json({ error: 'org_not_found' });
+      if (!(await canActForOrg(req, TRUST_STAMPED, req.params.orgId))) {
+        return res.status(403).json({ error: 'forbidden', message: 'organization belongs to another tenant' });
+      }
       res.status(201).json(await createAccount(req.params.orgId, b.slug, sanitizeName(b.displayName)));
     } catch (e: any) {
       if (e?.code === '23505' || e?.status === 409) {
@@ -450,7 +562,11 @@ export function createApp(): express.Express {
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
+    if (!(await getOrgById(req.params.orgId))) return res.status(404).json({ error: 'org_not_found' });
     const { email, displayName } = parsed.data;
+    if (!(await canActForOrg(req, TRUST_STAMPED, req.params.orgId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'organization belongs to another tenant' });
+    }
     res.status(201).json(await upsertUser(req.params.orgId, email, displayName ? sanitizeName(displayName) : undefined));
   });
 
@@ -471,6 +587,10 @@ export function createApp(): express.Express {
     if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.status(201).json(await createRole(req.params.accountId, slug, sanitizeName(description || '')));
   });
 
@@ -481,6 +601,11 @@ export function createApp(): express.Express {
 
   app.delete('/v1/roles/:roleId', async (req, res) => {
     if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
+    const role = await getRoleById(req.params.roleId);
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, role.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'role belongs to another tenant' });
+    }
     const ok = await deleteRole(req.params.roleId);
     if (!ok) return res.status(404).json({ error: 'role_not_found' });
     res.json({ ok: true });
@@ -495,6 +620,10 @@ export function createApp(): express.Express {
     }
     const docErr = validatePolicyDocument(document);
     if (docErr) return res.status(400).json({ error: 'invalid_document', message: docErr });
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.status(201).json(await createPolicy(req.params.accountId, slug, sanitizeName(description || ''), document));
   });
 
@@ -505,6 +634,11 @@ export function createApp(): express.Express {
 
   app.delete('/v1/policies/:policyId', async (req, res) => {
     if (!isUuid(req.params.policyId)) return res.status(400).json({ error: 'invalid_id', message: 'policyId must be a UUID' });
+    const pol = await getPolicyById(req.params.policyId);
+    if (!pol) return res.status(404).json({ error: 'policy_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, pol.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'policy belongs to another tenant' });
+    }
     const ok = await deletePolicy(req.params.policyId);
     if (!ok) return res.status(404).json({ error: 'policy_not_found' });
     res.json({ ok: true });
@@ -512,21 +646,40 @@ export function createApp(): express.Express {
 
   app.post('/v1/roles/:roleId/attach', async (req, res) => {
     if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
-    if (!req.body?.policyId) return res.status(400).json({ error: 'policyId required' });
-    if (typeof req.body.policyId === 'string' && !isUuid(req.body.policyId)) return res.status(404).json({ error: 'policy_not_found' });
-    const [roleOk, polOk] = await Promise.all([roleExists(req.params.roleId), policyExists(req.body.policyId)]);
-    if (!roleOk) return res.status(404).json({ error: 'role_not_found' });
-    if (!polOk) return res.status(404).json({ error: 'policy_not_found' });
+    if (!req.body?.policyId) return res.status(400).json({ error: 'invalid_policyId', message: 'policyId required' });
+    if (typeof req.body.policyId !== 'string' || !isUuid(req.body.policyId)) {
+      return res.status(400).json({ error: 'invalid_policyId', message: 'policyId must be a UUID' });
+    }
+    const [role, pol] = await Promise.all([getRoleById(req.params.roleId), getPolicyById(req.body.policyId)]);
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    if (!pol) return res.status(404).json({ error: 'policy_not_found' });
+    // Cross-tenant guard: a policy from account A must never land on a role in account B.
+    if (role.account_id !== pol.account_id) {
+      return res.status(403).json({ error: 'cross_account', message: 'policy and role belong to different accounts' });
+    }
+    if (!(await canActForAccount(req, TRUST_STAMPED, role.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'role belongs to another tenant' });
+    }
     await attachPolicy(req.params.roleId, req.body.policyId);
     res.json({ ok: true });
   });
   app.post('/v1/users/:userId/assign', async (req, res) => {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
-    if (!req.body?.roleId) return res.status(400).json({ error: 'roleId required' });
-    if (typeof req.body.roleId === 'string' && !isUuid(req.body.roleId)) return res.status(404).json({ error: 'role_not_found' });
-    const [user, roleOk] = await Promise.all([getUserById(req.params.userId), roleExists(req.body.roleId)]);
+    if (!req.body?.roleId) return res.status(400).json({ error: 'invalid_roleId', message: 'roleId required' });
+    if (typeof req.body.roleId !== 'string' || !isUuid(req.body.roleId)) {
+      return res.status(400).json({ error: 'invalid_roleId', message: 'roleId must be a UUID' });
+    }
+    const [user, role] = await Promise.all([getUserById(req.params.userId), getRoleById(req.body.roleId)]);
     if (!user) return res.status(404).json({ error: 'user_not_found' });
-    if (!roleOk) return res.status(404).json({ error: 'role_not_found' });
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    // Cross-tenant guard: the role's account must live in the user's org.
+    const acc = await getAccountById(role.account_id);
+    if (!acc || acc.org_id !== user.org_id) {
+      return res.status(403).json({ error: 'cross_org', message: "role's account is outside the user's organization" });
+    }
+    if (!(await canActForOrg(req, TRUST_STAMPED, user.org_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
+    }
     await assignRole(req.params.userId, req.body.roleId);
     res.json({ ok: true });
   });
@@ -580,6 +733,11 @@ export function createApp(): express.Express {
   app.post('/v1/accounts/:accountId/keys', async (req, res) => {
     if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
     const { userId, name, scopes, expiresInSeconds } = (req.body || {}) as any;
+    // null ≡ absent for optional fields (SDKs serialize missing values as null).
+    // Format checks first (400); existence checks (404) after the body 400s.
+    if (userId != null && (typeof userId !== 'string' || !isUuid(userId))) {
+      return res.status(400).json({ error: 'invalid_userId', message: 'userId must be a UUID' });
+    }
     const keyName = name || 'default';
     if (typeof keyName !== 'string' || keyName.length === 0 || keyName.length > 100) {
       return res.status(400).json({ error: 'invalid_name', message: 'name must be 1..100 chars' });
@@ -589,22 +747,42 @@ export function createApp(): express.Express {
         keyScopes.some((s) => typeof s !== 'string' || s.length === 0 || s.length > 200)) {
       return res.status(400).json({ error: 'invalid_scopes', message: 'scopes must be 1..100 non-empty strings ≤200 chars' });
     }
-    if (expiresInSeconds !== undefined && (!Number.isInteger(expiresInSeconds) || expiresInSeconds <= 0 || expiresInSeconds > 315360000)) {
+    if (expiresInSeconds != null && (!Number.isInteger(expiresInSeconds) || expiresInSeconds <= 0 || expiresInSeconds > 315360000)) {
       return res.status(400).json({ error: 'invalid_expiry', message: 'expiresInSeconds must be 1..315360000' });
     }
+    if (userId != null && !(await getUserById(userId))) return res.status(404).json({ error: 'user_not_found' });
     const exp = expiresInSeconds ? new Date(Date.now() + expiresInSeconds * 1000) : null;
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     const k = await createApiKeyRecord(req.params.accountId, userId || null, keyName, keyScopes, exp);
-    res.status(201).json({ id: k.id, apiKey: k.value, prefix: k.prefix, warning: 'Lưu apiKey ngay — chỉ hiển thị 1 lần.' });
+    res.status(201).json({ id: k.id, apiKey: k.value, prefix: k.prefix, warning: 'Save this apiKey now — it is shown only once.' });
   });
 
-  app.post('/v1/keys/verify', async (req, res) => {
-    const rec = await verifyApiKey((req.body || {}).apiKey || '');
+  app.get('/v1/accounts/:accountId/keys', async (req, res) => {
+    if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    // Tenant binding (same as SA-token mint): key metadata may only be
+    // enumerated by callers of the owning tenant.
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
+    res.json(await listApiKeys(req.params.accountId));
+  });
+
+  app.post('/v1/keys/verify', async (req, res) => {    const rec = await verifyApiKey((req.body || {}).apiKey || '');
     if (!rec) return res.status(401).json({ valid: false });
     res.json({ valid: true, ...rec });
   });
 
   app.delete('/v1/keys/:id', async (req, res) => {
-    if (!isUuid(req.params.id)) return res.status(404).json({ error: 'key_not_found' });
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'invalid_id', message: 'key id must be a UUID' });
+    const rec = await findApiKeyById(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'key_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, rec.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'key belongs to another tenant' });
+    }
     const ok = await revokeApiKey(req.params.id);
     if (!ok) return res.status(404).json({ error: 'key_not_found' });
     res.json({ ok: true });
@@ -621,6 +799,10 @@ export function createApp(): express.Express {
     if (description != null && (typeof description !== 'string' || description.length > 500)) {
       return res.status(400).json({ error: 'invalid_description', message: 'description ≤500 chars' });
     }
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.status(201).json(await createServiceAccount(req.params.accountId, slug, sanitizeName(description || '')));
   });
 
@@ -633,16 +815,45 @@ export function createApp(): express.Express {
   // Hardening: callers cannot escalate to '*' unless they already hold '*' —
   // the requested scopes must be a subset of the caller's own scopes when the
   // caller presents an API-key/JWT with limited scopes (gateway-propagated).
+  // Tenant binding: the caller must belong to the SA's account — otherwise any
+  // authenticated principal could mint tokens for any account's SA.
   app.post('/v1/service-accounts/:id/token', async (req, res) => {
-    if (!isUuid(req.params.id)) return res.status(404).json({ error: 'service_account_not_found' });
-    const sa = await getServiceAccount(req.params.id);
-    if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
+    if (!isUuid(req.params.id)) return res.status(400).json({ error: 'invalid_id', message: 'service account id must be a UUID' });
     const scopes: string[] = req.body?.scopes || ['*'];
     if (!Array.isArray(scopes) || scopes.length === 0 || scopes.length > 100 ||
         scopes.some((s) => typeof s !== 'string' || s.length === 0 || s.length > 200)) {
       return res.status(400).json({ error: 'invalid_scopes', message: 'scopes must be 1..100 non-empty strings ≤200 chars' });
     }
-    const callerScopes = firstHeader(req.headers['x-synapsedx-scopes'] as any).split(',').map((s) => s.trim()).filter(Boolean);
+    const sa = await getServiceAccount(req.params.id);
+    if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, sa.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'service account belongs to another tenant' });
+    }
+    // Caller scopes: stamped header only when trusted — otherwise derive from
+    // the verified credential itself (dev callers can't spoof their way to '*').
+    let callerScopes: string[] = [];
+    const stamped = firstHeader(req.headers['x-synapsedx-scopes'] as any);
+    if (TRUST_STAMPED && stamped) {
+      callerScopes = stamped.split(',').map((s) => s.trim()).filter(Boolean);
+    } else {
+      const h = firstHeader(req.headers.authorization as any);
+      if (h.startsWith('Bearer ')) {
+        try {
+          callerScopes = verifyAccess(h.slice(7)).scopes || [];
+        } catch {
+          callerScopes = [];
+        }
+      } else {
+        const apiKey = firstHeader(req.headers['x-api-key'] as any);
+        if (apiKey) {
+          try {
+            callerScopes = (await verifyApiKey(apiKey))?.scopes || [];
+          } catch {
+            callerScopes = [];
+          }
+        }
+      }
+    }
     if (callerScopes.length && !callerScopes.includes('*') && scopes.includes('*')) {
       return res.status(403).json({ error: 'scope_escalation', message: 'Cannot mint wildcard scope from a limited caller' });
     }
@@ -665,6 +876,9 @@ export function createApp(): express.Express {
     // leak the parse offset into logs clients can probe.
     if (err?.status === 400 || err?.type === 'entity.parse.failed' || (err instanceof SyntaxError && /JSON/i.test(err.message))) {
       return res.status(400).json({ error: 'invalid_json', message: 'Request body is not valid JSON' });
+    }
+    if (err?.status === 413 || err?.type === 'entity.too.large') {
+      return res.status(413).json({ error: 'payload_too_large', message: 'Request body exceeds the size limit' });
     }
     if (err?.code === '23505' || err?.status === 409) {
       return res.status(409).json({ error: 'conflict', message: 'duplicate slug' });

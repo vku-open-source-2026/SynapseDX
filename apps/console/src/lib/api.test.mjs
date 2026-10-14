@@ -73,4 +73,91 @@ describe('console silent refresh', () => {
     await assert.rejects(() => api.orgs({ apiKey: 'k' }), /401/);
     assert.equal(sessions.refreshCalls, 0);
   });
+
+  it('generic call() rotates silently and preserves error status', async () => {
+    const sessions = { refreshCalls: 0, validAccess: new Set(['good-tok']), validRefresh: new Map([['rt-1', 'tok-2']]) };
+    stubFetch(sessions);
+    authStore.get = () => ({ token: 'expired', refreshToken: 'rt-1' });
+    authStore.set = () => {};
+    authStore.clear = () => {};
+    const r = await api.call('GET', '/v1/workflows/w1', undefined, { token: 'expired' });
+    assert.equal(r.data, 'ok-for-w1');
+    assert.equal(sessions.refreshCalls, 1);
+  });
+
+  it('agent sends question plus conversation history', async () => {
+    let seenBody = null;
+    globalThis.fetch = async (url, init = {}) => {
+      seenBody = JSON.parse(init.body);
+      return { status: 200, ok: true, text: async () => '{}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    await api.agent('and its accounts?', [{ role: 'user', text: 'show org acme' }], {});
+    assert.equal(seenBody.question, 'and its accounts?');
+    assert.deepEqual(seenBody.history, [{ role: 'user', text: 'show org acme' }]);
+  });
+
+  it('new client methods hit the right paths and verbs', async () => {
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      seen.push(`${init.method || 'GET'} ${String(url).replace(/^https?:\/\/[^/]+/, '')}`);
+      return { status: 200, ok: true, text: async () => '{}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    const A = {};
+    await api.createUser('o1', 'a@b.c', 'A', A);
+    await api.logoutAll('rt');
+    await api.updateWorkflow('w1', { name: 'n' }, A);
+    await api.deleteWorkflow('w1', A);
+    await api.listKeys('a1', A);
+    await api.workflow('w1', A);
+    await api.executions({ workflowId: 'w1', limit: 5 }, A);
+    await api.agent('hi', [{ role: 'user', text: 'hi' }], A);
+    assert.deepEqual(seen, [
+      'POST /v1/orgs/o1/users',
+      'POST /v1/auth/logout-all',
+      'PUT /v1/workflows/w1',
+      'DELETE /v1/workflows/w1',
+      'GET /v1/accounts/a1/keys',
+      'GET /v1/workflows/w1',
+      'GET /v1/executions?workflowId=w1&limit=5',
+      'POST /v1/ai/agent',
+    ]);
+  });
+
+  it('401 with a newer stored token retries without rotating (sibling tab won)', async () => {
+    const sessions = { refreshCalls: 0, validAccess: new Set(['tok-2']), validRefresh: new Map() };
+    stubFetch(sessions);
+    // this tab still holds the old token; another tab already rotated to tok-2
+    authStore.get = () => ({ token: 'tok-2', refreshToken: 'rt-2' });
+    authStore.set = () => { throw new Error('must not rotate when a fresher token exists'); };
+    authStore.clear = () => { throw new Error('must not clear the session'); };
+    const r = await api.orgs({ token: 'tok-1' });
+    assert.equal(r.data, 'ok-for-orgs');
+    assert.equal(sessions.refreshCalls, 0);
+  });
+
+  it('lost rotation race picks up the winner token instead of logging out', async () => {
+    const sessions = { refreshCalls: 0, validAccess: new Set(['tok-winner']), validRefresh: new Map(), onRefresh: null };
+    globalThis.fetch = async (url, init = {}) => {
+      const json = (obj, status = 200) => ({ status, ok: status < 300, text: async () => JSON.stringify(obj), headers: new Map() });
+      if (String(url).endsWith('/v1/auth/refresh')) {
+        sessions.refreshCalls++;
+        sessions.onRefresh?.(); // sibling tab wins while our rotation is in flight
+        return json({ error: 'invalid_refresh' }, 401);
+      }
+      const access = ((init.headers || {}).Authorization || '').replace('Bearer ', '');
+      if (sessions.validAccess.has(access)) return json({ data: 'ok' });
+      return json({ error: 'unauthorized' }, 401);
+    };
+    let phase = 0;
+    sessions.onRefresh = () => { phase = 1; };
+    authStore.get = () => (phase === 0 ? { token: 'tok-1', refreshToken: 'rt-1' } : { token: 'tok-winner', refreshToken: 'rt-winner' });
+    let cleared = false;
+    authStore.set = () => {};
+    authStore.clear = () => { cleared = true; };
+    const r = await api.orgs({ token: 'tok-1' });
+    assert.equal(r.data, 'ok');
+    assert.equal(cleared, false);
+  });
 });

@@ -5,6 +5,58 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 ### Added
+- AI testing assistant: new `apps/ai-service` (`POST /v1/ai/agent`, gateway `auth: either`,
+  never public/undocumented) — a decision model picks the endpoint from the API catalog,
+  then the LLM generates path params + JSON body (OpenRouter backend, key server-side
+  only, per-principal rate limit, fail-closed catalog validation, retry policy,
+  different-provider fallback model, per-route 120s gateway timeout,
+  multi-turn conversation history, how-to questions answered with guidance
+  instead of 502). Console API Docs gained a
+  floating chatbot bubble (auth-gated) that explains and pre-fills try-it forms.
+- Workflow editor: `PUT /v1/workflows/:id {name?, definition?}` (SSRF/size-validated,
+  name-only renames merged server-side since n8n requires full nodes) + "Edit definition"
+  modal on the Console Workflows page; `POST /v1/workflows/:id/execute` now fires the
+  workflow's real webhook trigger (declared `httpMethod` honored, 409 when inactive,
+  400 when no webhook node) instead of proxying a non-existent n8n endpoint.
+  `updateWorkflow` added to all three SDKs (JS/Python/Go) for parity.
+- Console production hardening: shared `ScopeProvider` + Google-Cloud-style
+  org/account picker in the header (mobile menu included), upgraded Dashboard
+  (inventory stats, current context, service health, recent activity), `ErrorBoundary`
+  around all routes (render errors show recovery UI instead of a white screen),
+  array-shape guards + busy/double-submit guards + silent-refresh `api.call` on every
+  page, user creation UI, "sign out all sessions", OIDC-start shape check,
+  cross-tab refresh-token race handling (sibling tab's rotation is picked up instead
+  of logging the user out).
+- IAM tenant isolation on every write: creating/attaching/assigning/deleting roles,
+  policies, keys, service accounts, accounts and users requires caller membership
+  in the target tenant (role-based account binding, or same-org fallback since login
+  JWTs carry org but no account; machine service-account tokens stay strictly
+  account-bound) — `403 forbidden` otherwise. Gateway-stamped tenant headers are
+  trusted only when `SYNAPSEDX_INTERNAL_SECRET` is set (dev direct callers can't
+  spoof tenant); reads and org creation stay open by design. Key-creation `userId`
+  validated; malformed UUIDs now `400 invalid_id`; auth-store outages answer
+  `503 iam_unavailable`; creates under ghost parents answer `404` on both backends.
+- API key inventory: `GET /v1/accounts/:accountId/keys` (id/prefix metadata only,
+  `LIMIT 500`, tenant-bound `403` for foreign accounts) + key list/revoke UI on the
+  Console Keys page; `listKeys` added to all three SDKs and `keys list` to the CLI.
+  SA-token mint validates scopes before tenant checks and derives caller scopes from
+  the verified credential when the stamped header is untrusted (dev).
+- Workflow deletion: `DELETE /v1/workflows/:id` + Console Delete button (confirm) +
+  `workflows delete|rm` in the CLI + `deleteWorkflow` in all three SDKs.
+- No-orphan creates: org/account/role/policy/key/service-account creation under a
+  ghost parent now answers `404 org_not_found`/`account_not_found` on both backends
+  (body validation still runs first, so bad payloads stay `400`).
+- Audit retention: opt-in `AUDIT_RETENTION_DAYS` (hourly batched purge of old
+  `audit_log` rows, clamped 1–3650 days; default 0 = disabled).
+- Oversized request bodies answer `413 payload_too_large` (was `500 internal`)
+  on all JSON services.
+- Console SSR smoke test (`npm run test:ssr`, part of `npm test`): server-renders
+  every route under both anonymous and signed-in sessions — catches module-eval
+  crashes, missing providers and broken imports without a browser.
+- Console UI strings unified to English (repo convention); Esc closes modals and the
+  chatbot popup; Docs page snippets cover the new SDK methods.
+### Changed
+- Removed dead gateway route `/v1/n8n` (no service handler, zero references).
 - Real OIDC Authorization Code flow in IAM (`apps/iam-service/src/oidc.ts`, zero new
   dependencies): HMAC-signed `state`, IdP discovery + JWKS caching, asymmetric-only
   ID-token verification (issuer/audience checks), shadow-user upsert from verified

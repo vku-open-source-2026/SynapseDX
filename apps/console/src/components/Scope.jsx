@@ -2,22 +2,69 @@
  * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
-import React, { useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 
 const ORG_KEY = 'synapsedx.console.org';
 const ACC_KEY = 'synapsedx.console.acc';
 
-export function useScope() {
+const ScopeCtx = createContext(null);
+
+function readStored(key) {
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStored(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode etc. — selection just won't persist */
+  }
+}
+
+// Single shared scope for the whole console (Google-Cloud-style project
+// picker lives in the header; every page reads the same selection, so a
+// change in the header instantly re-filters all pages).
+export function ScopeProvider({ children }) {
   const { headers } = useAuth();
   const [orgs, setOrgs] = useState([]);
   const [accounts, setAccounts] = useState([]);
-  const [orgId, setOrgId] = useState(() => localStorage.getItem(ORG_KEY) || '');
-  const [accountId, setAccountId] = useState(() => localStorage.getItem(ACC_KEY) || '');
+  const [orgId, setOrgIdRaw] = useState(() => readStored(ORG_KEY));
+  const [accountId, setAccountIdRaw] = useState(() => readStored(ACC_KEY));
+  const [scopeErr, setScopeErr] = useState(null);
+  const seq = useRef(0);
+
+  const setOrgId = (id) => {
+    writeStored(ORG_KEY, id);
+    setOrgIdRaw(id);
+  };
+  const setAccountId = (id) => {
+    writeStored(ACC_KEY, id);
+    setAccountIdRaw(id);
+  };
 
   useEffect(() => {
-    api.orgs(headers).then(setOrgs).catch(() => undefined);
+    let live = true;
+    setScopeErr(null);
+    api
+      .orgs(headers)
+      .then((v) => {
+        if (live) setOrgs(Array.isArray(v) ? v : []);
+      })
+      .catch((e) => {
+        if (live) {
+          setOrgs([]);
+          setScopeErr(e);
+        }
+      });
+    return () => {
+      live = false;
+    };
   }, [headers]);
 
   useEffect(() => {
@@ -25,23 +72,43 @@ export function useScope() {
       setAccounts([]);
       return;
     }
-    localStorage.setItem(ORG_KEY, orgId);
-    api.accounts(orgId, headers).then(setAccounts).catch(() => undefined);
+    const my = ++seq.current;
+    let live = true;
+    api
+      .accounts(orgId, headers)
+      .then((v) => {
+        if (live && seq.current === my) setAccounts(Array.isArray(v) ? v : []);
+      })
+      .catch((e) => {
+        if (live && seq.current === my) {
+          setAccounts([]);
+          setScopeErr(e);
+        }
+      });
+    return () => {
+      live = false;
+    };
   }, [orgId, headers]);
 
-  useEffect(() => {
-    if (accountId) localStorage.setItem(ACC_KEY, accountId);
-  }, [accountId]);
-
+  // Stored selection may point at a deleted org/account — fall back to first.
   useEffect(() => {
     if (orgs.length && !orgs.find((o) => o.id === orgId)) setOrgId(orgs[0].id);
   }, [orgs]);
-
   useEffect(() => {
     if (accounts.length && !accounts.find((a) => a.id === accountId)) setAccountId(accounts[0].id);
   }, [accounts]);
 
-  return { orgs, accounts, orgId, setOrgId, accountId, setAccountId };
+  return (
+    <ScopeCtx.Provider value={{ orgs, accounts, orgId, setOrgId, accountId, setAccountId, scopeErr }}>
+      {children}
+    </ScopeCtx.Provider>
+  );
+}
+
+export function useScope() {
+  const v = useContext(ScopeCtx);
+  if (!v) throw new Error('useScope must be used inside <ScopeProvider>');
+  return v;
 }
 
 export function ScopeBar({ scope, showAccount = true }) {

@@ -74,6 +74,12 @@ describe('SynapseDXClient', () => {
     assert.equal(lastPath, '/v1/executions?limit=5');
     await c.executeWorkflow('w1', {});
     assert.equal(lastPath, '/v1/workflows/w1/execute');
+    await c.updateWorkflow('w1', { name: 'renamed' });
+    assert.equal(lastPath, '/v1/workflows/w1');
+    await c.deleteWorkflow('w1');
+    assert.equal(lastPath, '/v1/workflows/w1');
+    await c.listApiKeys('a1');
+    assert.equal(lastPath, '/v1/accounts/a1/keys');
     await c.verifyApiKey('k');
     assert.equal(lastPath, '/v1/keys/verify');
     await c.deactivateWorkflow('w1');

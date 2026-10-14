@@ -134,6 +134,9 @@ const { apiKey } = await c.createApiKey(accountId, 'ci-deploy', ['workflow:Execu
 // revokeApiKey(keyId)
 await c.revokeApiKey(keyId);
 
+// listApiKeys(accountId) — id/prefix metadata only, never secrets
+const keys = await c.listApiKeys(accountId);
+
 // verifyApiKey(apiKey) — check a raw key
 const info = await c.verifyApiKey(apiKey);
 
@@ -162,6 +165,12 @@ const custom = await c.createWorkflow('my-wf', n8nDefinition);
 // activateWorkflow(id) / deactivateWorkflow(id)
 await c.activateWorkflow(id);
 await c.deactivateWorkflow(id);
+
+// updateWorkflow(id, { name?, definition? })
+await c.updateWorkflow(id, { name: 'renamed' });
+
+// deleteWorkflow(id)
+await c.deleteWorkflow(id);
 
 // executeWorkflow(id, payload?)
 const exec = await c.executeWorkflow(id, { url: 'https://example.com/hook' });
@@ -294,6 +303,7 @@ api_key = result["apiKey"]
 
 c.revoke_api_key(key_id)
 info = c.verify_api_key(api_key)
+keys = c.list_api_keys(account_id)
 
 sa = c.create_service_account(account_id, "etl-bot", "ETL service account")
 sas = c.list_service_accounts(account_id)
@@ -307,10 +317,13 @@ custom = c.create_workflow("my-wf", n8n_definition)
 
 c.activate_workflow(id)
 c.deactivate_workflow(id)
+c.update_workflow(id, name="renamed")
+c.delete_workflow(id)
 exec_result = c.execute_workflow(id, {"url": "https://example.com/hook"})
 
 templates = c.list_templates()
 tpl = c.get_template("webhook-to-log")
+keys = c.list_api_keys(account_id)
 
 recent = c.list_executions("limit=10")
 execution = c.get_execution(exec_id)`;
@@ -429,6 +442,7 @@ apiKey := result["apiKey"].(string)
 
 err = c.RevokeAPIKey(keyID)
 info, err := c.VerifyAPIKey(apiKey)
+keys, err := c.ListAPIKeys(accountID)
 
 sa, err := c.CreateServiceAccount(accountID, "etl-bot", "ETL service account")
 sas, err := c.ListServiceAccounts(accountID)
@@ -442,10 +456,13 @@ custom, err := c.CreateWorkflowRaw("my-wf", n8nDefinition)
 
 err = c.ActivateWorkflow(id)
 err = c.DeactivateWorkflow(id)
+_, err = c.UpdateWorkflow(id, map[string]any{"name": "renamed"})
+err = c.DeleteWorkflow(id)
 exec, err := c.ExecuteWorkflow(id, map[string]any{"url": "https://example.com/hook"})
 
 templates, err := c.ListTemplates()
 tpl, err := c.GetTemplate("webhook-to-log")
+keys, err := c.ListAPIKeys(accountID)
 
 recent, err := c.ListExecutions("limit=10")
 execution, err := c.GetExecution(execID)`;

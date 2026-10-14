@@ -21,8 +21,8 @@ const FEATURES = [
   { icon: faKey, title: 'Flexible tokens', text: 'Short-lived JWT, atomic rotating refresh, API keys, service accounts, OIDC via Authentik/Keycloak.' },
   { icon: faBolt, title: 'API Gateway', text: 'Single entry point: auth, edge rate-limiting, principal propagation, tracing, aggregate /ready.' },
   { icon: faLayerGroup, title: 'Core data cluster', text: 'Postgres + Redis + S3-compatible storage, versioned schema, idempotent seed, backup/restore.' },
-  { icon: faRobot, title: 'n8n workflows', text: 'Control plane over an external engine: versioned templates, activate/execute, real triggers.' },
-  { icon: faWandMagicSparkles, title: 'SDKs + CLI + UI', text: 'JS/TS, Python, Go, a zero-dependency CLI and an admin Console — one API.' },
+  { icon: faRobot, title: 'n8n workflows', text: 'Control plane over an external engine: versioned templates, activate/execute, real triggers, definition editor.' },
+  { icon: faWandMagicSparkles, title: 'AI assistant + SDKs', text: 'Chatbot on the API Docs pre-fills try-it forms; JS/TS, Python, Go, a zero-dependency CLI and an admin Console — one API.' },
 ];
 
 export default function Landing() {

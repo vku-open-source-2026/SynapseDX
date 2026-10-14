@@ -13,36 +13,48 @@ export default function Accounts() {
   const scope = useScope();
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
+  const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
 
   const load = async () => {
     if (!scope.orgId) {
       setRows([]);
+      setLoaded(true);
       return;
     }
+    setErr(null);
     try {
-      setRows(await api.accounts(scope.orgId, headers));
+      const v = await api.accounts(scope.orgId, headers);
+      setRows(Array.isArray(v) ? v : []);
     } catch (e) {
       setErr(e);
+    } finally {
+      setLoaded(true);
     }
   };
 
   useEffect(() => {
     load();
-  }, [scope.orgId]);
+  }, [scope.orgId, headers]);
 
   const create = async (e) => {
     e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
     try {
-      await api.createAccount(scope.orgId, slug, name);
+      await api.createAccount(scope.orgId, slug, name, headers);
       setOpen(false);
       setSlug('');
       setName('');
       load();
     } catch (ex) {
       setErr(ex);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -52,7 +64,9 @@ export default function Accounts() {
       <Err e={err} />
       <ScopeBar scope={scope} showAccount={false} />
       <Card>
-        {rows.length ? (
+        {!loaded ? (
+          <Empty text="Loading…" />
+        ) : rows.length ? (
           <Table head={['Slug', 'Display name', 'ID']}>
             {rows.map((a) => (
               <tr key={a.id} className="border-t border-slate-100">
@@ -63,7 +77,7 @@ export default function Accounts() {
             ))}
           </Table>
         ) : (
-          <Empty text="Pick an organization to see its accounts" />
+          <Empty text={scope.orgId ? 'No accounts yet' : 'Pick an organization to see its accounts'} />
         )}
       </Card>
       {open && (
@@ -75,7 +89,7 @@ export default function Accounts() {
             <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production" />
             </Field>
-            <Btn type="submit">Create</Btn>
+            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
           </form>
         </Modal>
       )}

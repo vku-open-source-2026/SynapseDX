@@ -69,6 +69,7 @@ spec:
           env:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
             - { name: WORKFLOW_SERVICE_URL, value: "http://workflow:4002" }
+            - { name: AI_SERVICE_URL, value: "http://ai:4003" }
             # Gateway MUST share the JWT secret or every Bearer check fails closed.
             - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
             - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
@@ -133,6 +134,50 @@ metadata:
 spec:
   selector: { app: workflow }
   ports: [{ port: 4002, targetPort: 4002 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai
+  namespace: synapsedx
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: ai }
+  template:
+    metadata:
+      labels: { app: ai }
+    spec:
+      containers:
+        - name: ai
+          image: ghcr.io/synapsedx/ai:0.3.1
+          ports: [{ containerPort: 4003 }]
+          env:
+            - { name: AI_BASE_URL, value: "https://openrouter.ai/api/v1" }
+            - { name: AI_API_KEY, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: ai-api-key } } }
+            - { name: AI_DECISION_MODEL, value: "inception/mercury-2.5" }
+            - { name: AI_LLM_MODEL, value: "apodex/apodex-1.1-mini:free" }
+            - { name: AI_LLM_FALLBACK_MODEL, value: "inception/mercury-2.5" }
+            - { name: AI_TIMEOUT_MS, value: "20000" }
+            - { name: AI_RATE_LIMIT, value: "30" }
+            - { name: AI_RETRIES, value: "2" }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+            - { name: CORS_ORIGIN, value: "https://console.example.com" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+          livenessProbe: { httpGet: { path: /health, port: 4003 }, initialDelaySeconds: 15, periodSeconds: 20 }
+          readinessProbe: { httpGet: { path: /health, port: 4003 }, initialDelaySeconds: 5, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai
+  namespace: synapsedx
+spec:
+  selector: { app: ai }
+  ports: [{ port: 4003, targetPort: 4003 }]
 ---
 apiVersion: apps/v1
 kind: Deployment

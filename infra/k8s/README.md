@@ -16,8 +16,8 @@ curl localhost:8080/health
 ```
 
 Notes:
-- `all.yaml` holds the Namespace + Deployments/Services for `iam`, `gateway`, `workflow`, `console`. Postgres/Redis/object-storage(S3)/n8n/Authentik use each engine's own chart/manifests.
+- `all.yaml` holds the Namespace + Deployments/Services for `iam`, `gateway`, `workflow`, `ai`, `console`. Postgres/Redis/object-storage(S3)/n8n/Authentik use each engine's own chart/manifests.
 - Required secrets (`synapsedx-secrets`): `database-url`, `iam-jwt-secret` (gateway + IAM **identical**),
-  `oidc-client-secret`, `n8n-api-key`, `internal-secret` (gateway + IAM + workflow identical),
+  `oidc-client-secret`, `n8n-api-key`, `ai-api-key`, `internal-secret` (gateway + IAM + workflow + ai identical),
   `api-key-pepper`. Replace the `console`/`gateway` placeholders (`console.example.com`, `gateway.example.com`) with your real domains.
 - Production: add Ingress + TLS, HPA, PDB, resource limits, and manage secrets with SealedSecrets/External Secrets.

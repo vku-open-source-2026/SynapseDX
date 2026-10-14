@@ -68,6 +68,9 @@ export interface RouteRule {
   path: string;
   target: string;
   auth: 'none' | 'jwt' | 'apikey' | 'either';
+  /** Per-route proxy timeout (ms). LLM-backed routes legitimately need longer
+   *  than the 30s default (retried model calls); unset = global default. */
+  timeoutMs?: number;
 }
 
 export function expandEnv(s: string): string {
@@ -299,9 +302,10 @@ export function createApp(): express.Express {
     }
     const iamUrl = process.env.IAM_SERVICE_URL || 'http://iam:4001';
     const wfUrl = process.env.WORKFLOW_SERVICE_URL || 'http://workflow:4002';
-    const [iam, workflow] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl)]);
-    const allOk = iam.ok && workflow.ok;
-    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow], time: new Date().toISOString() });
+    const aiUrl = process.env.AI_SERVICE_URL || 'http://ai:4003';
+    const [iam, workflow, ai] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl)]);
+    const allOk = iam.ok && workflow.ok && ai.ok;
+    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow, ai], time: new Date().toISOString() });
   });
 
   const routes = loadRoutes();
@@ -312,6 +316,9 @@ export function createApp(): express.Express {
     }
     if (typeof r.path !== 'string' || !r.path.startsWith('/')) {
       throw new Error(`[gateway] invalid route path '${r.path}' (must start with /)`);
+    }
+    if (r.timeoutMs !== undefined && (!Number.isInteger(r.timeoutMs) || r.timeoutMs < 1000 || r.timeoutMs > 300000)) {
+      throw new Error(`[gateway] invalid timeoutMs '${r.timeoutMs}' for path '${r.path}' (want 1000..300000)`);
     }
   }
   console.log(`[gateway] loaded ${routes.length} routes: ${routes.map((r) => `${r.path}->${expandEnv(r.target)}[${r.auth}]`).join(', ')}`);
@@ -350,6 +357,7 @@ export function createApp(): express.Express {
   for (const r of routes) {
     const target = expandEnv(r.target).replace(/\/$/, '');
     const proxyTimeoutMs = (() => {
+      if (r.timeoutMs !== undefined) return r.timeoutMs;
       const n = Number(process.env.PROXY_TIMEOUT_MS || 30000);
       return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 300000) : 30000;
     })();

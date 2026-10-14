@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test src/lib/*.test.mjs",
+    "test": "node --test src/lib/*.test.mjs && npm run test:ssr",
+    "test:ssr": "npx esbuild src/ssr-smoke.tsx --bundle --platform=node --format=cjs --outfile=dist-ssr/ssr-smoke.cjs --log-level=warning && node dist-ssr/ssr-smoke.cjs",
     "lint": "echo lint-ok"
   },
   "dependencies": {

@@ -30,6 +30,8 @@ Config: `infra/monitoring/prometheus/prometheus.yml` (mounted read-only —
 ```promql
 sum(rate(gateway_requests_total[5m]))            # request rate, all routes
 sum by (route) (rate(gateway_requests_total[5m])) # rate per route
+# AI assistant traffic/errors ride the gateway counter (route="/v1/ai"):
+sum by (status) (rate(gateway_requests_total{route="/v1/ai"}[5m]))
 up{job="gateway"}                                # gateway scrape health (1 = up)
 rate(process_cpu_user_seconds_total{job="gateway"}[5m])
 process_resident_memory_bytes{job="gateway"}

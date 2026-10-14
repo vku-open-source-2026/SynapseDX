@@ -105,6 +105,13 @@ export function Err({ e }) {
 }
 
 export function Modal({ title, onClose, children }) {
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
       <div
@@ -124,9 +131,11 @@ export function Modal({ title, onClose, children }) {
 }
 
 export function Code({ data }) {
-  return (
-    <pre className="bg-background rounded-2xl p-3 text-xs overflow-x-auto text-main-text">
-      {typeof data === 'string' ? data : JSON.stringify(data, null, 2)}
-    </pre>
-  );
+  let text;
+  try {
+    text = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  } catch {
+    text = String(data);
+  }
+  return <pre className="bg-background rounded-2xl p-3 text-xs overflow-x-auto text-main-text">{text}</pre>;
 }

@@ -25,6 +25,9 @@ export default function Login() {
     setBusy(true);
     try {
       const start = await api.oidcStart(org || 'acme');
+      if (!start || typeof start.authorizeUrl !== 'string' || !start.authorizeUrl) {
+        throw new Error('SSO is not configured (missing authorizeUrl from server)');
+      }
       window.location.href = start.authorizeUrl;
     } catch (ex) {
       setErr(ex);

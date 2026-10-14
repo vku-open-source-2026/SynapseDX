@@ -454,6 +454,19 @@ func (c *Client) RevokeAPIKey(keyID string) error {
 	return err
 }
 
+// ListAPIKeys returns key metadata for an account (id/prefix only — never secrets).
+func (c *Client) ListAPIKeys(accountID string) ([]any, error) {
+	b, err := c.do("GET", "/v1/accounts/"+pathEscape(accountID)+"/keys", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // VerifyAPIKey checks a raw key via the internal verify endpoint.
 func (c *Client) VerifyAPIKey(apiKey string) (map[string]any, error) {
 	b, err := c.do("POST", "/v1/keys/verify", map[string]any{"apiKey": apiKey})
@@ -561,8 +574,27 @@ func (c *Client) CreateWorkflowRaw(name string, definition any) (map[string]any,
 	return out, nil
 }
 
+// UpdateWorkflow updates a workflow's name and/or definition.
+func (c *Client) UpdateWorkflow(id string, patch map[string]any) (map[string]any, error) {
+	b, err := c.do("PUT", "/v1/workflows/"+pathEscape(id), patch)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) ActivateWorkflow(id string) error {
 	_, err := c.do("POST", "/v1/workflows/"+pathEscape(id)+"/activate", map[string]any{})
+	return err
+}
+
+// DeleteWorkflow removes a workflow from the engine.
+func (c *Client) DeleteWorkflow(id string) error {
+	_, err := c.do("DELETE", "/v1/workflows/"+pathEscape(id), nil)
 	return err
 }
 
