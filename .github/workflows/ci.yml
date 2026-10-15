@@ -21,6 +21,8 @@ jobs:
       - run: npm install --workspaces
       - run: npm run build --workspaces --if-present
       - run: npm run test --workspaces --if-present
+      # API catalog drift gate (console try-it + AI agent + docs/api.md).
+      - run: node tools/catalog-check.mjs
       # Prod-dep audit: fails only on CRITICAL (the known HIGH `braces` advisory is
       # accepted + tracked in SECURITY.md — fix would be a breaking downgrade).
       # Root-level audit covers the whole workspace tree via the root lockfile.

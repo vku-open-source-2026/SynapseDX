@@ -346,6 +346,9 @@ function idGate(req: any, res: any): string | null {
       if ((k === 'limit' || k === 'offset') && !/^\d{1,4}$/.test(v)) {
         return res.status(400).json({ error: 'invalid_query', message: `${k} must be a 0..9999 integer` });
       }
+      // n8n returns zero rows for a zero offset — treat any zero spelling
+      // ('0', '00', …) as "first page" by dropping the param.
+      if (k === 'offset' && Number(v) === 0) continue;
       qs.set(k, v);
     }
     const suffix = [...qs].length ? `?${qs.toString()}` : '';
@@ -353,11 +356,13 @@ function idGate(req: any, res: any): string | null {
     res.status(r.status).json(r.body);
   });
 
-  // Get one execution (proxy)
+  // Get one execution (proxy). Forwards the debug flag (node input/output)
+  // when asked — same allowlist spirit as the list endpoint.
   app.get('/v1/executions/:id', async (req, res) => {
     const id = idGate(req, res);
     if (id === null) return;
-    const r = await n8nFetch(`/api/v1/executions/${encodeURIComponent(id)}`);
+    const suffix = req.query.includeData === 'true' ? '?includeData=true' : '';
+    const r = await n8nFetch(`/api/v1/executions/${encodeURIComponent(id)}${suffix}`);
     res.status(r.status).json(r.body);
   });
 

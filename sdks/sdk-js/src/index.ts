@@ -121,8 +121,20 @@ export class SynapseDXClient {
   attachPolicy(roleId: string, policyId: string) {
     return this.req(`/v1/roles/${encodeURIComponent(roleId)}/attach`, { method: 'POST', body: JSON.stringify({ policyId }) });
   }
+  detachPolicy(roleId: string, policyId: string) {
+    return this.req(`/v1/roles/${encodeURIComponent(roleId)}/policies/${encodeURIComponent(policyId)}`, { method: 'DELETE' });
+  }
+  rolePolicies(roleId: string) {
+    return this.req(`/v1/roles/${encodeURIComponent(roleId)}/policies`);
+  }
   assignRole(userId: string, roleId: string) {
     return this.req(`/v1/users/${encodeURIComponent(userId)}/assign`, { method: 'POST', body: JSON.stringify({ roleId }) });
+  }
+  unassignRole(userId: string, roleId: string) {
+    return this.req(`/v1/users/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' });
+  }
+  userRoles(userId: string) {
+    return this.req(`/v1/users/${encodeURIComponent(userId)}/roles`);
   }
   simulate(documents: any[], action: string, resource: string, context?: Record<string, unknown>) {
     return this.req<{ allowed: boolean }>('/v1/authorize/dry-run', { method: 'POST', body: JSON.stringify({ documents, action, resource, context }) });

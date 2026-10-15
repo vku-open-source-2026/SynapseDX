@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
-import { api } from '../lib/api.js';
+import { api, baseUrl } from '../lib/api.js';
 import { GROUPS } from '../lib/endpoints.js';
 import { Badge, Card, Code, Err, PageTitle } from '../components/ui.jsx';
 import Chatbot from '../components/Chatbot.jsx';
@@ -20,6 +20,48 @@ export default function ApiDocs() {
   const [out, setOut] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(null);
+
+  const copyCurl = async (g, e) => {
+    let p;
+    try {
+      p = fillPath(e.path);
+    } catch (ex) {
+      setErr(ex);
+      return;
+    }
+    let payload;
+    if (e.method !== 'GET') {
+      try {
+        payload = body.trim() ? JSON.parse(body) : {};
+      } catch {
+        setErr(new Error('Body is not valid JSON'));
+        return;
+      }
+    }
+    const parts = [`curl -X ${e.method} '${baseUrl()}${p}'`];
+    // Secrets stay out of the clipboard: reference env vars instead.
+    if (headers.token) parts.push(`-H "Authorization: Bearer $SYNAPSEDX_TOKEN"`);
+    if (headers.apiKey) parts.push(`-H "X-API-Key: $SYNAPSEDX_API_KEY"`);
+    if (e.method !== 'GET') {
+      parts.push(`-H 'Content-Type: application/json'`);
+      // Escape single quotes for POSIX shells (o'clock → o'\''clock).
+      parts.push(`-d '${JSON.stringify(payload).replace(/'/g, `'\\''`)}'`);
+    }
+    const cmd = parts.join(' \\\n  ');
+    try {
+      await navigator.clipboard.writeText(cmd);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = cmd;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    setCopied(key(g, e));
+    setTimeout(() => setCopied(null), 2000);
+  };
 
   const key = (g, e) => `${g}:${e.method}:${e.path}`;
   const toggle = (g, e) => {
@@ -135,13 +177,22 @@ export default function ApiDocs() {
                           className="w-full px-2 py-1 rounded-xl border border-slate-200 text-xs font-mono outline-none mb-2"
                         />
                       )}
-                      <button
-                        onClick={() => run(e)}
-                        disabled={busy}
-                        className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
-                      >
-                        {busy ? 'Calling…' : 'Try it'}
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => run(e)}
+                          disabled={busy}
+                          className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
+                        >
+                          {busy ? 'Calling…' : 'Try it'}
+                        </button>
+                        <button
+                          onClick={() => copyCurl(g.name, e)}
+                          title="Copy as cURL (tokens as $ENV, never pasted raw)"
+                          className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue"
+                        >
+                          {copied === key(g.name, e) ? 'Copied!' : 'Copy as cURL'}
+                        </button>
+                      </div>
                       {out && (
                         <div className="mt-2">
                           <Badge tone={out.status < 300 ? 'green' : out.status < 500 ? 'amber' : 'red'}>

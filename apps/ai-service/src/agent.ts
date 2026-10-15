@@ -122,6 +122,16 @@ export async function runAgent(
   // per-model; the backup is usually up). Validation errors (AgentError)
   // never fall back — only transport/model failures (LlmError).
   const fb = cfg.llmFallback;
+  async function decide(call: ChatCall): Promise<any> {
+    try {
+      return await chatStep('decision', () => chat(cfg.decision, call));
+    } catch (e: unknown) {
+      // Fall back to the LLM model (different provider) — but never to the
+      // same model twice, and never on validation errors.
+      if (cfg.llm.model === cfg.decision.model || !(e instanceof LlmError)) throw e;
+      return await chatStep('decision:fallback', () => chat(cfg.llm, call));
+    }
+  }
   async function genJson(call: ChatCall): Promise<any> {
     try {
       return await chatStep('generate', () => chat(cfg.llm, call));
@@ -147,7 +157,7 @@ export async function runAgent(
     user: `${convo}Catalog:\n${JSON.stringify(CATALOG)}\n\nQuestion: ${question}`,
     maxTokens: 2048,
   };
-  const decision = await chatStep('decision', () => chat(cfg.decision, decisionCall));
+  const decision = await decide(decisionCall);
   const dMethod = typeof decision?.method === 'string' ? decision.method : '';
   const dPath = typeof decision?.path === 'string' ? decision.path : '';
   const dReason = typeof decision?.reason === 'string' ? decision.reason : '';

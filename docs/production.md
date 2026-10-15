@@ -44,8 +44,10 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism �
       K8s has liveness/readiness (see `infra/k8s/base/all.yaml`). Alert when `/ready` → 503.
 - [ ] Pin image digests for releases (`synapsedx/*:0.1.0` → digest), never `latest` for external engines.
 - [ ] Centralized logs (default json-file driver; move to Loki/ELK when needed) + keep `x-request-id`.
-- [ ] `audit_log` Postgres retention (cron `DELETE ... WHERE created_at < now() - interval`)
-      under heavy authorize traffic.
+- [ ] `audit_log` Postgres retention under heavy authorize traffic: set
+      `AUDIT_RETENTION_DAYS` (e.g. `180`) — the IAM service purges hourly by
+      itself (see `docs/configuration.md`). External cron `DELETE` only needed
+      for custom windows.
 - [ ] Monitoring: confirm Prometheus scrapes gateway/PG/Redis (`/targets` all up)
       and the `GatewayDown`/`PostgresDown`/`RedisDown` alerts are visible
       (see `docs/monitoring.md`). The Prometheus port stays internal in prod

@@ -377,10 +377,48 @@ func (c *Client) AttachPolicy(roleID, policyID string) error {
 	return err
 }
 
+// DetachPolicy removes a policy from a role.
+func (c *Client) DetachPolicy(roleID, policyID string) error {
+	_, err := c.do("DELETE", "/v1/roles/"+pathEscape(roleID)+"/policies/"+pathEscape(policyID), nil)
+	return err
+}
+
+// RolePolicies lists the policies attached to a role.
+func (c *Client) RolePolicies(roleID string) ([]any, error) {
+	b, err := c.do("GET", "/v1/roles/"+pathEscape(roleID)+"/policies", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssignRole assigns a role to a user.
 func (c *Client) AssignRole(userID, roleID string) error {
 	_, err := c.do("POST", "/v1/users/"+pathEscape(userID)+"/assign", map[string]any{"roleId": roleID})
 	return err
+}
+
+// UnassignRole removes a role from a user.
+func (c *Client) UnassignRole(userID, roleID string) error {
+	_, err := c.do("DELETE", "/v1/users/"+pathEscape(userID)+"/roles/"+pathEscape(roleID), nil)
+	return err
+}
+
+// UserRoles lists the roles assigned to a user.
+func (c *Client) UserRoles(userID string) ([]any, error) {
+	b, err := c.do("GET", "/v1/users/"+pathEscape(userID)+"/roles", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Authorize checks userId/action/resource with optional context.

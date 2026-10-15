@@ -29,6 +29,28 @@ bash tests/e2e/smoke.sh
 Windows without `make`: call `docker compose ...` / `npm run ...` directly
 as above (see also `tests/e2e/smoke.ps1`, `examples/quickstart/demo.ps1`).
 
+## Testing backends (memory vs Postgres)
+
+Unit tests run against the in-memory DB by default (no `DATABASE_URL`), which is
+fast but only exercises the memory branches. Before merging DB-touching changes,
+run the IAM suite against a scratch Postgres to cover the SQL branches (the
+pre-existing `tokens.test.js` fixtures use non-UUID ids and only pass on memory —
+`scoping.test.js` uses real UUIDs and passes on both):
+
+```bash
+docker run -d --name pg-scratch -e POSTGRES_USER=synapsedx \
+  -e POSTGRES_PASSWORD=testtest -e POSTGRES_DB=synapsedx \
+  -p 15432:5432 postgres:16-alpine
+docker cp infra/postgres/init.sql pg-scratch:/tmp/init.sql
+docker exec pg-scratch psql -U synapsedx -d synapsedx -v ON_ERROR_STOP=1 -f /tmp/init.sql
+cd apps/iam-service
+DATABASE_URL=postgres://synapsedx:testtest@127.0.0.1:15432/synapsedx \
+  node --test dist/scoping.test.js
+docker rm -f pg-scratch  # scratch only — never point this at prod data
+```
+Wipe + re-seed between runs: the suite uses fixed slugs/emails and is not
+rerunnable against a dirty database.
+
 ## Commit style
 Conventional Commits: `feat(iam): ...`, `fix(gateway): ...`, `docs: ...`, `chore: ...`.
 

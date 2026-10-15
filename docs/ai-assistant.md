@@ -26,8 +26,9 @@ prior context. History only adds context — outputs stay catalog-validated.
 
 Free-tier reasoning models intermittently return empty/truncated replies, so each
 step retries `AI_RETRIES` times (default 2, 4xx fail fast), then falls back to a
-different-provider model (`AI_LLM_FALLBACK_MODEL`, default = the decision model)
-before giving up. LLM responses are capped at 256KB before parsing. The gateway
+different-provider model (`AI_LLM_FALLBACK_MODEL`, default = the decision model,
+for generate/guide; the LLM model backs up decision picks) before giving up.
+LLM responses are capped at 256KB before parsing. The gateway
 gives `/v1/ai` a dedicated 120s proxy timeout (`routes.yaml: timeoutMs`) because
 retried model calls outlast the 30s global default.
 

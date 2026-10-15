@@ -29,6 +29,7 @@ spec:
             - { name: OIDC_ISSUER, value: "https://auth.example.com/application/o/synapsedx/" }
             - { name: OIDC_CLIENT_ID, value: "synapsedx-platform" }
             - { name: OIDC_CLIENT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: oidc-client-secret } } }
+            - { name: OIDC_REDIRECT_URI, value: "https://console.example.com/oidc/callback" }
             - { name: IAM_JWT_EXPIRES_IN, value: "3600" }
             # Production hardening (flip from dev defaults):
             - { name: NODE_ENV, value: "production" }

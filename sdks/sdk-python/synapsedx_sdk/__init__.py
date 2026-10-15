@@ -156,10 +156,28 @@ class SynapseDXClient:
             {"policyId": policy_id},
         )
 
+    def detach_policy(self, role_id: str, policy_id: str) -> dict:
+        return self._req(
+            "DELETE",
+            f"/v1/roles/{quote(role_id, safe='')}/policies/{quote(policy_id, safe='')}",
+        )
+
+    def role_policies(self, role_id: str) -> Any:
+        return self._req("GET", f"/v1/roles/{quote(role_id, safe='')}/policies")
+
     def assign_role(self, user_id: str, role_id: str) -> dict:
         return self._req(
             "POST", f"/v1/users/{quote(user_id, safe='')}/assign", {"roleId": role_id}
         )
+
+    def unassign_role(self, user_id: str, role_id: str) -> dict:
+        return self._req(
+            "DELETE",
+            f"/v1/users/{quote(user_id, safe='')}/roles/{quote(role_id, safe='')}",
+        )
+
+    def user_roles(self, user_id: str) -> Any:
+        return self._req("GET", f"/v1/users/{quote(user_id, safe='')}/roles")
 
     def simulate(
         self, documents: list, action: str, resource: str, context: dict | None = None

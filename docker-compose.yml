@@ -168,6 +168,7 @@ services:
       OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-synapsedx-platform}
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
       OIDC_STATE_SECRET: ${OIDC_STATE_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:3000/oidc/callback}
     ports:
       - "${IAM_HOST_PORT:-4001}:4001"
     healthcheck:

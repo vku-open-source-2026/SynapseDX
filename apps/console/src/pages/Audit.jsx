@@ -13,11 +13,12 @@ export default function Audit() {
   const [err, setErr] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [actor, setActor] = useState('');
+  const [decision, setDecision] = useState('');
 
   const load = async () => {
     setErr(null);
     try {
-      const v = await api.audit(100, actor || undefined, headers);
+      const v = await api.audit(100, actor || undefined, headers, decision === '' ? undefined : decision === 'allow');
       setRows(Array.isArray(v) ? v : []);
     } catch (e) {
       setErr(e);
@@ -41,6 +42,11 @@ export default function Audit() {
       <Err e={err} />
       <div className="flex gap-2 mb-4">
         <Input placeholder="Filter by actor id (user)…" value={actor} onChange={(e) => setActor(e.target.value)} />
+        <select value={decision} onChange={(e) => setDecision(e.target.value)} className="px-3 py-2 rounded-2xl border border-slate-200 text-sm bg-white outline-none" title="Decision">
+          <option value="">All decisions</option>
+          <option value="allow">Allow only</option>
+          <option value="deny">Deny only</option>
+        </select>
         <button onClick={load} className="px-4 py-2 rounded-2xl bg-slate-100 text-sm text-main-text">
           Filter
         </button>

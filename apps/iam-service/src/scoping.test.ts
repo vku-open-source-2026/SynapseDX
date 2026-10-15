@@ -103,6 +103,28 @@ describe('iam cross-tenant scoping', () => {
     assert.equal(r.status, 200);
   });
 
+  it('detach removes the grant (verified via effective policies)', async () => {
+    await post(`/v1/roles/${role1}/attach`, { policyId: pol1 }, token);
+    const before = await post(`/v1/users/${user1}/assign`, { roleId: role1 }, token);
+    assert.equal(before.status, 200);
+    const eff1 = await (await fetch(`${base}/v1/users/${user1}/policies`, { headers: H(token) })).json();
+    assert.ok(eff1.length >= 1);
+    const det = await fetch(`${base}/v1/roles/${role1}/policies/${pol1}`, { method: 'DELETE', headers: H(token) });
+    assert.equal(det.status, 200);
+    const eff2 = await (await fetch(`${base}/v1/users/${user1}/policies`, { headers: H(token) })).json();
+    assert.deepEqual(eff2, []);
+    const ghost = await fetch(`${base}/v1/roles/${role1}/policies/00000000-0000-4000-8000-000000000000`, { method: 'DELETE', headers: H(token) });
+    assert.equal(ghost.status, 404);
+    const foreign = await fetch(`${base}/v1/roles/${role1}/policies/${pol1}`, { method: 'DELETE', headers: H(token2) });
+    assert.equal(foreign.status, 403);
+    // role policies listing mirrors attach/detach
+    await post(`/v1/roles/${role1}/attach`, { policyId: pol1 }, token);
+    const listed = await (await fetch(`${base}/v1/roles/${role1}/policies`, { headers: H(token) })).json();
+    assert.deepEqual(listed.map((p: any) => p.id), [pol1]);
+    const ghostList = await fetch(`${base}/v1/roles/00000000-0000-4000-8000-000000000000/policies`, { headers: H(token) });
+    assert.equal(ghostList.status, 404);
+  });
+
   it('attach cross-account policy → 403 cross_account', async () => {
     const r = await post(`/v1/roles/${role1}/attach`, { policyId: pol2 }, token);
     assert.equal(r.status, 403);
@@ -112,6 +134,22 @@ describe('iam cross-tenant scoping', () => {
   it('assign same-org role → ok', async () => {
     const r = await post(`/v1/users/${user1}/assign`, { roleId: role1 }, token);
     assert.equal(r.status, 200);
+  });
+
+  it('unassign removes the grant, foreign caller → 403', async () => {
+    const un = await fetch(`${base}/v1/users/${user1}/roles/${role1}`, { method: 'DELETE', headers: H(token) });
+    assert.equal(un.status, 200);
+    const eff = await (await fetch(`${base}/v1/users/${user1}/policies`, { headers: H(token) })).json();
+    assert.deepEqual(eff, []);
+    await post(`/v1/users/${user1}/assign`, { roleId: role1 }, token);
+    const foreign = await fetch(`${base}/v1/users/${user1}/roles/${role1}`, { method: 'DELETE', headers: H(token2) });
+    assert.equal(foreign.status, 403);
+    const bad = await fetch(`${base}/v1/users/not-a-uuid/roles/${role1}`, { method: 'DELETE', headers: H(token) });
+    assert.equal(bad.status, 400);
+    const roles = await (await fetch(`${base}/v1/users/${user1}/roles`, { headers: H(token) })).json();
+    assert.deepEqual(roles.map((r: any) => r.id), [role1]);
+    const ghostRoles = await fetch(`${base}/v1/users/00000000-0000-4000-8000-000000000000/roles`, { headers: H(token) });
+    assert.equal(ghostRoles.status, 404);
   });
 
   it('assign role from another org → 403 cross_org', async () => {
@@ -316,19 +354,47 @@ describe('iam cross-tenant scoping', () => {
       await new Promise<void>((resolve) => srv.close(() => resolve()));
     }
   });
+  it('audit decision filter', async () => {
+    const dry = { documents: [{ Version: '2026-01-01', Statement: [{ Effect: 'Allow', Action: 'a', Resource: '*' }] }], action: 'a', resource: '*' };
+    assert.equal((await post('/v1/authorize/dry-run', dry, token)).status, 200);
+    const dryDeny = { documents: [{ Version: '2026-01-01', Statement: [{ Effect: 'Deny', Action: 'a', Resource: '*' }] }], action: 'a', resource: '*' };
+    assert.equal((await post('/v1/authorize/dry-run', dryDeny, token)).status, 200);
+    const all = await (await fetch(`${base}/v1/audit?limit=50`, { headers: H(token) })).json();
+    assert.ok(all.length >= 2);
+    const allows = await (await fetch(`${base}/v1/audit?limit=50&allowed=true`, { headers: H(token) })).json();
+    assert.ok(allows.length >= 1 && allows.every((r: any) => r.decision === true));
+    const denies = await (await fetch(`${base}/v1/audit?limit=50&allowed=false`, { headers: H(token) })).json();
+    assert.ok(denies.length >= 1 && denies.every((r: any) => r.decision === false));
+    const bad = await fetch(`${base}/v1/audit?allowed=maybe`, { headers: H(token) });
+    assert.equal(bad.status, 400);
+  });
 });
 
-describe('audit retention purge (memory)', () => {
+describe('audit retention purge', () => {
   it('removes only rows older than the cutoff', async () => {
-    const { purgeAudit, logAudit, listAudit, __mem } = await import('./db');
-    (__mem as any).audit = [];
-    const old = { actor_type: 't', actor_id: 'old', action: 'a', resource: '*', decision: true, created_at: new Date(Date.now() - 40 * 86400000).toISOString() };
-    const fresh = { actor_type: 't', actor_id: 'new', action: 'a', resource: '*', decision: true, created_at: new Date().toISOString() };
-    ((__mem as any).audit as any[]).push(old, fresh);
-    assert.equal(await purgeAudit(30), 1);
-    const rows = await listAudit(50);
-    assert.ok(rows.some((r: any) => r.actor_id === 'new'));
-    assert.ok(!rows.some((r: any) => r.actor_id === 'old'));
+    const { purgeAudit, logAudit, listAudit, __mem, useDb, getPool } = await import('./db');
+    if (useDb()) {
+      // Postgres branch: insert a genuinely old row, purge, verify gone.
+      const pool = getPool()!;
+      const old = new Date(Date.now() - 40 * 86400000).toISOString();
+      await pool.query(
+        `INSERT INTO audit_log (actor_type, actor_id, action, resource, decision, context, created_at)
+         VALUES ('t','pg-old','a','*',true,'{}',$1)`,
+        [old],
+      );
+      assert.equal(await purgeAudit(30), 1);
+      const rows = await listAudit(50);
+      assert.ok(!rows.some((r: any) => r.actor_id === 'pg-old'));
+    } else {
+      (__mem as any).audit = [];
+      const old = { actor_type: 't', actor_id: 'old', action: 'a', resource: '*', decision: true, created_at: new Date(Date.now() - 40 * 86400000).toISOString() };
+      const fresh = { actor_type: 't', actor_id: 'new', action: 'a', resource: '*', decision: true, created_at: new Date().toISOString() };
+      ((__mem as any).audit as any[]).push(old, fresh);
+      assert.equal(await purgeAudit(30), 1);
+      const rows = await listAudit(50);
+      assert.ok(rows.some((r: any) => r.actor_id === 'new'));
+      assert.ok(!rows.some((r: any) => r.actor_id === 'old'));
+    }
     await logAudit({ actor_type: 't', actor_id: 'x', action: 'a', resource: '*', decision: false });
   });
 

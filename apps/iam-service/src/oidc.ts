@@ -22,7 +22,7 @@ export function oidcSettings(): OidcSettings {
     issuer: (process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/synapsedx/').replace(/\/*$/, '/'),
     clientId: process.env.OIDC_CLIENT_ID || 'synapsedx-platform',
     clientSecret: process.env.OIDC_CLIENT_SECRET || '',
-    redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:4001/v1/auth/oidc/callback',
+    redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:3000/oidc/callback',
     provider: process.env.OIDC_PROVIDER || 'authentik',
   };
 }

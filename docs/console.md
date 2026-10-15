@@ -52,8 +52,8 @@ npm run dev   # :3000, /api proxies to localhost:8080 when needed
 Dashboard (inventory stats, current context, service health, recent activity) ·
 Organizations · Accounts · Users (+create) · Roles · Policies (JSON editor +
 dry-run) · API Keys · Service Accounts · Workflows (templates + create on n8n +
-activate/deactivate/execute + executions + definition editor) · Authorize
-(simulator + live authorize) · Audit Log.
+visual drag-and-drop editor with undo/redo + activate/deactivate/execute +
+executions + delete) · Authorize (simulator + live authorize) · Audit Log.
 Public pages: Landing (`/`, install instructions), API Docs (try-it explorer +
 auth-gated AI chatbot bubble), Docs (SDK/CLI snippets), Login, OIDC callback.
 Signed-in users get the sidebar layout on API Docs/Docs too.

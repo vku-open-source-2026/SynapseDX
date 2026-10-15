@@ -95,6 +95,19 @@ def test_full_coverage_paths():
         assert _seen["path"] == "/v1/orgs/org1/accounts"
         c.user_policies("u1")
         assert _seen["path"] == "/v1/users/u1/policies"
+        c.attach_policy("r1", "p1")
+        assert _seen["path"] == "/v1/roles/r1/attach"
+        c.detach_policy("r1", "p1")
+        assert _seen["path"] == "/v1/roles/r1/policies/p1"
+        assert _seen["method"] == "DELETE"
+        c.role_policies("r1")
+        assert _seen["path"] == "/v1/roles/r1/policies"
+        c.assign_role("u1", "r1")
+        assert _seen["path"] == "/v1/users/u1/assign"
+        c.unassign_role("u1", "r1")
+        assert _seen["path"] == "/v1/users/u1/roles/r1"
+        c.user_roles("u1")
+        assert _seen["path"] == "/v1/users/u1/roles"
         c.get_template("webhook-to-log")
         assert _seen["path"] == "/v1/templates/webhook-to-log"
         c.get_workflow("a/b")

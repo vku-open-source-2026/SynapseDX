@@ -13,6 +13,7 @@ import { renderToString } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { AuthProvider } from './lib/auth.jsx';
 import App from './App.jsx';
+import WorkflowEditor from './components/WorkflowEditor.jsx';
 
 const ROUTES = [
   '/',
@@ -84,6 +85,32 @@ for (const [label, session] of Object.entries(SESSIONS)) {
 }
 if (failures > 0) {
   console.error(`${failures} route(s) failed to render`);
+  process.exit(1);
+}
+
+// Visual workflow editor (default visual tab, empty selection) — catches JSX
+// crashes in the overlay/palette/canvas/inspector default branches.
+try {
+  const editorHtml = renderToString(
+    <WorkflowEditor
+      workflowId="w1"
+      initial={{
+        name: 'demo',
+        nodes: [
+          { id: 'a', name: 'Webhook', type: 'n8n-nodes-base.webhook', position: [200, 300], parameters: { path: 'ev' } },
+          { id: 'b', name: 'Log', type: 'n8n-nodes-base.noOp', position: [420, 300], parameters: {} },
+        ],
+        connections: { Webhook: { main: [[{ node: 'Log', type: 'main', index: 0 }]] } },
+      }}
+      headers={{}}
+      onClose={() => undefined}
+      onSaved={() => undefined}
+    />,
+  );
+  if (editorHtml.length === 0) throw new Error('empty editor render');
+  console.log(`ok [editor] visual default (${editorHtml.length} chars)`);
+} catch (e: any) {
+  console.error(`FAIL [editor]: ${e?.message || e}`);
   process.exit(1);
 }
 console.log('ssr smoke: all routes render');

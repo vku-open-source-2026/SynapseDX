@@ -75,6 +75,9 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
   // persist via the store, and retry the original call. Never loops (one retry).
   // Skipped only for the token-minting endpoints themselves (login/refresh/
   // logout/callback) — /v1/auth/me and /v1/auth/verify DO retry.
+  // NOTE: NO_RETRY matches exact paths; endpoints WITH query strings (audit,
+  // executions, oidc/start) intentionally fall through to refresh+retry —
+  // they are authenticated data calls (or tokenless), never token minters.
   // Cross-tab race: refresh tokens are single-use, so a sibling tab may have
   // already rotated while this call was in flight. The store reads localStorage
   // (shared across tabs) — if it already holds a newer access token, retry with
@@ -145,14 +148,18 @@ export const api = {
   deletePolicy: (policyId, a) => del(`/v1/policies/${encodeURIComponent(policyId)}`, a),
   revokeKey: (id, a) => del(`/v1/keys/${encodeURIComponent(id)}`, a),
   attach: (roleId, policyId, a) => post(`/v1/roles/${encodeURIComponent(roleId)}/attach`, { policyId }, a),
+  detach: (roleId, policyId, a) => del(`/v1/roles/${encodeURIComponent(roleId)}/policies/${encodeURIComponent(policyId)}`, a),
+  rolePolicies: (roleId, a) => get(`/v1/roles/${encodeURIComponent(roleId)}/policies`, a),
   assign: (userId, roleId, a) => post(`/v1/users/${encodeURIComponent(userId)}/assign`, { roleId }, a),
+  unassign: (userId, roleId, a) => del(`/v1/users/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`, a),
+  userRoles: (userId, a) => get(`/v1/users/${encodeURIComponent(userId)}/roles`, a),
   userPolicies: (userId, a) => get(`/v1/users/${encodeURIComponent(userId)}/policies`, a),
   authorize: (userId, action, resource, context, a) =>
     post('/v1/authorize', { userId, action, resource, context }, a),
   simulate: (documents, action, resource, context, a) =>
     post('/v1/authorize/dry-run', { documents, action, resource, context }, a),
-  audit: (limit, actor, a) =>
-    get(`/v1/audit?limit=${limit || 50}${actor ? `&actor=${encodeURIComponent(actor)}` : ''}`, a),
+  audit: (limit, actor, a, allowed) =>
+    get(`/v1/audit?limit=${limit || 50}${actor ? `&actor=${encodeURIComponent(actor)}` : ''}${allowed === undefined ? '' : `&allowed=${allowed ? 'true' : 'false'}`}`, a),
   createKey: (accountId, name, a) => post(`/v1/accounts/${encodeURIComponent(accountId)}/keys`, { name, scopes: ['*'] }, a),
   listKeys: (accountId, a) => get(`/v1/accounts/${encodeURIComponent(accountId)}/keys`, a),
   serviceAccounts: (accountId, a) => get(`/v1/accounts/${encodeURIComponent(accountId)}/service-accounts`, a),
@@ -161,6 +168,7 @@ export const api = {
   templates: (a) => get('/v1/templates', a),
   workflows: (a) => get('/v1/workflows', a),
   createWorkflow: (template, name, a) => post('/v1/workflows', { template, name }, a),
+  createWorkflowRaw: (name, definition, a) => post('/v1/workflows', { name, definition }, a),
   workflow: (id, a) => get(`/v1/workflows/${encodeURIComponent(id)}`, a),
   updateWorkflow: (id, patch, a) => put(`/v1/workflows/${encodeURIComponent(id)}`, patch, a),
   deleteWorkflow: (id, a) => del(`/v1/workflows/${encodeURIComponent(id)}`, a),
@@ -176,5 +184,6 @@ export const api = {
     return get(`/v1/executions${s ? `?${s}` : ''}`, a);
   },
   execution: (id, a) => get(`/v1/executions/${encodeURIComponent(id)}`, a),
+  executionWithData: (id, a) => get(`/v1/executions/${encodeURIComponent(id)}?includeData=true`, a),
   agent: (question, history, a) => post('/v1/ai/agent', { question, history }, a),
 };

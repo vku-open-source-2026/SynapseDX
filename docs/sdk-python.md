@@ -306,6 +306,12 @@ def verify_api_key(self, api_key: str) -> dict
 ```
 Checks a raw API key via the internal verify endpoint.
 
+#### `list_api_keys(account_id)`
+```python
+def list_api_keys(self, account_id: str) -> Any
+```
+Lists key metadata (id/prefix only — never secret values).
+
 ### Service accounts
 
 #### `create_service_account(account_id, slug, description="")`
@@ -339,19 +345,19 @@ token = result["accessToken"]
 
 #### `list_workflows()`
 ```python
-def list_workflows(self) -> list
+def list_workflows(self) -> Any
 ```
 Lists all workflows.
 
 #### `get_workflow(wf_id)`
 ```python
-def get_workflow(self, wf_id: str) -> dict
+def get_workflow(self, wf_id: str) -> Any
 ```
 Gets a single workflow by ID.
 
 #### `create_workflow_from_template(template, name=None)`
 ```python
-def create_workflow_from_template(self, template: str, name: str | None = None) -> dict
+def create_workflow_from_template(self, template: str, name: str | None = None) -> Any
 ```
 Instantiates a built-in template on the engine.
 
@@ -361,7 +367,7 @@ c.create_workflow_from_template("webhook-to-log", "my-webhook")
 
 #### `create_workflow(name, definition)`
 ```python
-def create_workflow(self, name: str, definition: dict) -> dict
+def create_workflow(self, name: str, definition: dict) -> Any
 ```
 Creates a workflow from a raw n8n definition.
 
@@ -371,19 +377,19 @@ c.create_workflow("my-wf", n8n_definition)
 
 #### `activate_workflow(wf_id)`
 ```python
-def activate_workflow(self, wf_id: str) -> dict
+def activate_workflow(self, wf_id: str) -> Any
 ```
 Activates a workflow.
 
 #### `deactivate_workflow(wf_id)`
 ```python
-def deactivate_workflow(self, wf_id: str) -> dict
+def deactivate_workflow(self, wf_id: str) -> Any
 ```
 Deactivates a workflow.
 
 #### `execute_workflow(wf_id, payload=None)`
 ```python
-def execute_workflow(self, wf_id: str, payload: dict | None = None) -> dict
+def execute_workflow(self, wf_id: str, payload: dict | None = None) -> Any
 ```
 Triggers a manual execution (proxied to the engine).
 
@@ -391,17 +397,37 @@ Triggers a manual execution (proxied to the engine).
 c.execute_workflow(wf_id, {"url": "https://example.com/hook"})
 ```
 
+#### `update_workflow(wf_id, name=None, definition=None)`
+```python
+def update_workflow(self, wf_id: str, name: str | None = None, definition: dict | None = None) -> Any
+```
+Updates a workflow's name and/or n8n definition.
+
+```python
+c.update_workflow(wf_id, name="renamed")
+```
+
+#### `delete_workflow(wf_id)`
+```python
+def delete_workflow(self, wf_id: str) -> Any
+```
+Deletes a workflow on the engine.
+
+```python
+c.delete_workflow(wf_id)
+```
+
 ### Templates
 
 #### `list_templates()`
 ```python
-def list_templates(self) -> list
+def list_templates(self) -> Any
 ```
 Lists all built-in workflow templates.
 
 #### `get_template(name)`
 ```python
-def get_template(self, name: str) -> dict
+def get_template(self, name: str) -> Any
 ```
 Fetches a single built-in template definition by name.
 
@@ -413,7 +439,7 @@ tpl = c.get_template("webhook-to-log")
 
 #### `list_executions(query="")`
 ```python
-def list_executions(self, query: str = "") -> list
+def list_executions(self, query: str = "") -> Any
 ```
 Proxies the engine execution list. `query` is an optional query string like `"limit=20"`.
 
@@ -423,7 +449,7 @@ recent = c.list_executions("limit=10")
 
 #### `get_execution(exec_id)`
 ```python
-def get_execution(self, exec_id: str) -> dict
+def get_execution(self, exec_id: str) -> Any
 ```
 Gets a single execution by ID.
 

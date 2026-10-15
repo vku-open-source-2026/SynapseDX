@@ -290,9 +290,17 @@ async function cmdAttach(o) {
   need(o._[0], 'role-id'); need(o._[1], 'policy-id');
   return out(await POST(`/v1/roles/${encodeURIComponent(o._[0])}/attach`, { policyId: o._[1] }, o), o);
 }
+async function cmdDetach(o) {
+  need(o._[0], 'role-id'); need(o._[1], 'policy-id');
+  return out(await DEL(`/v1/roles/${encodeURIComponent(o._[0])}/policies/${encodeURIComponent(o._[1])}`, o), o);
+}
 async function cmdAssign(o) {
   need(o._[0], 'user-id'); need(o._[1], 'role-id');
   return out(await POST(`/v1/users/${encodeURIComponent(o._[0])}/assign`, { roleId: o._[1] }, o), o);
+}
+async function cmdUnassign(o) {
+  need(o._[0], 'user-id'); need(o._[1], 'role-id');
+  return out(await DEL(`/v1/users/${encodeURIComponent(o._[0])}/roles/${encodeURIComponent(o._[1])}`, o), o);
 }
 async function cmdAuthz(o) {
   const [user, action, resource] = o._;
@@ -444,7 +452,9 @@ const COMMANDS = {
   roles: { fn: cmdRoles, use: 'roles <account> [list] | roles create <account> <slug> | roles delete <id>', doc: 'Roles' },
   policies: { fn: cmdPolicies, use: 'policies <account> [list] | policies create <account> <slug> --file p.json | policies delete <id>', doc: 'Policies' },
   attach: { fn: cmdAttach, use: 'attach <role-id> <policy-id>', doc: 'Attach policy to role' },
+  detach: { fn: cmdDetach, use: 'detach <role-id> <policy-id>', doc: 'Detach policy from role' },
   assign: { fn: cmdAssign, use: 'assign <user-id> <role-id>', doc: 'Assign role to user' },
+  unassign: { fn: cmdUnassign, use: 'unassign <user-id> <role-id>', doc: 'Remove role from user' },
   authz: { fn: cmdAuthz, use: 'authz <user> <action> <resource> [--context k=v]', doc: 'Authorize check' },
   sim: { fn: cmdSim, use: 'sim --file policy.json <action> <resource> [--context k=v]', doc: 'Policy simulator' },
   audit: { fn: cmdAudit, use: 'audit [--limit N] [--actor ID]', doc: 'Audit log' },

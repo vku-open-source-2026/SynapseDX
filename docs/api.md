@@ -65,14 +65,19 @@ configured). Upstreams trust these directly without re-verifying the JWT.
 - `POST /v1/users/:userId/assign {roleId}`
 - `GET /v1/users/:userId/policies`
 - `POST /v1/authorize {userId, action, resource, context?}` → `{allowed, matchedBy}` (context is merged with DB-backed user/org/email; unknown userId → `200 {allowed:false}` by contract, not 404)
-- `POST /v1/roles/:roleId/attach {policyId}` (policy must live in the role's account — `403 cross_account` otherwise); `POST /v1/users/:userId/assign {roleId}` (role's account must be in the user's org — `403 cross_org` otherwise)
+- `POST /v1/roles/:roleId/attach {policyId}` (policy must live in the role's account — `403 cross_account` otherwise);
+- `DELETE /v1/roles/:roleId/policies/:policyId` → detach (idempotent `{ok:true}`);
+- `GET /v1/roles/:roleId/policies` → attached policies;
+- `POST /v1/users/:userId/assign {roleId}` (role's account must be in the user's org — `403 cross_org` otherwise);
+- `DELETE /v1/users/:userId/roles/:roleId` → unassign (idempotent);
+- `GET /v1/users/:userId/roles` → assigned roles
 - Tenant isolation on every write: creating/attaching/assigning/deleting roles,
   policies, keys, service accounts, accounts and users requires caller membership
   in the target tenant (role-based, or same-org fallback; service-account tokens stay
   strictly account-bound) — otherwise `403 forbidden`. Reads stay open; org creation
   stays open (bootstrap).
 - `POST /v1/authorize/dry-run {documents[], action, resource, context?}` → `{allowed}` (simulator, no user needed)
-- `GET /v1/audit?limit=50&actor=<id>` → authorize-decision audit log (newest first, limit clamped 1..200)
+- `GET /v1/audit?limit=50&actor=<id>&allowed=true|false` → authorize-decision audit log (newest first, limit clamped 1..200)
 
 ## Keys
 
@@ -97,7 +102,7 @@ configured). Upstreams trust these directly without re-verifying the JWT.
 - `POST /v1/workflows {name, template} | {name, definition}`
 - `PUT /v1/workflows/:id {name?, definition?}` (SSRF/size-validated, ≤200KB; merged onto current nodes, server-side settings preserved)
 - `POST /v1/workflows/:id/execute {input}` (fires the workflow's webhook trigger — must be active: 409 `workflow_inactive` when off, 400 `no_webhook_trigger` when it has no webhook node)
-- `GET /v1/executions` (only an allowlist of query params is forwarded: `limit, offset, workflowId, status, includeData`) / `GET /v1/executions/:id`
+- `GET /v1/executions` (only an allowlist of query params is forwarded: `limit, offset, workflowId, status, includeData`; `limit/offset` must be 0..9999 integers, `offset=0` means first page — n8n answers empty for a literal `offset=0`) / `GET /v1/executions/:id` (`?includeData=true` for node I/O)
 
 ## Health / Metrics
 

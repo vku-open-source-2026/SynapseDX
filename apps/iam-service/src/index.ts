@@ -10,10 +10,11 @@ import { z } from 'zod';
 import {
   createOrganization, listOrganizations, getOrgBySlug,
   createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
-  attachPolicy, assignRole, policiesForUser, useDb, deleteRole, deletePolicy,
+  attachPolicy, assignRole, detachPolicy, unassignRole, policiesForUser, useDb, deleteRole, deletePolicy,
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies, logAudit, listAudit, purgeAudit,
   getRoleById, getPolicyById, getAccountById, accountsForUser, getOrgById,
+  policiesForRole, rolesForUser,
 } from './db';
 import { evaluatePolicies, validatePolicyDocument } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess, listApiKeys, findApiKeyById } from './tokens';
@@ -599,8 +600,15 @@ export function createApp(): express.Express {
     res.json(await listRoles(req.params.accountId));
   });
 
-  app.delete('/v1/roles/:roleId', async (req, res) => {
+  // Policies attached to one role (management UI + attach verification).
+  app.get('/v1/roles/:roleId/policies', async (req, res) => {
     if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
+    const role = await getRoleById(req.params.roleId);
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    res.json(await policiesForRole(req.params.roleId));
+  });
+
+  app.delete('/v1/roles/:roleId', async (req, res) => {    if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
     const role = await getRoleById(req.params.roleId);
     if (!role) return res.status(404).json({ error: 'role_not_found' });
     if (!(await canActForAccount(req, TRUST_STAMPED, role.account_id))) {
@@ -663,6 +671,19 @@ export function createApp(): express.Express {
     await attachPolicy(req.params.roleId, req.body.policyId);
     res.json({ ok: true });
   });
+  app.delete('/v1/roles/:roleId/policies/:policyId', async (req, res) => {
+    if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
+    if (!isUuid(req.params.policyId)) return res.status(400).json({ error: 'invalid_id', message: 'policyId must be a UUID' });
+    const role = await getRoleById(req.params.roleId);
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    const pol = await getPolicyById(req.params.policyId);
+    if (!pol) return res.status(404).json({ error: 'policy_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, role.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'role belongs to another tenant' });
+    }
+    await detachPolicy(req.params.roleId, req.params.policyId);
+    res.json({ ok: true });
+  });
   app.post('/v1/users/:userId/assign', async (req, res) => {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
     if (!req.body?.roleId) return res.status(400).json({ error: 'invalid_roleId', message: 'roleId required' });
@@ -681,6 +702,19 @@ export function createApp(): express.Express {
       return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
     }
     await assignRole(req.params.userId, req.body.roleId);
+    res.json({ ok: true });
+  });
+  app.delete('/v1/users/:userId/roles/:roleId', async (req, res) => {
+    if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
+    if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
+    const user = await getUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'user_not_found' });
+    const role = await getRoleById(req.params.roleId);
+    if (!role) return res.status(404).json({ error: 'role_not_found' });
+    if (!(await canActForOrg(req, TRUST_STAMPED, user.org_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
+    }
+    await unassignRole(req.params.userId, req.params.roleId);
     res.json({ ok: true });
   });
 
@@ -726,7 +760,12 @@ export function createApp(): express.Express {
   app.get('/v1/audit', async (req, res) => {
     const limit = Number(req.query.limit || 50);
     const actor = (req.query.actor as string) || undefined;
-    res.json(await listAudit(limit, actor));
+    const rawAllowed = req.query.allowed;
+    const allowed = rawAllowed === undefined ? undefined : String(rawAllowed).toLowerCase() === 'true';
+    if (rawAllowed !== undefined && !['true', 'false'].includes(String(rawAllowed).toLowerCase())) {
+      return res.status(400).json({ error: 'invalid_allowed', message: 'allowed must be true or false' });
+    }
+    res.json(await listAudit(limit, actor, allowed));
   });
 
   // ---------- API keys ----------
@@ -866,6 +905,14 @@ export function createApp(): express.Express {
   app.get('/v1/users/:userId/policies', async (req, res) => {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
     res.json(await policiesForUser(req.params.userId));
+  });
+
+  // Roles assigned to one user (management UI + assign verification).
+  app.get('/v1/users/:userId/roles', async (req, res) => {
+    if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
+    const user = await getUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'user_not_found' });
+    res.json(await rolesForUser(req.params.userId));
   });
 
   // 404

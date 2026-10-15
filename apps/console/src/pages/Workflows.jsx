@@ -6,6 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 import { Badge, Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import WorkflowEditor from '../components/WorkflowEditor.jsx';
+import { uid } from '../lib/workflow-graph.js';
 
 export default function Workflows() {
   const { headers } = useAuth();
@@ -26,10 +28,29 @@ export default function Workflows() {
   const [actionOut, setActionOut] = useState(null);
   const [execs, setExecs] = useState([]);
   const [execDetail, setExecDetail] = useState(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editName, setEditName] = useState('');
-  const [editDef, setEditDef] = useState('');
-  const [editBusy, setEditBusy] = useState(false);
+  const [execMore, setExecMore] = useState(false);
+  const [execBusy, setExecBusy] = useState(false);
+  const [execStatus, setExecStatus] = useState('');
+  const EXEC_PAGE = 20;
+
+  const execQuery = (id, offset) => ({
+    workflowId: id,
+    limit: EXEC_PAGE,
+    ...(offset ? { offset } : {}),
+    ...(execStatus ? { status: execStatus } : {}),
+  });
+
+  const reloadExecs = async (id) => {
+    try {
+      const e = await api.executions(execQuery(id, 0), headers);
+      const items = Array.isArray(e) ? e : e?.data || [];
+      setExecs(items);
+      setExecMore(items.length >= EXEC_PAGE);
+    } catch {
+      /* executions refresh is best-effort */
+    }
+  };
+  const [visualOpen, setVisualOpen] = useState(false);
   const selSeq = useRef(0);
   const selRef = useRef(null);
 
@@ -69,6 +90,27 @@ export default function Workflows() {
     }
   };
 
+  const createBlank = async () => {
+    if (createBusy) return;
+    setCreateBusy(true);
+    setErr(null);
+    try {
+      const taken = new Set(list.map((w) => w.name));
+      let nm = 'untitled';
+      for (let i = 2; taken.has(nm); i++) nm = `untitled ${i}`;
+      const w = await api.createWorkflowRaw(nm, { nodes: [], connections: {} }, headers);
+      await load();
+      if (w && w.id) {
+        await select(w.id);
+        setVisualOpen(true);
+      }
+    } catch (ex) {
+      setErr(ex);
+    } finally {
+      setCreateBusy(false);
+    }
+  };
+
   const list = Array.isArray(flows) ? flows : flows?.data || [];
 
   const select = async (id) => {
@@ -86,20 +128,49 @@ export default function Workflows() {
     setActionOut(null);
     setExecDetail(null);
     setExecs([]);
+    setExecMore(false);
+    setExecStatus('');
     setExecInput('{}');
     try {
       const [d, e] = await Promise.all([
         api.workflow(id, headers),
-        api.executions({ workflowId: id, limit: 20 }, headers).catch(() => ({ data: [] })),
+        api.executions({ workflowId: id, limit: EXEC_PAGE }, headers).catch(() => ({ data: [] })),
       ]);
       if (selSeq.current !== my) return; // stale: user already picked another workflow
       setDetail(d);
       const items = Array.isArray(e) ? e : e?.data || [];
       setExecs(items);
+      setExecMore(items.length >= EXEC_PAGE);
     } catch (ex) {
       if (selSeq.current === my) setDetailErr(ex);
     }
   };
+
+  const loadMoreExecs = async () => {
+    if (!sel || execBusy) return;
+    setExecBusy(true);
+    try {
+      const e = await api.executions(execQuery(sel, execs.length), headers);
+      const items = Array.isArray(e) ? e : e?.data || [];
+      setExecs((xs) => [...xs, ...items]);
+      setExecMore(items.length >= EXEC_PAGE);
+    } catch (ex) {
+      setDetailErr(ex);
+    } finally {
+      setExecBusy(false);
+    }
+  };
+
+  const applyExecStatus = (v) => {
+    setExecStatus(v);
+    setExecDetail(null);
+    setExecs([]);
+  };
+
+  useEffect(() => {
+    if (!sel) return;
+    reloadExecs(sel);
+  }, [execStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const doAction = async (fn, label) => {
     if (!sel || actionBusy) return null;
@@ -139,12 +210,7 @@ export default function Workflows() {
     }
     const r = await doAction(() => api.executeWorkflow(sel, input, headers), 'Executed');
     if (!r) return;
-    try {
-      const e = await api.executions({ workflowId: sel, limit: 20 }, headers);
-      setExecs(Array.isArray(e) ? e : e?.data || []);
-    } catch {
-      /* executions refresh is best-effort */
-    }
+    reloadExecs(sel);
   };
 
   const removeWorkflow = async () => {
@@ -165,6 +231,63 @@ export default function Workflows() {
     }
   };
 
+  const duplicateWorkflow = async () => {
+    if (!detail || actionBusy) return;
+    setActionBusy(true);
+    setDetailErr(null);
+    try {
+      // Fresh node ids, webhookIds AND a free trigger path: the copy shares
+      // nothing addressable with the original (n8n keys some execution
+      // mapping off node ids; two active workflows must share neither ids
+      // nor webhook path, or routing is ambiguous).
+      // Sibling paths are scanned so duplicate-of-duplicate gets -copy-2, ….
+      // The copy's trigger URL changes — the UI names it "<name> copy".
+      let siblingPaths = new Set();
+      try {
+        const all = await api.workflows(headers);
+        const list = Array.isArray(all) ? all : all?.data || [];
+        for (const w of list) {
+          const nodes = w.id === sel && detail ? detail.nodes : w.nodes;
+          for (const n of nodes || []) {
+            const p = n?.parameters?.path;
+            if (n?.type === 'n8n-nodes-base.webhook' && typeof p === 'string' && p) siblingPaths.add(p);
+          }
+        }
+      } catch {
+        /* path scan is best-effort; worst case the suffix may collide */
+      }
+      const freshPath = (p) => {
+        if (typeof p !== 'string' || !p) return p;
+        let cand = `${p}-copy`;
+        for (let i = 2; siblingPaths.has(cand); i++) cand = `${p}-copy-${i}`;
+        siblingPaths.add(cand);
+        return cand;
+      };
+      const nodes = (detail.nodes || []).map((n) => {
+        if (!n || typeof n !== 'object') return n;
+        const copy = { ...n, id: uid() };
+        if (copy.type === 'n8n-nodes-base.webhook') {
+          const params = { ...((copy.parameters || {})) };
+          params.path = freshPath(params.path);
+          copy.webhookId = uid();
+          copy.parameters = params;
+        }
+        return copy;
+      });
+      const copy = await api.createWorkflowRaw(
+        `${detail.name || 'workflow'} copy`.slice(0, 200),
+        { nodes, connections: detail.connections || {} },
+        headers,
+      );
+      load();
+      if (copy && copy.id) select(copy.id);
+    } catch (ex) {
+      setDetailErr(ex);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const showExecution = async (id) => {
     if (execDetail?.id === id) {
       setExecDetail(null);
@@ -172,7 +295,8 @@ export default function Workflows() {
     }
     const wf = sel;
     try {
-      const e = await api.execution(id, headers);
+      // includeData carries node input/output for debugging runs.
+      const e = await api.executionWithData(id, headers).catch(() => api.execution(id, headers));
       if (selRef.current !== wf) return; // stale workflow context
       setExecDetail({ id, ...e });
     } catch (ex) {
@@ -180,41 +304,26 @@ export default function Workflows() {
     }
   };
 
-  const openEditor = () => {
+  const openVisualEditor = () => {
     if (!detail) return;
-    setEditName(detail.name || '');
-    setEditDef(JSON.stringify({ nodes: detail.nodes || [], connections: detail.connections || {} }, null, 2));
     setDetailErr(null);
-    setEditOpen(true);
+    setVisualOpen(true);
   };
 
-  const saveEditor = async (e) => {
-    e.preventDefault();
-    if (editBusy) return;
-    let definition;
+  const onEditorSaved = async () => {
+    setVisualOpen(false);
     try {
-      definition = editDef.trim() ? JSON.parse(editDef) : undefined;
-    } catch {
-      setDetailErr(new Error('Definition is not valid JSON'));
-      return;
-    }
-    setEditBusy(true);
-    try {
-      await api.updateWorkflow(sel, { name: editName, definition }, headers);
-      setEditOpen(false);
       const d = await api.workflow(sel, headers);
       setDetail(d);
       load();
     } catch (ex) {
       setDetailErr(ex);
-    } finally {
-      setEditBusy(false);
     }
   };
 
   return (
     <>
-      <PageTitle title="Workflows" sub="External n8n engine via workflow-service — click a workflow to interact" right={<Btn onClick={() => setOpen(true)}>+ From template</Btn>} />
+      <PageTitle title="Workflows" sub="External n8n engine via workflow-service — click a workflow to interact" right={<><Btn onClick={createBlank} disabled={createBusy}>+ Blank</Btn> <Btn onClick={() => setOpen(true)}>+ From template</Btn></>} />
       <Err e={err} />
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
@@ -280,10 +389,10 @@ export default function Workflows() {
                   {actionBusy ? '…' : detail.active ? 'Deactivate' : 'Activate'}
                 </button>
                 <button
-                  onClick={openEditor}
-                  className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue"
+                  onClick={openVisualEditor}
+                  className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end"
                 >
-                  Edit definition
+                  Open editor
                 </button>
                 <button
                   onClick={removeWorkflow}
@@ -291,6 +400,13 @@ export default function Workflows() {
                   className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-red-500/10 text-red-500 disabled:opacity-50"
                 >
                   Delete
+                </button>
+                <button
+                  onClick={duplicateWorkflow}
+                  disabled={actionBusy}
+                  className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-50"
+                >
+                  Duplicate
                 </button>
               </div>
               <Field label="Execute input (JSON)">
@@ -319,8 +435,17 @@ export default function Workflows() {
                   </div>
                 </div>
               )}
-              <h4 className="font-semibold text-main-text text-sm mb-2">Recent executions ({execs.length})</h4>
+              <div className="flex items-center gap-2 mb-2">
+                <h4 className="font-semibold text-main-text text-sm">Recent executions ({execs.length})</h4>
+                <select value={execStatus} onChange={(e) => applyExecStatus(e.target.value)} title="Filter by status" className="ml-auto px-2 py-1 rounded-xl border border-slate-200 text-xs bg-white outline-none">
+                  <option value="">All statuses</option>
+                  <option value="success">Success</option>
+                  <option value="error">Error</option>
+                  <option value="waiting">Waiting</option>
+                </select>
+              </div>
               {execs.length ? (
+                <>
                 <Table head={['ID', 'Status', 'Started']}>
                   {execs.map((x) => (
                     <tr key={x.id} onClick={() => showExecution(x.id)} className="border-t border-slate-100 cursor-pointer hover:bg-background">
@@ -334,6 +459,12 @@ export default function Workflows() {
                     </tr>
                   ))}
                 </Table>
+                {execMore && (
+                  <button onClick={loadMoreExecs} disabled={execBusy} className="mt-2 px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-50">
+                    {execBusy ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
+                </>
               ) : (
                 <Empty text="No executions yet" />
               )}
@@ -346,25 +477,14 @@ export default function Workflows() {
           )}
         </Card>
       )}
-      {editOpen && (
-        <Modal title={`Edit ${detail?.name || 'workflow'}`} onClose={() => setEditOpen(false)}>
-          <form onSubmit={saveEditor}>
-            <Field label="Name">
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} />
-            </Field>
-            <Field label="Definition JSON ({nodes, connections})">
-              <textarea
-                value={editDef}
-                onChange={(e) => setEditDef(e.target.value)}
-                rows={14}
-                spellCheck={false}
-                className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue"
-              />
-            </Field>
-            <p className="text-[11px] text-normal-text mb-3">The server validates SSRF + size before saving to n8n.</p>
-            <Btn type="submit" disabled={editBusy}>{editBusy ? 'Saving…' : 'Save to n8n'}</Btn>
-          </form>
-        </Modal>
+      {visualOpen && detail && (
+        <WorkflowEditor
+          workflowId={sel}
+          initial={detail}
+          headers={headers}
+          onClose={() => setVisualOpen(false)}
+          onSaved={onEditorSaved}
+        />
       )}
       {open && (
         <Modal title="Create workflow from template" onClose={() => setOpen(false)}>

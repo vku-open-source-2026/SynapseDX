@@ -11,8 +11,10 @@ Format based on Keep a Changelog; versioning follows SemVer.
   only, per-principal rate limit, fail-closed catalog validation, retry policy,
   different-provider fallback model, per-route 120s gateway timeout,
   multi-turn conversation history, how-to questions answered with guidance
-  instead of 502). Console API Docs gained a
-  floating chatbot bubble (auth-gated) that explains and pre-fills try-it forms.
+  instead of 502, AI catalog covered by a drift gate in CI
+  (`tools/catalog-check.mjs`)). Console API Docs gained a
+  floating chatbot bubble (auth-gated) that explains and pre-fills try-it forms,
+  plus Copy-as-cURL (secrets referenced as `$ENV`, never pasted raw).
 - Workflow editor: `PUT /v1/workflows/:id {name?, definition?}` (SSRF/size-validated,
   name-only renames merged server-side since n8n requires full nodes) + "Edit definition"
   modal on the Console Workflows page; `POST /v1/workflows/:id/execute` now fires the
@@ -20,7 +22,11 @@ Format based on Keep a Changelog; versioning follows SemVer.
   400 when no webhook node) instead of proxying a non-existent n8n endpoint.
   `updateWorkflow` added to all three SDKs (JS/Python/Go) for parity.
 - Console production hardening: shared `ScopeProvider` + Google-Cloud-style
-  org/account picker in the header (mobile menu included), upgraded Dashboard
+  org/account picker in the header (mobile menu included), visual drag-and-drop
+  workflow editor (pan/zoom/fit, palette, click-to-connect, inspector, undo/redo,
+  JSON tab — pure `lib/workflow-graph.js`, unit-tested) over the PUT endpoint,
+  blank-canvas creation, draft autosave with restore banner (session expiry
+  never eats work), upgraded Dashboard
   (inventory stats, current context, service health, recent activity), `ErrorBoundary`
   around all routes (render errors show recovery UI instead of a white screen),
   array-shape guards + busy/double-submit guards + silent-refresh `api.call` on every
@@ -43,13 +49,26 @@ Format based on Keep a Changelog; versioning follows SemVer.
   the verified credential when the stamped header is untrusted (dev).
 - Workflow deletion: `DELETE /v1/workflows/:id` + Console Delete button (confirm) +
   `workflows delete|rm` in the CLI + `deleteWorkflow` in all three SDKs.
+  Console Duplicate button (fresh webhookIds + collision-free `-copy` path, starts
+  inactive), execution I/O data in run details, executions Load-more pagination
+  + status filter, per-node Fill-example parameters.
+- IAM management completeness: `GET /v1/roles/:roleId/policies` (attached list),
+  `DELETE .../policies/:policyId` (detach), `GET /v1/users/:userId/roles`
+  (assigned list), `DELETE .../roles/:roleId` (unassign) + Console attach/detach/
+  assign/unassign UI (expandable rows) + SDK (JS/Python/Go) and CLI parity.
 - No-orphan creates: org/account/role/policy/key/service-account creation under a
   ghost parent now answers `404 org_not_found`/`account_not_found` on both backends
   (body validation still runs first, so bad payloads stay `400`).
 - Audit retention: opt-in `AUDIT_RETENTION_DAYS` (hourly batched purge of old
   `audit_log` rows, clamped 1–3650 days; default 0 = disabled).
+- Audit decision filter: `GET /v1/audit?allowed=true|false` + Console dropdown.
 - Oversized request bodies answer `413 payload_too_large` (was `500 internal`)
   on all JSON services.
+- Fixed prod SSO redirect: `OIDC_REDIRECT_URI` was missing from the IAM compose
+  env (container fell back to unreachable `localhost:4001`) and pointed at the
+  API in `.env`; now wired through compose/k8s and set to the Console
+  `/oidc/callback` page per `infra/authentik/README.md`. (Full browser SSO still
+  needs Authentik exposed publicly with a matching issuer — infra follow-up.)
 - Console SSR smoke test (`npm run test:ssr`, part of `npm test`): server-renders
   every route under both anonymous and signed-in sessions — catches module-eval
   crashes, missing providers and broken imports without a browser.

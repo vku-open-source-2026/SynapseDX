@@ -324,6 +324,12 @@ func (c *Client) VerifyAPIKey(apiKey string) (map[string]any, error)
 ```
 Checks a raw API key via the internal verify endpoint.
 
+#### `ListAPIKeys(accountID string) ([]any, error)`
+```go
+func (c *Client) ListAPIKeys(accountID string) ([]any, error)
+```
+Lists key metadata (id/prefix only — never secret values).
+
 ### Service accounts
 
 #### `CreateServiceAccount(accountID, slug, description string) (map[string]any, error)`
@@ -407,6 +413,26 @@ Triggers a manual execution (proxied to the engine). `payload` defaults to empty
 
 ```go
 exec, err := c.ExecuteWorkflow(wfID, map[string]any{"url": "https://example.com/hook"})
+```
+
+#### `UpdateWorkflow(id string, patch map[string]any) (map[string]any, error)`
+```go
+func (c *Client) UpdateWorkflow(id string, patch map[string]any) (map[string]any, error)
+```
+Updates a workflow's name and/or n8n definition.
+
+```go
+updated, err := c.UpdateWorkflow(wfID, map[string]any{"name": "renamed"})
+```
+
+#### `DeleteWorkflow(id string) error`
+```go
+func (c *Client) DeleteWorkflow(id string) error
+```
+Deletes a workflow on the engine.
+
+```go
+err = c.DeleteWorkflow(wfID)
 ```
 
 ### Templates

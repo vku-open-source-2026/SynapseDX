@@ -146,8 +146,35 @@ func TestIAMCoverage(t *testing.T) {
 	if err := c.AttachPolicy("r", "p"); err != nil {
 		t.Fatal(err)
 	}
+	if seen["path"] != "/v1/roles/r/attach" {
+		t.Fatalf("attach: %v", seen)
+	}
+	if err := c.DetachPolicy("r", "p"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/roles/r/policies/p" || seen["method"] != "DELETE" {
+		t.Fatalf("detach: %v", seen)
+	}
+	if _, err := c.RolePolicies("r"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/roles/r/policies" {
+		t.Fatalf("role policies: %v", seen)
+	}
 	if err := c.AssignRole("u", "r"); err != nil {
 		t.Fatal(err)
+	}
+	if err := c.UnassignRole("u", "r"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/users/u/roles/r" || seen["method"] != "DELETE" {
+		t.Fatalf("unassign: %v", seen)
+	}
+	if _, err := c.UserRoles("u"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/users/u/roles" {
+		t.Fatalf("user roles: %v", seen)
 	}
 	if _, err := c.Authorize("u", "workflow:Execute", "*", nil); err != nil {
 		t.Fatal(err)

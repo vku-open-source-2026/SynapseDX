@@ -49,6 +49,9 @@
   in production via `S3_ENDPOINT`).
 - **Workflow**: n8n is an external engine (SUL, never forked); `workflow-service` is the
   control plane: API proxy, versioned templates, webhook-triggered execute, definition editor.
+  Known residual: workflows live in n8n's global namespace — any authenticated
+  principal can manage any workflow (same as standalone n8n; the `workflows` registry
+  table exists for future account binding, currently unused).
 - **AI assistant**: `ai-service` answers testing questions on the Console API Docs
   (decision model picks the endpoint, LLM fills the try-it form; key server-side only,
   per-principal rate limit). Guidance-only — not a public API, not in the catalog.

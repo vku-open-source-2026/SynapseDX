@@ -9,7 +9,7 @@ the upstream project's own `LICENSE` file.
 
 | Component | License | Consumed as | Notes |
 |---|---|---|---|
-| n8n (`n8nio/n8n`) | Sustainable Use License (proprietary, **not** OSI-approved) | Container image + REST API only | SynapseDX never bundles or modifies n8n. Using SynapseDX with n8n does not change n8n's license; check it yourself for commercial/self-host terms. |
+| n8n (`n8nio/n8n`) | Sustainable Use License (proprietary, **not** OSI-approved) | Container image + REST API only | SynapseDX never bundles or modifies n8n — including no embedded n8n UI (the Console visual editor is SynapseDX's own Apache-2.0 code driving n8n's REST API). Using SynapseDX with n8n does not change n8n's license; check it yourself for commercial/self-host terms. |
 | Authentik (`ghcr.io/goauthentik/server`) | MIT | Container image + OIDC | Optional external IdP (default). |
 | Keycloak | Apache-2.0 | OIDC (alternative IdP) | Supported as alternative upstream IdP; no image pinned in compose. |
 | PostgreSQL (`postgres:16-alpine`) | PostgreSQL Licence (permissive) | Container image + `pg` driver (MIT) | System of record for IAM. |

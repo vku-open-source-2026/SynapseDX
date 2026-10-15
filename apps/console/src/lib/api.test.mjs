@@ -112,6 +112,9 @@ describe('console silent refresh', () => {
     await api.listKeys('a1', A);
     await api.workflow('w1', A);
     await api.executions({ workflowId: 'w1', limit: 5 }, A);
+    await api.execution('e1', A);
+    await api.executionWithData('e1', A);
+    await api.audit(100, 'u1', A, true);
     await api.agent('hi', [{ role: 'user', text: 'hi' }], A);
     assert.deepEqual(seen, [
       'POST /v1/orgs/o1/users',
@@ -121,6 +124,9 @@ describe('console silent refresh', () => {
       'GET /v1/accounts/a1/keys',
       'GET /v1/workflows/w1',
       'GET /v1/executions?workflowId=w1&limit=5',
+      'GET /v1/executions/e1',
+      'GET /v1/executions/e1?includeData=true',
+      'GET /v1/audit?limit=100&actor=u1&allowed=true',
       'POST /v1/ai/agent',
     ]);
   });

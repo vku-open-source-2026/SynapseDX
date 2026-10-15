@@ -288,6 +288,13 @@ const { apiKey } = await c.createApiKey(accountId, 'ci-deploy', ['workflow:Execu
 ```ts
 revokeApiKey(keyId: string): Promise<any>
 ```
+
+#### `listApiKeys(accountId)`
+```ts
+listApiKeys(accountId: string): Promise<any>
+```
+Lists key metadata (id/prefix only — never secret values).
+
 Revokes an API key.
 
 #### `verifyApiKey(apiKey)`
@@ -378,6 +385,26 @@ Triggers a manual execution (proxied to the engine).
 
 ```ts
 await c.executeWorkflow(wfId, { url: 'https://example.com/hook' });
+```
+
+#### `updateWorkflow(id, patch)`
+```ts
+updateWorkflow(id: string, patch: { name?: string; definition?: any }): Promise<any>
+```
+Updates a workflow's name and/or n8n definition.
+
+```ts
+await c.updateWorkflow(wfId, { name: 'renamed' });
+```
+
+#### `deleteWorkflow(id)`
+```ts
+deleteWorkflow(id: string): Promise<any>
+```
+Deletes a workflow on the engine.
+
+```ts
+await c.deleteWorkflow(wfId);
 ```
 
 ### Templates

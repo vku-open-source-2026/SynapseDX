@@ -209,6 +209,27 @@ export async function assignRole(userId: string, roleId: string): Promise<void> 
   mem.userRoles.get(userId)!.add(roleId);
 }
 
+/** Idempotent removals (true when a row existed). */
+export async function detachPolicy(roleId: string, policyId: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('DELETE FROM role_policies WHERE role_id=$1 AND policy_id=$2', [roleId, policyId]);
+    return (r.rowCount || 0) > 0;
+  }
+  const set = mem.rolePolicies.get(roleId);
+  if (!set) return false;
+  return set.delete(policyId);
+}
+
+export async function unassignRole(userId: string, roleId: string): Promise<boolean> {
+  if (pool) {
+    const r = await pool.query('DELETE FROM user_roles WHERE user_id=$1 AND role_id=$2', [userId, roleId]);
+    return (r.rowCount || 0) > 0;
+  }
+  const set = mem.userRoles.get(userId);
+  if (!set) return false;
+  return set.delete(roleId);
+}
+
 export async function policiesForUser(userId: string): Promise<PolicyDoc[]> {
   if (pool) {
     const r = await pool.query(
@@ -277,6 +298,39 @@ export async function policyExists(id: string): Promise<boolean> {
     return r.rows.length > 0;
   }
   return mem.policies.has(id);
+}
+
+/** Policies attached to a role / roles assigned to a user (for management UI). */
+export async function policiesForRole(roleId: string): Promise<Policy[]> {
+  if (pool) {
+    const r = await pool.query(
+      'SELECT p.id, p.account_id, p.slug, p.description, p.document FROM policies p JOIN role_policies rp ON rp.policy_id = p.id WHERE rp.role_id = $1 ORDER BY p.slug',
+      [roleId],
+    );
+    return r.rows;
+  }
+  const out: Policy[] = [];
+  for (const pid of mem.rolePolicies.get(roleId) || []) {
+    const p = mem.policies.get(pid);
+    if (p) out.push(p);
+  }
+  return out.sort((a, b) => a.slug.localeCompare(b.slug));
+}
+
+export async function rolesForUser(userId: string): Promise<Role[]> {
+  if (pool) {
+    const r = await pool.query(
+      'SELECT r.id, r.account_id, r.slug, r.description FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1 ORDER BY r.slug',
+      [userId],
+    );
+    return r.rows;
+  }
+  const out: Role[] = [];
+  for (const rid of mem.userRoles.get(userId) || []) {
+    const role = mem.roles.get(rid);
+    if (role) out.push(role);
+  }
+  return out.sort((a, b) => a.slug.localeCompare(b.slug));
 }
 
 /** Full-row lookups for cross-tenant scoping (attach/assign/mint). */
@@ -359,18 +413,32 @@ export async function logAudit(e: AuditEntry): Promise<void> {  if (pool) {
   if (((__mem as any).audit as any[]).length > 1000) ((__mem as any).audit as any[]).splice(0, 100);
 }
 
-export async function listAudit(limit = 50, actorId?: string): Promise<any[]> {
+export async function listAudit(limit = 50, actorId?: string, allowed?: boolean): Promise<any[]> {
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const dec = allowed === undefined ? undefined : !!allowed;
   if (pool) {
+    const conds: string[] = [];
+    const params: any[] = [];
     if (actorId) {
-      const r = await pool.query('SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log WHERE actor_id=$1 ORDER BY created_at DESC LIMIT $2', [actorId, lim]);
-      return r.rows;
+      params.push(actorId);
+      conds.push(`actor_id=$${params.length}`);
     }
-    const r = await pool.query('SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log ORDER BY created_at DESC LIMIT $1', [lim]);
+    if (dec !== undefined) {
+      params.push(dec);
+      conds.push(`decision=$${params.length}`);
+    }
+    params.push(lim);
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const r = await pool.query(
+      `SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
+      params,
+    );
     return r.rows;
   }
   const all: any[] = (((__mem as any).audit as any[]) || []).slice().reverse();
-  const filtered = actorId ? all.filter((a) => a.actor_id === actorId) : all;
+  const filtered = all.filter(
+    (a) => (!actorId || a.actor_id === actorId) && (dec === undefined || !!a.decision === dec),
+  );
   return filtered.slice(0, lim);
 }
 

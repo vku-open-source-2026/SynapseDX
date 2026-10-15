@@ -198,6 +198,26 @@ describe('update + id validation (no n8n needed)', () => {
     const r = await fetch(`${base}/v1/executions?limit=abc`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
     assert.equal(r.status, 400);
   });
+  it('executions offset=0 is dropped before proxying to n8n', async () => {
+    const realFetch = globalThis.fetch;
+    const seen: string[] = [];
+    (globalThis as any).fetch = async (url: any, init?: any) => {
+      if (String(url).includes('/api/v1/')) {
+        seen.push(String(url));
+        return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return (realFetch as any)(url, init);
+    };
+    try {
+      const r = await fetch(`${base}/v1/executions?limit=5&offset=00`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+      assert.equal(r.status, 200);
+      assert.equal(seen.length, 1);
+      assert.ok(!seen[0].includes('offset='), `offset leaked upstream: ${seen[0]}`);
+      assert.ok(seen[0].includes('limit=5'), seen[0]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
   it('DELETE workflow with CRLF id is 400', async () => {
     const r = await fetch(`${base}/v1/workflows/${encodeURIComponent('a\rb')}`, {
       method: 'DELETE',

@@ -114,6 +114,21 @@ describe('synapsedx cli offline', () => {
     assert.equal(last.path, '/v1/workflows/w1');
   });
 
+  it('detach/assign/unassign hit the right paths', async () => {
+    let r = await run('--base', stubBase, 'detach', 'r1', 'p1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'DELETE');
+    assert.equal(last.path, '/v1/roles/r1/policies/p1');
+    r = await run('--base', stubBase, 'assign', 'u1', 'r1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'POST');
+    assert.equal(last.path, '/v1/users/u1/assign');
+    r = await run('--base', stubBase, 'unassign', 'u1', 'r1');
+    assert.equal(r.code, 0);
+    assert.equal(last.method, 'DELETE');
+    assert.equal(last.path, '/v1/users/u1/roles/r1');
+  });
+
   it('keys list hits the account keys path', async () => {
     const r = await run('--base', stubBase, 'keys', 'list', 'a1');
     assert.equal(r.code, 0);

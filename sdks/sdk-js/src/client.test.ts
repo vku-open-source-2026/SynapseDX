@@ -78,6 +78,14 @@ describe('SynapseDXClient', () => {
     assert.equal(lastPath, '/v1/workflows/w1');
     await c.deleteWorkflow('w1');
     assert.equal(lastPath, '/v1/workflows/w1');
+    await c.detachPolicy('r1', 'p1');
+    assert.equal(lastPath, '/v1/roles/r1/policies/p1');
+    await c.rolePolicies('r1');
+    assert.equal(lastPath, '/v1/roles/r1/policies');
+    await c.unassignRole('u1', 'r1');
+    assert.equal(lastPath, '/v1/users/u1/roles/r1');
+    await c.userRoles('u1');
+    assert.equal(lastPath, '/v1/users/u1/roles');
     await c.listApiKeys('a1');
     assert.equal(lastPath, '/v1/accounts/a1/keys');
     await c.verifyApiKey('k');

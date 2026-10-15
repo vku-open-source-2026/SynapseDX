@@ -251,3 +251,30 @@ describe('conversation history', () => {
     assert.equal(r.path, '/v1/orgs');
   });
 });
+
+describe('decision fallback', () => {
+  it('falls back to the LLM model when the decision model fails', async () => {
+    const seen: string[] = [];
+    const flaky: ChatFn = async (c, call) => {
+      if (!call.system.includes('routing decision model')) return { pathValues: {}, body: {}, explanation: 'x' };
+      seen.push(c.model);
+      if (c.model !== 'gen') throw new LlmError(502, 'decide down');
+      return { method: 'GET', path: '/v1/orgs', reason: 'via fallback' };
+    };
+    const r = await runAgent('list orgs', cfg, flaky);
+    assert.deepEqual(seen, ['decide', 'gen']);
+    assert.equal(r.reason, 'via fallback');
+  });
+
+  it('skips fallback when both models are the same', async () => {
+    const same = { ...cfg, llm: { baseUrl: 'http://x', apiKey: 'k', model: 'decide' } };
+    const seen: string[] = [];
+    const flaky: ChatFn = async (c, call) => {
+      if (!call.system.includes('routing decision model')) return { pathValues: {}, body: {}, explanation: 'x' };
+      seen.push(c.model);
+      throw new LlmError(502, 'down');
+    };
+    await assert.rejects(() => runAgent('list orgs', same, flaky), /down/);
+    assert.deepEqual(seen, ['decide']);
+  });
+});
