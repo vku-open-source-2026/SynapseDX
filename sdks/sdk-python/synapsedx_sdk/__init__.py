@@ -15,7 +15,27 @@ class SynapseDXError(Exception):
     """All SDK errors surface as SynapseDXError (network or HTTP)."""
 
 
-__all__ = ["SynapseDXClient", "SynapseDXError"]
+__all__ = [
+    "SynapseDXClient",
+    "SynapseDXError",
+    "unwrap_executions",
+    "trigger_webhook",
+]
+
+
+def unwrap_executions(payload: Any) -> list:
+    """Normalize GET /v1/executions: engine returns {data: []}, mocks may return [].
+
+    Accepts both a bare list and the {data: [...]} envelope so callers
+    always get a list.
+    """
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        return payload["data"]
+    if payload is None:
+        return []
+    return payload  # type: ignore[return-value]
 
 
 @dataclass
@@ -219,6 +239,64 @@ class SynapseDXClient:
         """Check a raw API key via the internal verify endpoint."""
         return self._req("POST", "/v1/keys/verify", {"apiKey": api_key})
 
+    def call(self, method: str, path: str, body: Any | None = None) -> Any:
+        """Generic escape hatch (forward-compat with endpoints added after this SDK).
+
+        method is e.g. 'GET'/'POST'/'PUT'/'DELETE'; path must start with '/'.
+        """
+        verb = (method or "GET").upper()
+        if not path.startswith("/"):
+            path = "/" + path
+        if verb in ("GET", "HEAD"):
+            return self._req(verb, path)
+        return self._req(verb, path, body)
+
+    # ---- credentials (account-scoped secrets; PROPOSED contract — backend in progress) ----
+    # Backend contract (dev1, pending): secrets are encrypted at rest and NEVER
+    # returned — create/rotate accept a ``secret`` once; list/get return metadata
+    # only: {id, name, type, accountId, expiresAt, version}.
+    # ``type`` is one of bearer|basic|apiKey|oauth2 (passed through, not validated
+    # client-side, so future types keep working).
+    def create_credential(
+        self,
+        account_id: str,
+        name: str,
+        type: str,
+        secret: str,
+        expires_at: str | None = None,
+    ) -> dict:
+        """Store an account credential (secret is write-only, never returned)."""
+        body: dict = {"name": name, "type": type, "secret": secret}
+        if expires_at:
+            body["expiresAt"] = expires_at
+        return self._req(
+            "POST",
+            f"/v1/accounts/{quote(account_id, safe='')}/credentials",
+            body,
+        )
+
+    def list_credentials(self, account_id: str) -> list:
+        """List credential metadata for an account (never secret values)."""
+        return self._req(
+            "GET", f"/v1/accounts/{quote(account_id, safe='')}/credentials"
+        )
+
+    def get_credential(self, cred_id: str) -> dict:
+        """Fetch one credential's metadata (never the secret)."""
+        return self._req("GET", f"/v1/credentials/{quote(cred_id, safe='')}")
+
+    def delete_credential(self, cred_id: str) -> dict:
+        """Delete a credential."""
+        return self._req("DELETE", f"/v1/credentials/{quote(cred_id, safe='')}")
+
+    def rotate_credential(self, cred_id: str, secret: str) -> dict:
+        """Rotate a credential's secret (bumps version; old secret stops working)."""
+        return self._req(
+            "POST",
+            f"/v1/credentials/{quote(cred_id, safe='')}/rotate",
+            {"secret": secret},
+        )
+
     def create_service_account(
         self, account_id: str, slug: str, description: str = ""
     ) -> dict:
@@ -286,7 +364,7 @@ class SynapseDXClient:
         return self._req("POST", f"/v1/workflows/{quote(wf_id, safe='')}/deactivate")
 
     def execute_workflow(self, wf_id: str, payload: dict | None = None) -> Any:
-        """Trigger a manual execution (proxied to the engine)."""
+        """Trigger a manual execution (local engine)."""
         return self._req(
             "POST", f"/v1/workflows/{quote(wf_id, safe='')}/execute", payload or {}
         )
@@ -299,31 +377,112 @@ class SynapseDXClient:
     ) -> Any:
         return self._req("POST", "/v1/workflows", {"template": template, "name": name})
 
-    def create_workflow(self, name: str, definition: dict) -> Any:
-        """Create a workflow from a raw n8n definition."""
-        return self._req(
-            "POST", "/v1/workflows", {"name": name, "definition": definition}
-        )
+    def create_workflow(
+        self, name: str, definition: dict, settings: dict | None = None
+    ) -> Any:
+        """Create a workflow from a raw workflow definition."""
+        body: dict = {"name": name, "definition": definition}
+        if settings is not None:
+            body["settings"] = settings
+        return self._req("POST", "/v1/workflows", body)
 
     def update_workflow(
-        self, wf_id: str, name: str | None = None, definition: dict | None = None
+        self,
+        wf_id: str,
+        name: str | None = None,
+        definition: dict | None = None,
+        settings: dict | None = None,
     ) -> Any:
-        """Update a workflow's name and/or definition."""
+        """Update a workflow's name, definition and/or settings."""
         patch: dict = {}
         if name is not None:
             patch["name"] = name
         if definition is not None:
             patch["definition"] = definition
+        if settings is not None:
+            patch["settings"] = settings
         return self._req("PUT", f"/v1/workflows/{quote(wf_id, safe='')}", patch)
 
     def delete_workflow(self, wf_id: str) -> Any:
-        """Delete a workflow on the engine."""
+        """Delete a workflow."""
         return self._req("DELETE", f"/v1/workflows/{quote(wf_id, safe='')}")
 
-    def list_executions(self, query: str = "") -> Any:
-        """Proxy the engine execution list (e.g. query='limit=20')."""
-        q = query if not query or query.startswith("?") else f"?{query}"
-        return self._req("GET", f"/v1/executions{q}")
+    def list_executions(self, query: str | dict | None = "") -> Any:
+        """List executions.
 
-    def get_execution(self, exec_id: str) -> Any:
-        return self._req("GET", f"/v1/executions/{quote(exec_id, safe='')}")
+        query may be a raw string (e.g. 'limit=20') or a dict limited to the
+        engine allowlist: limit/offset/workflowId/status/triggeredBy/includeData.
+        Returns a plain list — accepts both the {data: []} envelope and a
+        bare array (see unwrap_executions).
+        """
+        q = ""
+        if isinstance(query, dict):
+            allowed = ("limit", "offset", "workflowId", "status", "triggeredBy", "includeData")
+            params = {k: query[k] for k in allowed if query.get(k) not in (None, "")}
+            qs = urlencode(params)
+            q = f"?{qs}" if qs else ""
+        elif query:
+            q = query if query.startswith("?") else f"?{query}"
+        raw = self._req("GET", f"/v1/executions{q}")
+        return unwrap_executions(raw)
+
+    def get_execution(self, exec_id: str, include_data: bool = False) -> Any:
+        qs = "?includeData=true" if include_data else ""
+        return self._req("GET", f"/v1/executions/{quote(exec_id, safe='')}{qs}")
+
+    def test_run(
+        self, definition: dict, input: dict | None = None, workflow_id: str | None = None
+    ) -> Any:
+        """Try a definition without saving (POST /v1/workflows/test-run).
+
+        Pass workflow_id to attach the run to a saved workflow's history.
+        """
+        body: dict = {"definition": definition, "input": input or {}}
+        if workflow_id:
+            body["workflowId"] = workflow_id
+        return self._req("POST", "/v1/workflows/test-run", body)
+
+
+def trigger_webhook(
+    webhook_base_url: str,
+    path: str,
+    payload: Any | None = None,
+    method: str | None = None,
+    timeout: int = 15,
+) -> Any:
+    """Fire a public inbound webhook: ANY /webhook/:path (no auth).
+
+    Triggers the ACTIVE workflow whose webhook node declares that ``path``.
+    NOTE: the gateway does not proxy /webhook/* — pass the workflow-service
+    origin (e.g. "http://localhost:4002"), not the gateway URL.
+    """
+    clean = str(path or "").strip("/").split("?")[0]
+    if not clean:
+        raise SynapseDXError("synapsedx webhook: path required")
+    verb = (method or ("GET" if payload is None else "POST")).upper()
+    url = webhook_base_url.rstrip("/") + "/webhook/" + clean
+    try:
+        if verb == "GET":
+            r = requests.request(verb, url, timeout=timeout)
+        else:
+            r = requests.request(
+                verb,
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=timeout,
+            )
+    except Exception as e:
+        raise SynapseDXError(f"synapsedx network /webhook/{clean}: {e}") from e
+    try:
+        r.raise_for_status()
+    except Exception as e:
+        raise SynapseDXError(
+            f"synapsedx {r.status_code} /webhook/{clean}: {r.text[:500]}"
+        ) from e
+    if not r.text:
+        return None
+    try:
+        return r.json()
+    except Exception:
+        return r.text

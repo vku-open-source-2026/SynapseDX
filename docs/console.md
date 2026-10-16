@@ -49,11 +49,19 @@ npm run dev   # :3000, /api proxies to localhost:8080 when needed
 
 ## Pages
 
-Dashboard (inventory stats, current context, service health, recent activity) ·
+Dashboard (inventory: orgs/accounts/users/workflows/recent executions, current
+context + shared org/account picker, gateway + IAM/workflow/AI health from
+aggregate /ready, recent activity with skeletons/empty/error states) ·
 Organizations · Accounts · Users (+create) · Roles · Policies (JSON editor +
-dry-run) · API Keys · Service Accounts · Workflows (templates + create on n8n +
-visual drag-and-drop editor with undo/redo + activate/deactivate/execute +
-executions + delete) · Authorize (simulator + live authorize) · Audit Log.
+dry-run) · API Keys · Service Accounts · Workflows (built-in engine: templates + blank +
+duplicate with fresh webhook path + visual drag-and-drop editor grouped by
+Triggers/Actions/Logic/Utils with per-type forms (highlighted code editor,
+credential picker, webhook auth/rate/idempotency, cron timezone, retry/timeout,
+disable toggle), undo/redo, live cycle/self-loop/
+dangling/duplicate validation blocking Save, true/false edge labels, test-run with
+sample input + per-node status/input/output + history, activate/deactivate/execute +
+webhook URL + next-run display + executions with status filter and per-node I/O +
+import/export + delete) · Authorize (simulator + live authorize) · Audit Log.
 Public pages: Landing (`/`, install instructions), API Docs (try-it explorer +
 auth-gated AI chatbot bubble), Docs (SDK/CLI snippets), Login, OIDC callback.
 Signed-in users get the sidebar layout on API Docs/Docs too.

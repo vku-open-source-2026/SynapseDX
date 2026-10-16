@@ -15,7 +15,7 @@
                            │ verify                │ authorize()
               ┌────────────▼────────┐    ┌─────────▼───────────┐
               │ Gateway (:8080)     │    │ Workflow svc (:4002) │
-              │ proxy + JWT/API key │───►│ proxy n8n + template│
+              │ proxy + JWT/API key │───►│ local engine + tmpl │
               │ rate-limit + metrics│    │                     │
               └────────────┬────────┘    └─────────┬───────────┘
                            │              ┌────────▼───────────┐
@@ -25,9 +25,9 @@
                            │              └────────┬───────────┘
                            │                     │ REST (OpenRouter)
                     ┌───────▼───────┐      ┌──────▼──────┐
-                    │ Postgres/Redis│      │  N8N (:5678) │
-                    │ S3Mock (S3)   │      │ external    │
-                    └───────────────┘      │ engine      │
+                    │ Postgres/Redis│      │  Postgres     │
+                    │ S3Mock (S3)   │      │ workflows +    │
+                    └───────────────┘      │ executions)      │
                                            └─────────────┘
 ```
 
@@ -47,11 +47,12 @@
 - **Core data cluster**: Postgres 16 (source of truth), Redis (cache/rate-limit/session),
   S3Mock (S3-compatible object storage, bucket `synapsedx-core`; swap to MinIO/real S3
   in production via `S3_ENDPOINT`).
-- **Workflow**: n8n is an external engine (SUL, never forked); `workflow-service` is the
-  control plane: API proxy, versioned templates, webhook-triggered execute, definition editor.
-  Known residual: workflows live in n8n's global namespace — any authenticated
-  principal can manage any workflow (same as standalone n8n; the `workflows` registry
-  table exists for future account binding, currently unused).
+- **Workflow**: local built-in engine (Apache-2.0, no external dependency); `workflow-service` owns
+  workflows + executions in Postgres: DAG runner (webhook/cron/manual/http/code/set/if/noOp),
+  sandboxed code, public webhooks, cron scheduler, definition editor.
+  Known residual: workflows live in a global namespace — any authenticated
+  principal can manage any workflow; the legacy `workflows` registry table
+  exists for future account binding, currently unused.
 - **AI assistant**: `ai-service` answers testing questions on the Console API Docs
   (decision model picks the endpoint, LLM fills the try-it form; key server-side only,
   per-principal rate limit). Guidance-only — not a public API, not in the catalog.

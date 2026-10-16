@@ -53,6 +53,16 @@ routes:
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either
 
+  - path: /v1/credentials
+    target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
+    auth: either
+
+  # Public inbound webhooks (P0-5): no gateway auth — the workflow-service
+  # enforces per-workflow auth/rate-limit/idempotency itself.
+  - path: /webhook
+    target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
+    auth: none
+
   - path: /v1/ai
     target: ${AI_SERVICE_URL:http://ai:4003}
     auth: either

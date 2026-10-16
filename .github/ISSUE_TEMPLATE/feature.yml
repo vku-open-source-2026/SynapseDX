@@ -16,4 +16,4 @@ labels: enhancement
 
 ## Checklist
 - [ ] Nằm trong Tier-1 PaaS (xem ROADMAP) hoặc ghi rõ tier đề xuất
-- [ ] Không yêu cầu đổi license third-party (n8n/Authentik dùng ngoài)
+- [ ] Không yêu cầu đổi license third-party (Authentik/dịch vụ ngoài dùng qua HTTP)

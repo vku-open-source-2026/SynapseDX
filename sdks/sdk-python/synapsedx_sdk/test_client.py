@@ -6,7 +6,12 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from synapsedx_sdk import SynapseDXClient, SynapseDXError
+from synapsedx_sdk import (
+    SynapseDXClient,
+    SynapseDXError,
+    trigger_webhook,
+    unwrap_executions,
+)
 
 _seen: dict = {}
 
@@ -17,13 +22,15 @@ class Echo(BaseHTTPRequestHandler):
         _seen["key"] = self.headers.get("X-API-Key")
         _seen["path"] = self.path
         _seen["method"] = self.command
+        length = int(self.headers.get("Content-Length") or 0)
+        _seen["body"] = self.rfile.read(length).decode() if length else ""
         # List endpoints return arrays like the real API.
         is_list = self.command == "GET" and (
             self.path == "/v1/orgs"
             or self.path.startswith("/v1/executions")
             or self.path in ("/v1/templates", "/v1/workflows", "/v1/audit")
             or self.path.endswith(
-                ("/accounts", "/users", "/roles", "/policies", "/service-accounts")
+                ("/accounts", "/users", "/roles", "/policies", "/credentials", "/service-accounts")
             )
         )
         payload = b"[]" if is_list else json.dumps({"ok": True}).encode()
@@ -137,5 +144,109 @@ def test_full_coverage_paths():
         assert _seen["method"] == "DELETE"
         c.list_api_keys("a1")
         assert _seen["path"] == "/v1/accounts/a1/keys"
+    finally:
+        srv.shutdown()
+
+
+def test_test_run_posts_definition_and_input():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        definition = {"nodes": [], "connections": {}}
+        c.test_run(definition, {"value": 21})
+        assert _seen["path"] == "/v1/workflows/test-run"
+        assert _seen["method"] == "POST"
+        assert json.loads(_seen["body"]) == {
+            "definition": definition,
+            "input": {"value": 21},
+        }
+    finally:
+        srv.shutdown()
+
+
+def test_list_executions_dict_and_envelope():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.list_executions(
+            {"workflowId": "w1", "status": "error", "limit": 20, "includeData": True}
+        )
+        assert _seen["path"].startswith("/v1/executions?"), _seen
+        assert "workflowId=w1" in _seen["path"], _seen
+        assert "status=error" in _seen["path"], _seen
+        assert "limit=20" in _seen["path"], _seen
+        # get_execution includeData flag
+        c.get_execution("e1", include_data=True)
+        assert _seen["path"] == "/v1/executions/e1?includeData=true", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_unwrap_executions_accepts_envelope_and_array():
+    assert unwrap_executions({"data": [{"id": "e1"}]}) == [{"id": "e1"}]
+    assert unwrap_executions([{"id": "e2"}]) == [{"id": "e2"}]
+    assert unwrap_executions(None) == []
+
+
+def test_trigger_webhook_posts_to_path_without_auth():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        out = trigger_webhook(base, "transform", {"value": 21})
+        assert _seen["path"] == "/webhook/transform", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {"value": 21}, _seen
+        assert out == {"ok": True}, out
+        assert _seen["auth"] is None, _seen
+    finally:
+        srv.shutdown()
+
+
+def test_call_passes_any_method_path_body_through():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.call("POST", "/v1/accounts/a1/credentials", {"name": "x"})
+        assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {"name": "x"}, _seen
+        c.call("get", "v1/workflows")
+        assert _seen["path"] == "/v1/workflows", _seen
+        assert _seen["method"] == "GET", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_credentials_crud_proposed_contract():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.create_credential(
+            "a1", "stripe-live", "bearer", "s3cr3t", "2027-01-01T00:00:00Z"
+        )
+        assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {
+            "name": "stripe-live",
+            "type": "bearer",
+            "secret": "s3cr3t",
+            "expiresAt": "2027-01-01T00:00:00Z",
+        }, _seen
+        c.list_credentials("a1")
+        assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
+        assert _seen["method"] == "GET", _seen
+        c.get_credential("c1")
+        assert _seen["path"] == "/v1/credentials/c1", _seen
+        c.rotate_credential("c1", "n3w")
+        assert _seen["path"] == "/v1/credentials/c1/rotate", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {"secret": "n3w"}, _seen
+        c.delete_credential("c1")
+        assert _seen["path"] == "/v1/credentials/c1", _seen
+        assert _seen["method"] == "DELETE", _seen
     finally:
         srv.shutdown()

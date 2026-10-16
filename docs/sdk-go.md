@@ -359,6 +359,56 @@ result, err := c.ServiceAccountToken(saID, []string{"workflow:Execute"})
 token := result["accessToken"].(string)
 ```
 
+### Credentials (PROPOSED — backend in progress)
+
+Account-scoped secrets for workflow nodes (webhook auth, DB passwords, OAuth
+tokens...). Secrets are encrypted at rest and **never returned**: `Create`/`Rotate`
+accept a secret once; `List`/`Get` return metadata only —
+`{id, name, type, accountId, expiresAt, version}`.
+The type is one of `bearer`|`basic`|`apiKey`|`oauth2`.
+
+```go
+// Copy-paste: store a bearer token, then list metadata (no secrets leak).
+cred, err := c.CreateCredential(accountID, "stripe-live", "bearer", os.Getenv("STRIPE_TOKEN"), "2027-01-01T00:00:00Z")
+fmt.Println(cred["id"], cred["version"]) // secret is NOT in the response
+all, err := c.ListCredentials(accountID)
+one, err := c.GetCredential(cred["id"].(string))
+rotated, err := c.RotateCredential(cred["id"].(string), os.Getenv("STRIPE_TOKEN_V2"))
+err = c.DeleteCredential(cred["id"].(string))
+```
+
+#### `CreateCredential(accountID, name, credType, secret, expiresAt string) (map[string]any, error)`
+```go
+func (c *Client) CreateCredential(accountID, name, credType, secret, expiresAt string) (map[string]any, error)
+```
+`expiresAt` is an ISO timestamp; pass `""` for no expiry.
+
+#### `ListCredentials(accountID string) ([]any, error)`
+```go
+func (c *Client) ListCredentials(accountID string) ([]any, error)
+```
+Lists credential metadata (never secret values).
+
+#### `GetCredential(id string) (map[string]any, error)` / `DeleteCredential(id string) error` / `RotateCredential(id, secret string) (map[string]any, error)`
+```go
+func (c *Client) GetCredential(id string) (map[string]any, error)
+func (c *Client) DeleteCredential(id string) error
+func (c *Client) RotateCredential(id, secret string) (map[string]any, error)
+```
+`RotateCredential` replaces the secret and bumps `version` (the old secret stops working).
+
+### Generic Call (escape hatch)
+
+```go
+func (c *Client) Call(method, path string, body any) (any, error)
+```
+Calls any gateway endpoint directly — forward-compat with endpoints added after
+this SDK (e.g. the proposed credentials API). Same auth + `status path: body` errors.
+
+```go
+creds, err := c.Call("GET", "/v1/accounts/"+accountID+"/credentials", nil)
+```
+
 ### Workflows
 
 #### `ListWorkflows() (any, error)`
@@ -387,10 +437,10 @@ wf, err := c.CreateWorkflowFromTemplate("webhook-to-log", "my-webhook")
 ```go
 func (c *Client) CreateWorkflowRaw(name string, definition any) (map[string]any, error)
 ```
-Creates a workflow from a raw n8n definition.
+Creates a workflow from a raw workflow definition.
 
 ```go
-wf, err := c.CreateWorkflowRaw("my-wf", n8nDefinition)
+wf, err := c.CreateWorkflowRaw("my-wf", definition)
 ```
 
 #### `ActivateWorkflow(id string) error`
@@ -419,7 +469,7 @@ exec, err := c.ExecuteWorkflow(wfID, map[string]any{"url": "https://example.com/
 ```go
 func (c *Client) UpdateWorkflow(id string, patch map[string]any) (map[string]any, error)
 ```
-Updates a workflow's name and/or n8n definition.
+Updates a workflow's name and/or definition.
 
 ```go
 updated, err := c.UpdateWorkflow(wfID, map[string]any{"name": "renamed"})
@@ -433,6 +483,32 @@ Deletes a workflow on the engine.
 
 ```go
 err = c.DeleteWorkflow(wfID)
+```
+
+#### `TestRun(definition any, input any) (map[string]any, error)`
+```go
+func (c *Client) TestRun(definition any, input any) (map[string]any, error)
+```
+Tries a definition without saving (`POST /v1/workflows/test-run {definition, input}`).
+Powers the editor's "try before Save". `input` defaults to an empty map if nil.
+
+```go
+// Copy-paste: validate a code-transform definition before saving it.
+definition := map[string]any{
+    "nodes": []any{
+        map[string]any{"name": "Webhook", "type": "n8n-nodes-base.webhook",
+            "parameters": map[string]any{"path": "transform", "httpMethod": "POST"}},
+        map[string]any{"name": "Transform", "type": "n8n-nodes-base.code",
+            "parameters": map[string]any{"code": "return { ...$input, doubled: ($input.value ?? 0) * 2 };"}),
+    },
+    "connections": map[string]any{
+        "Webhook": map[string]any{"main": []any{[]any{
+            map[string]any{"node": "Transform", "type": "main", "index": 0},
+        }}},
+    },
+}
+r, err := c.TestRun(definition, map[string]any{"value": 21})
+fmt.Println(r["ok"], r["output"])
 ```
 
 ### Templates
@@ -455,14 +531,37 @@ tpl, err := c.GetTemplate("webhook-to-log")
 
 ### Executions
 
-#### `ListExecutions(query string) (any, error)`
+> The engine always returns the envelope `{data: [...]}` for `GET /v1/executions`
+> (forward-compat with the old n8n proxy). `ListExecutions()` /
+> `ListExecutionsWithParams()` unwrap it for you — you always get a `[]any`,
+> and a bare array response is accepted too (see `UnwrapExecutions()`).
+
+#### `ListExecutions(query string) ([]any, error)`
 ```go
-func (c *Client) ListExecutions(query string) (any, error)
+func (c *Client) ListExecutions(query string) ([]any, error)
 ```
-Proxies the engine execution list. `query` is an optional query string like `"limit=20"`.
+Lists executions. `query` is an optional raw query string like `"limit=20"`.
 
 ```go
 recent, err := c.ListExecutions("limit=10")
+```
+
+#### `ListExecutionsWithParams(params map[string]string) ([]any, error)`
+```go
+func (c *Client) ListExecutionsWithParams(params map[string]string) ([]any, error)
+```
+Lists executions with an allowlisted parameter map. Allowed keys (server
+allowlist): `limit`, `offset`, `workflowId`, `status`
+(`success`|`error`|`running`), `includeData`. Unknown keys are ignored.
+`limit`/`offset` are `0..9999` (`offset=0` = first page).
+
+```go
+failed, err := c.ListExecutionsWithParams(map[string]string{
+    "workflowId": wfID, "status": "error", "limit": "20",
+})
+withIO, err := c.ListExecutionsWithParams(map[string]string{
+    "limit": "5", "includeData": "true", // per-node I/O
+})
 ```
 
 #### `GetExecution(id string) (map[string]any, error)`
@@ -470,6 +569,43 @@ recent, err := c.ListExecutions("limit=10")
 func (c *Client) GetExecution(id string) (map[string]any, error)
 ```
 Gets a single execution by ID.
+
+#### `GetExecutionWithData(id string, includeData bool) (map[string]any, error)`
+```go
+func (c *Client) GetExecutionWithData(id string, includeData bool) (map[string]any, error)
+```
+Gets a single execution by ID. Pass `includeData=true` for per-node input/output.
+
+```go
+exec, err := c.GetExecutionWithData(execID, true)
+```
+
+#### `UnwrapExecutions(b []byte) ([]any, error)`
+```go
+func UnwrapExecutions(b []byte) ([]any, error)
+```
+Normalizes a raw `GET /v1/executions` payload (envelope `{data: []}` or bare
+array) to a slice. `ListExecutions()` already applies it.
+
+### Webhooks (public, no auth)
+
+`ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares
+that `path`. The gateway does **not** proxy `/webhook/*` — call the
+workflow-service origin directly (e.g. `http://localhost:4002`).
+
+```go
+// Copy-paste: fire the code-transform template's webhook after activating it.
+out, err := synapsedx.TriggerWebhook("http://localhost:4002", "transform", map[string]any{"value": 21})
+fmt.Println(out["output"])
+```
+
+Raw curl equivalent:
+
+```bash
+curl -X POST http://localhost:4002/webhook/transform \
+  -H 'Content-Type: application/json' \
+  -d '{"value":21}'
+```
 
 ## Error handling
 

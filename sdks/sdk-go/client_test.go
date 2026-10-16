@@ -4,6 +4,7 @@ package synapsedx
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +18,9 @@ func echoServer(t *testing.T, seen map[string]string) *httptest.Server {
 		seen["key"] = r.Header.Get("X-API-Key")
 		seen["path"] = r.URL.RequestURI()
 		seen["method"] = r.Method
+		if b, err := io.ReadAll(r.Body); err == nil {
+			seen["body"] = string(b)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		// List endpoints (GET only) return arrays in the real API; everything else an object.
 		p := r.URL.Path
@@ -25,6 +29,7 @@ func echoServer(t *testing.T, seen map[string]string) *httptest.Server {
 			strings.HasSuffix(p, "/users") ||
 			strings.HasSuffix(p, "/roles") ||
 			strings.HasSuffix(p, "/policies") ||
+			strings.HasSuffix(p, "/credentials") ||
 			strings.HasSuffix(p, "/service-accounts") ||
 			strings.HasSuffix(p, "/keys") ||
 			p == "/v1/templates" || p == "/v1/workflows" || p == "/v1/audit")
@@ -275,5 +280,168 @@ func TestPathEscape(t *testing.T) {
 	}
 	if seen["path"] != "/v1/workflows/a%2Fb" {
 		t.Fatalf("escape: %v", seen)
+	}
+}
+
+func TestTestRun(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+	def := map[string]any{"nodes": []any{}, "connections": map[string]any{}}
+	if _, err := c.TestRun(def, map[string]any{"value": 21}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/workflows/test-run" || seen["method"] != "POST" {
+		t.Fatalf("test-run: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("test-run body: %v", err)
+	}
+	if _, ok := body["definition"]; !ok {
+		t.Fatalf("test-run body missing definition: %v", body)
+	}
+	if _, ok := body["input"]; !ok {
+		t.Fatalf("test-run body missing input: %v", body)
+	}
+}
+
+func TestListExecutionsParams(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+	items, err := c.ListExecutionsWithParams(map[string]string{
+		"workflowId": "w1", "status": "error", "limit": "20", "includeData": "true", "bogus": "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"workflowId=w1", "status=error", "limit=20", "includeData=true"} {
+		if !strings.Contains(seen["path"], want) {
+			t.Fatalf("missing %q in %v", want, seen)
+		}
+	}
+	if strings.Contains(seen["path"], "bogus") {
+		t.Fatalf("unknown param leaked: %v", seen)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty echo list, got %v", items)
+	}
+	if _, err := c.ListExecutions("limit=5"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/executions?limit=5" {
+		t.Fatalf("raw query: %v", seen)
+	}
+	if _, err := c.GetExecutionWithData("e1", true); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/executions/e1?includeData=true" {
+		t.Fatalf("includeData: %v", seen)
+	}
+}
+
+func TestUnwrapExecutions(t *testing.T) {
+	arr, err := UnwrapExecutions([]byte(`[{"id":"e1"}]`))
+	if err != nil || len(arr) != 1 {
+		t.Fatalf("bare array: %v %v", arr, err)
+	}
+	env, err := UnwrapExecutions([]byte(`{"data":[{"id":"e2"}]}`))
+	if err != nil || len(env) != 1 {
+		t.Fatalf("envelope: %v %v", env, err)
+	}
+	empty, err := UnwrapExecutions(nil)
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("empty: %v %v", empty, err)
+	}
+}
+
+func TestTriggerWebhook(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	out, err := TriggerWebhook(srv.URL, "transform", map[string]any{"value": 21})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/webhook/transform" || seen["method"] != "POST" {
+		t.Fatalf("webhook: %v", seen)
+	}
+	if seen["auth"] != "" {
+		t.Fatalf("webhook must not send auth: %v", seen)
+	}
+	if out["ok"] != true {
+		t.Fatalf("webhook out: %v", out)
+	}
+}
+
+func TestCall(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+	if _, err := c.Call("POST", "/v1/accounts/a1/credentials", map[string]any{"name": "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/accounts/a1/credentials" || seen["method"] != "POST" {
+		t.Fatalf("call: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil || body["name"] != "x" {
+		t.Fatalf("call body: %v %v", seen["body"], err)
+	}
+	if _, err := c.Call("get", "v1/workflows", nil); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/workflows" || seen["method"] != "GET" {
+		t.Fatalf("call normalize: %v", seen)
+	}
+}
+
+func TestCredentials(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+	if _, err := c.CreateCredential("a1", "stripe-live", "bearer", "s3cr3t", "2027-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/accounts/a1/credentials" || seen["method"] != "POST" {
+		t.Fatalf("create: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("create body: %v", err)
+	}
+	for _, k := range []string{"name", "type", "secret", "expiresAt"} {
+		if _, ok := body[k]; !ok {
+			t.Fatalf("create body missing %q: %v", k, body)
+		}
+	}
+	if _, err := c.ListCredentials("a1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/accounts/a1/credentials" || seen["method"] != "GET" {
+		t.Fatalf("list: %v", seen)
+	}
+	if _, err := c.GetCredential("c1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/credentials/c1" {
+		t.Fatalf("get: %v", seen)
+	}
+	if _, err := c.RotateCredential("c1", "n3w"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/credentials/c1/rotate" || seen["method"] != "POST" {
+		t.Fatalf("rotate: %v", seen)
+	}
+	if err := c.DeleteCredential("c1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/credentials/c1" || seen["method"] != "DELETE" {
+		t.Fatalf("delete: %v", seen)
 	}
 }

@@ -175,6 +175,7 @@ export const api = {
   activateWorkflow: (id, a) => post(`/v1/workflows/${encodeURIComponent(id)}/activate`, {}, a),
   deactivateWorkflow: (id, a) => post(`/v1/workflows/${encodeURIComponent(id)}/deactivate`, {}, a),
   executeWorkflow: (id, input, a) => post(`/v1/workflows/${encodeURIComponent(id)}/execute`, input ?? {}, a),
+  testRun: (definition, input, a, workflowId) => post('/v1/workflows/test-run', { definition, input: input ?? {}, ...(workflowId ? { workflowId } : {}) }, a),
   executions: (params, a) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params || {})) {
@@ -185,5 +186,8 @@ export const api = {
   },
   execution: (id, a) => get(`/v1/executions/${encodeURIComponent(id)}`, a),
   executionWithData: (id, a) => get(`/v1/executions/${encodeURIComponent(id)}?includeData=true`, a),
+  credentials: (accountId, a) => get(`/v1/credentials${accountId ? `?accountId=${encodeURIComponent(accountId)}` : ''}`, a),
+  createCredential: (accountId, name, kind, secret, a) => post('/v1/credentials', { accountId, name, kind, secret }, a),
+  deleteCredential: (id, a) => del(`/v1/credentials/${encodeURIComponent(id)}`, a),
   agent: (question, history, a) => post('/v1/ai/agent', { question, history }, a),
 };

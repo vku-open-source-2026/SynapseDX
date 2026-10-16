@@ -16,16 +16,19 @@ async function main() {
   console.log('SDK_USERS', (await c.listUsers(orgs[0].id)).length);
   console.log('SDK_TEMPLATES', (await c.listTemplates()).length);
   console.log('SDK_TEMPLATE_ONE', (await c.getTemplate('webhook-to-log')).name);
-  // Executions proxy to n8n, which may be absent OR unprovisioned in CI:
-  // - engine down -> 502 n8n_unreachable / bad_gateway (fail-closed, clean error)
-  // - engine up but N8N_API_KEY placeholder -> n8n's own 401 {"message":"unauthorized"}
-  //   (message-ONLY shape; OUR 401s always carry an "error" key — those still fail).
-  // Either case means the SDK + gateway + workflow path works; only fail otherwise.
+  // Executions live in the local engine (always up with workflow-service).
+  // Only tolerate a truly-down service (502/503) — auth/shape errors still fail.
+  // listExecutions() unwraps the {data: []} envelope to a plain array.
   try {
-    console.log('SDK_EXECUTIONS', JSON.stringify(await c.listExecutions('limit=1')).slice(0, 120));
+    const execs = await c.listExecutions('limit=1');
+    console.log('SDK_EXECUTIONS', JSON.stringify(execs).slice(0, 120), Array.isArray(execs) ? 'array-ok' : 'NOT-ARRAY');
+    const filtered = await c.listExecutions({ limit: 1, status: 'success' });
+    console.log('SDK_EXECUTIONS_DICT', Array.isArray(filtered) ? 'array-ok' : 'NOT-ARRAY');
+    const tr = await c.testRun({ nodes: [], connections: {} }, {});
+    console.log('SDK_TEST_RUN', JSON.stringify(tr).slice(0, 120));
   } catch (e) {
-    if (/502|n8n_unreachable|bad_gateway|"message":"unauthorized"/.test(e.message)) {
-      console.log('SDK_EXECUTIONS_SKIPPED n8n-absent-or-unprovisioned');
+    if (/502|503|unreachable|bad_gateway/.test(e.message)) {
+      console.log('SDK_EXECUTIONS_SKIPPED workflow-down');
     } else {
       throw e;
     }

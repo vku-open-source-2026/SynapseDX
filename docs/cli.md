@@ -87,7 +87,19 @@ synapsedx config
 | `--json` | Output raw JSON (script-friendly) |
 | `--context k=v` | Add context key-value (repeatable) |
 | `--file <path>` | Read JSON body from file |
-| `--limit <N>` | Limit results |
+| `--data <json\|path>` | Inline JSON or JSON file for workflow input / webhook payload (alias: `--input`) |
+| `--input <json\|path>` | Same as `--data` |
+| `--limit <N>` | Limit results (`0..9999`) |
+| `--offset <N>` | Skip N executions (`0..9999`, `0` = first page) |
+| `--workflow-id <ID>` | Filter executions by workflow (alias: `--workflow`, `--workflowId`) |
+| `--status <s>` | Filter executions (`success`\|`error`\|`running`) |
+| `--include-data` | Include per-node I/O (`includeData=true`) |
+| `--path <p>` | Webhook path for `webhook <path>` |
+| `--method <m>` | Webhook HTTP method (`GET`\|`POST`\|`PUT`\|`PATCH`\|`DELETE`\|`HEAD`); also `call <METHOD>` |
+| `--type <t>` | Credential type (`bearer`\|`basic`\|`apiKey`\|`oauth2`) |
+| `--secret <S>` | Credential secret (prefer `--secret-file`/env — flags leak via `ps`) |
+| `--secret-file <path>` | Read credential secret from file (preferred) |
+| `--expires-at <ISO>` | Credential expiry timestamp |
 | `--actor <id>` | Filter by actor |
 | `--name <name>` | Name for create operations |
 | `--template <name>` | Template name |
@@ -436,6 +448,71 @@ Mints a short-lived JWT for a service account. The token is shown once — save 
 synapsedx sa token sa_abc123
 ```
 
+### Credentials (PROPOSED — backend in progress)
+
+Account-scoped secrets for workflow nodes. Secrets are encrypted at rest and
+**never returned**: `create`/`rotate` take a secret once; `list`/`get` return
+metadata only (`{id, name, type, accountId, expiresAt, version}`).
+Prefer `--secret-file` (or `$SYNAPSEDX_CREDENTIAL_SECRET`) over `--secret` —
+flags leak via `ps` and shell history.
+
+#### `credentials create`
+```bash
+synapsedx credentials create <account> --name <name> --type bearer|basic|apiKey|oauth2 (--secret <S> | --secret-file <path>) [--expires-at <ISO>]
+```
+
+```bash
+# Copy-paste: store a bearer token, then verify only metadata comes back.
+echo -n 'tok_live_abc' > /tmp/stripe-secret
+synapsedx credentials create acc_abc123 --name stripe-live --type bearer --secret-file /tmp/stripe-secret --expires-at 2027-01-01T00:00:00Z
+synapsedx credentials list acc_abc123
+```
+
+#### `credentials list` / `credentials get`
+```bash
+synapsedx credentials [list] <account>
+synapsedx credentials get <credential-id>
+```
+
+```bash
+synapsedx credentials list acc_abc123
+synapsedx credentials get cred_abc123
+```
+
+#### `credentials rotate`
+```bash
+synapsedx credentials rotate <credential-id> (--secret <S> | --secret-file <path>)
+```
+Replaces the secret and bumps `version` (the old secret stops working).
+
+```bash
+echo -n 'tok_live_xyz' > /tmp/stripe-secret-v2
+synapsedx credentials rotate cred_abc123 --secret-file /tmp/stripe-secret-v2
+```
+
+#### `credentials delete`
+```bash
+synapsedx credentials delete <credential-id>
+```
+
+```bash
+synapsedx credentials delete cred_abc123
+```
+
+### Generic call (escape hatch)
+
+#### `call`
+```bash
+synapsedx call <METHOD> <path> [--data '{...}'|body.json] [--file body.json]
+```
+Calls any gateway endpoint directly — forward-compat with endpoints added after
+this CLI (e.g. the proposed credentials API).
+
+```bash
+synapsedx call GET /v1/accounts/acc_abc123/credentials
+synapsedx call POST /v1/workflows/test-run --data '{"definition":{"nodes":[],"connections":{}},"input":{}}'
+```
+
 ### Workflows
 
 #### `workflows`
@@ -459,7 +536,7 @@ synapsedx workflows create --template webhook-to-log --name my-webhook
 ```bash
 synapsedx workflows create --file <definition.json> [--name <name>]
 ```
-Creates a workflow from a raw n8n definition JSON file. The file can contain either a full body (`{"template": ..., "name": ...}` or `{"definition": ..., "name": ...}`) or a bare n8n definition.
+Creates a workflow from a raw workflow definition JSON file. The file can contain either a full body (`{"template": ..., "name": ...}` or `{"definition": ..., "name": ...}`) or a bare definition.
 
 ```bash
 synapsedx workflows create --file my-workflow.json --name my-wf
@@ -497,20 +574,41 @@ synapsedx workflows deactivate wf_abc123
 
 #### `workflows exec`
 ```bash
-synapsedx workflows exec <workflow-id>
-synapsedx workflows execute <workflow-id>
+synapsedx workflows exec <workflow-id> [--data '{"k":v}'|input.json] [--file payload.json]
+synapsedx workflows execute <workflow-id> [--data ...] [--file ...]
 ```
-Triggers a manual execution (proxied to the engine).
+Triggers a manual execution (the request body IS the workflow input).
+`--data` takes inline JSON or a path to a JSON file; `--file` reads the
+payload from a file (a bare input object, or `{input: {...}}`).
 
 ```bash
 synapsedx workflows exec wf_abc123
+synapsedx workflows exec wf_abc123 --data '{"value":21}'
+echo '{"value":21}' > input.json
+synapsedx workflows exec wf_abc123 --data input.json
+```
+
+#### `workflows test-run`
+```bash
+synapsedx workflows test-run --file <definition.json> [--input '{"k":v}'|input.json]
+```
+Tries a definition without saving (`POST /v1/workflows/test-run {definition, input}`).
+`--file` (required) holds a bare `{nodes, connections}` definition or
+`{definition, input}`; `--input` (inline JSON or JSON file) overrides the input.
+
+```bash
+# Copy-paste: try the code-transform template without saving.
+synapsedx templates code-transform --json > def.json
+echo '{"value":21}' > input.json
+synapsedx workflows test-run --file def.json --input input.json
+synapsedx workflows test-run --file def.json --input '{"value":42}'
 ```
 
 #### `workflows update`
 ```bash
 synapsedx workflows update <workflow-id> [--name <name>] [--file <definition.json>]
 ```
-Updates a workflow's name and/or n8n definition (at least one of `--name`/`--file`).
+Updates a workflow's name and/or definition (at least one of `--name`/`--file`).
 
 ```bash
 synapsedx workflows update wf_abc123 --name renamed
@@ -547,26 +645,61 @@ synapsedx templates webhook-to-log
 
 ### Executions
 
+> The engine always returns the envelope `{data: [...]}` for `GET /v1/executions`.
+> The CLI unwraps it — list output is the plain execution array.
+
 #### `executions`
 ```bash
 synapsedx executions
-synapsedx executions list [--limit <N>]
+synapsedx executions list [--limit <N>] [--offset <N>] [--workflow-id <ID>] [--status success|error|running] [--include-data]
 ```
-Lists workflow executions.
+Lists workflow executions. Allowed filters mirror the server allowlist
+(`limit`/`offset` `0..9999`, `offset=0` = first page).
 
 ```bash
 synapsedx executions
 synapsedx executions list --limit 10
+synapsedx executions list --workflow-id wf_abc123 --status success --limit 20 --offset 20
+synapsedx executions list --limit 5 --include-data  # per-node I/O
 ```
 
 #### `executions <id>`
 ```bash
-synapsedx executions <execution-id>
+synapsedx executions <execution-id> [--include-data]
 ```
-Gets a single execution by ID.
+Gets a single execution by ID (`--include-data` adds per-node input/output).
 
 ```bash
 synapsedx executions exe_abc123
+synapsedx executions exe_abc123 --include-data
+```
+
+### Webhooks (public, no auth)
+
+`ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares
+that `path`. No token needed. NOTE: the gateway does **not** proxy `/webhook/*` —
+point `--base` at the workflow-service origin (default `http://localhost:4002`
+for local dev), not the gateway.
+
+#### `webhook`
+```bash
+synapsedx webhook <path> [--data '{"k":v}'|payload.json] [--file payload.json] [--method POST] [--base http://localhost:4002]
+```
+Fires a public inbound webhook.
+
+```bash
+# Copy-paste: activate the code-transform template, then fire its webhook.
+synapsedx workflows create --template code-transform --name demo-transform
+synapsedx workflows activate <wf-id>
+synapsedx webhook transform --data '{"value":21}' --base http://localhost:4002
+```
+
+Raw curl equivalent:
+
+```bash
+curl -X POST http://localhost:4002/webhook/transform \
+  -H 'Content-Type: application/json' \
+  -d '{"value":21}'
 ```
 
 ## Output format
@@ -586,6 +719,7 @@ synapsedx --json workflows list
 | `SYNAPSEDX_TOKEN` | Bearer JWT |
 | `SYNAPSEDX_API_KEY` | API key |
 | `SYNAPSEDX_REFRESH_TOKEN` | Refresh token (for `refresh` / `logout-all`) |
+| `SYNAPSEDX_CREDENTIAL_SECRET` | Credential secret (for `credentials create` / `rotate`, avoids `--secret` in `ps`) |
 | `DEMO_ORG_SLUG` | Default org slug when auto-resolving org ID (defaults to `acme`) |
 
 ## Full workflow example
@@ -607,7 +741,11 @@ synapsedx assign usr_abc123 rol_abc123
 # 4. Deploy + execute workflow
 synapsedx workflows create --template webhook-to-log --name demo
 synapsedx workflows activate wf_abc123
-synapsedx workflows exec wf_abc123
+synapsedx workflows exec wf_abc123 --data '{"value":21}'
+
+# 5. Try a definition without saving + check history
+synapsedx workflows test-run --file def.json --input input.json
+synapsedx executions list --workflow-id wf_abc123 --limit 20
 
 # 5. Check audit log
 synapsedx audit --limit 20

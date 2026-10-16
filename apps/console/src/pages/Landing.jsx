@@ -21,7 +21,7 @@ const FEATURES = [
   { icon: faKey, title: 'Flexible tokens', text: 'Short-lived JWT, atomic rotating refresh, API keys, service accounts, OIDC via Authentik/Keycloak.' },
   { icon: faBolt, title: 'API Gateway', text: 'Single entry point: auth, edge rate-limiting, principal propagation, tracing, aggregate /ready.' },
   { icon: faLayerGroup, title: 'Core data cluster', text: 'Postgres + Redis + S3-compatible storage, versioned schema, idempotent seed, backup/restore.' },
-  { icon: faRobot, title: 'n8n workflows', text: 'Control plane over an external engine: versioned templates, activate/execute, real triggers, definition editor.' },
+  { icon: faRobot, title: 'Workflows', text: 'Local engine: versioned templates, sandboxed code, activate/execute, webhooks + cron, definition editor.' },
   { icon: faWandMagicSparkles, title: 'AI assistant + SDKs', text: 'Chatbot on the API Docs pre-fills try-it forms; JS/TS, Python, Go, a zero-dependency CLI and an admin Console — one API.' },
 ];
 
@@ -33,17 +33,17 @@ export default function Landing() {
     <div className="min-h-screen">
       <PublicHeader />
 
-      <main className="mx-auto max-w-6xl px-4 pt-32 pb-16 text-center">
-        <h1 className="text-4xl md:text-5xl font-bold text-main-text leading-tight">
+      <main className="mx-auto max-w-6xl px-4 pt-28 sm:pt-32 pb-16 text-center">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-main-text leading-tight">
           The <span className="bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">open</span>
           <br />
           PaaS for your infrastructure
         </h1>
         <p className="mt-4 text-normal-text max-w-2xl mx-auto">
           SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): API gateway, AWS-style IAM,
-          core data cluster and n8n workflows — managed via Console, multi-language SDKs and CLI.
+          core data cluster and workflows — managed via Console, multi-language SDKs and CLI.
         </p>
-        <div className="mt-6 flex justify-center gap-3">
+        <div className="mt-6 flex flex-col sm:flex-row justify-center items-stretch sm:items-center gap-3 max-w-md sm:max-w-none mx-auto">
           {offSite ? (
             <a href={openConsoleHref} className="px-6 py-2.5 rounded-2xl text-white font-medium bg-gradient-to-b from-main-start to-main-end shadow-md">
               Open Console
@@ -73,7 +73,7 @@ npx -y @synapsedx/cli@latest --help`}
           </pre>
         </div>
 
-        <div className="mt-14 grid md:grid-cols-3 gap-4 text-left">
+        <div className="mt-14 grid sm:grid-cols-2 md:grid-cols-3 gap-4 text-left">
           {FEATURES.map((f) => (
             <div key={f.title} className="bg-white rounded-3xl shadow-md p-6">
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white bg-gradient-to-b from-main-start to-main-end mb-3">

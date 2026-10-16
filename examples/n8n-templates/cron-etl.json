@@ -1,8 +1,52 @@
 {
   "name": "cron-etl",
   "nodes": [
-    { "id": "b1b2c3d4-0001-4000-8000-000000000001", "name": "Cron", "type": "n8n-nodes-base.cron", "typeVersion": 1, "position": [200, 300], "parameters": { "rule": { "interval": [{ "field": "hours", "hoursInterval": 24 }] } } },
-    { "id": "b1b2c3d4-0002-4000-8000-000000000002", "name": "FetchIAM", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [400, 300], "parameters": { "url": "http://iam:4001/health", "method": "GET" } }
+    {
+      "id": "b1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "b1b2c3d4-0002-4000-8000-000000000002",
+      "name": "FetchIAM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        400,
+        300
+      ],
+      "parameters": {
+        "url": "https://api.example.com/health",
+        "method": "GET"
+      }
+    }
   ],
-  "connections": { "Cron": { "main": [[{ "node": "FetchIAM", "type": "main", "index": 0 }]] } }
+  "connections": {
+    "Cron": {
+      "main": [
+        [
+          {
+            "node": "FetchIAM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
 }

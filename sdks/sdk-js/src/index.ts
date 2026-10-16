@@ -163,13 +163,29 @@ export class SynapseDXClient {
     return this.req<{ accessToken: string }>(`/v1/service-accounts/${encodeURIComponent(saId)}/token`, { method: 'POST', body: JSON.stringify({ scopes }) });
   }
 
-  // ---- workflows (n8n via workflow-service) ----
+  // ---- workflows (local engine via workflow-service) ----
   listWorkflows() { return this.req('/v1/workflows'); }
   getWorkflow(id: string) { return this.req(`/v1/workflows/${encodeURIComponent(id)}`); }
-  getExecution(id: string) { return this.req(`/v1/executions/${encodeURIComponent(id)}`); }
-  listExecutions(query = '') {
-    const q = query ? (query.startsWith('?') ? query : `?${query}`) : '';
-    return this.req(`/v1/executions${q}`);
+  getExecution(id: string, includeData = false) {
+    const qs = includeData ? '?includeData=true' : '';
+    return this.req(`/v1/executions/${encodeURIComponent(id)}${qs}`);
+  }
+  listExecutions(query: string | Record<string, string | number | boolean | undefined> = ''): Promise<any[]> {
+    let q = '';
+    if (typeof query === 'string') {
+      q = query ? (query.startsWith('?') ? query : `?${query}`) : '';
+    } else if (query && typeof query === 'object') {
+      // Allowlist mirrors GET /v1/executions (limit/offset/workflowId/status/triggeredBy/includeData).
+      const allowed = ['limit', 'offset', 'workflowId', 'status', 'triggeredBy', 'includeData'] as const;
+      const params = new URLSearchParams();
+      for (const k of allowed) {
+        const v = (query as any)[k];
+        if (v !== undefined && v !== null && String(v) !== '') params.set(k, String(v));
+      }
+      const s = params.toString();
+      q = s ? `?${s}` : '';
+    }
+    return this.req(`/v1/executions${q}`).then(unwrapExecutions);
   }
   executeWorkflow(id: string, payload: Record<string, unknown> = {}) {
     return this.req(`/v1/workflows/${encodeURIComponent(id)}/execute`, { method: 'POST', body: JSON.stringify(payload) });
@@ -179,10 +195,10 @@ export class SynapseDXClient {
   createWorkflowFromTemplate(template: string, name?: string) {
     return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ template, name }) });
   }
-  createWorkflow(name: string, definition: any) {
-    return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ name, definition }) });
+  createWorkflow(name: string, definition: any, settings?: Record<string, unknown>) {
+    return this.req('/v1/workflows', { method: 'POST', body: JSON.stringify({ name, definition, ...(settings ? { settings } : {}) }) });
   }
-  updateWorkflow(id: string, patch: { name?: string; definition?: any }) {
+  updateWorkflow(id: string, patch: { name?: string; definition?: any; settings?: Record<string, unknown> }) {
     return this.req(`/v1/workflows/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) });
   }
   deleteWorkflow(id: string) {
@@ -190,4 +206,98 @@ export class SynapseDXClient {
   }
   listTemplates() { return this.req('/v1/templates'); }
   getTemplate(name: string) { return this.req(`/v1/templates/${encodeURIComponent(name)}`); }
+  testRun(definition: any, input: Record<string, unknown> = {}, workflowId?: string) {
+    return this.req('/v1/workflows/test-run', { method: 'POST', body: JSON.stringify({ definition, input, ...(workflowId ? { workflowId } : {}) }) });
+  }
+
+  // ---- generic escape hatch (forward-compat with endpoints added after this SDK) ----
+  call(method: string, path: string, body?: unknown) {
+    const m = String(method || 'GET').toUpperCase();
+    return this.req(path.startsWith('/') ? path : `/${path}`, {
+      method: m,
+      body: body === undefined || m === 'GET' || m === 'HEAD' ? undefined : JSON.stringify(body),
+    });
+  }
+
+  // ---- credentials (account-scoped secrets; PROPOSED contract — backend in progress) ----
+  //
+  // Backend contract (dev1, pending): secrets are encrypted at rest and NEVER
+  // returned — create/rotate accept a `secret` once; list/get return metadata
+  // only: {id, name, type, accountId, expiresAt, version}.
+  // `type` is one of: bearer|basic|apiKey|oauth2 (passed through, not validated
+  // client-side, so future types keep working).
+  createCredential(accountId: string, opts: { name: string; type: string; secret: string; expiresAt?: string }) {
+    return this.req(`/v1/accounts/${encodeURIComponent(accountId)}/credentials`, {
+      method: 'POST',
+      body: JSON.stringify({ name: opts.name, type: opts.type, secret: opts.secret, ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}) }),
+    });
+  }
+  listCredentials(accountId: string) {
+    return this.req(`/v1/accounts/${encodeURIComponent(accountId)}/credentials`);
+  }
+  getCredential(id: string) {
+    return this.req(`/v1/credentials/${encodeURIComponent(id)}`);
+  }
+  deleteCredential(id: string) {
+    return this.req(`/v1/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+  rotateCredential(id: string, secret: string) {
+    return this.req(`/v1/credentials/${encodeURIComponent(id)}/rotate`, { method: 'POST', body: JSON.stringify({ secret }) });
+  }
+}
+
+/**
+ * Normalize GET /v1/executions responses: the engine returns `{data: []}`
+ * (envelope, forward-compat with the old n8n proxy); older mocks return a
+ * bare array. Accepts both so callers always get an array.
+ */
+export function unwrapExecutions(payload: any): any[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  return payload == null ? [] : payload as any;
+}
+
+/**
+ * Fire a public inbound webhook: `ANY /webhook/:path` (no auth) triggers the
+ * ACTIVE workflow whose webhook node declares that `path`.
+ *
+ * NOTE: the gateway does not proxy `/webhook/*` — pass the workflow-service
+ * origin (e.g. `http://localhost:4002`), not the gateway URL. `path` is the
+ * webhook node's `parameters.path` (e.g. `synapsedx-event`), not a workflow id.
+ */
+export async function triggerWebhook(
+  webhookBaseUrl: string,
+  path: string,
+  payload?: unknown,
+  init?: { method?: string; timeoutMs?: number },
+): Promise<any> {
+  const base = webhookBaseUrl.replace(/\/$/, '');
+  const clean = String(path || '').replace(/^\/+|\/+$/g, '').split('?')[0];
+  if (!clean) throw new Error('synapsedx webhook: path required');
+  const method = (init?.method || (payload === undefined ? 'GET' : 'POST')).toUpperCase();
+  const url = `${base}/webhook/${clean}`;
+  const ctl = new AbortController();
+  const to = setTimeout(() => ctl.abort(), init?.timeoutMs ?? 15000);
+  let r: Response;
+  try {
+    r = await fetch(url, {
+      method,
+      signal: ctl.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+    });
+  } catch (e: any) {
+    throw new Error(`synapsedx network /webhook/${clean}: ${e?.message || e}`);
+  } finally {
+    clearTimeout(to);
+  }
+  const text = await r.text();
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!r.ok) throw new Error(`synapsedx ${r.status} /webhook/${clean}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+  return data;
 }

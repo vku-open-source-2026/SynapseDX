@@ -60,7 +60,7 @@ function ConsoleLayout({ children }) {
       <ScopeProvider>
         <Sidebar />
         <Topbar />
-        <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-8 pb-12 max-w-6xl">{children}</main>
+        <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-20 pb-12 max-w-6xl">{children}</main>
       </ScopeProvider>
     </div>
   );

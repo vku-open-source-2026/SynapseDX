@@ -331,6 +331,60 @@ Mints a short-lived JWT for a service account. `scopes` defaults to `['*']`.
 const { accessToken } = await c.serviceAccountToken(saId, ['workflow:Execute']);
 ```
 
+### Credentials (PROPOSED — backend in progress)
+
+Account-scoped secrets for workflow nodes (webhook auth, DB passwords, OAuth
+tokens...). Secrets are encrypted at rest and **never returned**: `create`/`rotate`
+accept a `secret` once; `list`/`get` return metadata only —
+`{id, name, type, accountId, expiresAt, version}`.
+`type` is one of `bearer`|`basic`|`apiKey`|`oauth2`.
+
+```ts
+// Copy-paste: store a bearer token, then list metadata (no secrets leak).
+const cred = await c.createCredential(accountId, {
+  name: 'stripe-live',
+  type: 'bearer',
+  secret: process.env.STRIPE_TOKEN!,
+  expiresAt: '2027-01-01T00:00:00Z',
+});
+console.log(cred.id, cred.version); // secret is NOT in the response
+const all = await c.listCredentials(accountId);
+const one = await c.getCredential(cred.id);
+const rotated = await c.rotateCredential(cred.id, process.env.STRIPE_TOKEN_V2!);
+await c.deleteCredential(cred.id);
+```
+
+#### `createCredential(accountId, opts)`
+```ts
+createCredential(accountId: string, opts: { name: string; type: string; secret: string; expiresAt?: string }): Promise<any>
+```
+
+#### `listCredentials(accountId)`
+```ts
+listCredentials(accountId: string): Promise<any>
+```
+Lists credential metadata (never secret values).
+
+#### `getCredential(id)` / `deleteCredential(id)` / `rotateCredential(id, secret)`
+```ts
+getCredential(id: string): Promise<any>
+deleteCredential(id: string): Promise<any>
+rotateCredential(id: string, secret: string): Promise<any>
+```
+`rotate` replaces the secret and bumps `version` (the old secret stops working).
+
+### Generic call (escape hatch)
+
+```ts
+call(method: string, path: string, body?: unknown): Promise<any>
+```
+Calls any gateway endpoint directly — forward-compat with endpoints added after
+this SDK (e.g. the proposed credentials API). Same auth + `status+path+body` errors.
+
+```ts
+const creds = await c.call('GET', `/v1/accounts/${accountId}/credentials`);
+```
+
 ### Workflows
 
 #### `listWorkflows()`
@@ -359,10 +413,10 @@ await c.createWorkflowFromTemplate('webhook-to-log', 'my-webhook');
 ```ts
 createWorkflow(name: string, definition: any): Promise<any>
 ```
-Creates a workflow from a raw n8n definition.
+Creates a workflow from a raw workflow definition.
 
 ```ts
-await c.createWorkflow('my-wf', n8nDefinition);
+await c.createWorkflow('my-wf', definition);
 ```
 
 #### `activateWorkflow(id)`
@@ -391,10 +445,30 @@ await c.executeWorkflow(wfId, { url: 'https://example.com/hook' });
 ```ts
 updateWorkflow(id: string, patch: { name?: string; definition?: any }): Promise<any>
 ```
-Updates a workflow's name and/or n8n definition.
+Updates a workflow's name and/or definition.
 
 ```ts
 await c.updateWorkflow(wfId, { name: 'renamed' });
+```
+
+#### `testRun(definition, input?)`
+```ts
+testRun(definition: any, input?: Record<string, unknown>): Promise<any>
+```
+Tries a definition without saving (`POST /v1/workflows/test-run {definition, input}`).
+Powers the editor's "try before Save". Returns `{ok, output, nodeRuns, executionId}`.
+
+```ts
+// Copy-paste: validate a code-transform definition before saving it.
+const definition = {
+  nodes: [
+    { name: 'Webhook', type: 'n8n-nodes-base.webhook', parameters: { path: 'transform', httpMethod: 'POST' } },
+    { name: 'Transform', type: 'n8n-nodes-base.code', parameters: { code: 'return { ...$input, doubled: ($input.value ?? 0) * 2 };' } },
+  ],
+  connections: { Webhook: { main: [[{ node: 'Transform', type: 'main', index: 0 }]] } },
+};
+const r = await c.testRun(definition, { value: 21 });
+console.log(r.ok, r.output); // true { value: 21, doubled: 42 }
 ```
 
 #### `deleteWorkflow(id)`
@@ -427,21 +501,64 @@ const tpl = await c.getTemplate('webhook-to-log');
 
 ### Executions
 
+> The engine always returns the envelope `{data: [...]}` for `GET /v1/executions`
+> (forward-compat with the old n8n proxy). `listExecutions()` unwraps it for you —
+> you always get a plain array, and a bare array response is accepted too
+> (see `unwrapExecutions()`).
+
 #### `listExecutions(query?)`
 ```ts
-listExecutions(query?: string): Promise<any>
+listExecutions(query?: string | { limit?: number; offset?: number; workflowId?: string; status?: string; includeData?: boolean }): Promise<any[]>
 ```
-Proxies the engine execution list. `query` is an optional query string like `'limit=20'`.
+Lists executions. Allowed query keys (server allowlist):
+`limit`, `offset`, `workflowId`, `status` (`success`|`error`|`running`), `includeData`.
+`limit`/`offset` are `0..9999` (`offset=0` = first page).
 
 ```ts
 const recent = await c.listExecutions('limit=10');
+const failed = await c.listExecutions({ workflowId: wfId, status: 'error', limit: 20 });
+const withIO = await c.listExecutions({ limit: 5, includeData: true }); // per-node I/O
 ```
 
-#### `getExecution(id)`
+#### `getExecution(id, includeData?)`
 ```ts
-getExecution(id: string): Promise<any>
+getExecution(id: string, includeData?: boolean): Promise<any>
 ```
-Gets a single execution by ID.
+Gets a single execution by ID. Pass `includeData=true` for per-node input/output.
+
+```ts
+const exec = await c.getExecution(execId, true);
+```
+
+#### `unwrapExecutions(payload)`
+```ts
+unwrapExecutions(payload: any): any[]
+```
+Normalizes a raw `GET /v1/executions` payload (envelope `{data: []}` or bare
+array) to an array. `listExecutions()` already applies it — use it when you
+`fetch()` the endpoint yourself.
+
+### Webhooks (public, no auth)
+
+`ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares
+that `path`. The gateway does **not** proxy `/webhook/*` — call the
+workflow-service origin directly (e.g. `http://localhost:4002`).
+
+```ts
+import { triggerWebhook } from '@synapsedx/sdk';
+
+// Copy-paste: fire the code-transform template's webhook after activating it.
+const out = await triggerWebhook('http://localhost:4002', 'transform', { value: 21 });
+console.log(out.output);
+```
+
+Raw curl equivalent:
+
+```bash
+curl -X POST http://localhost:4002/webhook/transform \
+  -H 'Content-Type: application/json' \
+  -d '{"value":21}'
+```
 
 ## Error handling
 

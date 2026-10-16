@@ -147,9 +147,9 @@ export default function ApiDocs() {
               const params = [...e.path.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]);
               return (
                 <div key={k} className="py-2">
-                  <button onClick={() => toggle(g.name, e)} className="w-full flex items-center gap-2 text-left">
+                  <button onClick={() => toggle(g.name, e)} className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 text-left">
                     <Badge tone={METHOD_TONE[e.method] || 'gray'}>{e.method}</Badge>
-                    <code className="text-xs font-mono text-main-text break-all">{e.path}</code>
+                    <code className="text-xs font-mono text-main-text break-all min-w-0 flex-1">{e.path}</code>
                     <span className="ml-auto text-xs text-normal-text whitespace-nowrap">
                       {e.auth === 'none' ? 'public' : 'auth'}
                     </span>
@@ -158,8 +158,8 @@ export default function ApiDocs() {
                   {open === k && (
                     <div className="mt-2 ml-1 p-3 rounded-2xl bg-background">
                       {params.map((p) => (
-                        <div key={p} className="flex items-center gap-2 mb-2 text-xs">
-                          <span className="font-mono text-main-text w-24">:{p}</span>
+                        <div key={p} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 mb-2 text-xs">
+                          <span className="font-mono text-main-text sm:w-24 shrink-0 break-all">:{p}</span>
                           <input
                             value={pathVals[p] || ''}
                             onChange={(ev) => setPathVals({ ...pathVals, [p]: ev.target.value })}
@@ -177,7 +177,7 @@ export default function ApiDocs() {
                           className="w-full px-2 py-1 rounded-xl border border-slate-200 text-xs font-mono outline-none mb-2"
                         />
                       )}
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
                         <button
                           onClick={() => run(e)}
                           disabled={busy}

@@ -560,6 +560,105 @@ func (c *Client) ServiceAccountToken(saID string, scopes []string) (map[string]a
 	return out, nil
 }
 
+// Call is a generic escape hatch (forward-compat with endpoints added after
+// this SDK). Method is e.g. "GET"/"POST"/"PUT"/"DELETE"; path must start
+// with "/". Decodes the JSON response into `any` (use a typed assertion or
+// UnwrapExecutions on the result as needed).
+func (c *Client) Call(method, path string, body any) (any, error) {
+	m := strings.ToUpper(strings.TrimSpace(method))
+	if m == "" {
+		m = "GET"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if m == "GET" || m == "HEAD" {
+		body = nil
+	}
+	b, err := c.do(m, path, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(b) == 0 {
+		return nil, nil
+	}
+	var out any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ---------- credentials (account-scoped secrets; PROPOSED contract — backend in progress) ----------
+//
+// Backend contract (dev1, pending): secrets are encrypted at rest and NEVER
+// returned — create/rotate accept a secret once; list/get return metadata
+// only: {id, name, type, accountId, expiresAt, version}.
+// credType is one of bearer|basic|apiKey|oauth2 (passed through, not validated
+// client-side, so future types keep working).
+
+// CreateCredential stores an account credential (secret is write-only, never returned).
+func (c *Client) CreateCredential(accountID, name, credType, secret, expiresAt string) (map[string]any, error) {
+	body := map[string]any{"name": name, "type": credType, "secret": secret}
+	if expiresAt != "" {
+		body["expiresAt"] = expiresAt
+	}
+	b, err := c.do("POST", "/v1/accounts/"+pathEscape(accountID)+"/credentials", body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListCredentials lists credential metadata for an account (never secret values).
+func (c *Client) ListCredentials(accountID string) ([]any, error) {
+	b, err := c.do("GET", "/v1/accounts/"+pathEscape(accountID)+"/credentials", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetCredential fetches one credential's metadata (never the secret).
+func (c *Client) GetCredential(id string) (map[string]any, error) {
+	b, err := c.do("GET", "/v1/credentials/"+pathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteCredential deletes a credential.
+func (c *Client) DeleteCredential(id string) error {
+	_, err := c.do("DELETE", "/v1/credentials/"+pathEscape(id), nil)
+	return err
+}
+
+// RotateCredential rotates a credential's secret (bumps version; old secret stops working).
+func (c *Client) RotateCredential(id, secret string) (map[string]any, error) {
+	b, err := c.do("POST", "/v1/credentials/"+pathEscape(id)+"/rotate", map[string]any{"secret": secret})
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ---------- workflows / templates / executions ----------
 
 func (c *Client) ListWorkflows() (any, error) {
@@ -599,7 +698,7 @@ func (c *Client) CreateWorkflowFromTemplate(template, name string) (map[string]a
 	return out, nil
 }
 
-// CreateWorkflowRaw creates a workflow from a raw n8n definition.
+// CreateWorkflowRaw creates a workflow from a raw workflow definition.
 func (c *Client) CreateWorkflowRaw(name string, definition any) (map[string]any, error) {
 	b, err := c.do("POST", "/v1/workflows", map[string]any{"name": name, "definition": definition})
 	if err != nil {
@@ -683,7 +782,10 @@ func (c *Client) GetTemplate(name string) (map[string]any, error) {
 }
 
 // ListExecutions proxies the engine execution list (supports ?limit etc.).
-func (c *Client) ListExecutions(query string) (any, error) {
+// query may be a raw string ("limit=20&status=success") or "" for defaults.
+// The engine returns {data: []}; UnwrapExecutions normalizes to []any so
+// callers accept both the envelope and a bare array.
+func (c *Client) ListExecutions(query string) ([]any, error) {
 	p := "/v1/executions"
 	if query != "" {
 		if !strings.HasPrefix(query, "?") {
@@ -695,7 +797,68 @@ func (c *Client) ListExecutions(query string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out any
+	return UnwrapExecutions(b)
+}
+
+// ListExecutionsWithParams builds the allowlisted query
+// (limit/offset/workflowId/status/triggeredBy/includeData) and returns the unwrapped list.
+func (c *Client) ListExecutionsWithParams(params map[string]string) ([]any, error) {
+	allowed := []string{"limit", "offset", "workflowId", "status", "triggeredBy", "includeData"}
+	q := url.Values{}
+	for _, k := range allowed {
+		if v, ok := params[k]; ok && v != "" {
+			q.Set(k, v)
+		}
+	}
+	qs := q.Encode()
+	p := "/v1/executions"
+	if qs != "" {
+		p += "?" + qs
+	}
+	b, err := c.do("GET", p, nil)
+	if err != nil {
+		return nil, err
+	}
+	return UnwrapExecutions(b)
+}
+
+// UnwrapExecutions normalizes GET /v1/executions payloads: the engine returns
+// {data: [...]}, older mocks return a bare array. Accepts both.
+func UnwrapExecutions(b []byte) ([]any, error) {
+	if len(b) == 0 {
+		return []any{}, nil
+	}
+	var arr []any
+	if err := json.Unmarshal(b, &arr); err == nil {
+		return arr, nil
+	}
+	var env struct {
+		Data []any `json:"data"`
+	}
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, fmt.Errorf("synapsedx decode: %w", err)
+	}
+	if env.Data == nil {
+		return []any{}, nil
+	}
+	return env.Data, nil
+}
+
+// TestRun tries a definition without saving (POST /v1/workflows/test-run).
+// Pass workflowID to attach the run to a saved workflow's history.
+func (c *Client) TestRun(definition any, input any, workflowID ...string) (map[string]any, error) {
+	if input == nil {
+		input = map[string]any{}
+	}
+	body := map[string]any{"definition": definition, "input": input}
+	if len(workflowID) > 0 && workflowID[0] != "" {
+		body["workflowId"] = workflowID[0]
+	}
+	b, err := c.do("POST", "/v1/workflows/test-run", body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
 	if err := unmarshal(b, &out); err != nil {
 		return nil, err
 	}
@@ -703,13 +866,83 @@ func (c *Client) ListExecutions(query string) (any, error) {
 }
 
 func (c *Client) GetExecution(id string) (map[string]any, error) {
-	b, err := c.do("GET", "/v1/executions/"+pathEscape(id), nil)
+	return c.GetExecutionWithData(id, false)
+}
+
+// GetExecutionWithData fetches one execution; includeData=true adds per-node I/O.
+func (c *Client) GetExecutionWithData(id string, includeData bool) (map[string]any, error) {
+	p := "/v1/executions/" + pathEscape(id)
+	if includeData {
+		p += "?includeData=true"
+	}
+	b, err := c.do("GET", p, nil)
 	if err != nil {
 		return nil, err
 	}
 	var out map[string]any
 	if err := unmarshal(b, &out); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// TriggerWebhook fires a public inbound webhook: ANY /webhook/:path (no auth).
+// It triggers the ACTIVE workflow whose webhook node declares that path.
+//
+// NOTE: the gateway does not proxy /webhook/* — pass the workflow-service
+// origin (e.g. http://localhost:4002), not the gateway URL. No auth headers
+// are sent even if the client has a token configured.
+func TriggerWebhook(webhookBaseURL, path string, payload any) (map[string]any, error) {
+	return TriggerWebhookWithMethod(webhookBaseURL, path, payload, "")
+}
+
+// TriggerWebhookWithMethod is TriggerWebhook with an explicit HTTP method
+// (default GET for nil payload, POST otherwise).
+func TriggerWebhookWithMethod(webhookBaseURL, path string, payload any, method string) (map[string]any, error) {
+	base := strings.TrimRight(webhookBaseURL, "/")
+	clean := strings.Trim(strings.SplitN(strings.Trim(path, "/"), "?", 2)[0], "/")
+	if clean == "" {
+		return nil, fmt.Errorf("synapsedx webhook: path required")
+	}
+	if method == "" {
+		method = "POST"
+		if payload == nil {
+			method = "GET"
+		}
+	}
+	method = strings.ToUpper(method)
+	url := base + "/webhook/" + clean
+	var r io.Reader
+	if payload != nil && method != "GET" && method != "HEAD" {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("synapsedx encode /webhook/%s: %w", clean, err)
+		}
+		r = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, url, r)
+	if err != nil {
+		return nil, fmt.Errorf("synapsedx request /webhook/%s: %w", clean, err)
+	}
+	if r != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("synapsedx network /webhook/%s: %w", clean, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("synapsedx %d /webhook/%s: %s", resp.StatusCode, clean, truncate(string(b), 500))
+	}
+	if len(b) == 0 {
+		return map[string]any{}, nil
+	}
+	var out map[string]any
+	if err := json.Unmarshal(b, &out); err != nil {
+		return nil, fmt.Errorf("synapsedx decode: %w", err)
 	}
 	return out, nil
 }

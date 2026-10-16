@@ -6,11 +6,13 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { SynapseDXClient } from './index';
+import { SynapseDXClient, unwrapExecutions, triggerWebhook } from './index';
 
 let base = '';
 let lastHeaders: Record<string, string | string[] | undefined> = {};
 let lastPath = '';
+let lastMethod = '';
+let lastBody = '';
 let server: http.Server;
 
 before(
@@ -20,8 +22,14 @@ before(
         .createServer((req, res) => {
           lastHeaders = { ...req.headers };
           lastPath = req.url || '';
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({ ok: true, path: req.url }));
+          lastMethod = req.method || '';
+          let body = '';
+          req.on('data', (c) => (body += c));
+          req.on('end', () => {
+            lastBody = body;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true, path: req.url }));
+          });
         })
         .listen(0, '127.0.0.1', () => {
           const a = server.address();
@@ -92,5 +100,75 @@ describe('SynapseDXClient', () => {
     assert.equal(lastPath, '/v1/keys/verify');
     await c.deactivateWorkflow('w1');
     assert.equal(lastPath, '/v1/workflows/w1/deactivate');
+  });
+
+  it('testRun posts definition+input', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    const def = { nodes: [], connections: {} };
+    await c.testRun(def, { value: 21 });
+    assert.equal(lastPath, '/v1/workflows/test-run');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), { definition: def, input: { value: 21 } });
+  });
+
+  it('listExecutions accepts the allowlisted dict form', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.listExecutions({ workflowId: 'w1', status: 'error', limit: 20, offset: 0, includeData: true } as any);
+    assert.ok(lastPath.startsWith('/v1/executions?'), lastPath);
+    assert.ok(lastPath.includes('workflowId=w1'), lastPath);
+    assert.ok(lastPath.includes('status=error'), lastPath);
+    assert.ok(lastPath.includes('limit=20'), lastPath);
+    assert.ok(lastPath.includes('includeData=true'), lastPath);
+  });
+
+  it('getExecution supports includeData', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.getExecution('e1', true);
+    assert.equal(lastPath, '/v1/executions/e1?includeData=true');
+  });
+
+  it('unwrapExecutions accepts envelope and bare array', () => {
+    assert.deepEqual(unwrapExecutions({ data: [{ id: 'e1' }] }), [{ id: 'e1' }]);
+    assert.deepEqual(unwrapExecutions([{ id: 'e2' }]), [{ id: 'e2' }]);
+    assert.deepEqual(unwrapExecutions(null), []);
+  });
+
+  it('triggerWebhook posts to /webhook/:path without auth', async () => {
+    const out: any = await triggerWebhook(base, 'transform', { value: 21 });
+    assert.equal(lastPath, '/webhook/transform');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), { value: 21 });
+    assert.equal(out.ok, true);
+  });
+
+  it('call() passes any method/path/body through', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.call('POST', '/v1/accounts/a1/credentials', { name: 'x' });
+    assert.equal(lastPath, '/v1/accounts/a1/credentials');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), { name: 'x' });
+    await c.call('get', 'v1/workflows');
+    assert.equal(lastPath, '/v1/workflows');
+    assert.equal(lastMethod, 'GET');
+  });
+
+  it('credentials CRUD hits the proposed contract paths', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.createCredential('a1', { name: 'stripe-live', type: 'bearer', secret: 's3cr3t', expiresAt: '2027-01-01T00:00:00Z' });
+    assert.equal(lastPath, '/v1/accounts/a1/credentials');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), { name: 'stripe-live', type: 'bearer', secret: 's3cr3t', expiresAt: '2027-01-01T00:00:00Z' });
+    await c.listCredentials('a1');
+    assert.equal(lastPath, '/v1/accounts/a1/credentials');
+    assert.equal(lastMethod, 'GET');
+    await c.getCredential('c1');
+    assert.equal(lastPath, '/v1/credentials/c1');
+    await c.rotateCredential('c1', 'n3w');
+    assert.equal(lastPath, '/v1/credentials/c1/rotate');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), { secret: 'n3w' });
+    await c.deleteCredential('c1');
+    assert.equal(lastPath, '/v1/credentials/c1');
+    assert.equal(lastMethod, 'DELETE');
   });
 });

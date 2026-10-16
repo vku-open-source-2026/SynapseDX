@@ -105,7 +105,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Workflow metadata (n8n workflow id cache)
+-- Workflow metadata (legacy n8n workflow id cache, kept for backward compat)
 CREATE TABLE IF NOT EXISTS workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
@@ -115,6 +115,38 @@ CREATE TABLE IF NOT EXISTS workflows (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(account_id, slug)
 );
+
+-- Workflow engine (local built-in, Apache-2.0): workflows + executions.
+-- Auto-created by workflow-service on boot as well (see store.ts ensureTables),
+-- duplicated here so fresh `init.sql` installs have indexes from day one.
+CREATE TABLE IF NOT EXISTS synapsedx_workflows (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  nodes JSONB NOT NULL DEFAULT '[]',
+  connections JSONB NOT NULL DEFAULT '{}',
+  settings JSONB NOT NULL DEFAULT '{}',
+  active BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_workflows_active ON synapsedx_workflows(active);
+
+CREATE TABLE IF NOT EXISTS synapsedx_executions (
+  id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  workflow_name TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'success',
+  input JSONB NOT NULL DEFAULT '{}',
+  output JSONB,
+  node_runs JSONB NOT NULL DEFAULT '[]',
+  error TEXT,
+  triggered_by TEXT NOT NULL DEFAULT 'manual',
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_exec_workflow ON synapsedx_executions(workflow_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_exec_status ON synapsedx_executions(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_exec_time ON synapsedx_executions(started_at DESC);
 
 -- Audit log cho authorize decisions (CloudTrail-lite)
 CREATE TABLE IF NOT EXISTS audit_log (

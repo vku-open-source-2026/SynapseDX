@@ -138,7 +138,7 @@ describe('round-trips and edge preservation', () => {
     const w = normalizeWorkflow({ nodes: [{ name: 'A', position: ['10', 'x'], typeVersion: 'v', parameters: null }], connections: [] });
     assert.deepEqual(w.nodes[0].position, [10, 0]);
     assert.equal(w.nodes[0].typeVersion, 1);
-    assert.deepEqual(w.connections, []);
+    assert.deepEqual(w.connections, {}, 'array connections coerce to {}');
   });
 
   it('preserves edge fields through ops', () => {
@@ -183,5 +183,75 @@ describe('EXAMPLE_PARAMS', () => {
     assert.equal(EXAMPLE_PARAMS['n8n-nodes-base.webhook'].httpMethod, 'POST');
     assert.ok(EXAMPLE_PARAMS['n8n-nodes-base.httpRequest'].url);
     assert.ok(EXAMPLE_PARAMS['n8n-nodes-base.cron'].rule);
+    assert.ok(EXAMPLE_PARAMS['n8n-nodes-base.code'].code);
+    assert.ok(EXAMPLE_PARAMS['n8n-nodes-base.set'].values);
+    assert.ok(EXAMPLE_PARAMS['n8n-nodes-base.if'].condition);
+  });
+});
+
+describe('if branch slots (B1)', () => {
+  it('connect with explicit branch keeps true/false indices', async () => {
+    const { connect: c, disconnect: d } = await import('./workflow-graph.js');
+    // Reconnect the false side: must land in main[1], not a new branch.
+    let conns = { Check: { main: [[{ node: 'Big' }]] } };
+    conns = c(conns, 'Check', 'Small', { branch: 1 });
+    assert.deepEqual(conns.Check.main, [[{ node: 'Big' }], [{ node: 'Small', type: 'main', index: 0 }]]);
+    // Reconnect the true side into a hole keeps slot 0.
+    conns = d(conns, 'Check', 'Big', { preserveSlots: true });
+    assert.deepEqual(conns.Check.main, [[], [{ node: 'Small', type: 'main', index: 0 }]]);
+    conns = c(conns, 'Check', 'Big', { branch: 0 });
+    assert.equal(conns.Check.main[0][0].node, 'Big');
+    assert.equal(conns.Check.main[1][0].node, 'Small');
+  });
+  it('disconnect without preserveSlots collapses (non-if)', async () => {
+    const { disconnect: d } = await import('./workflow-graph.js');
+    assert.deepEqual(d({ A: { main: [[{ node: 'B' }]] } }, 'A', 'B'), {});
+  });
+  it('removeNode preserves surviving if slots', async () => {
+    const { removeNode: rm } = await import('./workflow-graph.js');
+    const ifN = (name) => ({ id: `id-${name}`, name, type: 'n8n-nodes-base.if', typeVersion: 1, position: [0, 0], parameters: {} });
+    const nodes = [ifN('Check'), N('Big'), N('Small')];
+    const conns = { Check: { main: [[{ node: 'Big' }], [{ node: 'Small' }]] } };
+    const r = rm(nodes, conns, 'Big');
+    assert.deepEqual(r.connections.Check.main, [[], [{ node: 'Small' }]]);
+  });
+  it('ifWarnings flags missing branches', async () => {
+    const { ifWarnings } = await import('./workflow-graph.js');
+    const ifN = (name) => ({ id: `id-${name}`, name, type: 'n8n-nodes-base.if', typeVersion: 1, position: [0, 0], parameters: {} });
+    assert.equal(ifWarnings([ifN('C'), N('B')], { C: { main: [[{ node: 'B' }]] } }).length, 1);
+    assert.match(ifWarnings([ifN('C'), N('B')], { C: { main: [[{ node: 'B' }]] } })[0], /false/);
+    assert.deepEqual(ifWarnings([ifN('C'), N('A'), N('B')], { C: { main: [[{ node: 'A' }], [{ node: 'B' }]] } }), []);
+  });
+  it('listEdgesWithBranches reports slots; listEdges stays flat', async () => {
+    const { listEdgesWithBranches, listEdges: le } = await import('./workflow-graph.js');
+    const conns = { C: { main: [[{ node: 'A' }], [{ node: 'B' }]] } };
+    assert.deepEqual(listEdgesWithBranches(conns), [
+      { from: 'C', to: 'A', branch: 0 },
+      { from: 'C', to: 'B', branch: 1 },
+    ]);
+    assert.deepEqual(le(conns), [{ from: 'C', to: 'A' }, { from: 'C', to: 'B' }]);
+  });
+  it('isKnownType + cycle detection (B2/B4)', async () => {
+    const { isKnownType, detectCycle, validateGraph: vg } = await import('./workflow-graph.js');
+    assert.equal(isKnownType('n8n-nodes-base.if'), true);
+    assert.equal(isKnownType('custom.thing'), false);
+    const nodes = [N('A'), N('B')];
+    assert.match(detectCycle(nodes, { A: { main: [[{ node: 'B' }]] }, B: { main: [[{ node: 'A' }]] } }), /cycle detected/);
+    assert.match(vg(nodes, { A: { main: [[{ node: 'B' }]] }, B: { main: [[{ node: 'A' }]] } }), /cycle detected/);
+    assert.equal(detectCycle(nodes, { A: { main: [[{ node: 'B' }]] } }), null);
+  });
+  it('validateGraph flags dangling nodes', async () => {
+    const { validateGraph: vg } = await import('./workflow-graph.js');
+    assert.equal(vg([N('A'), N('B')], { A: { main: [[{ node: 'B' }]] } }), null);
+    // Add an isolated C — every node in a multi-node graph must be wired.
+    assert.match(vg([N('A'), N('B'), N('C')], { A: { main: [[{ node: 'B' }]] } }), /dangling node 'C'/);
+  });
+  it('nextWallClockRun matches the engine across timezones (P2)', async () => {
+    const { nextWallClockRun, describeCron } = await import('./workflow-graph.js');
+    const from = Date.UTC(2026, 9, 15, 18, 30, 0);
+    const next = nextWallClockRun({ cronExpression: '30 9 * * *', timezone: 'Asia/Ho_Chi_Minh' }, from);
+    assert.equal(next.at, '2026-10-16T02:30:00.000Z');
+    assert.match(describeCron({ cronExpression: '30 9 * * *', timezone: 'Asia/Ho_Chi_Minh' }).text, /Daily at 09:30/);
+    assert.equal(nextWallClockRun({ cronExpression: '*/5 * * * *' }, from), null);
   });
 });

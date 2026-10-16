@@ -44,10 +44,10 @@ reads which key (audited from source):
 | Key | Default | Meaning |
 |---|---|---|
 | `PORT` | 4002 | listen port |
-| `N8N_BASE_URL` | `http://n8n:5678` | n8n engine |
-| `N8N_API_KEY` | — | n8n API key (Settings → API) |
+| `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`synapsedx_workflows` + `synapsedx_executions`); required in production |
+| `WORKFLOW_CRON_TICK_MS` | 15000 | cron scheduler tick (ms, clamped ≥10000) |
 | `IAM_SERVICE_URL` | — | reserved for cross-verification |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4002` bypass |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4002` bypass (`/webhook/*` stays public) |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 
 ## AI agent (`apps/ai-service`)
@@ -74,6 +74,5 @@ reads which key (audited from source):
 
 ## Core data / external engines
 
-Postgres (`POSTGRES_*`), n8n (`N8N_ENCRYPTION_KEY`, `N8N_HOST_PORT`, `N8N_HOST/PORT/PROTOCOL`),
-Authentik (`AUTHENTIK_*`, host ports `AUTHENTIK_HTTP_PORT=19000`),
+Postgres (`POSTGRES_*`), Authentik (`AUTHENTIK_*`, host ports `AUTHENTIK_HTTP_PORT=19000`),
 S3 (`S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, `S3_HOST_PORT=9090`).

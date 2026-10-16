@@ -341,6 +341,63 @@ result = c.service_account_token(sa_id, ["workflow:Execute"])
 token = result["accessToken"]
 ```
 
+### Credentials (PROPOSED — backend in progress)
+
+Account-scoped secrets for workflow nodes (webhook auth, DB passwords, OAuth
+tokens...). Secrets are encrypted at rest and **never returned**: `create`/`rotate`
+accept a `secret` once; `list`/`get` return metadata only —
+`{"id", "name", "type", "accountId", "expiresAt", "version"}`.
+`type` is one of `bearer`|`basic`|`apiKey`|`oauth2`.
+
+```python
+import os
+
+# Copy-paste: store a bearer token, then list metadata (no secrets leak).
+cred = c.create_credential(
+    account_id,
+    "stripe-live",
+    "bearer",
+    os.environ["STRIPE_TOKEN"],
+    expires_at="2027-01-01T00:00:00Z",
+)
+print(cred["id"], cred["version"])  # secret is NOT in the response
+all_creds = c.list_credentials(account_id)
+one = c.get_credential(cred["id"])
+rotated = c.rotate_credential(cred["id"], os.environ["STRIPE_TOKEN_V2"])
+c.delete_credential(cred["id"])
+```
+
+#### `create_credential(account_id, name, type, secret, expires_at=None)`
+```python
+def create_credential(self, account_id: str, name: str, type: str, secret: str, expires_at: str | None = None) -> dict
+```
+
+#### `list_credentials(account_id)`
+```python
+def list_credentials(self, account_id: str) -> list
+```
+Lists credential metadata (never secret values).
+
+#### `get_credential(cred_id)` / `delete_credential(cred_id)` / `rotate_credential(cred_id, secret)`
+```python
+def get_credential(self, cred_id: str) -> dict
+def delete_credential(self, cred_id: str) -> dict
+def rotate_credential(self, cred_id: str, secret: str) -> dict
+```
+`rotate_credential` replaces the secret and bumps `version` (the old secret stops working).
+
+### Generic call (escape hatch)
+
+```python
+def call(self, method: str, path: str, body: Any | None = None) -> Any
+```
+Calls any gateway endpoint directly — forward-compat with endpoints added after
+this SDK (e.g. the proposed credentials API). Same auth + `status+path+body` errors.
+
+```python
+creds = c.call("GET", f"/v1/accounts/{account_id}/credentials")
+```
+
 ### Workflows
 
 #### `list_workflows()`
@@ -369,10 +426,10 @@ c.create_workflow_from_template("webhook-to-log", "my-webhook")
 ```python
 def create_workflow(self, name: str, definition: dict) -> Any
 ```
-Creates a workflow from a raw n8n definition.
+Creates a workflow from a raw workflow definition.
 
 ```python
-c.create_workflow("my-wf", n8n_definition)
+c.create_workflow("my-wf", definition)
 ```
 
 #### `activate_workflow(wf_id)`
@@ -401,7 +458,7 @@ c.execute_workflow(wf_id, {"url": "https://example.com/hook"})
 ```python
 def update_workflow(self, wf_id: str, name: str | None = None, definition: dict | None = None) -> Any
 ```
-Updates a workflow's name and/or n8n definition.
+Updates a workflow's name and/or definition.
 
 ```python
 c.update_workflow(wf_id, name="renamed")
@@ -415,6 +472,28 @@ Deletes a workflow on the engine.
 
 ```python
 c.delete_workflow(wf_id)
+```
+
+#### `test_run(definition, input=None)`
+```python
+def test_run(self, definition: dict, input: dict | None = None) -> Any
+```
+Tries a definition without saving (`POST /v1/workflows/test-run {definition, input}`).
+Powers the editor's "try before Save". Returns `{"ok", "output", "nodeRuns", "executionId"}`.
+
+```python
+# Copy-paste: validate a code-transform definition before saving it.
+definition = {
+    "nodes": [
+        {"name": "Webhook", "type": "n8n-nodes-base.webhook",
+         "parameters": {"path": "transform", "httpMethod": "POST"}},
+        {"name": "Transform", "type": "n8n-nodes-base.code",
+         "parameters": {"code": "return { ...$input, doubled: ($input.value ?? 0) * 2 };']],
+    ],
+    "connections": {"Webhook": {"main": [[{"node": "Transform", "type": "main", "index": 0}]]}},
+}
+r = c.test_run(definition, {"value": 21})
+print(r["ok"], r["output"])  # True {'value': 21, 'doubled': 42}
 ```
 
 ### Templates
@@ -437,21 +516,64 @@ tpl = c.get_template("webhook-to-log")
 
 ### Executions
 
+> The engine always returns the envelope `{"data": [...]}` for `GET /v1/executions`
+> (forward-compat with the old n8n proxy). `list_executions()` unwraps it for you —
+> you always get a plain list, and a bare array response is accepted too
+> (see `unwrap_executions()`).
+
 #### `list_executions(query="")`
 ```python
-def list_executions(self, query: str = "") -> Any
+def list_executions(self, query: str | dict | None = "") -> list
 ```
-Proxies the engine execution list. `query` is an optional query string like `"limit=20"`.
+Lists executions. `query` may be a raw string (`"limit=20"`) or a dict limited to
+the server allowlist: `limit`, `offset`, `workflowId`, `status`
+(`success`|`error`|`running`), `includeData`. `limit`/`offset` are `0..9999`
+(`offset=0` = first page).
 
 ```python
 recent = c.list_executions("limit=10")
+failed = c.list_executions({"workflowId": wf_id, "status": "error", "limit": 20})
+with_io = c.list_executions({"limit": 5, "includeData": True})  # per-node I/O
 ```
 
-#### `get_execution(exec_id)`
+#### `get_execution(exec_id, include_data=False)`
 ```python
-def get_execution(self, exec_id: str) -> Any
+def get_execution(self, exec_id: str, include_data: bool = False) -> Any
 ```
-Gets a single execution by ID.
+Gets a single execution by ID. Pass `include_data=True` for per-node input/output.
+
+```python
+exec_ = c.get_execution(exec_id, include_data=True)
+```
+
+#### `unwrap_executions(payload)`
+```python
+def unwrap_executions(payload: Any) -> list
+```
+Normalizes a raw `GET /v1/executions` payload (envelope `{"data": []}` or bare
+array) to a list. `list_executions()` already applies it.
+
+### Webhooks (public, no auth)
+
+`ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares
+that `path`. The gateway does **not** proxy `/webhook/*` — call the
+workflow-service origin directly (e.g. `http://localhost:4002`).
+
+```python
+from synapsedx_sdk import trigger_webhook
+
+# Copy-paste: fire the code-transform template's webhook after activating it.
+out = trigger_webhook("http://localhost:4002", "transform", {"value": 21})
+print(out["output"])
+```
+
+Raw curl equivalent:
+
+```bash
+curl -X POST http://localhost:4002/webhook/transform \
+  -H 'Content-Type: application/json' \
+  -d '{"value":21}'
+```
 
 ## Error handling
 

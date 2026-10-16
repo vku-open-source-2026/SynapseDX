@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
+### Changed — workflow engine replaced (BREAKING from n8n)
+- Removed n8n (SUL) from the default stack: `workflow-service` now runs its own
+  Apache-2.0 local engine (`src/engine.ts` + `src/store.ts`, Postgres with in-memory
+  fallback). Same REST contract (`/v1/workflows`, `/v1/executions`, `/v1/templates`,
+  `ANY /webhook/:path`), plus `POST /v1/workflows/test-run`.
+- Every node type executes: webhook/cron/manual triggers, httpRequest (SSRF-guarded),
+  code (vm sandbox, 5s timeout, `$input/$json/$now`, console capture), set (incl.
+  `={{ }}` templating), if (condition/value/conditions shapes, true=`main[0]`),
+  noOp. Manual `execute` works for any trigger, active or not; activate gates only
+  cron + public webhooks. New `code-transform` template; editor has Test-run + per-type
+  examples. `tools/setup-n8n.sh` deprecated; compose no longer ships n8n.
 ### Added
 - AI testing assistant: new `apps/ai-service` (`POST /v1/ai/agent`, gateway `auth: either`,
   never public/undocumented) — a decision model picks the endpoint from the API catalog,

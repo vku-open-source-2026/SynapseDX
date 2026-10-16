@@ -17,9 +17,9 @@ curl localhost:4001/health      # iam
 curl localhost:4002/health      # workflow
 ```
 
-- First pull takes a while (n8n, authentik). For a lighter start:
+- First pull takes a while (authentik). For a lighter start:
   `docker compose up -d --build postgres redis s3 s3-init iam workflow gateway`
-  (n8n still comes up via `workflow`'s `depends_on`; authentik only starts when named).
+  (authentik only starts when named).
 - Host port busy? Change `GATEWAY_HOST_PORT` (or any `*_HOST_PORT`) in `.env` —
   see `docs/troubleshooting.md`.
 - Windows: use `examples/quickstart/demo.ps1` (equivalent of `demo.sh`).
@@ -55,25 +55,24 @@ npx -y @synapsedx/cli@latest --base http://localhost:8080 login --email demo@acm
 - To use Keycloak instead: stand up Keycloak, create a realm + client, set
   `OIDC_ISSUER=https://<keycloak>/realms/<realm>` — no IAM code changes needed.
 
-## 5. n8n
+## 5. Workflows (local engine, no setup)
 
-- Open `http://localhost:5678`, create the owner account, go to Settings → API →
-  create an API key → put it in `N8N_API_KEY` in `.env` → restart `workflow`.
-  (Or run `bash tools/setup-n8n.sh --setup` with `OWNER_PW` set.)
+- No external engine: `workflow-service` runs workflows itself (Postgres-backed).
 - Create a workflow from a template: `POST /v1/workflows {"template":"webhook-to-log","name":"demo"}`.
-- Headless setup script (verified against n8n 1.66):
-  ```bash
-  curl -XPOST localhost:5678/rest/owner/setup -H'Content-Type: application/json' \
-    -d'{"email":"owner@acme.local","firstName":"synapsedx","lastName":"Owner","password":"<STR0NG>"}'
-  # sign in (cookie), then create an API key:
-  curl -c jar -XPOST localhost:5678/rest/login -H'Content-Type: application/json' \
-    -d'{"email":"owner@acme.local","password":"<STR0NG>"}'
-  curl -b jar -XPOST localhost:5678/rest/api-keys -H'Content-Type: application/json' \
-    -d'{"label":"synapsedx"}'   # → data.apiKey
-  ```
-  Note: n8n sets `Secure` cookies, so the cookie flow only works over plain http when
-  `N8N_SECURE_COOKIE=false` (local dev); behind a TLS-terminating proxy keep the default.
-  The API-key flow (`X-N8N-API-KEY`, how `workflow-service` calls n8n) needs no cookies.
+  Templates: `webhook-to-log`, `cron-etl`, `iam-webhook`, `code-transform`,
+  `manual-starter` (manual → code → set — the fastest way to click Execute).
+- Execute it: `POST /v1/workflows/:id/execute {"hello":"world"}` — works for any
+  trigger type, active or not. Activate only gates cron + public `ANY /webhook/:path`.
+- Try the sandboxed transform: template `code-transform` (webhook → code → if → set).
+- In the Console editor: pick a palette group (Triggers / Actions / Logic / Utils),
+  click a node for its form (webhook shows its URL, schedule shows the next run),
+  wire outputs → inputs (`if` asks for the true/false branch and labels the edges),
+  then Test-run with the sample input before Save. Save is blocked with the exact
+  reason while the graph has a cycle, self-loop, dangling node or duplicate name.
+- Secrets: create them under the workflow Credentials picker (account-scoped,
+  encrypted server-side) and reference by id — never paste tokens into headers.
+- Harden inbound webhooks per node (shared secret / HMAC / JWT + rpm limit +
+  idempotency key) before sharing the `/webhook/:path` URL.
 
 ## 6. Object storage (S3)
 

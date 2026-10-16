@@ -2,7 +2,7 @@
 
 | Guide | Content |
 |---|---|
-| [quickstart.md](quickstart.md) | 3 commands to run, first flow, Authentik/n8n/S3 setup |
+| [quickstart.md](quickstart.md) | 3 commands to run, first flow, Authentik/S3/workflow setup |
 | [architecture.md](architecture.md) | Tier-1 PaaS architecture + technical decisions |
 | [iam-model.md](iam-model.md) | Organization/Account/Role/Policy model + tokens + OIDC |
 | [api.md](api.md) | Full API reference via the gateway |

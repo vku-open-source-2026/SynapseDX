@@ -2,7 +2,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # Edge cong khai duy nhat: nginx :80/:443 (synapsedx.sbs, cloud.*, api.* + LE).
 # Moi service khac bind 127.0.0.1 qua .env (debug local), khong public.
-# Authentik/n8n/s3/postgres/redis: chi trong network noi bo.
+# Authentik/s3/postgres/redis: chi trong network noi bo.
 
 services:
   gateway:
@@ -31,11 +31,6 @@ services:
     environment:
       NODE_ENV: production
       HSTS_ENABLED: "true"
-    ports: !reset []
-
-  n8n:
-    environment:
-      NODE_ENV: production
     ports: !reset []
 
   prometheus:

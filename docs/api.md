@@ -92,17 +92,82 @@ configured). Upstreams trust these directly without re-verifying the JWT.
 - `GET /v1/accounts/:accountId/service-accounts` → list
 - `POST /v1/service-accounts/:id/token {scopes?}` → `{accessToken (kind=service-account), expiresIn}`
 
-## Workflows (n8n)
+## Credentials (PROPOSED contract — backend in progress, do not rely on yet)
+
+Account-scoped secrets for workflow nodes. Secrets are encrypted at rest and
+NEVER returned: create/rotate accept a `secret` once; list/get return metadata
+only (`{id, name, type, accountId, expiresAt, version}`). `type` is one of
+`bearer|basic|apiKey|oauth2`.
+
+- `POST /v1/accounts/:accountId/credentials {name, type, secret, expiresAt?}` → metadata (201)
+- `GET /v1/accounts/:accountId/credentials` → `[metadata]`
+- `GET /v1/credentials/:id` → metadata
+- `DELETE /v1/credentials/:id` → `{ok}`
+- `POST /v1/credentials/:id/rotate {secret}` → metadata (bumps `version`)
+
+## Workflows (local built-in engine)
 
 - `GET /v1/templates` / `GET /v1/templates/:name`
-- `GET /v1/workflows` (n8n proxy)
-- `GET /v1/workflows/:id` (n8n proxy)
-- `DELETE /v1/workflows/:id` (n8n proxy)
-- `POST /v1/workflows/:id/activate` / `POST /v1/workflows/:id/deactivate` (n8n proxy)
-- `POST /v1/workflows {name, template} | {name, definition}`
-- `PUT /v1/workflows/:id {name?, definition?}` (SSRF/size-validated, ≤200KB; merged onto current nodes, server-side settings preserved)
-- `POST /v1/workflows/:id/execute {input}` (fires the workflow's webhook trigger — must be active: 409 `workflow_inactive` when off, 400 `no_webhook_trigger` when it has no webhook node)
-- `GET /v1/executions` (only an allowlist of query params is forwarded: `limit, offset, workflowId, status, includeData`; `limit/offset` must be 0..9999 integers, `offset=0` means first page — n8n answers empty for a literal `offset=0`) / `GET /v1/executions/:id` (`?includeData=true` for node I/O)
+- `GET /v1/workflows` (list: `[{id,name,active,nodes,connections,settings,orgId?,accountId?,owner?,runAs?,revision,createdAt,updatedAt}]`;
+  gateway-authenticated callers see their org slice + legacy-global rows; `?orgId=` / `?accountId=` filter exactly)
+- `GET /v1/workflows/:id` (tenant-bound rows 404 outside their org)
+- `DELETE /v1/workflows/:id`
+- `POST /v1/workflows/:id/activate` / `POST /v1/workflows/:id/deactivate`
+  (activate re-validates the stored definition and returns `409 webhook_path_conflict`
+  when another active workflow already serves the same webhook path)
+- `POST /v1/workflows {name, template} | {name, definition, settings?, orgId?, accountId?, runAs?}`
+  (template webhook paths are auto-suffixed `-2, -3, …` so double-creates never collide;
+  explicit org/account must stay inside the caller's own org, else `403 cross_tenant`;
+  every create stamps `owner` from the caller)
+- `PUT /v1/workflows/:id {name?, definition?, settings?, orgId?, accountId?, runAs?}` (structural/SSRF/size/cycle-validated, ≤200KB, ≤50 nodes, every node needs a 1..128 char `name`; every update bumps `revision`)
+- `POST /v1/workflows/:id/execute {input}` (manual run — works for ANY trigger type, active or not; the body IS the input; returns `{ok, output, executionId, status}`; `500 {ok:false, error}` when a node fails; records the caller principal + `actor: "workflow:<id> principal:<sub>"`)
+- `POST /v1/workflows/test-run {definition, input, workflowId?}` (try a definition without saving; validates + executes in the sandbox; persisted as a `triggered_by=test` execution — pass `workflowId` to attach it to that workflow's history; returns `{ok, output, nodeRuns, executionId}`)
+- `GET /v1/executions` (`limit,offset,workflowId,status,triggeredBy,includeData`; `limit/offset` 0..9999, `offset=0` = first page; `triggeredBy` is `manual|webhook|cron|test`; secret-looking keys in payloads are masked to `***`; always returns the envelope `{data: [...]}` — SDKs/Console/CLI unwrap `.data` and also accept a bare array) / `GET /v1/executions/:id` (`?includeData=true` for per-node input/output; also carries `principal` + `actor`)
+- `GET/POST/DELETE /v1/credentials[?accountId=]` (account-scoped secrets, AES-256-GCM at rest via `SYNAPSEDX_CREDENTIAL_KEY`; list/create return metadata only, never secrets; duplicate names per account are `409`)
+- Public inbound webhooks: `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares that `path` (also proxied at the gateway as `/webhook`, auth none — per-workflow auth below still applies):
+  ```bash
+  curl -X POST http://localhost:4002/webhook/transform \
+    -H 'Content-Type: application/json' \
+    -d '{"value":21}'
+  # → {ok, output, executionId}
+  ```
+  Per-workflow hardening from the webhook node's params: `auth` (`none` |
+  `secret-header` | `hmac-sha256` over the raw body | `jwt` HS256 with exp/nbf +
+  optional iss/aud — all referencing a `credentialId`, optional custom `header`),
+  `rateLimit: {rpm}` (default 600, `429` over budget), `idempotency: {header, ttlSeconds}`
+  (`409 duplicate_delivery` on replay). Failures surface as `401 unauthorized`,
+  `409`, `429` and feed `/metrics`.
+- `GET /metrics` (Prometheus: `synapsedx_workflow_runs_total{triggered_by,status}`,
+  `synapsedx_workflow_webhook_rejected_total{reason}`)
+
+Calling SynapseDX from a workflow: the SSRF guard blocks first-party hosts by
+default. Operators who need it set `SYNAPSEDX_SELF_BASE_URLS` (comma-separated
+exact origins, e.g. `"http://gateway:8080,http://iam:4001"`). Calls to those
+origins bypass the block AND forward the run principal as `x-synapsedx-*`
+headers so downstream services can authorize. Redirects are followed manually
+with every hop re-checked (max 5).
+
+Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
+
+| Node | Key `parameters` | Notes |
+| --- | --- | --- |
+| `webhook` | `path` (1..128, `[A-Za-z0-9_./-]`, no `..`), `httpMethod` (`GET\|POST\|PUT\|PATCH\|DELETE\|HEAD`, default `POST`), `auth` (`{mode: none\|secret-header\|hmac-sha256\|jwt, header?, credentialId?}`), `rateLimit: {rpm}` (default 600), `idempotency: {header, ttlSeconds}` | `ANY /webhook/:path` routes to the ACTIVE workflow with that path; activating with a taken path is `409`; auth/rate/idempotency enforced per node config |
+| `cron` | `rule.interval[]` (`{field: seconds\|minutes\|hours\|days, <field>Interval: N}`), or `cronExpression` (`"*/N * * * *"`, `"M H * * *"` wall-clock, `@hourly`, `@daily`), or `intervalMs`, plus optional `timezone` (wall-clock only) | Minimum 10s — faster schedules and other cron formats are rejected at save/activate; the editor shows the next run |
+| `manualTrigger` | — | Run from Console/CLI with any JSON input |
+| `httpRequest` | `url` (public `http(s)` or allowlisted self origin), `method`, `headers` (object), `body`/`jsonBody` (sent only when configured — the input is NOT auto-forwarded), `auth: {credentialId, header?}` (secret resolved server-side), `retry: {attempts 1–5, delayMs}`, `timeoutMs` (1–30s) | Redirects followed manually, max 5 hops, every hop re-checked against the SSRF blocklist; default 15s timeout; ≤200KB body, ≤500KB response |
+| `code` | `code` (JS, ≤50KB, default 5s timeout), `timeoutMs` (1–15s), `retry` | `$input`/`$json`/`input` in scope, `$now` ISO time, `console.*` captured; bare expressions get an implicit `return (…)`; result `_logs` key is yours — console output then lands in `_consoleLogs` |
+| `set` | `values` (object), `assignments` (`[{name, value}]`), legacy `values.assignments`/`fields` | Values support `={{ $json.x }}` / `{{ … }}` / `=expr` templating against the incoming item; merged over the input |
+| `if` | `condition` (JS), or `value1` + `operation` + `value2` (`equals|notEquals|contains|notContains|startsWith|endsWith|larger|largerEqual|smaller|smallerEqual|isEmpty|isNotEmpty`), or n8n `conditions[]` | Output branch 0 = true, 1 = false; an unwired side stops the run there (the editor warns) |
+| `noOp` | — | Passthrough log point |
+
+Any node accepts `disabled: true` (skipped at run time, data flows through —
+a disabled `if` takes its true branch) and `httpRequest`/`code` accept
+`retry`/`timeoutMs`. Workflow `settings.onError: "continue"` absorbs node
+failures into `partialErrors` instead of failing the run. Every workflow
+update bumps `revision`. Export/import via the Console (portable
+`{name, nodes, connections, settings}` JSON) or the raw API payloads.
+
+Execution semantics: non-`if` nodes fan out to every branch; a diamond (`A→B, A→C, B→D, C→D`) runs `D` once per incoming edge with that edge's data. With several terminal nodes the final `output` is keyed by terminal node name (`{Left: …, Right: …}`); with one terminal it is that node's output directly. Per-node `nodeRuns[]` carry `status` (`success|error|skipped`), `input`, `output`, `error`, `durationMs`, `attempts?`.
 
 ## Health / Metrics
 

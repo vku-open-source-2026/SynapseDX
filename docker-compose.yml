@@ -114,35 +114,6 @@ services:
 
   # LUU Y: OIDC_ISSUER la URL NOI BO trong mang docker (authentik-server:9000).
   # Tu browser redirect dung host port AUTHENTIK_HTTP_PORT (mac dinh 19000).
-  n8n:
-    image: n8nio/n8n:1.66.0
-    restart: unless-stopped
-    environment:
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-change_me_n8n_32chars_key_1234567890}
-      N8N_HOST: ${N8N_HOST:-n8n}
-      N8N_PORT: ${N8N_PORT:-5678}
-      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
-      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-}
-      # Local dev qua http: cookie Secure se khong duoc gui -> dat false.
-      # Production sau TLS: dat N8N_SECURE_COOKIE=true.
-      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-synapsedx}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER:-synapsedx}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-synapsedx_password_change_me}
-      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Ho_Chi_Minh}
-      N8N_API_KEY: ${N8N_API_KEY:-}
-    ports:
-      - "${N8N_HOST_PORT:-5678}:5678"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - n8ndata:/home/node/.n8n
-    networks: [synapsedx-net]
-
   iam:
     build:
       context: ./apps/iam-service
@@ -191,11 +162,11 @@ services:
     restart: unless-stopped
     environment:
       PORT: 4002
-      N8N_BASE_URL: ${N8N_BASE_URL:-http://n8n:5678}
-      N8N_API_KEY: ${N8N_API_KEY:-change_me_n8n_api_key}
+      DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
       IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      WORKFLOW_CRON_TICK_MS: ${WORKFLOW_CRON_TICK_MS:-15000}
     ports:
       - "${WORKFLOW_HOST_PORT:-4002}:4002"
     healthcheck:
@@ -205,8 +176,10 @@ services:
       retries: 5
       start_period: 20s
     depends_on:
-      - n8n
-      - iam
+      postgres:
+        condition: service_healthy
+      iam:
+        condition: service_healthy
     networks: [synapsedx-net]
 
   ai:
@@ -332,7 +305,6 @@ volumes:
   pgdata:
   redisdata:
   s3data:
-  n8ndata:
   prometheusdata:
 
 networks:

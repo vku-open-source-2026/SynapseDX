@@ -59,19 +59,28 @@ export const CATALOG: CatalogEndpoint[] = [
   { method: 'GET', path: '/v1/accounts/:accountId/service-accounts', auth: 'either', desc: 'Service accounts' },
   { method: 'POST', path: '/v1/accounts/:accountId/service-accounts', auth: 'either', desc: 'Create a service account', body: { slug: 'etl-worker' } },
   { method: 'POST', path: '/v1/service-accounts/:id/token', auth: 'either', desc: 'Mint a kind=service-account JWT', body: {} },
-  // Workflows (n8n)
+  // Credentials (account-scoped secrets; PROPOSED contract — backend in progress.
+  // Secrets are encrypted at rest and NEVER returned; list/get return metadata
+  // {id, name, type, accountId, expiresAt, version}.)
+  { method: 'POST', path: '/v1/accounts/:accountId/credentials', auth: 'either', desc: 'Store an account credential (secret write-only)', body: { name: 'stripe-live', type: 'bearer', secret: '<secret>' } },
+  { method: 'GET', path: '/v1/accounts/:accountId/credentials', auth: 'either', desc: 'List credential metadata (never secrets)' },
+  { method: 'GET', path: '/v1/credentials/:id', auth: 'either', desc: 'One credential metadata (never the secret)' },
+  { method: 'DELETE', path: '/v1/credentials/:id', auth: 'either', desc: 'Delete a credential' },
+  { method: 'POST', path: '/v1/credentials/:id/rotate', auth: 'either', desc: 'Rotate a credential secret (bumps version)', body: { secret: '<new-secret>' } },
+  // Workflows (local engine)
   { method: 'GET', path: '/v1/templates', auth: 'either', desc: 'Built-in templates' },
   { method: 'GET', path: '/v1/templates/:name', auth: 'either', desc: 'One template in detail' },
-  { method: 'GET', path: '/v1/workflows', auth: 'either', desc: 'Workflows on n8n (proxied)' },
-  { method: 'POST', path: '/v1/workflows', auth: 'either', desc: 'Create from a template', body: { template: 'webhook-to-log', name: 'demo' } },
+  { method: 'GET', path: '/v1/workflows', auth: 'either', desc: 'Workflows (local engine)' },
+  { method: 'POST', path: '/v1/workflows', auth: 'either', desc: 'Create from a template or raw definition', body: { template: 'webhook-to-log', name: 'demo' } },
   { method: 'GET', path: '/v1/workflows/:id', auth: 'either', desc: 'Workflow details' },
-  { method: 'DELETE', path: '/v1/workflows/:id', auth: 'either', desc: 'Delete a workflow on n8n' },
+  { method: 'DELETE', path: '/v1/workflows/:id', auth: 'either', desc: 'Delete a workflow' },
   { method: 'PUT', path: '/v1/workflows/:id', auth: 'either', desc: 'Update name/definition', body: { name: 'demo', definition: { nodes: [], connections: {} } } },
+  { method: 'POST', path: '/v1/workflows/test-run', auth: 'either', desc: 'Try a definition without saving', body: { definition: { nodes: [], connections: {} }, input: {} } },
   { method: 'POST', path: '/v1/workflows/:id/activate', auth: 'either', desc: 'Activate' },
   { method: 'POST', path: '/v1/workflows/:id/deactivate', auth: 'either', desc: 'Deactivate' },
   { method: 'POST', path: '/v1/workflows/:id/execute', auth: 'either', desc: 'Execute manually', body: {} },
-  { method: 'GET', path: '/v1/executions', auth: 'either', desc: 'Execution history' },
-  { method: 'GET', path: '/v1/executions/:id', auth: 'either', desc: 'One execution in detail' },
+  { method: 'GET', path: '/v1/executions', auth: 'either', desc: 'Execution history (?limit&offset&workflowId&status&includeData, returns {data: []})' },
+  { method: 'GET', path: '/v1/executions/:id', auth: 'either', desc: 'One execution in detail (?includeData=true for node I/O)' },
   // Ops
   { method: 'GET', path: '/health', auth: 'none', desc: 'Liveness per service + gateway' },
   { method: 'GET', path: '/ready', auth: 'none', desc: 'Aggregate readiness (503 when degraded)' },

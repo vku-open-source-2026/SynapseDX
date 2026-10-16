@@ -159,8 +159,8 @@ const wf = await c.getWorkflow(id);
 // createWorkflowFromTemplate(template, name?)
 const newWf = await c.createWorkflowFromTemplate('webhook-to-log', 'my-webhook');
 
-// createWorkflow(name, definition) — raw n8n definition
-const custom = await c.createWorkflow('my-wf', n8nDefinition);
+// createWorkflow(name, definition) — raw workflow definition
+const custom = await c.createWorkflow('my-wf', definition);
 
 // activateWorkflow(id) / deactivateWorkflow(id)
 await c.activateWorkflow(id);
@@ -313,7 +313,7 @@ sa_token = result["accessToken"]`;
 const PYTHON_WORKFLOWS = `wfs = c.list_workflows()
 wf = c.get_workflow(id)
 new_wf = c.create_workflow_from_template("webhook-to-log", "my-webhook")
-custom = c.create_workflow("my-wf", n8n_definition)
+custom = c.create_workflow("my-wf", definition)
 
 c.activate_workflow(id)
 c.deactivate_workflow(id)
@@ -452,7 +452,7 @@ saToken := result["accessToken"].(string)`;
 const GO_WORKFLOWS = `wfs, err := c.ListWorkflows()
 wf, err := c.GetWorkflow(id)
 newWf, err := c.CreateWorkflowFromTemplate("webhook-to-log", "my-webhook")
-custom, err := c.CreateWorkflowRaw("my-wf", n8nDefinition)
+custom, err := c.CreateWorkflowRaw("my-wf", definition)
 
 err = c.ActivateWorkflow(id)
 err = c.DeactivateWorkflow(id)

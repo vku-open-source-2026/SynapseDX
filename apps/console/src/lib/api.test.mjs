@@ -114,6 +114,8 @@ describe('console silent refresh', () => {
     await api.executions({ workflowId: 'w1', limit: 5 }, A);
     await api.execution('e1', A);
     await api.executionWithData('e1', A);
+    await api.testRun({ nodes: [], connections: {} }, { value: 21 }, A);
+    await api.executeWorkflow('w1', { value: 21 }, A);
     await api.audit(100, 'u1', A, true);
     await api.agent('hi', [{ role: 'user', text: 'hi' }], A);
     assert.deepEqual(seen, [
@@ -126,8 +128,42 @@ describe('console silent refresh', () => {
       'GET /v1/executions?workflowId=w1&limit=5',
       'GET /v1/executions/e1',
       'GET /v1/executions/e1?includeData=true',
+      'POST /v1/workflows/test-run',
+      'POST /v1/workflows/w1/execute',
       'GET /v1/audit?limit=100&actor=u1&allowed=true',
       'POST /v1/ai/agent',
+    ]);
+  });
+
+  it('testRun posts {definition, input}', async () => {
+    let seenBody = null;
+    let seenUrl = '';
+    globalThis.fetch = async (url, init = {}) => {
+      seenUrl = String(url).replace(/^https?:\/\/[^/]+/, '');
+      seenBody = JSON.parse(init.body);
+      return { status: 200, ok: true, text: async () => '{}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    await api.testRun({ nodes: [], connections: {} }, { value: 21 }, {});
+    assert.equal(seenUrl, '/v1/workflows/test-run');
+    assert.deepEqual(seenBody, { definition: { nodes: [], connections: {} }, input: { value: 21 } });
+  });
+
+  it('credentials methods hit the right paths (P0-4)', async () => {
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      seen.push(`${init.method || 'GET'} ${String(url).replace(/^https?:\/\/[^/]+/, '')}`);
+      return { status: 200, ok: true, text: async () => '{"data":[]}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    const A = {};
+    await api.credentials('acc-1', A);
+    await api.createCredential('acc-1', 'api', 'bearer', 's3cr3t', A);
+    await api.deleteCredential('c1', A);
+    assert.deepEqual(seen, [
+      'GET /v1/credentials?accountId=acc-1',
+      'POST /v1/credentials',
+      'DELETE /v1/credentials/c1',
     ]);
   });
 

@@ -2,25 +2,27 @@
   "name": "@synapsedx/workflow-service",
   "version": "0.3.1",
   "license": "Apache-2.0",
-  "description": "synapsedx Workflow - proxy + template management for n8n",
+  "description": "synapsedx Workflow - local built-in engine (no external dependency)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
-    "test": "node --test dist/**/*.test.js || echo \"no tests\"",
+    "test": "node --test dist/**/*.test.js",
     "lint": "echo lint-ok"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "morgan": "^1.10.0"
+    "morgan": "^1.10.0",
+    "pg": "^8.12.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^4.17.25",
     "@types/morgan": "^1.9.10",
+    "@types/pg": "^8.11.0",
     "@types/node": "^20.19.43",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.0"

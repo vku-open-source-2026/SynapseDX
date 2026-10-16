@@ -149,6 +149,36 @@ function parse(argv) {
     else if (a === '--org') opts.org = argv[++i];
     else if (a === '--label') opts.label = argv[++i];
     else if (a.startsWith('--label=')) opts.label = a.slice(8);
+    else if (a === '--input') opts.input = argv[++i];
+    else if (a.startsWith('--input=')) opts.input = a.slice(8);
+    else if (a === '--data') opts.input = argv[++i];
+    else if (a.startsWith('--data=')) opts.input = a.slice(7);
+    else if (a === '--offset') opts.offset = argv[++i];
+    else if (a.startsWith('--offset=')) opts.offset = a.slice(9);
+    else if (a === '--status') opts.status = argv[++i];
+    else if (a.startsWith('--status=')) opts.status = a.slice(9);
+    else if (a === '--triggered-by') opts.triggeredBy = argv[++i];
+    else if (a.startsWith('--triggered-by=')) opts.triggeredBy = a.slice(15);
+    else if (a === '--workflow') opts.workflow = argv[++i];
+    else if (a.startsWith('--workflow=')) opts.workflow = a.slice(11);
+    else if (a === '--workflowId' || a === '--workflow-id') opts.workflow = argv[++i];
+    else if (a.startsWith('--workflowId=')) opts.workflow = a.slice(13);
+    else if (a.startsWith('--workflow-id=')) opts.workflow = a.slice(14);
+    else if (a === '--include-data' || a === '--includeData') opts.includeData = 'true';
+    else if (a.startsWith('--include-data=')) opts.includeData = a.slice(15);
+    else if (a.startsWith('--includeData=')) opts.includeData = a.slice(14);
+    else if (a === '--path') opts.path = argv[++i];
+    else if (a.startsWith('--path=')) opts.path = a.slice(7);
+    else if (a === '--method') opts.method = argv[++i];
+    else if (a.startsWith('--method=')) opts.method = a.slice(9);
+    else if (a === '--type') opts.credType = argv[++i];
+    else if (a.startsWith('--type=')) opts.credType = a.slice(7);
+    else if (a === '--secret') opts.secret = argv[++i];
+    else if (a.startsWith('--secret=')) opts.secret = a.slice(9);
+    else if (a === '--secret-file') opts.secretFile = argv[++i];
+    else if (a.startsWith('--secret-file=')) opts.secretFile = a.slice(14);
+    else if (a === '--expires-at') opts.expiresAt = argv[++i];
+    else if (a.startsWith('--expires-at=')) opts.expiresAt = a.slice(13);
     else args.push(a);
   }
   return { args, opts };
@@ -388,7 +418,32 @@ async function cmdWorkflows(o) {
   }
   if (sub === 'exec' || sub === 'execute') {
     need(rest[0], 'workflow-id');
-    return out(await POST(`/v1/workflows/${encodeURIComponent(rest[0])}/execute`, {}, o), o);
+    let payload = {};
+    if (o.input) {
+      try { payload = JSON.parse(o.input); }
+      catch { payload = readJson(o.input); }
+    } else if (o.file) {
+      const raw = readJson(o.file);
+      payload = raw && raw.input !== undefined ? raw.input : raw;
+    }
+    return out(await POST(`/v1/workflows/${encodeURIComponent(rest[0])}/execute`, payload, o), o);
+  }
+  if (sub === 'test-run' || sub === 'testrun' || sub === 'try') {
+    // Try a definition without saving: POST /v1/workflows/test-run {definition, input}.
+    // --file def.json (required): a bare {nodes, connections} definition or {definition, input}.
+    // --input input.json|'{"k":v}': extra run input (merged, --input wins on conflict).
+    // --workflow-id ID: attach the run to a saved workflow's history.
+    need(o.file, '--file def.json');
+    const raw = readJson(o.file);
+    const definition = raw && raw.definition ? raw.definition : raw;
+    let input = raw && raw.input !== undefined && !o.input ? raw.input : {};
+    if (o.input) {
+      try { input = JSON.parse(o.input); }
+      catch { input = readJson(o.input); }
+    }
+    const body = { definition, input };
+    if (o.workflow) body.workflowId = String(o.workflow);
+    return out(await POST('/v1/workflows/test-run', body, o), o);
   }
   if (sub === 'update') {
     need(rest[0], 'workflow-id');
@@ -422,11 +477,42 @@ async function cmdTemplates(o) {
 async function cmdExecutions(o) {
   const [sub, ...rest] = o._;
   if (sub && sub !== 'list') {
-    return out(await GET(`/v1/executions/${encodeURIComponent(sub)}`, o), o);
+    const qs = o.includeData ? '?includeData=true' : '';
+    return out(await GET(`/v1/executions/${encodeURIComponent(sub)}${qs}`, o), o);
   }
-  const qs = o.limit ? `?limit=${encodeURIComponent(o.limit)}` : '';
-  const r = await GET(`/v1/executions${qs}`, o);
+  // Allowlist mirrors GET /v1/executions: limit/offset/workflowId/status/triggeredBy/includeData.
+  const qs = new URLSearchParams();
+  if (o.limit) qs.set('limit', String(o.limit));
+  if (o.offset) qs.set('offset', String(o.offset));
+  if (o.workflow) qs.set('workflowId', String(o.workflow));
+  if (o.status) qs.set('status', String(o.status));
+  if (o.triggeredBy) qs.set('triggeredBy', String(o.triggeredBy));
+  if (o.includeData) qs.set('includeData', String(o.includeData));
+  const s = qs.toString();
+  const r = await GET(`/v1/executions${s ? `?${s}` : ''}`, o);
   return out(Array.isArray(r) ? r : r.data || r, o, ['id', 'status', 'workflowId']);
+}
+async function cmdWebhook(o) {
+  // Public inbound webhook: ANY /webhook/:path (no auth) triggers the ACTIVE
+  // workflow whose webhook node declares that path. NOTE: the gateway does not
+  // proxy /webhook/* — point --base at the workflow-service origin
+  // (e.g. http://localhost:4002), not the gateway.
+  const p = o._[0] || o.path;
+  need(p, 'path (arg or --path <p>)');
+  const clean = String(p).replace(/^\/+|\/+$/g, '').split('?')[0];
+  let payload;
+  if (o.input) {
+    try { payload = JSON.parse(o.input); }
+    catch { payload = readJson(o.input); }
+  } else if (o.file) {
+    payload = readJson(o.file);
+  }
+  const method = (o.method || (payload === undefined ? 'GET' : 'POST')).toUpperCase();
+  if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(method)) {
+    throw new Error(`bad --method '${o.method}' (want GET|POST|PUT|PATCH|DELETE|HEAD)`);
+  }
+  const data = await req(method, `/webhook/${clean}`, payload, o);
+  return out(data, o);
 }
 async function cmdConfig() {
   const cfg = loadConfig();
@@ -435,6 +521,70 @@ async function cmdConfig() {
   if (cfg.apiKey) redacted.apiKey = '*** (saved)';
   if (cfg.refreshToken) redacted.refreshToken = '*** (saved)';
   console.log(JSON.stringify(redacted, null, 2));
+}
+function credentialSecret(o) {
+  // Prefer --secret-file / env over --secret (flags leak via ps + shell history).
+  if (o.secretFile) return fs.readFileSync(o.secretFile, 'utf8').trim();
+  if (o.secret) return o.secret;
+  if (process.env.SYNAPSEDX_CREDENTIAL_SECRET) return process.env.SYNAPSEDX_CREDENTIAL_SECRET;
+  throw new Error('missing credential secret (use --secret-file <path>, --secret <S>, or $SYNAPSEDX_CREDENTIAL_SECRET)');
+}
+async function cmdCredentials(o) {
+  // Account-scoped secrets; PROPOSED contract (backend in progress): secrets are
+  // encrypted at rest and NEVER returned — list/get return metadata only
+  // {id, name, type, accountId, expiresAt, version}.
+  const [sub, ...rest] = o._;
+  if (sub === 'create') {
+    need(rest[0], 'account');
+    need(o.name, '--name <name>');
+    const type = o.credType || 'bearer';
+    if (!['bearer', 'basic', 'apiKey', 'oauth2'].includes(type)) {
+      throw new Error(`bad --type '${type}' (want bearer|basic|apiKey|oauth2)`);
+    }
+    const body = { name: o.name, type, secret: credentialSecret(o) };
+    if (o.expiresAt) body.expiresAt = o.expiresAt;
+    return out(await POST(`/v1/accounts/${encodeURIComponent(rest[0])}/credentials`, body, o), o);
+  }
+  if (!sub || sub === 'list') {
+    const account = sub === 'list' ? rest[0] : sub;
+    need(account, 'account');
+    const r = await GET(`/v1/accounts/${encodeURIComponent(account)}/credentials`, o);
+    return out(Array.isArray(r) ? r : r.data || r, o, ['id', 'name', 'type', 'version', 'expiresAt']);
+  }
+  if (sub === 'get') {
+    need(rest[0], 'credential-id');
+    return out(await GET(`/v1/credentials/${encodeURIComponent(rest[0])}`, o), o);
+  }
+  if (sub === 'delete' || sub === 'rm') {
+    need(rest[0], 'credential-id');
+    return out(await DEL(`/v1/credentials/${encodeURIComponent(rest[0])}`, o), o);
+  }
+  if (sub === 'rotate') {
+    need(rest[0], 'credential-id');
+    return out(await POST(`/v1/credentials/${encodeURIComponent(rest[0])}/rotate`, { secret: credentialSecret(o) }, o), o);
+  }
+  throw new Error(`unknown credentials subcommand '${sub}' (want create|list|get|delete|rotate)`);
+}
+async function cmdCall(o) {
+  // Generic escape hatch: call any gateway endpoint directly.
+  // Example: synapsedx call GET /v1/accounts/acc123/credentials
+  const [method, rawPath, ...extra] = o._;
+  need(method, 'METHOD (GET|POST|PUT|PATCH|DELETE|HEAD)');
+  need(rawPath, 'path (e.g. /v1/workflows)');
+  if (extra.length) throw new Error(`unexpected args: ${extra.join(' ')}`);
+  const m = String(method).toUpperCase();
+  if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(m)) {
+    throw new Error(`bad METHOD '${method}' (want GET|POST|PUT|PATCH|DELETE|HEAD)`);
+  }
+  if (!String(rawPath).startsWith('/')) throw new Error(`path must start with '/' (got '${rawPath}')`);
+  let body;
+  if (o.input) {
+    try { body = JSON.parse(o.input); }
+    catch { body = readJson(o.input); }
+  } else if (o.file) {
+    body = readJson(o.file);
+  }
+  return out(await req(m, rawPath, body, o), o);
 }
 
 const COMMANDS = {
@@ -460,8 +610,11 @@ const COMMANDS = {
   audit: { fn: cmdAudit, use: 'audit [--limit N] [--actor ID]', doc: 'Audit log' },
   keys: { fn: cmdKeys, use: 'keys create <account> [--name N] | keys list <account> | keys revoke <key-id> | keys verify <api-key>', doc: 'API keys' },
   sa: { fn: cmdSa, use: 'sa <account> [list] | sa create <account> <slug> | sa token <sa-id>', doc: 'Service accounts' },
-  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows create --file def.json [--name N] | workflows get|activate|deactivate|exec|update|delete [--name N] [--file def.json] <id>', doc: 'Workflows (n8n)' },
-  executions: { fn: cmdExecutions, use: 'executions [list] [--limit N] | executions <id>', doc: 'Workflow executions' },
+  credentials: { fn: cmdCredentials, use: 'credentials create <account> --name N --type bearer|basic|apiKey|oauth2 (--secret S | --secret-file F) [--expires-at ISO] | credentials [list] <account> | credentials get|delete <id> | credentials rotate <id> (--secret S | --secret-file F)', doc: 'Account credentials, secrets write-only (PROPOSED: backend in progress)' },
+  call: { fn: cmdCall, use: 'call <METHOD> <path> [--data \'{...}\'|body.json] [--file body.json]', doc: 'Generic gateway call (escape hatch for new endpoints)' },
+  workflows: { fn: cmdWorkflows, use: 'workflows [list] | workflows create --template T [--name N] | workflows create --file def.json [--name N] | workflows get|activate|deactivate <id> | workflows exec|execute <id> [--data \'{...}\'|input.json] [--file payload.json] | workflows update [--name N] [--file def.json] <id> | workflows delete <id> | workflows test-run --file def.json [--input input.json|\'{...}\'] [--workflow-id ID]', doc: 'Workflows (local engine)' },
+  executions: { fn: cmdExecutions, use: 'executions [list] [--limit N] [--offset N] [--workflow-id ID] [--status success|error|running] [--triggered-by manual|webhook|cron|test] [--include-data] | executions <id> [--include-data]', doc: 'Workflow executions ({data:[]} envelope)' },
+  webhook: { fn: cmdWebhook, use: 'webhook <path> [--data \'{...}\'|payload.json] [--file payload.json] [--method POST] [--base http://localhost:4002]', doc: 'Fire a public inbound webhook (no auth; --base = workflow origin)' },
   templates: { fn: cmdTemplates, use: 'templates [list|<name>]', doc: 'Built-in templates' },
 };
 
@@ -475,7 +628,7 @@ Auth defaults: --base > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));
   for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: synapsedx ${COMMANDS[n].use}`);
-  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list');
+  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002');
 }
 
 async function main() {

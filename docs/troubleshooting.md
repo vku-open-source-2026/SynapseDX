@@ -42,7 +42,6 @@ Dev machines often already run something (e.g. a web server on `:8080`, Postgres
 | `GATEWAY_HOST_PORT` | 8080 | gateway |
 | `IAM_HOST_PORT` | 4001 | iam |
 | `WORKFLOW_HOST_PORT` | 4002 | workflow |
-| `N8N_HOST_PORT` | 5678 | n8n |
 | `AUTHENTIK_HTTP_PORT` / `AUTHENTIK_HTTPS_PORT` | 19000 / 19443 | authentik |
 
 ```bash
@@ -91,12 +90,11 @@ docker compose exec postgres pg_dump -U synapsedx synapsedx > synapsedx-$(date +
 cat synapsedx-2026-10-06.sql | docker compose exec -T postgres psql -U synapsedx -d synapsedx
 ```
 
-## n8n API errors
+## Workflow execute returns 500 `ok:false`
 
-`workflow-service` needs `N8N_API_KEY` (create it in n8n Settings → API after setting up
-the owner account). Without a key, `GET /v1/templates` (built-in) still works — only
-the n8n-proxied calls fail. Headless setup: `bash tools/setup-n8n.sh --setup` with
-`OWNER_PW` set (see `docs/quickstart.md`).
+A node failed — the response `error` names the node (`Code: ...`, `httpRequest: ...`).
+Fetch `GET /v1/executions/:id?includeData=true` for per-node input/output, or use
+`POST /v1/workflows/test-run` to try a definition without saving.
 
 ## 401 `Missing or invalid internal credential` on direct :4001/:4002 calls
 
@@ -112,9 +110,9 @@ services refuse to boot on weak/default secrets — read the startup log.
 
 ## 502 `bad_gateway` / 504 on workflows and executions
 
-Upstream n8n is down or `N8N_BASE_URL` is wrong: instant JSON 502 (plus a
+Upstream workflow-service is down: instant JSON 502 (plus a
 `[gateway] proxy ... failed` log); past `PROXY_TIMEOUT_MS` it becomes 504. Check
-`docker compose ps n8n` and the gateway `/ready`.
+`docker compose ps workflow` and the gateway `/ready`.
 
 ## 400 `invalid_body` / `invalid_slug` / `invalid_document`
 
