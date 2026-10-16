@@ -96,6 +96,12 @@ export interface RunPrincipal {
   kind?: string;
 }
 
+/** Resolves a first-party SynapseDX call (wired by index.ts to IAM + the
+ *  local store; tests inject fakes). Runs as the run principal. */
+export interface SynapseDXCall {
+  (resource: string, operation: string, args: Record<string, any>, principal?: RunPrincipal | null): Promise<any>;
+}
+
 /** Resolves a credentialId to usable secret material (P0-4). Wired by
  *  index.ts to the credentials store; tests inject fakes. */
 export interface CredentialResolver {
@@ -107,6 +113,7 @@ export interface RunOpts {
   timeoutMs?: number;
   principal?: RunPrincipal | null;
   credentialResolver?: CredentialResolver;
+  synapsedxCall?: SynapseDXCall;
 }
 
 /** Audit actor for an execution: workflow:<id> principal:<sub|anonymous> (P0-2). */
@@ -534,6 +541,85 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
   }
 }
 
+/** First-party SynapseDX integrations (visible as the "SynapseDX API" palette
+ *  block). Strict resource→operation allowlist — no arbitrary paths, so a
+ *  workflow can call SynapseDX itself without SSRF exceptions. Runs as the
+ *  run principal (manual/test-run = the caller; webhook/cron = anonymous
+ *  unless a runAs principal is stored — see index.ts). */
+export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
+  orgs: ['list'],
+  users: ['list'],
+  roles: ['list'],
+  policies: ['list'],
+  authorize: ['check'],
+  audit: ['query'],
+  keys: ['list'],
+  'service-accounts': ['list'],
+  workflows: ['list', 'get'],
+  executions: ['list', 'get'],
+  templates: ['list', 'get'],
+};
+
+/** Required args per resource.operation (values may be ={{ }} templates). */
+const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
+  'users.list': ['orgId'],
+  'roles.list': ['accountId'],
+  'policies.list': ['accountId'],
+  'authorize.check': ['userId', 'action', 'resource'],
+  'keys.list': ['accountId'],
+  'service-accounts.list': ['accountId'],
+  'workflows.get': ['id'],
+  'executions.get': ['id'],
+  'templates.get': ['name'],
+};
+
+/** Save-time validation for synapsedx.api node params (values are checked
+ *  at run time since they may be ={{ }} templates). */
+export function validateSynapseDXParams(params: any): string | null {
+  const p = params && typeof params === 'object' ? params : {};
+  const resource = typeof p.resource === 'string' ? p.resource : '';
+  const operation = typeof p.operation === 'string' ? p.operation : '';
+  if (!resource) return "synapsedx.api: 'resource' is required (e.g. orgs, audit, workflows)";
+  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  if (!ops) return `synapsedx.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapsedx-self-check)`;
+  if (!operation) return `synapsedx.api: 'operation' is required for '${resource}' (${ops.join(', ')})`;
+  if (!ops.includes(operation)) return `synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`;
+  return null;
+}
+
+function deepResolve(v: any, input: any, depth = 0): any {
+  if (depth > 5) return v;
+  if (typeof v === 'string') return toValue(v, input);
+  if (Array.isArray(v)) return v.map((x) => deepResolve(x, input, depth + 1));
+  if (v && typeof v === 'object') {
+    const out: Record<string, any> = {};
+    for (const [k, x] of Object.entries(v)) out[k] = deepResolve(x, input, depth + 1);
+    return out;
+  }
+  return v;
+}
+
+async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall }): Promise<any> {
+  const p = node.parameters || {};
+  const paramErr = validateSynapseDXParams(p);
+  if (paramErr) throw new Error(paramErr);
+  const resource = String(p.resource);
+  const operation = String(p.operation);
+  const rawArgs = p.input !== undefined ? p.input : {};
+  const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? deepResolve(rawArgs, input) : {}) as Record<string, any>;
+  const required = SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || [];
+  for (const f of required) {
+    const v = (args as any)[f];
+    if (v === undefined || v === null || String(v).trim() === '') {
+      throw new Error(`synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
+    }
+  }
+  if (!ctx?.synapsedxCall) throw new Error('synapsedx.api: server does not expose a SynapseDX caller (server wiring)');
+  const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
+  if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error('synapsedx.api: response exceeds 500KB');
+  return clone(out);
+}
+
 function getCodeSource(node: EngineNode): string | null {
   const p = node.parameters || {};
   for (const key of ['code', 'jsCode', 'js', 'functionCode', 'script']) {
@@ -636,14 +722,16 @@ export async function runWorkflow(
   const terminalOutputs = new Map<string, any>();
   let failed: string | null = null;
 
-  async function runNodeWithRetry(kind: 'http' | 'code', node: EngineNode, data: any): Promise<{ output: any; attempts: number }> {
+  async function runNodeWithRetry(kind: 'http' | 'code' | 'synapsedx', node: EngineNode, data: any): Promise<{ output: any; attempts: number }> {
     const { attempts, delayMs } = retrySpec(node.parameters);
     let lastErr: any = null;
     for (let a = 1; a <= attempts; a++) {
       try {
         const output = kind === 'http'
           ? await execHttp(node, data, { principal: opts?.principal, credentialResolver: opts?.credentialResolver })
-          : await execCodeSandbox(node, data);
+          : kind === 'synapsedx'
+            ? await execSynapseDX(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
+            : await execCodeSandbox(node, data);
         return { output, attempts: a };
       } catch (e) {
         lastErr = e;
@@ -696,6 +784,12 @@ export async function runWorkflow(
         }
         case 'n8n-nodes-base.code': {
           const r = await runNodeWithRetry('code', node, data);
+          output = r.output;
+          attempts = r.attempts;
+          break;
+        }
+        case 'synapsedx.api': {
+          const r = await runNodeWithRetry('synapsedx', node, data);
           output = r.output;
           attempts = r.attempts;
           break;

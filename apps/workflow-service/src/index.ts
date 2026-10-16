@@ -18,8 +18,8 @@ import {
   createCredentialRec, getCredentialRec, listCredentialRecs, deleteCredentialRec,
   toPublicCredential, decryptSecret,
 } from './store';
-import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor } from './engine';
-import type { CredentialResolver } from './engine';
+import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor } from './engine';
+import type { CredentialResolver, RunPrincipal, SynapseDXCall } from './engine';
 
 /** Server-side credential resolver for node auth (P0-4): nodes reference
  *  credentialIds; secrets are decrypted only here, at run time. */
@@ -33,6 +33,114 @@ const credentialResolver: CredentialResolver = async (credentialId: string) => {
     return null;
   }
 };
+
+/** First-party SynapseDX caller for synapsedx.api nodes: IAM resources go to
+ *  IAM over the service network with the run principal stamped (IAM enforces
+ *  its own canActFor tenant checks on it); workflow-local resources are read
+ *  straight from the store, scoped by canAccessWorkflow. No arbitrary paths —
+ *  only the engine's SYNAPSEDX_API_RESOURCES table can reach here. */
+const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal) => {
+  const cleanId = (v: unknown, field: string, max = 256): string => {
+    const s = String(v ?? '');
+    if (!s || s.length > max || /[\r\n]/.test(s)) throw new Error(`synapsedx.api: '${resource}.${operation}' needs a valid '${field}'`);
+    return s;
+  };
+  const a = args && typeof args === 'object' ? args : {};
+  // Workflow-local resources (no HTTP hop, tenant-scoped by principal).
+  if (resource === 'workflows') {
+    if (operation === 'list') {
+      const all = await listWorkflowRecs();
+      return all.filter((w) => !w.org_id || (!!principal?.org && principal.org === w.org_id)).map(toApiWorkflow);
+    }
+    const w = await getWorkflowRec(cleanId(a.id, 'id', 128));
+    if (!w || (w.org_id && (!principal?.org || principal.org !== w.org_id))) throw new Error('synapsedx.api: workflows.get -> 404 (not found)');
+    return toApiWorkflow(w);
+  }
+  if (resource === 'executions') {
+    if (operation === 'list') {
+      const limit = Math.min(Math.max(Number(a.limit) || 20, 1), 100);
+      const offset = Math.max(Number(a.offset) || 0, 0);
+      const status = typeof a.status === 'string' && ['success', 'error', 'running'].includes(a.status) ? a.status : undefined;
+      const workflowId = typeof a.workflowId === 'string' && a.workflowId ? cleanId(a.workflowId, 'workflowId', 128) : undefined;
+      const { items } = await listExecutionRecs({ workflowId, status, limit, offset });
+      return { data: items.map((e) => toApiExecution(e, false)) };
+    }
+    const e = await getExecutionRec(cleanId(a.id, 'id', 128));
+    if (!e) throw new Error('synapsedx.api: executions.get -> 404 (not found)');
+    return toApiExecution(e, true);
+  }
+  if (resource === 'templates') {
+    if (operation === 'list') return listTemplates();
+    const t = buildTemplate(cleanId(a.name, 'name', 64), cleanId(a.name, 'name', 64));
+    if (!t) throw new Error('synapsedx.api: templates.get -> 404 (template_not_found)');
+    return t;
+  }
+  // IAM resources over the service network as the run principal.
+  const IAM_BASE = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
+  const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const iamFetch = async (method: string, path: string, body?: any): Promise<any> => {
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+      }
+      const r = await fetch(`${IAM_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: IAM timed out after 15000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  };
+  const enc = encodeURIComponent;
+  switch (`${resource}.${operation}`) {
+    case 'orgs.list':
+      return iamFetch('GET', '/v1/orgs');
+    case 'users.list':
+      return iamFetch('GET', `/v1/orgs/${enc(cleanId(a.orgId, 'orgId'))}/users`);
+    case 'roles.list':
+      return iamFetch('GET', `/v1/accounts/${enc(cleanId(a.accountId, 'accountId'))}/roles`);
+    case 'policies.list':
+      return iamFetch('GET', `/v1/accounts/${enc(cleanId(a.accountId, 'accountId'))}/policies`);
+    case 'authorize.check':
+      return iamFetch('POST', '/v1/authorize', {
+        userId: cleanId(a.userId, 'userId'), action: cleanId(a.action, 'action', 512),
+        resource: cleanId(a.resource, 'resource', 2048), ...(a.context !== undefined ? { context: a.context } : {}),
+      });
+    case 'audit.query': {
+      const qs = new URLSearchParams();
+      qs.set('limit', String(Math.min(Math.max(Number(a.limit) || 20, 1), 200)));
+      if (a.actor !== undefined) qs.set('actor', cleanId(a.actor, 'actor'));
+      if (a.allowed !== undefined) qs.set('allowed', String(!!a.allowed));
+      return iamFetch('GET', `/v1/audit?${qs.toString()}`);
+    }
+    case 'keys.list':
+      return iamFetch('GET', `/v1/accounts/${enc(cleanId(a.accountId, 'accountId'))}/keys`);
+    case 'service-accounts.list':
+      return iamFetch('GET', `/v1/accounts/${enc(cleanId(a.accountId, 'accountId'))}/service-accounts`);
+    default:
+      throw new Error(`synapsedx.api: unsupported call '${resource}.${operation}'`);
+  }
+};
+
+
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4002);
@@ -208,6 +316,11 @@ function validateDefinition(definition: any): string | null {
             return `definition.nodes['${nm}'].retry.attempts must be 1..5`;
           }
         }
+      }
+      // First-party SynapseDX block: resource/operation must be known.
+      if ((n as any).type === 'synapsedx.api' && params && typeof params === 'object') {
+        const perr = validateSynapseDXParams(params);
+        if (perr) return `definition.nodes['${nm}']: ${perr}`;
       }
       // M8: reject schedules that would silently never fire.
       if ((n as any).type === 'n8n-nodes-base.cron') {
@@ -551,7 +664,7 @@ export function createApp(): express.Express {
       const r = await runWorkflow(
         { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
         input,
-        { triggeredBy: 'webhook', principal: null, credentialResolver },
+        { triggeredBy: 'webhook', principal: null, credentialResolver, synapsedxCall },
       );
       const finishedAt = new Date().toISOString();
       recordRun('webhook', r.status, r.nodeRuns);
@@ -854,7 +967,7 @@ function tenantBinding(
     const r = await runWorkflow(
       { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
       input,
-      { triggeredBy: 'manual', principal, credentialResolver },
+      { triggeredBy: 'manual', principal, credentialResolver, synapsedxCall },
     );
     const finishedAt = new Date().toISOString();
     recordRun('manual', r.status, r.nodeRuns);
@@ -1099,7 +1212,7 @@ function tenantBinding(
     }
     const principal = principalFromHeaders(req);
     const startedAt = new Date().toISOString();
-    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver });
+    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver, synapsedxCall });
     const finishedAt = new Date().toISOString();
     recordRun('test', r.status, r.nodeRuns);
     const wfId = attach ? attach.id : `test-${randomUUID().slice(0, 8)}`;
@@ -1147,6 +1260,8 @@ export function listTemplates() {
     { name: 'iam-webhook', description: 'Receives IAM events (user.created) -> calls back into the API' },
     { name: 'code-transform', description: 'Webhook -> sandboxed JS transform -> conditional branch -> set fields' },
     { name: 'manual-starter', description: 'Manual trigger -> code transform -> set fields (click Execute to try)' },
+    { name: 'synapsedx-self-check', description: 'Manual -> SynapseDX API (list orgs) -> count -> summary (first-party integration demo)' },
+    { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
   ];
 }
 
@@ -1246,10 +1361,38 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       },
     };
   }
+  if (name === 'synapsedx-self-check') {
+    return {
+      name: wname,
+      nodes: [
+        { id: wid(), name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [200, 300], parameters: {} },
+        { id: wid(), name: 'GetOrgs', type: 'synapsedx.api', typeVersion: 1, position: [400, 300], parameters: { resource: 'orgs', operation: 'list', input: {} } },
+        { id: wid(), name: 'Count', type: 'n8n-nodes-base.code', typeVersion: 1, position: [600, 300], parameters: { code: 'const list = Array.isArray($input) ? $input : []; return { count: list.length, at: $now };' } },
+        { id: wid(), name: 'Summary', type: 'n8n-nodes-base.set', typeVersion: 1, position: [800, 300], parameters: { values: { checked: true } } },
+      ],
+      connections: {
+        Manual: { main: [[{ node: 'GetOrgs', type: 'main', index: 0 }]] },
+        GetOrgs: { main: [[{ node: 'Count', type: 'main', index: 0 }]] },
+        Count: { main: [[{ node: 'Summary', type: 'main', index: 0 }]] },
+      },
+    };
+  }
+  if (name === 'github-push-to-log') {
+    return {
+      name: wname,
+      nodes: [
+        { id: wid(), name: 'GitHubPush', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'github-push', httpMethod: 'POST', auth: { mode: 'hmac-sha256', header: 'x-hub-signature-256' } } },
+        { id: wid(), name: 'Normalize', type: 'n8n-nodes-base.code', typeVersion: 1, position: [400, 300], parameters: { code: 'const p = $input || {}; const commits = Array.isArray(p.commits) ? p.commits : []; return { repo: p.repository?.full_name || null, ref: p.ref || null, pusher: p.pusher?.name || null, count: commits.length, messages: commits.slice(0, 10).map((c) => c.message) };' } },
+        { id: wid(), name: 'Summary', type: 'n8n-nodes-base.set', typeVersion: 1, position: [600, 300], parameters: { values: { source: 'github' } } },
+      ],
+      connections: {
+        GitHubPush: { main: [[{ node: 'Normalize', type: 'main', index: 0 }]] },
+        Normalize: { main: [[{ node: 'Summary', type: 'main', index: 0 }]] },
+      },
+    };
+  }
   return null;
 }
-
-// ---- cron scheduler (in-process, production-safe single-replica default) ----
 const lastCronRun = new Map<string, number>();
 function startCronLoop(): void {
   const everyMs = Math.max(10000, Number(process.env.WORKFLOW_CRON_TICK_MS || 15000));
@@ -1273,7 +1416,7 @@ function startCronLoop(): void {
           const r = await runWorkflow(
             { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
             { scheduledAt: startedAt },
-            { triggeredBy: 'cron', principal: null, credentialResolver },
+            { triggeredBy: 'cron', principal: null, credentialResolver, synapsedxCall },
           );
           const finishedAt = new Date().toISOString();
           recordRun('cron', r.status, r.nodeRuns);

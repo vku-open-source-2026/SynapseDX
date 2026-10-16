@@ -61,7 +61,7 @@ curl -s "$BASE/v1/auth/refresh" -XPOST -H'Content-Type: application/json' -d"{\"
 curl -s -XPOST "$BASE/v1/auth/logout" -H'Content-Type: application/json' -d"{\"refreshToken\":\"$RT2\"}" | grep -q '"ok":true' && ok logout || bad logout ""
 
 # templates (built-in, khong can n8n) + request-id echo
-[ "$(curl -s "$BASE/v1/templates" -H"$H" | jq 'length')" = "3" ] && ok templates || bad templates ""
+[ "$(curl -s "$BASE/v1/templates" -H"$H" | jq 'length')" = "7" ] && ok templates || bad templates ""
 [ -n "$(curl -s -D- -o /dev/null "$BASE/health" | grep -i '^x-request-id:')" ] && ok request-id || bad request-id ""
 
 # negative / hardening checks (phai fail CLOSED)

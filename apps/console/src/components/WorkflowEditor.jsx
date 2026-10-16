@@ -999,6 +999,8 @@ function NodeForm({ node, onPatch, workflowId, headers }) {
       return <SetForm params={p} onPatch={onPatch} />;
     case 'n8n-nodes-base.if':
       return <IfForm params={p} onPatch={onPatch} />;
+    case 'synapsedx.api':
+      return <SynapseDXApiForm params={p} onPatch={onPatch} />;
     case 'n8n-nodes-base.webhook':
       return <WebhookForm params={p} onPatch={onPatch} headers={headers} />;
     case 'n8n-nodes-base.cron':
@@ -1274,6 +1276,59 @@ function SetForm({ params, onPatch }) {
   );
 }
 
+const SYNAPSEDX_API = {
+  orgs: { ops: ['list'], fields: { list: [] }, hint: 'All organizations you can see' },
+  users: { ops: ['list'], fields: { list: ['orgId'] }, hint: 'Users in an org (orgId required)' },
+  roles: { ops: ['list'], fields: { list: ['accountId'] }, hint: 'Roles in an account' },
+  policies: { ops: ['list'], fields: { list: ['accountId'] }, hint: 'Policies in an account' },
+  authorize: { ops: ['check'], fields: { check: ['userId', 'action', 'resource'] }, hint: 'Ask: may this user do this action?' },
+  audit: { ops: ['query'], fields: { query: ['limit'] }, hint: 'Recent authorize decisions (limit 1..200)' },
+  keys: { ops: ['list'], fields: { list: ['accountId'] }, hint: 'API key metadata (never secrets)' },
+  'service-accounts': { ops: ['list'], fields: { list: ['accountId'] }, hint: 'Machine identities in an account' },
+  workflows: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Workflows you can access' },
+  executions: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Run history (list accepts workflowId/status/limit)' },
+  templates: { ops: ['list', 'get'], fields: { list: [], get: ['name'] }, hint: 'Built-in starters' },
+};
+
+function SynapseDXApiForm({ params, onPatch }) {
+  const res = typeof params.resource === 'string' && SYNAPSEDX_API[params.resource] ? params.resource : '';
+  const ops = res ? SYNAPSEDX_API[res].ops : [];
+  const op = typeof params.operation === 'string' && ops.includes(params.operation) ? params.operation : '';
+  const input = params.input && typeof params.input === 'object' && !Array.isArray(params.input) ? params.input : {};
+  const fields = res && op ? (SYNAPSEDX_API[res].fields[op] || []) : [];
+  const setField = (k, v) => onPatch({ input: { ...input, [k]: v } });
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Resource</label>
+        <select value={res} onChange={(e) => onPatch({ resource: e.target.value || undefined, operation: undefined, input: {} })} className={rowInputCls()}>
+          <option value="">Pick a resource…</option>
+          {Object.keys(SYNAPSEDX_API).map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </div>
+      {res && (
+        <div>
+          <label className="block text-xs text-normal-text mb-1">Operation</label>
+          <select value={op} onChange={(e) => onPatch({ operation: e.target.value || undefined, input: {} })} className={rowInputCls()}>
+            <option value="">Pick an operation…</option>
+            {ops.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <p className="text-[11px] text-normal-text mt-1">{SYNAPSEDX_API[res].hint} Runs as <b>you</b> (your login).</p>
+        </div>
+      )}
+      {fields.map((f) => (
+        <div key={f}>
+          <label className="block text-xs text-normal-text mb-1">{f} (required)</label>
+          <input value={input[f] !== undefined && input[f] !== null ? String(input[f]) : ''} onChange={(e) => setField(f, e.target.value)} placeholder={f === 'limit' ? '20' : `={{ $json.${f} }}`} className={`${rowInputCls()} font-mono`} />
+        </div>
+      ))}
+      {res && op && (
+        <p className="text-[11px] text-normal-text">Extra input keys go in Advanced JSON (<code className="font-mono">input</code> object, values support ={'{{'} $json.x {'}}'}).</p>
+      )}
+    </div>
+  );
+}
+
 const IF_OPS = ['equals', 'notEquals', 'contains', 'notContains', 'startsWith', 'endsWith', 'larger', 'largerEqual', 'smaller', 'smallerEqual', 'isEmpty', 'isNotEmpty'];
 
 function IfForm({ params, onPatch }) {
@@ -1345,6 +1400,15 @@ function WebhookForm({ params, onPatch, headers }) {
       )}
       <div className="rounded-xl border border-slate-100 p-2 space-y-1">
         <p className="text-[11px] font-medium text-normal-text">INBOUND AUTH (P0-5)</p>
+        <div className="flex flex-wrap gap-1">
+          <button
+            onClick={() => onPatch({ httpMethod: 'POST', auth: { ...auth, mode: 'hmac-sha256', header: 'x-hub-signature-256' } })}
+            title="Fill auth for a GitHub webhook (X-Hub-Signature-256 verified)"
+            className="px-2 py-1 rounded-xl text-[11px] bg-slate-100 text-main-text hover:text-main-blue"
+          >
+            GitHub push preset
+          </button>
+        </div>
         <select value={mode} onChange={(e) => setAuth('mode', e.target.value === 'none' ? undefined : e.target.value)} className={rowInputCls()} title="How callers prove themselves">
           <option value="none">none (public URL)</option>
           <option value="secret-header">secret-header (shared secret)</option>
@@ -1354,6 +1418,12 @@ function WebhookForm({ params, onPatch, headers }) {
         {mode !== 'none' && (
           <>
             <CredentialPicker headers={headers} value={auth.credentialId} onChange={(id) => setAuth('credentialId', id)} allowKinds={mode === 'hmac-sha256' ? ['hmac'] : ['bearer', 'api-key', 'hmac']} />
+            {mode === 'hmac-sha256' && auth.header === 'x-hub-signature-256' && (
+              <p className="text-[11px] text-normal-text break-words">
+                GitHub: Payload URL <code className="font-mono">/webhook/{path || '…'}</code>, Content-Type <code className="font-mono">application/json</code>,
+                Secret = the hmac credential above. Events: push, issues, pull_request.
+              </p>
+            )}
             <label className="block text-[11px] text-normal-text">Header name
               <input
                 value={auth.header || ''} onChange={(e) => setAuth('header', e.target.value)}

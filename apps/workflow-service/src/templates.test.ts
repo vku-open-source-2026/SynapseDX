@@ -469,6 +469,45 @@ describe('validation: names, webhooks, cron, conflicts (m5/M7/M8)', () => {
     const pb = b.nodes.find((n: any) => n.type === 'n8n-nodes-base.webhook')?.parameters?.path;
     assert.ok(pa && pb && pa !== pb);
   });
+  it('synapsedx-self-check template builds, validates and saves (first-party demo)', async () => {
+    const names: string[] = listTemplates().map((t) => t.name);
+    assert.ok(names.includes('synapsedx-self-check'));
+    const def: any = buildTemplate('synapsedx-self-check', 'self');
+    assert.ok(def.nodes.some((n: any) => n.type === 'synapsedx.api'));
+    assert.equal(validateDefinition({ nodes: def.nodes, connections: def.connections }), null);
+    const bad = validateDefinition({ nodes: [{ name: 'S', type: 'synapsedx.api', parameters: { resource: 'nope', operation: 'list' } }] });
+    assert.match(bad || '', /unknown resource/);
+    const c = await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'synapsedx-self-check', name: 'self-run' }) });
+    assert.equal(c.status, 201);
+  });
+  it('github-push-to-log template builds, verifies GitHub-style HMAC and normalizes', async () => {
+    const names: string[] = listTemplates().map((t) => t.name);
+    assert.ok(names.includes('github-push-to-log'));
+    const def: any = buildTemplate('github-push-to-log', 'gh');
+    const hook = def.nodes.find((n: any) => n.type === 'n8n-nodes-base.webhook');
+    assert.equal(hook.parameters.auth.mode, 'hmac-sha256');
+    assert.equal(hook.parameters.auth.header, 'x-hub-signature-256');
+    // Template ships without a credential (user adds their GitHub secret):
+    // create works (templates trusted), activate must demand the credential.
+    const c = await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'github-push-to-log', name: 'gh-run' }) });
+    assert.equal(c.status, 201);
+    const wf: any = await c.json();
+    // Normalize logic runs standalone via test-run with a push sample.
+    const push = { ref: 'refs/heads/main', repository: { full_name: 'acme/demo' }, pusher: { name: 'dev' }, commits: [{ message: 'fix: x' }] };
+    const t = await fetch(`${base}/v1/workflows/test-run`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({
+        definition: { nodes: def.nodes.filter((n: any) => n.name !== 'GitHubPush'), connections: { Normalize: def.connections.Normalize } },
+        input: push,
+      }),
+    });
+    assert.equal(t.status, 200);
+    const out: any = await t.json();
+    assert.equal(out.output.repo, 'acme/demo');
+    assert.equal(out.output.count, 1);
+    assert.equal(out.output.source, 'github');
+    void wf;
+  });
   it('manual-starter template builds and runs (m12)', async () => {
     const names: string[] = listTemplates().map((t) => t.name);
     assert.ok(names.includes('manual-starter'));
@@ -605,6 +644,29 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     const good = await fetch(`${base}/webhook/hmac-hook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-signature': sig }, body });
     assert.equal(good.status, 200);
     const bad = await fetch(`${base}/webhook/hmac-hook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-signature': 'deadbeef' }, body });
+    assert.equal(bad.status, 401);
+  });
+
+  it('webhook accepts GitHub-style X-Hub-Signature-256 (sha256= prefix)', async () => {
+    const crypto = require('crypto');
+    const cred: any = await (await fetch(`${base}/v1/credentials`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ accountId: 'acc-gh', name: 'gh-secret', kind: 'hmac', secret: 'github-secret' }),
+    })).json();
+    const def = {
+      nodes: [
+        { name: 'W', type: 'n8n-nodes-base.webhook', parameters: { path: 'gh-push-test', httpMethod: 'POST', auth: { mode: 'hmac-sha256', header: 'x-hub-signature-256', credentialId: cred.id } } },
+        { name: 'L', type: 'n8n-nodes-base.noOp', parameters: {} },
+      ],
+      connections: { W: { main: [[{ node: 'L' }]] } },
+    };
+    const c: any = await (await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ name: 'gh-wf', definition: def }) })).json();
+    await fetch(`${base}/v1/workflows/${c.id}/activate`, { method: 'POST', headers: H, body: '{}' });
+    const body = JSON.stringify({ ref: 'refs/heads/main', commits: [] });
+    const sig = 'sha256=' + crypto.createHmac('sha256', 'github-secret').update(Buffer.from(body)).digest('hex');
+    const good = await fetch(`${base}/webhook/gh-push-test`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': sig }, body });
+    assert.equal(good.status, 200);
+    const bad = await fetch(`${base}/webhook/gh-push-test`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-hub-signature-256': 'sha256=deadbeef' }, body });
     assert.equal(bad.status, 401);
   });
 

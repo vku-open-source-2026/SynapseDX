@@ -320,6 +320,7 @@ export const NODE_TYPES = [
   { type: 'n8n-nodes-base.code', label: 'Code', hint: 'Run sandboxed JavaScript — $input in, return value out', category: 'actions', placeholder: 'return { doubled: ($input.value ?? 0) * 2 }' },
   { type: 'n8n-nodes-base.set', label: 'Set', hint: 'Add/overwrite fields — supports {{ $json.x }} templating', category: 'actions', placeholder: 'Set tag = processed, keep the rest' },
   { type: 'n8n-nodes-base.if', label: 'If', hint: 'Branch on a condition — output 0 = true, output 1 = false', category: 'logic', placeholder: '$input.value > 10 → Big / Small' },
+  { type: 'synapsedx.api', label: 'SynapseDX API', hint: 'Call SynapseDX itself — orgs, users, audit, workflows… (runs as you)', category: 'integrations', placeholder: 'orgs.list → passes the org list downstream' },
   { type: 'n8n-nodes-base.noOp', label: 'NoOp', hint: 'Do nothing — passes input through (useful log point)', category: 'utils', placeholder: 'Passthrough for debugging' },
 ];
 
@@ -327,6 +328,7 @@ export const NODE_TYPES = [
 export const NODE_CATEGORIES = [
   { id: 'triggers', label: 'Triggers', blurb: 'How a run starts (pick one)' },
   { id: 'actions', label: 'Actions', blurb: 'Do work: fetch, transform, set fields' },
+  { id: 'integrations', label: 'Integrations', blurb: 'First-party services (run as you)' },
   { id: 'logic', label: 'Logic', blurb: 'Branch the flow' },
   { id: 'utils', label: 'Utils', blurb: 'Helpers' },
 ];
@@ -345,6 +347,7 @@ const TYPE_VERSIONS = {
   'n8n-nodes-base.code': 1,
   'n8n-nodes-base.set': 1,
   'n8n-nodes-base.if': 1,
+  'synapsedx.api': 1,
   'n8n-nodes-base.noOp': 1,
 };
 
@@ -358,6 +361,7 @@ export const EXAMPLE_PARAMS = {
   'n8n-nodes-base.httpRequest': { url: 'https://api.example.com/health', method: 'GET' },
   'n8n-nodes-base.code': { code: 'return { ...$input, doubled: ($input.value ?? 0) * 2, at: $now };' },
   'n8n-nodes-base.if': { condition: '$input.value > 10' },
+  'synapsedx.api': { resource: 'orgs', operation: 'list', input: {} },
   'n8n-nodes-base.set': { values: { tag: 'processed' } },
   'n8n-nodes-base.noOp': {},
 };
@@ -370,9 +374,20 @@ export const SAMPLE_INPUTS = {
   default: { value: 21 },
 };
 
+/** Minimal GitHub push payload (ref/repository/pusher/commits). */
+export const GITHUB_PUSH_SAMPLE = {
+  ref: 'refs/heads/main',
+  repository: { full_name: 'acme/demo' },
+  pusher: { name: 'dev' },
+  commits: [{ id: 'abc123', message: 'fix: typo' }, { id: 'def456', message: 'feat: api' }],
+};
+
 export function sampleInputFor(nodes) {
   const list = Array.isArray(nodes) ? nodes : [];
   const trig = list.find((n) => n && typeof n.type === 'string' && /webhook|cron|manualTrigger/.test(n.type));
+  if (trig?.type === 'n8n-nodes-base.webhook' && String(trig.parameters?.path || '').includes('github')) {
+    return { ...GITHUB_PUSH_SAMPLE };
+  }
   const t = trig?.type || '';
   if (SAMPLE_INPUTS[t]) return { ...SAMPLE_INPUTS[t] };
   return { ...SAMPLE_INPUTS.default };

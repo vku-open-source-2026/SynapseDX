@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt } from './engine';
+import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams } from './engine';
 
 const N = (name: string, type: string, parameters: any = {}) => ({ name, type, parameters });
 
@@ -338,5 +338,45 @@ describe('engine: disabled, retry, onError, credentials, principal (P0/P2)', () 
     const { actorFor } = await import('./engine');
     assert.equal(actorFor('w1', { sub: 'u9' }), 'workflow:w1 principal:u9');
     assert.equal(actorFor('w1', null), 'workflow:w1 principal:anonymous');
+  });
+});
+
+describe('engine: synapsedx.api first-party block', () => {
+  const apiNode = (parameters: any) => ({ name: 'S', type: 'synapsedx.api', parameters });
+  const defOf = (parameters: any) => ({
+    nodes: [{ name: 'Start', type: 'n8n-nodes-base.manualTrigger', parameters: {} }, apiNode(parameters)],
+    connections: { Start: { main: [[{ node: 'S' }]] } } as any,
+  });
+  it('calls the wired caller with templated args', async () => {
+    let seen: any = null;
+    const r = await runWorkflow(defOf({ resource: 'users', operation: 'list', input: { orgId: '={{ $json.org }}' } }), { org: 'acme' }, {
+      synapsedxCall: async (resource, operation, args, principal) => {
+        seen = { resource, operation, args, principal };
+        return [{ email: 'a@x' }];
+      },
+      principal: { sub: 'u1' },
+    });
+    assert.equal(r.status, 'success');
+    assert.deepEqual(seen, { resource: 'users', operation: 'list', args: { orgId: 'acme' }, principal: { sub: 'u1' } });
+    assert.deepEqual(r.output, [{ email: 'a@x' }]);
+  });
+  it('rejects unknown resource/operation and missing required args', async () => {
+    assert.match(validateSynapseDXParams({ resource: 'nope', operation: 'list' }) || '', /unknown resource/);
+    assert.match(validateSynapseDXParams({ resource: 'orgs', operation: 'delete' }) || '', /unknown operation/);
+    assert.match(validateSynapseDXParams({}) || '', /'resource' is required/);
+    const noCall = runWorkflow(defOf({ resource: 'orgs', operation: 'list', input: {} }), {});
+    assert.match((await noCall).error || '', /does not expose a SynapseDX caller/);
+    const missing = await runWorkflow(defOf({ resource: 'users', operation: 'list', input: {} }), {}, {
+      synapsedxCall: async () => { throw new Error('must not be called'); },
+    });
+    assert.equal(missing.status, 'error');
+    assert.match(missing.error || '', /needs 'orgId'/);
+  });
+  it('caps oversized responses', async () => {
+    const r = await runWorkflow(defOf({ resource: 'orgs', operation: 'list', input: {} }), {}, {
+      synapsedxCall: async () => ({ s: 'x'.repeat(600 * 1024) }),
+    });
+    assert.equal(r.status, 'error');
+    assert.match(r.error || '', /exceeds 500KB/);
   });
 });

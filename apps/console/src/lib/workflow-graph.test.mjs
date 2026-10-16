@@ -255,3 +255,14 @@ describe('if branch slots (B1)', () => {
     assert.equal(nextWallClockRun({ cronExpression: '*/5 * * * *' }, from), null);
   });
 });
+
+describe('github sample input', () => {
+  it('suggests a push payload for github webhook paths', async () => {
+    const { sampleInputFor } = await import('./workflow-graph.js');
+    const s = sampleInputFor([{ name: 'W', type: 'n8n-nodes-base.webhook', parameters: { path: 'github-push' } }]);
+    assert.equal(s.repository.full_name, 'acme/demo');
+    assert.ok(Array.isArray(s.commits));
+    const plain = sampleInputFor([{ name: 'W', type: 'n8n-nodes-base.webhook', parameters: { path: 'my-hook' } }]);
+    assert.equal(plain.hello, 'world');
+  });
+});

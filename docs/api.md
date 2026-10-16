@@ -137,6 +137,15 @@ only (`{id, name, type, accountId, expiresAt, version}`). `type` is one of
   `rateLimit: {rpm}` (default 600, `429` over budget), `idempotency: {header, ttlSeconds}`
   (`409 duplicate_delivery` on replay). Failures surface as `401 unauthorized`,
   `409`, `429` and feed `/metrics`.
+- GitHub push in 3 clicks: template `github-push-to-log`, or set a webhook node's
+  auth to `hmac-sha256` + header `x-hub-signature-256` (the editor has a
+  "GitHub push preset" button) and store the repo's webhook secret as an `hmac`
+  credential. GitHub: Payload URL `https://<host>/webhook/<path>`, Content-Type
+  `application/json`, Secret = the same secret; `X-Hub-Signature-256`
+  (`sha256=`-prefixed hex over the raw body) is verified, events `push`,
+  `issues`, `pull_request` all land as the run input. Replying back (comment,
+  dispatch) is a plain `httpRequest` to `https://api.github.com/...` with a PAT
+  stored as a `bearer` credential (never in the URL).
 - `GET /metrics` (Prometheus: `synapsedx_workflow_runs_total{triggered_by,status}`,
   `synapsedx_workflow_webhook_rejected_total{reason}`)
 
@@ -147,7 +156,7 @@ origins bypass the block AND forward the run principal as `x-synapsedx-*`
 headers so downstream services can authorize. Redirects are followed manually
 with every hop re-checked (max 5).
 
-Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
+Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). `synapsedx.api` (first-party SynapseDX block: `parameters.resource/operation/input` — resources `orgs/users/roles/policies/authorize/audit/keys/service-accounts/workflows/executions/templates`; runs as your login, values support `={{ $json.x }}`). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
 
 | Node | Key `parameters` | Notes |
 | --- | --- | --- |
