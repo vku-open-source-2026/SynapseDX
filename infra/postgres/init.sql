@@ -126,10 +126,16 @@ CREATE TABLE IF NOT EXISTS synapsedx_workflows (
   connections JSONB NOT NULL DEFAULT '{}',
   settings JSONB NOT NULL DEFAULT '{}',
   active BOOLEAN NOT NULL DEFAULT FALSE,
+  org_id TEXT,
+  account_id TEXT,
+  owner_sub TEXT,
+  run_as TEXT,
+  revision INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_synapsedx_workflows_active ON synapsedx_workflows(active);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_workflows_tenant ON synapsedx_workflows(org_id, account_id);
 
 CREATE TABLE IF NOT EXISTS synapsedx_executions (
   id TEXT PRIMARY KEY,
@@ -141,6 +147,8 @@ CREATE TABLE IF NOT EXISTS synapsedx_executions (
   node_runs JSONB NOT NULL DEFAULT '[]',
   error TEXT,
   triggered_by TEXT NOT NULL DEFAULT 'manual',
+  principal JSONB,
+  actor TEXT,
   started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   finished_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

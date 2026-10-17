@@ -81,6 +81,9 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+// NOTE: no index on tenant columns here — on a pre-existing table (init.sql)
+// they may not exist yet; idx_synapsedx_workflows_tenant is created in
+// MIGRATE_SQL after the ADD COLUMN statements below.
 const CREATE_WORKFLOWS_SQL = `
 CREATE TABLE IF NOT EXISTS synapsedx_workflows (
   id TEXT PRIMARY KEY,
@@ -98,7 +101,6 @@ CREATE TABLE IF NOT EXISTS synapsedx_workflows (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_synapsedx_workflows_active ON synapsedx_workflows(active);
-CREATE INDEX IF NOT EXISTS idx_synapsedx_workflows_tenant ON synapsedx_workflows(org_id, account_id);
 `;
 
 const CREATE_EXECUTIONS_SQL = `
