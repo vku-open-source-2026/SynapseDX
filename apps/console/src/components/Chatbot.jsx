@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faComments, faPaperPlane, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { api } from '../lib/api.js';
-import { Badge, Code, Err } from './ui.jsx';
+import { Badge, Code, Dots, Err, Spinner } from './ui.jsx';
 
 const METHOD_TONE = { GET: 'blue', POST: 'green', PUT: 'amber', DELETE: 'red' };
 
@@ -156,7 +156,11 @@ export default function Chatbot({ auth, headers, onOpenInDocs }) {
                   </span>
                 </div>
               ))}
-              {aiBusy && <p className="text-xs text-normal-text">Thinking…</p>}
+              {aiBusy && (
+                <p className="text-xs text-normal-text inline-flex items-center gap-2">
+                  Thinking <Dots />
+                </p>
+              )}
               {!auth && (
                 <p className="text-xs text-amber-500">
                   <Link to="/login" className="text-main-blue">Sign in</Link> to use the assistant.
@@ -192,8 +196,9 @@ export default function Chatbot({ auth, headers, onOpenInDocs }) {
                     <button
                       onClick={tryCall}
                       disabled={sBusy}
-                      className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
+                      className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5"
                     >
+                      {sBusy && <Spinner size="xs" className="sdx-spinner-on-dark" />}
                       {sBusy ? 'Calling…' : 'Try it'}
                     </button>
                     <button

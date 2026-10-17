@@ -627,7 +627,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
             <button onClick={() => switchTab('visual')} className={`px-3 py-1.5 rounded-2xl text-xs font-medium ${tab === 'visual' ? 'bg-main-blue/10 text-main-blue' : 'bg-slate-100 text-main-text'}`}>Visual</button>
             <button onClick={() => switchTab('json')} className={`px-3 py-1.5 rounded-2xl text-xs font-medium ${tab === 'json' ? 'bg-main-blue/10 text-main-blue' : 'bg-slate-100 text-main-text'}`}>JSON</button>
             <span title={saveTitle}>
-              <Btn onClick={save} disabled={busy || !dirty || !!saveBlocked}>{busy ? 'Saving…' : 'Save'}</Btn>
+              <Btn onClick={save} loading={busy} disabled={!dirty || !!saveBlocked}>Save</Btn>
             </span>
             <button onClick={close} title="Close" className="text-normal-text hover:text-main-blue text-lg leading-none px-1">
               <FontAwesomeIcon icon={faXmark} />
@@ -921,8 +921,9 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                 onClick={doTestRun}
                 disabled={testBusy || !testInputOk}
                 title={!testInputOk ? 'Fix the JSON input first' : graphErr ? `Fix graph first: ${graphErr}` : 'Run the current canvas without saving'}
-                className="px-3 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
+                className="px-3 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5"
               >
+                {testBusy && <span className="sdx-spinner h-3.5 w-3.5 border-2 sdx-spinner-on-dark" />}
                 {testBusy ? 'Running…' : 'Test run'}
               </button>
               {testOut && (
@@ -1120,7 +1121,8 @@ function CredentialPicker({ headers, value, onChange, allowKinds }) {
             {kinds.map((k) => <option key={k} value={k}>{k}{k === 'basic' ? ' ({username,password} JSON)' : ''}</option>)}
           </select>
           <input value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={kind === 'basic' ? '{"username":"u","password":"p"}' : 'secret value'} type="password" autoComplete="new-password" aria-label="Credential secret" className={`${rowInputCls()} font-mono`} />
-          <button onClick={create} disabled={busy || !nm.trim() || !secret || !accountId} title={!accountId ? 'Enter the account id first' : 'Save encrypted server-side'} className="px-2 py-1 rounded-xl text-[11px] bg-main-blue/10 text-main-blue disabled:opacity-50">
+          <button onClick={create} disabled={busy || !nm.trim() || !secret || !accountId} title={!accountId ? 'Enter the account id first' : 'Save encrypted server-side'} className="px-2 py-1 rounded-xl text-[11px] bg-main-blue/10 text-main-blue disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5">
+            {busy && <span className="sdx-spinner h-3 w-3 border-2" />}
             {busy ? 'Saving…' : 'Save credential'}
           </button>
         </div>

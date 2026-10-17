@@ -30,7 +30,14 @@ class Echo(BaseHTTPRequestHandler):
             or self.path.startswith("/v1/executions")
             or self.path in ("/v1/templates", "/v1/workflows", "/v1/audit")
             or self.path.endswith(
-                ("/accounts", "/users", "/roles", "/policies", "/credentials", "/service-accounts")
+                (
+                    "/accounts",
+                    "/users",
+                    "/roles",
+                    "/policies",
+                    "/credentials",
+                    "/service-accounts",
+                )
             )
         )
         payload = b"[]" if is_list else json.dumps({"ok": True}).encode()

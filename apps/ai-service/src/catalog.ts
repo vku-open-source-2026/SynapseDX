@@ -67,6 +67,9 @@ export const CATALOG: CatalogEndpoint[] = [
   { method: 'GET', path: '/v1/credentials/:id', auth: 'either', desc: 'One credential metadata (never the secret)' },
   { method: 'DELETE', path: '/v1/credentials/:id', auth: 'either', desc: 'Delete a credential' },
   { method: 'POST', path: '/v1/credentials/:id/rotate', auth: 'either', desc: 'Rotate a credential secret (bumps version)', body: { secret: '<new-secret>' } },
+  // Engine credentials API (workflow-service, account-scoped via ?accountId=).
+  { method: 'GET', path: '/v1/credentials', auth: 'either', desc: 'Credential metadata (?accountId, never secrets)' },
+  { method: 'POST', path: '/v1/credentials', auth: 'either', desc: 'Store a credential (encrypted at rest)', body: { accountId: '<aid>', name: 'api', kind: 'bearer', secret: '<secret>' } },
   // Workflows (local engine)
   { method: 'GET', path: '/v1/templates', auth: 'either', desc: 'Built-in templates' },
   { method: 'GET', path: '/v1/templates/:name', auth: 'either', desc: 'One template in detail' },

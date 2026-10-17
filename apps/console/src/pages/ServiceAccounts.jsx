@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Spinner, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 export default function ServiceAccounts() {
@@ -18,6 +18,7 @@ export default function ServiceAccounts() {
   const [busy, setBusy] = useState(false);
   const [slug, setSlug] = useState('');
   const [token, setToken] = useState(null);
+  const [minting, setMinting] = useState(null);
 
   const load = async () => {
     if (!scope.accountId) {
@@ -58,10 +59,14 @@ export default function ServiceAccounts() {
   };
 
   const issue = async (id) => {
+    if (minting) return;
+    setMinting(id);
     try {
       setToken(await api.saToken(id, headers));
     } catch (e) {
       setErr(e);
+    } finally {
+      setMinting(null);
     }
   };
 
@@ -72,7 +77,7 @@ export default function ServiceAccounts() {
       <ScopeBar scope={scope} />
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={4} cols={3} />
         ) : rows.length ? (
           <Table head={['Slug', 'ID', '']}>
             {rows.map((s) => (
@@ -80,7 +85,10 @@ export default function ServiceAccounts() {
                 <td className="py-2 pr-4 font-medium text-main-text">{s.slug}</td>
                 <td className="py-2 pr-4 text-xs text-normal-text font-mono">{s.id?.slice(0, 8)}…</td>
                 <td className="py-2 text-right">
-                  <button onClick={() => issue(s.id)} className="text-xs text-main-blue">Mint token</button>
+                  <button onClick={() => issue(s.id)} disabled={minting === s.id} className="text-xs text-main-blue disabled:opacity-50 inline-flex items-center gap-1.5">
+                    {minting === s.id && <Spinner size="xs" />}
+                    {minting === s.id ? 'Minting…' : 'Mint token'}
+                  </button>
                 </td>
               </tr>
             ))}
@@ -95,7 +103,7 @@ export default function ServiceAccounts() {
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-worker" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

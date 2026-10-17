@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Btn, Card, Empty, Err, Field, InlineLoader, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 export default function Roles() {
@@ -187,7 +187,7 @@ export default function Roles() {
       )}
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={5} cols={3} />
         ) : rows.length ? (
           <Table head={['Slug', 'ID', 'Policies', '']}>
             {rows.map((r) => (
@@ -208,7 +208,7 @@ export default function Roles() {
                   <tr>
                     <td colSpan={4} className="pb-3">
                       {attached === null ? (
-                        <p className="text-xs text-normal-text">Loading…</p>
+                        <InlineLoader />
                       ) : attached.length ? (
                         <ul className="space-y-1">
                           {attached.map((p) => (
@@ -243,7 +243,7 @@ export default function Roles() {
             <Field label="Slug">
               <Input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="etl-runner" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

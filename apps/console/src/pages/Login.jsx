@@ -98,8 +98,8 @@ export default function Login() {
               />
             </Field>
           )}
-          <Btn type="submit" disabled={busy} className="w-full">
-            <span className="block w-full text-center">{busy ? 'Signing in…' : 'Sign in'}</span>
+          <Btn type="submit" loading={busy} className="w-full">
+            <span className="block w-full text-center">Sign in</span>
           </Btn>
         </form>
         <div className="flex items-center gap-3 my-4">
@@ -111,8 +111,9 @@ export default function Login() {
           type="button"
           onClick={submitSso}
           disabled={busy}
-          className="w-full py-2.5 rounded-2xl text-sm font-medium bg-background text-main-text disabled:opacity-50"
+          className="w-full py-2.5 rounded-2xl text-sm font-medium bg-background text-main-text disabled:opacity-60 disabled:cursor-wait inline-flex items-center justify-center gap-2"
         >
+          {busy && <span className="sdx-spinner h-4 w-4 border-2" />}
           {busy ? 'Redirecting…' : 'Continue with SSO'}
         </button>
         <p className="text-xs text-normal-text mt-4 text-center">

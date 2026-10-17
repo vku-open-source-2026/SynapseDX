@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 const SAMPLE = JSON.stringify(
@@ -94,7 +94,7 @@ export default function Policies() {
       <ScopeBar scope={scope} />
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={5} cols={3} />
         ) : rows.length ? (
           <Table head={['Slug', 'Statements', '', '']}>
             {rows.map((p) => (
@@ -123,7 +123,7 @@ export default function Policies() {
             <Field label="JSON document">
               <textarea value={doc} onChange={(e) => setDoc(e.target.value)} rows={12} className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

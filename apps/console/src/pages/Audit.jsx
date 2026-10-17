@@ -5,18 +5,20 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Card, Empty, Err, Input, PageTitle, Table } from '../components/ui.jsx';
+import { Badge, Btn, Card, Empty, Err, Input, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 
 export default function Audit() {
   const { headers } = useAuth();
   const [rows, setRows] = useState([]);
   const [err, setErr] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [filtering, setFiltering] = useState(false);
   const [actor, setActor] = useState('');
   const [decision, setDecision] = useState('');
 
   const load = async () => {
     setErr(null);
+    if (loaded) setFiltering(true);
     try {
       const v = await api.audit(100, actor || undefined, headers, decision === '' ? undefined : decision === 'allow');
       setRows(Array.isArray(v) ? v : []);
@@ -24,6 +26,7 @@ export default function Audit() {
       setErr(e);
     } finally {
       setLoaded(true);
+      setFiltering(false);
     }
   };
 
@@ -47,13 +50,13 @@ export default function Audit() {
           <option value="allow">Allow only</option>
           <option value="deny">Deny only</option>
         </select>
-        <button onClick={load} className="px-4 py-2 rounded-2xl bg-slate-100 text-sm text-main-text">
-          Filter
-        </button>
+        <Btn onClick={load} kind="secondary" loading={filtering}>Filter</Btn>
       </div>
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={6} cols={5} />
+        ) : filtering ? (
+          <TableSkeleton rows={6} cols={5} />
         ) : rows.length ? (
           <Table head={['Time', 'Actor', 'Action', 'Resource', 'Decision']}>
             {rows.map((a) => (

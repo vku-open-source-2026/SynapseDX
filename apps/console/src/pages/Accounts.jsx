@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 export default function Accounts() {
@@ -65,7 +65,7 @@ export default function Accounts() {
       <ScopeBar scope={scope} showAccount={false} />
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={4} cols={3} />
         ) : rows.length ? (
           <Table head={['Slug', 'Display name', 'ID']}>
             {rows.map((a) => (
@@ -89,7 +89,7 @@ export default function Accounts() {
             <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Production" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

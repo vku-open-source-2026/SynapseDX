@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { api, baseUrl } from '../lib/api.js';
 import { GROUPS } from '../lib/endpoints.js';
-import { Badge, Card, Code, Err, PageTitle } from '../components/ui.jsx';
+import { Badge, Card, Code, Err, PageTitle, Spinner } from '../components/ui.jsx';
 import Chatbot from '../components/Chatbot.jsx';
 
 const METHOD_TONE = { GET: 'blue', POST: 'green', PUT: 'amber', DELETE: 'red' };
@@ -181,8 +181,9 @@ export default function ApiDocs() {
                         <button
                           onClick={() => run(e)}
                           disabled={busy}
-                          className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50"
+                          className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5"
                         >
+                          {busy && <Spinner size="xs" className="sdx-spinner-on-dark" />}
                           {busy ? 'Calling…' : 'Try it'}
                         </button>
                         <button

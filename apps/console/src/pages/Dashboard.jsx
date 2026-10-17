@@ -14,7 +14,6 @@ import {
   faCircleXmark,
   faClockRotateLeft,
   faListCheck,
-  faRotate,
   faUsers,
 } from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../lib/auth.jsx';
@@ -186,9 +185,8 @@ export default function Dashboard() {
         title="Dashboard"
         sub="Tier-1 PaaS cluster status"
         right={
-          <Btn onClick={load} kind="secondary" disabled={busy}>
-            <FontAwesomeIcon icon={faRotate} spin={busy} className="mr-2" />
-            {busy ? 'Reloading…' : 'Reload'}
+          <Btn onClick={load} kind="secondary" loading={busy}>
+            Reload
           </Btn>
         }
       />

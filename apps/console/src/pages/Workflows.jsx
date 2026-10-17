@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Badge, Btn, Card, Code, Empty, Err, Field, Input, ListSkeleton, Modal, PageTitle, Spinner, Table, TableSkeleton } from '../components/ui.jsx';
 import WorkflowEditor from '../components/WorkflowEditor.jsx';
 import { uid, webhookPathOf, describeCron } from '../lib/workflow-graph.js';
 
@@ -400,7 +400,7 @@ export default function Workflows() {
         <Card>
           <h3 className="font-semibold text-main-text mb-2">Built-in templates ({templates.length})</h3>
           {!tplLoaded ? (
-            <Empty text="Loading…" />
+            <TableSkeleton rows={3} cols={2} />
           ) : templates.length ? (
             <Table head={['Name', 'Description']}>
               {templates.map((t) => (
@@ -417,7 +417,7 @@ export default function Workflows() {
         <Card>
           <h3 className="font-semibold text-main-text mb-2">Workflows</h3>
           {flows === null ? (
-            <Empty text="Loading…" />
+            <ListSkeleton rows={4} />
           ) : list.length ? (
             <Table head={['Name', 'Active']}>
               {list.map((w) => (
@@ -467,16 +467,17 @@ export default function Workflows() {
             )}
           </div>
           <Err e={detailErr} />
-          {!detail && !detailErr && <Empty text="Loading…" />}
+          {!detail && !detailErr && <ListSkeleton rows={5} />}
           {detail && (
             <>
               <div className="flex flex-wrap gap-2 mb-3">
                 <button
                   onClick={toggleActive}
                   disabled={actionBusy}
-                  className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5"
                 >
-                  {actionBusy ? '…' : detail.active ? 'Deactivate' : 'Activate'}
+                  {actionBusy && <Spinner size="xs" />}
+                  {actionBusy ? 'Working…' : detail.active ? 'Deactivate' : 'Activate'}
                 </button>
                 <button
                   onClick={openVisualEditor}
@@ -519,8 +520,9 @@ export default function Workflows() {
               <button
                 onClick={execute}
                 disabled={actionBusy}
-                className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-50 mb-1"
+                className="px-4 py-1.5 rounded-2xl text-xs font-medium text-white bg-gradient-to-b from-main-start to-main-end disabled:opacity-60 disabled:cursor-wait mb-1 inline-flex items-center gap-1.5"
               >
+                {actionBusy && <Spinner size="xs" className="sdx-spinner-on-dark" />}
                 {actionBusy ? 'Running…' : 'Execute'}
               </button>
               <p className="text-[11px] text-normal-text mb-3">Execute runs the DAG now with this input — any trigger type, active or not. Activate only gates cron + public webhooks.</p>
@@ -557,7 +559,8 @@ export default function Workflows() {
                   ))}
                 </Table>
                 {execMore && (
-                  <button onClick={loadMoreExecs} disabled={execBusy} className="mt-2 px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-50">
+                  <button onClick={loadMoreExecs} disabled={execBusy} className="mt-2 px-4 py-1.5 rounded-2xl text-xs font-medium bg-slate-100 text-main-text hover:text-main-blue disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5">
+                    {execBusy && <Spinner size="xs" />}
                     {execBusy ? 'Loading…' : 'Load more'}
                   </button>
                 )}
@@ -641,7 +644,7 @@ export default function Workflows() {
             <Field label="Workflow name">
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Btn type="submit" disabled={createBusy}>{createBusy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={createBusy}>Create</Btn>
           </form>
         </Modal>
       )}
@@ -697,7 +700,8 @@ function WebhookPing({ path, method, onDone }) {
     }
   };
   return (
-    <button onClick={ping} disabled={busy} title="Fire a {} ping at this webhook path (needs /webhook/* routed to workflow-service)" className="px-2 py-0.5 rounded-xl bg-main-blue/10 text-main-blue font-medium disabled:opacity-50">
+    <button onClick={ping} disabled={busy} title="Fire a {} ping at this webhook path (needs /webhook/* routed to workflow-service)" className="px-2 py-0.5 rounded-xl bg-main-blue/10 text-main-blue font-medium disabled:opacity-60 disabled:cursor-wait inline-flex items-center gap-1.5">
+      {busy && <Spinner size="xs" />}
       {busy ? 'Pinging…' : 'Send test ping'}
     </button>
   );

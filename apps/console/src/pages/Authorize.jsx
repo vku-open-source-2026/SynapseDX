@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Btn, Card, Code, Err, Field, Input, PageTitle } from '../components/ui.jsx';
+import { Badge, Btn, Card, Code, Err, Field, Input, ListSkeleton, PageTitle } from '../components/ui.jsx';
 
 export default function Authorize() {
   const { headers } = useAuth();
@@ -25,8 +25,11 @@ export default function Authorize() {
   );
   const [out, setOut] = useState(null);
   const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(null);
 
   const run = async (dry) => {
+    if (busy) return;
+    setBusy(dry ? 'dry' : 'live');
     setErr(null);
     setOut(null);
     try {
@@ -51,6 +54,8 @@ export default function Authorize() {
       }
     } catch (e) {
       setErr(e);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -70,7 +75,7 @@ export default function Authorize() {
             <textarea value={context} onChange={(e) => setContext(e.target.value)} rows={4} className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue" />
           </Field>
           <div className="flex gap-2">
-            <Btn onClick={() => run(true)}>Dry-run simulator</Btn>
+            <Btn onClick={() => run(true)} loading={busy === 'dry'} disabled={busy !== null}>Dry-run simulator</Btn>
           </div>
         </Card>
         <Card>
@@ -80,11 +85,16 @@ export default function Authorize() {
           <Field label="User ID (for live authorize)">
             <Input value={userId} onChange={(e) => setUserId(e.target.value)} placeholder="user uuid" />
           </Field>
-          <Btn kind="ghost" onClick={() => run(false)}>
+          <Btn kind="ghost" onClick={() => run(false)} loading={busy === 'live'} disabled={busy !== null}>
             Live authorize
           </Btn>
         </Card>
       </div>
+      {busy && (
+        <Card className="mt-4">
+          <ListSkeleton rows={3} />
+        </Card>
+      )}
       {out && (
         <Card className="mt-4">
           <div className="flex items-center gap-2 mb-2">

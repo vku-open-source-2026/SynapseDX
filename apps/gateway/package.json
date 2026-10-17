@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "ts-node src/index.ts",
     "start": "node dist/index.js",
-    "test": "node --test dist/**/*.test.js || echo \"no tests\"",
+    "test": "node --test dist/",
     "lint": "echo lint-ok"
   },
   "dependencies": {

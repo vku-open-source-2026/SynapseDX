@@ -18,3 +18,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </React.StrictMode>,
 );
+
+// Fade out the boot splash (index.html) once React has mounted.
+requestAnimationFrame(() => {
+  const el = document.getElementById('boot-splash');
+  if (!el) return;
+  el.classList.add('done');
+  setTimeout(() => el.remove(), 300);
+});

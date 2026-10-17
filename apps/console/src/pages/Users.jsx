@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Badge, Btn, Card, Empty, Err, Field, InlineLoader, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 export default function Users() {
@@ -117,7 +117,7 @@ export default function Users() {
       )}
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={5} cols={4} />
         ) : rows.length ? (
           <Table head={['Email', 'Name', 'OIDC sub', 'Roles']}>
             {rows.map((u) => (
@@ -137,7 +137,7 @@ export default function Users() {
             <Field label="Display name (optional)">
               <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Alice" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}
@@ -198,7 +198,7 @@ function Row({ u, headers, onUnassign, tick }) {
         <tr>
           <td colSpan={4} className="pb-3">
             {assigned === null ? (
-              <p className="text-xs text-normal-text">Loading…</p>
+              <InlineLoader />
             ) : assigned.length ? (
               <ul className="space-y-1">
                 {assigned.map((r) => (

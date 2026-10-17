@@ -3,6 +3,10 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
+import { Spinner, TableSkeleton as TableSkeletonBase, ListSkeleton, InlineLoader } from './loading.jsx';
+
+export { Spinner, InlineLoader, ListSkeleton, TableSkeletonBase as TableSkeleton };
+export { PageSkeleton, LoadingOverlay, RouteProgress, ScrollToTop, Dots } from './loading.jsx';
 
 export function Card({ className = '', children }) {
   return <div className={`bg-white rounded-3xl shadow-md p-6 ${className}`}>{children}</div>;
@@ -20,21 +24,24 @@ export function PageTitle({ title, sub, right }) {
   );
 }
 
-export function Btn({ children, onClick, kind = 'primary', type = 'button', disabled }) {
+export function Btn({ children, onClick, kind = 'primary', type = 'button', disabled, loading = false, className = '' }) {
   const styles =
     kind === 'primary'
       ? 'bg-gradient-to-b from-main-start to-main-end text-white'
       : kind === 'danger'
         ? 'bg-red-500 text-white'
         : 'bg-slate-100 text-main-text';
+  const isDisabled = disabled || loading;
   return (
     <button
       type={type}
-      disabled={disabled}
+      disabled={isDisabled}
+      aria-busy={loading || undefined}
       onClick={onClick}
-      className={`px-4 py-2 rounded-2xl text-sm font-medium shadow-sm disabled:opacity-50 whitespace-nowrap ${styles}`}
+      className={`px-4 py-2 rounded-2xl text-sm font-medium shadow-sm disabled:opacity-60 disabled:cursor-wait whitespace-nowrap inline-flex items-center justify-center gap-2 transition-opacity ${styles} ${className}`}
     >
-      {children}
+      {loading && <Spinner size="sm" className="sdx-spinner-on-dark" label="Loading" />}
+      <span className={loading ? 'opacity-90' : ''}>{children}</span>
     </button>
   );
 }
@@ -101,7 +108,7 @@ export function Empty({ text = 'No data yet', action }) {
 }
 
 export function Skeleton({ className = '' }) {
-  return <div aria-hidden="true" className={`animate-pulse bg-slate-100 rounded-2xl ${className}`} />;
+  return <div aria-hidden="true" className={`sdx-skeleton rounded-2xl ${className}`} />;
 }
 
 export function StatValue({ loading, value }) {

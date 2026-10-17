@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
-import { Err } from '../components/ui.jsx';
+import { Err, Spinner } from '../components/ui.jsx';
 
 export default function OidcCallback() {
   const [params] = useSearchParams();
@@ -40,6 +40,7 @@ export default function OidcCallback() {
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl shadow-md p-8 w-full max-w-md text-center">
+        {!err && <Spinner size="lg" className="mx-auto mb-4" label="Signing you in" />}
         <h1 className="text-2xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
           Signing you in…
         </h1>

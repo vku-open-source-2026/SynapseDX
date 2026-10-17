@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Badge, Btn, Card, Code, Empty, Err, Field, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 import { ScopeBar, useScope } from '../components/Scope.jsx';
 
 export default function Keys() {
@@ -18,6 +18,7 @@ export default function Keys() {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState('console');
   const [created, setCreated] = useState(null);
+  const [revoking, setRevoking] = useState(null);
   const loadSeq = useRef(0);
 
   const load = async () => {
@@ -64,13 +65,17 @@ export default function Keys() {
   };
 
   const revoke = async (id) => {
+    if (revoking) return;
     if (!window.confirm('Revoke this key? Calls using it will start failing.')) return;
+    setRevoking(id);
     try {
       await api.revokeKey(id, headers);
       setCreated(null);
       load();
     } catch (e) {
       setErr(e);
+    } finally {
+      setRevoking(null);
     }
   };
 
@@ -89,7 +94,7 @@ export default function Keys() {
           Only id/prefix metadata is listed — secret values are shown once at creation.
         </p>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={4} cols={4} />
         ) : !scope.accountId ? (
           <Empty text="Pick an account first" />
         ) : rows.length ? (
@@ -106,7 +111,10 @@ export default function Keys() {
                 </td>
                 <td className="py-2 text-right">
                   {!k.revoked_at && (
-                    <button onClick={() => revoke(k.id)} className="text-xs text-red-500">Revoke</button>
+                    <button onClick={() => revoke(k.id)} disabled={revoking === k.id} className="text-xs text-red-500 disabled:opacity-50 inline-flex items-center gap-1.5">
+                      {revoking === k.id && <span className="sdx-spinner h-3.5 w-3.5 border-2" />}
+                      {revoking === k.id ? 'Revoking…' : 'Revoke'}
+                    </button>
                   )}
                 </td>
               </tr>
@@ -127,7 +135,7 @@ export default function Keys() {
             <Field label="Key name">
               <Input value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

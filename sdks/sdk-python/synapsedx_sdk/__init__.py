@@ -18,8 +18,8 @@ class SynapseDXError(Exception):
 __all__ = [
     "SynapseDXClient",
     "SynapseDXError",
-    "unwrap_executions",
     "trigger_webhook",
+    "unwrap_executions",
 ]
 
 
@@ -85,7 +85,7 @@ class SynapseDXClient:
             return None
         try:
             return r.json()
-        except Exception:
+        except ValueError:
             return r.text  # non-JSON body (parity with JS SDK text fallback)
 
     # ---- auth ----
@@ -117,7 +117,9 @@ class SynapseDXClient:
         return self._req("GET", f"/v1/auth/oidc/start?org={quote(org, safe='')}")
 
     def oidc_callback(self, code: str, state: str) -> dict:
-        return self._req("POST", "/v1/auth/oidc/callback", {"code": code, "state": state})
+        return self._req(
+            "POST", "/v1/auth/oidc/callback", {"code": code, "state": state}
+        )
 
     # ---- orgs ----
     def list_orgs(self) -> list:
@@ -417,7 +419,14 @@ class SynapseDXClient:
         """
         q = ""
         if isinstance(query, dict):
-            allowed = ("limit", "offset", "workflowId", "status", "triggeredBy", "includeData")
+            allowed = (
+                "limit",
+                "offset",
+                "workflowId",
+                "status",
+                "triggeredBy",
+                "includeData",
+            )
             params = {k: query[k] for k in allowed if query.get(k) not in (None, "")}
             qs = urlencode(params)
             q = f"?{qs}" if qs else ""
@@ -431,7 +440,10 @@ class SynapseDXClient:
         return self._req("GET", f"/v1/executions/{quote(exec_id, safe='')}{qs}")
 
     def test_run(
-        self, definition: dict, input: dict | None = None, workflow_id: str | None = None
+        self,
+        definition: dict,
+        input: dict | None = None,
+        workflow_id: str | None = None,
     ) -> Any:
         """Try a definition without saving (POST /v1/workflows/test-run).
 
@@ -484,5 +496,5 @@ def trigger_webhook(
         return None
     try:
         return r.json()
-    except Exception:
+    except ValueError:
         return r.text

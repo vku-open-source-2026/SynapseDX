@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
-import { Badge, Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table } from '../components/ui.jsx';
+import { Badge, Btn, Card, Empty, Err, Field, Input, Modal, PageTitle, Table, TableSkeleton } from '../components/ui.jsx';
 
 export default function Orgs() {
   const { headers } = useAuth();
@@ -47,7 +47,7 @@ export default function Orgs() {
       <Err e={err} />
       <Card>
         {!loaded ? (
-          <Empty text="Loading…" />
+          <TableSkeleton rows={4} cols={3} />
         ) : orgs.length ? (
           <Table head={['Slug', 'Display name', 'ID']}>
             {orgs.map((o) => (
@@ -74,7 +74,7 @@ export default function Orgs() {
             <Field label="Display name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="ACME Corp" />
             </Field>
-            <Btn type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create'}</Btn>
+            <Btn type="submit" loading={busy}>Create</Btn>
           </form>
         </Modal>
       )}

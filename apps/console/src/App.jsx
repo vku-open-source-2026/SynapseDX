@@ -2,7 +2,7 @@
  * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './lib/auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -10,22 +10,26 @@ import Topbar from './components/Topbar.jsx';
 import PublicHeader from './components/PublicHeader.jsx';
 import ErrorBoundary from './components/ErrorBoundary.jsx';
 import { ScopeProvider } from './components/Scope.jsx';
+import { PageSkeleton, RouteProgress, ScrollToTop } from './components/loading.jsx';
 import Login from './pages/Login.jsx';
 import OidcCallback from './pages/OidcCallback.jsx';
-import Dashboard from './pages/Dashboard.jsx';
-import Orgs from './pages/Orgs.jsx';
-import Accounts from './pages/Accounts.jsx';
-import Users from './pages/Users.jsx';
-import Roles from './pages/Roles.jsx';
-import Policies from './pages/Policies.jsx';
-import Keys from './pages/Keys.jsx';
-import ServiceAccounts from './pages/ServiceAccounts.jsx';
-import Workflows from './pages/Workflows.jsx';
-import Authorize from './pages/Authorize.jsx';
-import Audit from './pages/Audit.jsx';
 import Landing from './pages/Landing.jsx';
-import ApiDocs from './pages/ApiDocs.jsx';
-import Docs from './pages/Docs.jsx';
+
+// Lazy-load heavy console pages so the first paint stays fast and every
+// route change shows a skeleton instead of a blank flash.
+const Dashboard = React.lazy(() => import('./pages/Dashboard.jsx'));
+const Orgs = React.lazy(() => import('./pages/Orgs.jsx'));
+const Accounts = React.lazy(() => import('./pages/Accounts.jsx'));
+const Users = React.lazy(() => import('./pages/Users.jsx'));
+const Roles = React.lazy(() => import('./pages/Roles.jsx'));
+const Policies = React.lazy(() => import('./pages/Policies.jsx'));
+const Keys = React.lazy(() => import('./pages/Keys.jsx'));
+const ServiceAccounts = React.lazy(() => import('./pages/ServiceAccounts.jsx'));
+const Workflows = React.lazy(() => import('./pages/Workflows.jsx'));
+const Authorize = React.lazy(() => import('./pages/Authorize.jsx'));
+const Audit = React.lazy(() => import('./pages/Audit.jsx'));
+const ApiDocs = React.lazy(() => import('./pages/ApiDocs.jsx'));
+const Docs = React.lazy(() => import('./pages/Docs.jsx'));
 
 import { appLoginUrl, isCanonicalAppHost } from './lib/site.js';
 
@@ -48,7 +52,7 @@ function PublicLayout({ children }) {
   return (
     <div className="min-h-screen">
       <PublicHeader />
-      <main className="mx-auto max-w-6xl px-4 pt-24 pb-12">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 pt-24 pb-12 sdx-page-enter">{children}</main>
     </div>
   );
 }
@@ -60,7 +64,7 @@ function ConsoleLayout({ children }) {
       <ScopeProvider>
         <Sidebar />
         <Topbar />
-        <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-20 pb-12 max-w-6xl">{children}</main>
+        <main className="lg:ml-[22%] px-4 lg:px-8 pt-20 lg:pt-20 pb-12 max-w-6xl sdx-page-enter">{children}</main>
       </ScopeProvider>
     </div>
   );
@@ -82,6 +86,9 @@ function ResettingBoundary({ children }) {
 export default function App() {
   return (
     <ResettingBoundary>
+    <ScrollToTop />
+    <RouteProgress />
+    <Suspense fallback={<LazyFallback />}>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/welcome" element={<Navigate to="/" replace />} />
@@ -102,6 +109,17 @@ export default function App() {
       <Route path="/audit" element={<Guard><ConsoleLayout><Audit /></ConsoleLayout></Guard>} />
       <Route path="*" element={<Landing />} />
     </Routes>
+    </Suspense>
     </ResettingBoundary>
+  );
+}
+
+function LazyFallback() {
+  return (
+    <div className="min-h-screen">
+      <div className="mx-auto max-w-6xl px-4 pt-24 pb-12">
+        <PageSkeleton />
+      </div>
+    </div>
   );
 }
