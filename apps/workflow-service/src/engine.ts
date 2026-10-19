@@ -5,21 +5,134 @@
  * Apache-2.0, dependency-free (Node vm + fetch only).
  */
 import vm from 'vm';
+import fs from 'fs';
+import { spawn } from 'child_process';
+import path from 'path';
+import os from 'os';
+import { isIP } from 'net';
+import { promises as dns } from 'dns';
 
-const BLOCKED_IP_RES = [/^169\.254\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./, /^127\./, /^0\.0\.0\.0$/, /^\[?::1\]?$/, /^fe80:/i];
+// ---------- SSRF guard (P0-1) ----------
+// Hostnames are never enough: the host string is normalized (IPv4-mapped
+// IPv6, decimal/hex IPv4 through URL parsing) AND every resolved address for
+// a DNS name is checked (rebinding), at run time and on every redirect hop.
 const BLOCKED_EXACT_HOSTS = new Set([
   'localhost', 'metadata.google.internal',
   'iam', 'gateway', 'workflow', 'postgres', 'redis', 'n8n', 's3', 'authentik', 'minio',
 ]);
 const BLOCKED_SUFFIXES = ['.localhost', '.local', '.internal', '.svc', '.cluster.local', '.invalid'];
-function isBlockedHost(host: string): boolean {
-  const h = host.toLowerCase();
+
+/** Strip URL brackets, lowercase and drop the trailing root dot. */
+function stripHost(host: string): string {
+  let h = String(host || '').trim().toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  return h.replace(/\.$/, '');
+}
+
+function ipv4Parts(ip: string): number[] | null {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
+  if (!m) return null;
+  const parts = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
+  return parts.every((n) => n >= 0 && n <= 255) ? parts : null;
+}
+
+/** RFC1918 + loopback + link-local (incl. cloud metadata) + CGNAT + reserved. */
+function isPrivateIPv4Parts(p: number[]): boolean {
+  const [a, b, c] = p;
+  if (a === 0 || a === 127 || a === 10) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
+  if (a === 192 && b === 88 && c === 99) return true;
+  if (a >= 224) return true; // multicast, reserved, broadcast
+  return false;
+}
+
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ipv4Parts(ip);
+  return !parts || isPrivateIPv4Parts(parts);
+}
+
+/** Expand the trailing dotted-quad of `::ffff:127.0.0.1` into hextets. */
+function expandDottedIPv6(ip: string): string | null {
+  const idx = ip.lastIndexOf(':');
+  if (idx < 0) return null;
+  const head = ip.slice(0, idx);
+  const parts = ipv4Parts(ip.slice(idx + 1));
+  if (!parts) return null;
+  const h1 = (((parts[0] << 8) | parts[1]) >>> 0).toString(16);
+  const h2 = (((parts[2] << 8) | parts[3]) >>> 0).toString(16);
+  return `${head}:${h1}:${h2}`;
+}
+
+function ipv6Hextets(ip: string): number[] | null {
+  const parts = ip.split('::');
+  if (parts.length > 2) return null;
+  const side = (s: string): string[] | null => {
+    if (!s) return [];
+    const chunks = s.split(':');
+    if (chunks.some((ch) => !/^[0-9a-f]{1,4}$/i.test(ch))) return null;
+    return chunks;
+  };
+  const head = side(parts[0]);
+  const tail = parts.length === 2 ? side(parts[1]) : [];
+  if (!head || !tail) return null;
+  const missing = 8 - head.length - tail.length;
+  if (parts.length === 2) {
+    if (missing < 1) return null;
+  } else if (head.length !== 8) {
+    return null;
+  }
+  const all = [...head, ...new Array(Math.max(missing, 0)).fill('0'), ...tail];
+  if (all.length !== 8) return null;
+  return all.map((h) => parseInt(h, 16));
+}
+
+function isPrivateIPv6(raw: string): boolean {
+  const ip = String(raw || '').toLowerCase();
+  const normalized = ip.includes('.') ? expandDottedIPv6(ip) : ip;
+  if (!normalized) return true;
+  const h = ipv6Hextets(normalized);
+  if (!h) return true; // unparseable IPv6 literal → block (fail closed)
+  const [h0, h1, h2, h3, h4, h5, h6, h7] = h;
+  if (h.every((x) => x === 0)) return true; // ::
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0 && h6 === 0 && h7 === 1) return true; // ::1
+  if ((h0 & 0xfe00) === 0xfc00) return true; // fc00::/7 unique local
+  if ((h0 & 0xffc0) === 0xfe80) return true; // fe80::/10 link local
+  if ((h0 & 0xff00) === 0xff00) return true; // ff00::/8 multicast
+  if (h0 === 0x2001 && h1 === 0x0db8) return true; // 2001:db8::/32 documentation
+  if (h0 === 0x2002) return true; // 2002::/16 6to4
+  // IPv4-mapped ::ffff:a.b.c.d / ::ffff:xxxx:xxxx
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0xffff) {
+    return isPrivateIPv4Parts([(h6 >> 8) & 0xff, h6 & 0xff, (h7 >> 8) & 0xff, h7 & 0xff]);
+  }
+  // NAT64 64:ff9b::/96 wraps an IPv4 address.
+  if (h0 === 0x0064 && h1 === 0xff9b && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0) {
+    return isPrivateIPv4Parts([(h6 >> 8) & 0xff, h6 & 0xff, (h7 >> 8) & 0xff, h7 & 0xff]);
+  }
+  // IPv4-compatible ::a.b.c.d (deprecated) and other low special ranges.
+  if (h0 === 0 && h1 === 0 && h2 === 0 && h3 === 0 && h4 === 0 && h5 === 0) return true;
+  return false;
+}
+
+/** True when the hostname is a literal private/reserved IP or a known
+ *  internal-only DNS name. Exported for tests. */
+export function isBlockedHost(host: string): boolean {
+  const h = stripHost(host);
   if (!h) return true;
-  if (BLOCKED_IP_RES.some((re) => re.test(h))) return true;
+  const kind = isIP(h);
+  if (kind === 4) return isPrivateIPv4(h);
+  if (kind === 6) return isPrivateIPv6(h);
   if (BLOCKED_EXACT_HOSTS.has(h)) return true;
   if (h === 'metadata.google.internal' || h.endsWith('.metadata.google.internal')) return true;
   return BLOCKED_SUFFIXES.some((s) => h === s.slice(1) || h.endsWith(s));
 }
+
 export function isBlockedUrl(raw: string): boolean {
   let u: URL;
   try { u = new URL(String(raw)); } catch { return false; }
@@ -30,8 +143,40 @@ export function isBlockedUrl(raw: string): boolean {
   // SYNAPSEDX_SELF_BASE_URLS="http://gateway:8080,http://iam:4001" — exact
   // origin match only, read dynamically so tests can scope it per case.
   if (isAllowedSelfUrl(u)) return false;
-  const host = u.hostname.replace(/\.$/, '');
-  return isBlockedHost(host);
+  return isBlockedHost(u.hostname);
+}
+
+/** Resolve every A/AAAA record for a DNS name (injectable for tests). */
+export type HostResolver = (host: string) => Promise<string[]>;
+
+async function defaultResolveHost(host: string): Promise<string[]> {
+  const recs = await dns.lookup(host, { all: true });
+  return recs.map((r) => r.address);
+}
+
+/** Runtime SSRF check: sync host guard + DNS resolution of the hostname.
+ *  Throws when the URL (or any address it resolves to) is private/reserved.
+ *  Unresolvable names are allowed through — fetch would fail on them too,
+ *  and this keeps the guard deterministic for mocked/offline tests. */
+export async function assertUrlAllowed(raw: string, resolveHost: HostResolver = defaultResolveHost): Promise<void> {
+  if (isBlockedUrl(raw)) throw new Error(`blocked internal URL (${String(raw).slice(0, 120)})`);
+  let u: URL;
+  try { u = new URL(String(raw)); } catch { throw new Error(`invalid URL (${String(raw).slice(0, 120)})`); }
+  if (isAllowedSelfUrl(u)) return;
+  const host = stripHost(u.hostname);
+  if (isIP(host)) return; // literal checked by isBlockedUrl above
+  let addresses: string[];
+  try {
+    addresses = await resolveHost(host);
+  } catch {
+    return; // NXDOMAIN/offline: fetch will fail the same way
+  }
+  for (const a of addresses) {
+    const ip = stripHost(a);
+    if (isIP(ip) === 0 || isBlockedHost(ip)) {
+      throw new Error(`blocked internal URL (${host} resolved to ${ip})`);
+    }
+  }
 }
 
 /** Exact-origin allowlist for first-party calls (P0-1). */
@@ -238,22 +383,66 @@ export function entryNodes(nodes: EngineNode[], connections: Connections): strin
 
 // ---------- param helpers ----------
 
+// ---------- isolated JS evaluation (P0-1 hardening) ----------
+// `node:vm` is not a security boundary on its own — so we never hand host
+// intrinsics/functions (Object, Math, console, data objects…) to the
+// context. The context is created with a null-prototype global and
+// codeGeneration disabled; input data is injected *inside* the context via
+// JSON so user code only ever touches context-native values. Code nodes get
+// an additional layer: a separate process (see sandbox-runner.ts).
+
+function safeJsonString(v: any): string {
+  try {
+    const s = JSON.stringify(v ?? null);
+    return s === undefined ? 'null' : s;
+  } catch {
+    return 'null';
+  }
+}
+
+function isolatedContext(dataJson: string, nowIso: string): vm.Context {
+  const ctx = vm.createContext(Object.create(null) as any, {
+    codeGeneration: { strings: false, wasm: false },
+  } as any);
+  const boot = [
+    'globalThis.__logs = [];',
+    // console is implemented *inside* the context (never a host function —
+    // host callables would expose the host Function constructor to user code).
+    'globalThis.console = (() => {'
+      + ' const fmt = (a) => Array.prototype.map.call(a, (x) => { try { return typeof x === "string" ? x : JSON.stringify(x); } catch (e) { return String(x); } }).join(" ");'
+      + ' const push = function () { globalThis.__logs.push(fmt(arguments)); };'
+      + ' return { log: push, info: push, warn: push, error: push };'
+      + ' })();',
+    `globalThis.$json = JSON.parse(${JSON.stringify(dataJson)});`,
+    'globalThis.$input = globalThis.$json;',
+    'globalThis.input = globalThis.$json;',
+    `globalThis.$now = ${JSON.stringify(nowIso)};`,
+  ].join('\n');
+  new vm.Script(boot).runInContext(ctx);
+  return ctx;
+}
+
+/** Host-safe copy of a value produced inside a vm context: primitives pass
+ *  through unchanged, objects/arrays are JSON round-tripped so callers never
+ *  hold context-realm objects (prototype checks, deepEqual, serialization). */
+function hostClone(v: any): any {
+  if (v === undefined) return undefined;
+  if (v === null || typeof v !== 'object') return v;
+  try {
+    return JSON.parse(JSON.stringify(v));
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveExpression(expr: string, input: any): any {
   // Evaluate a JS expression string with $input/$json in scope (used by if/code helpers).
   const code = String(expr || '');
-  const sandbox: any = {
-    $input: clone(input),
-    $json: clone(input),
-    input: clone(input),
-    $now: new Date().toISOString(),
-    Math, JSON, Date, Number, String, Boolean, Array, Object,
-    isNaN, parseInt, parseFloat,
-  };
   try {
+    const ctx = isolatedContext(safeJsonString(clone(input)), new Date().toISOString());
     const script = new vm.Script(`result = (${code})`);
-    const ctx = vm.createContext({ ...sandbox, result: undefined } as any, { codeGeneration: { strings: false, wasm: false } } as any);
     script.runInContext(ctx, { timeout: 1000 } as any);
-    return (ctx as any).result;
+    return hostClone((ctx as any).result);
   } catch {
     return undefined;
   }
@@ -417,7 +606,11 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
   // support "={{ $json.url }}" templating
   if (/^\s*=?\{\{/.test(url)) url = String(toValue(url, input) ?? '');
   if (!url) throw new Error('httpRequest: missing url');
-  if (isBlockedUrl(url)) throw new Error(`httpRequest: blocked internal URL (${url.slice(0, 80)})`);
+  try {
+    await assertUrlAllowed(url);
+  } catch (e: any) {
+    throw new Error(`httpRequest: ${e?.message || e}`);
+  }
   const method = String(p.method ?? 'GET').toUpperCase();
   if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'].includes(method)) throw new Error(`httpRequest: unsupported method ${method}`);
   const timeoutMs = Math.min(Math.max(Number(p.timeoutMs) || HTTP_TIMEOUT_MS, 1000), MAX_HTTP_TIMEOUT_MS);
@@ -500,7 +693,11 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
     const MAX_HOPS = 5;
     for (let hop = 0; ; hop++) {
       if (hop > MAX_HOPS) throw new Error(`httpRequest: too many redirects (>${MAX_HOPS})`);
-      if (isBlockedUrl(curUrl)) throw new Error(`httpRequest: blocked internal URL (${curUrl.slice(0, 80)})`);
+      try {
+        await assertUrlAllowed(curUrl);
+      } catch (e: any) {
+        throw new Error(`httpRequest: ${e?.message || e}`);
+      }
       const r = await fetch(curUrl, { method: curMethod, headers, body: curBody, signal: ctl.signal, redirect: 'manual' as any });
       if (r.status >= 300 && r.status < 400) {
         const loc = r.headers.get('location');
@@ -512,7 +709,11 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
         } catch {
           throw new Error('httpRequest: redirect has invalid location');
         }
-        if (isBlockedUrl(next)) throw new Error(`httpRequest: redirect to blocked internal URL (${next.slice(0, 80)})`);
+        try {
+          await assertUrlAllowed(next);
+        } catch (e: any) {
+          throw new Error(`httpRequest: redirect ${e?.message || e}`);
+        }
         curUrl = next;
         // 301/302/303 downgrade to GET without body (fetch semantics).
         if (r.status === 303 || ((r.status === 301 || r.status === 302) && curMethod === 'POST')) {
@@ -638,26 +839,108 @@ function getCodeSource(node: EngineNode): string | null {
   return null;
 }
 
+const SANDBOX_RUNNER_FILE = path.join(__dirname, 'sandbox-runner.js');
+const SANDBOX_STDIO_MAX_BYTES = 4 * 1024 * 1024;
+
+/** Node flags for the throwaway code-sandbox process. Layer on top of the
+ *  hardened vm context: a separate process with an empty env (no secrets),
+ *  the permission model (no fs/child-process/worker access) and no
+ *  code-generation-from-strings (kills host-Function escapes at the isolate
+ *  level). Flags are feature-detected so Node 20 (--experimental-permission)
+ *  and newer (--permission) both work. */
+function sandboxNodeArgs(runnerFile: string): string[] {
+  const flags = process.allowedNodeEnvironmentFlags;
+  const args: string[] = ['--no-warnings', '--max-old-space-size=128'];
+  if (flags.has('--permission')) args.push('--permission', `--allow-fs-read=${runnerFile}`);
+  else if (flags.has('--experimental-permission')) args.push('--experimental-permission', `--allow-fs-read=${runnerFile}`);
+  if (flags.has('--disallow-code-generation-from-strings')) args.push('--disallow-code-generation-from-strings');
+  args.push(runnerFile);
+  return args;
+}
+
+type SandboxOutcome = { result?: any; hasResult: boolean; logs: string[] };
+
+/** Dev-only fallback (running from src via ts-node, where the compiled
+ *  sandbox-runner.js does not exist): hardened in-process vm context. The
+ *  production path is always the separate process below. */
+async function execCodeSandboxInProcess(wrapped: string, dataJson: string, nowIso: string, timeoutMs: number): Promise<SandboxOutcome> {
+  const ctx = isolatedContext(dataJson, nowIso);
+  try {
+    const script = new vm.Script(wrapped);
+    const pending = script.runInContext(ctx, { timeout: timeoutMs } as any);
+    const result = await new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`timed out after ${timeoutMs}ms (infinite loop?)`)), timeoutMs + 250);
+      Promise.resolve(pending).then(
+        (v) => { clearTimeout(timer); resolve(v); },
+        (e) => { clearTimeout(timer); reject(e); },
+      );
+    });
+    const logs = Array.isArray((ctx as any).__logs) ? ((ctx as any).__logs as any[]).map(String) : [];
+    return { result, hasResult: result !== undefined, logs };
+  } catch (e: any) {
+    const msg = e?.message || String(e);
+    if (/timed out|Script execution timed out/i.test(msg)) throw new Error(`code: timed out after ${timeoutMs}ms (infinite loop?)`);
+    throw new Error(`code: ${String(msg).slice(0, 500)}`);
+  }
+}
+
+async function execCodeSandboxIsolated(wrapped: string, dataJson: string, nowIso: string, timeoutMs: number): Promise<SandboxOutcome> {
+  const payload = JSON.stringify({ code: wrapped, inputJson: dataJson, now: nowIso, timeoutMs });
+  const child = spawn(process.execPath, sandboxNodeArgs(SANDBOX_RUNNER_FILE), {
+    env: {}, // secrets/database URLs never reach workflow-authored code
+    cwd: os.tmpdir(),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  let timedOut = false;
+  const kill = () => { try { child.kill('SIGKILL'); } catch { /* already gone */ } };
+  const timer = setTimeout(() => { timedOut = true; kill(); }, timeoutMs + 1000);
+  child.stdout.on('data', (d: Buffer) => {
+    stdout += d.toString('utf8');
+    if (stdout.length > SANDBOX_STDIO_MAX_BYTES) kill();
+  });
+  child.stderr.on('data', (d: Buffer) => { stderr = (stderr + d.toString('utf8')).slice(0, 4096); });
+  child.stdin.on('error', () => { /* child may die before the payload is flushed */ });
+  const closed = new Promise<{ code: number | null; error?: Error }>((resolve) => {
+    child.on('error', (error) => resolve({ code: null, error }));
+    child.on('close', (code) => resolve({ code }));
+  });
+  child.stdin.end(payload);
+  const info = await closed;
+  clearTimeout(timer);
+
+  if (info.error) throw new Error(`code: sandbox failed to start (${info.error.message})`);
+  if (timedOut) throw new Error(`code: timed out after ${timeoutMs}ms (infinite loop?)`);
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    const detail = (stderr || stdout).trim().slice(0, 300);
+    throw new Error(`code: sandbox exited without a result${detail ? ` (${detail})` : ''}`);
+  }
+  if (!parsed || parsed.ok !== true) {
+    const msg = String(parsed?.error || 'unknown sandbox error');
+    if (/timed out|Script execution timed out/i.test(msg)) throw new Error(`code: timed out after ${timeoutMs}ms (infinite loop?)`);
+    throw new Error(`code: ${msg.slice(0, 500)}`);
+  }
+  const logs: string[] = Array.isArray(parsed.logs) ? parsed.logs.map(String) : [];
+  let result: any;
+  if (parsed.hasResult) {
+    try {
+      result = JSON.parse(String(parsed.resultJson));
+    } catch {
+      throw new Error('code: output could not be serialized to JSON');
+    }
+  }
+  return { result, hasResult: !!parsed.hasResult, logs };
+}
+
 export async function execCodeSandbox(node: EngineNode, input: any, opts?: { timeoutMs?: number }): Promise<any> {
   const src = getCodeSource(node);
   if (src === null) throw new Error('code: missing code parameter (put JS in parameters.code)');
   if (Buffer.byteLength(src, 'utf8') > MAX_CODE_BYTES) throw new Error('code: script exceeds 50KB');
   const timeoutMs = Math.min(Math.max(Number((node.parameters as any)?.timeoutMs) || opts?.timeoutMs || CODE_TIMEOUT_MS, 1000), 15000);
-  const logs: string[] = [];
-  const limitedConsole = {
-    log: (...a: any[]) => {
-      logs.push(a.map((x) => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); } }).join(' '));
-    },
-    info: (...a: any[]) => {
-      logs.push(a.map((x) => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); } }).join(' '));
-    },
-    warn: (...a: any[]) => {
-      logs.push(a.map((x) => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); } }).join(' '));
-    },
-    error: (...a: any[]) => {
-      logs.push(a.map((x) => { try { return typeof x === 'string' ? x : JSON.stringify(x); } catch { return String(x); } }).join(' '));
-    },
-  };
   const hasReturn = /\breturn\b/.test(src);
   // Statement-looking code (loops, declarations, multi-statement) runs as a
   // body; pure expressions get an implicit `return (...)` for ergonomics.
@@ -667,25 +950,17 @@ export async function execCodeSandbox(node: EngineNode, input: any, opts?: { tim
   const body = hasReturn || looksStatement ? src : `return (${src});`;
   // Async wrapper so `await` works inside user code.
   const wrapped = `(async () => { ${body} })()`;
-  const sandbox: any = {
-    $input: clone(input),
-    $json: clone(input),
-    input: clone(input),
-    $now: new Date().toISOString(),
-    Math, JSON, Date, Number, String, Boolean, Array, Object,
-    isNaN, parseInt, parseFloat,
-    console: limitedConsole,
-  };
-  const ctx = vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } } as any);
-  let result: any;
-  try {
-    const script = new vm.Script(wrapped);
-    result = await script.runInContext(ctx, { timeout: timeoutMs } as any);
-  } catch (e: any) {
-    const msg = e?.message || String(e);
-    if (/timed out|Script execution timed out/i.test(msg)) throw new Error(`code: timed out after ${timeoutMs}ms (infinite loop?)`);
-    throw new Error(`code: ${msg.slice(0, 500)}`);
+  const dataJson = safeJsonString(clone(input));
+  const nowIso = new Date().toISOString();
+
+  let outcome: SandboxOutcome;
+  if (fs.existsSync(SANDBOX_RUNNER_FILE)) {
+    outcome = await execCodeSandboxIsolated(wrapped, dataJson, nowIso, timeoutMs);
+  } else {
+    console.warn('[workflow][security] sandbox-runner.js not found (ts-node dev?) — using hardened in-process sandbox.');
+    outcome = await execCodeSandboxInProcess(wrapped, dataJson, nowIso, timeoutMs);
   }
+  const { result, logs } = outcome;
   if (result === undefined) return { _logs: logs.length ? logs : undefined, value: clone(input) };
   if (safeJsonSize(result) > MAX_OUTPUT_BYTES) throw new Error('code: output exceeds 500KB');
   if (logs.length) {
