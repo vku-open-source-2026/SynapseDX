@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition } from './index';
+import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, workflowRunPrincipal } from './index';
 import { isBlockedUrl } from './engine';
 import { __clearMem } from './store';
 
@@ -28,6 +28,12 @@ describe('workflow templates', () => {
   });
   it('unknown template returns null', () => {
     assert.equal(buildTemplate('nope'), null);
+  });
+  it('automated (webhook/cron) runs act as the workflow tenant principal', () => {
+    assert.deepEqual(workflowRunPrincipal({ org_id: 'tenant-a', owner_sub: 'u1', run_as: null }), { sub: 'u1', org: 'tenant-a', account: undefined, kind: 'workflow' });
+    assert.equal(workflowRunPrincipal({ org_id: 't', run_as: 'svc-1' })!.sub, 'svc-1');
+    assert.deepEqual(workflowRunPrincipal({ org_id: null, account_id: 'acc-2', owner_sub: 'u2', run_as: null }), { sub: 'u2', org: undefined, account: 'acc-2', kind: 'workflow' });
+    assert.equal(workflowRunPrincipal({ org_id: null, account_id: null, owner_sub: null, run_as: null }), null);
   });
   it('ships valid examples (CI: examples/n8n-templates pass validateDefinition)', () => {
     // Locate the repo examples dir from either src/ (ts-node) or dist/.
@@ -73,6 +79,27 @@ describe('self-call allowlist (P0-1)', () => {
     assert.equal(validateDefinition(selfDef('http://gateway:8080/v1/orgs')), null);
     // Not a prefix loophole: other ports stay blocked.
     assert.equal(isBlockedUrl('http://gateway:9999/v1/orgs'), true);
+  });
+  it('rejects definitions with no trigger node (silent-dead-workflow guard)', () => {
+    const dead = {
+      nodes: [
+        { name: 'C', type: 'code', parameters: { code: 'return $input;' } },
+        { name: 'S', type: 'set', parameters: { values: { a: 1 } } },
+      ],
+      connections: { C: { main: [[{ node: 'S' }]] } },
+    };
+    assert.match(String(validateDefinition(dead)), /trigger node/);
+    // webhook + manualTrigger + cron all satisfy the requirement
+    for (const type of ['n8n-nodes-base.webhook', 'n8n-nodes-base.manualTrigger', 'n8n-nodes-base.cron']) {
+      const def = {
+        nodes: [
+          { name: 'T', type, parameters: type === 'n8n-nodes-base.cron' ? { intervalMs: 15000 } : type === 'n8n-nodes-base.webhook' ? { path: 'p' } : {} },
+          { name: 'S', type: 'set', parameters: { values: { a: 1 } } },
+        ],
+        connections: { T: { main: [[{ node: 'S' }]] } },
+      };
+      assert.equal(validateDefinition(def), null, type);
+    }
   });
 });
 

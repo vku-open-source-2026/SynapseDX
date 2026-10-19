@@ -75,6 +75,62 @@ const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal
     if (!t) throw new Error('synapsedx.api: templates.get -> 404 (template_not_found)');
     return t;
   }
+  // SynapseLDS (linked data) over the service network as the run principal.
+  // Records published here go through the same structural-allowlist projector
+  // as everything else: reserved/system fields are quarantined, unregistered
+  // dynamic fields default-deny out of every NGSI-LD export.
+  if (resource === 'lds') {
+    const LDS_BASE = (process.env.LDS_SERVICE_URL || 'http://lds:4004').replace(/\/$/, '');
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 20000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+      }
+      let method = 'GET';
+      let path = '';
+      let body: any;
+      if (operation === 'list-datasources') {
+        path = '/v1/lds/datasources';
+      } else if (operation === 'publish-record') {
+        method = 'POST';
+        path = `/v1/lds/datasources/${encodeURIComponent(cleanId(a.datasourceId, 'datasourceId', 128))}/records`;
+        const record = a.record !== undefined ? a.record : a.data;
+        if (record === undefined || record === null) {
+          throw new Error("synapsedx.api: lds.publish-record needs 'record' (an object — put it in input, e.g. ={{ $json }})");
+        }
+        if (typeof record !== 'object' || Array.isArray(record)) {
+          throw new Error("synapsedx.api: lds.publish-record 'record' must be a JSON object");
+        }
+        body = { record };
+      } else {
+        throw new Error(`synapsedx.api: unsupported call 'lds.${operation}'`);
+      }
+      const r = await fetch(`${LDS_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: SynapseLDS timed out after 20000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  }
   // IAM resources over the service network as the run principal.
   const IAM_BASE = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
   const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
@@ -215,7 +271,7 @@ function findSsrfUrl(definition: any): string | null {
   } catch { /* ignore */ }
   return null;
 }
-function validateDefinition(definition: any): string | null {
+function validateDefinition(definition: any, opts: { requireTrigger?: boolean } = {}): string | null {
   if (!definition || typeof definition !== 'object') return 'definition must be an object';
   const nodes = (definition as any).nodes;
   if (nodes !== undefined) {
@@ -377,6 +433,18 @@ function validateDefinition(definition: any): string | null {
       }
     }
   } catch { /* ignore */ }
+  // A definition without any recognized trigger can never run — reject save
+  // instead of producing an "active but dead" workflow that fires nothing.
+  // (test-run sandboxes run trigger-less fragments, so it opts out.)
+  if (opts.requireTrigger !== false) {
+    const triggerless: any[] = Array.isArray((definition as any).nodes) ? (definition as any).nodes : [];
+    if (
+      triggerless.length &&
+      !triggerless.some((n: any) => ['n8n-nodes-base.webhook', 'n8n-nodes-base.cron', 'n8n-nodes-base.manualTrigger'].includes(String(n?.type)))
+    ) {
+      return 'definition needs at least one trigger node (webhook, cron or manualTrigger)';
+    }
+  }
   return null;
 }
 
@@ -464,6 +532,18 @@ export function principalFromHeaders(req: express.Request): import('./store').Pr
     account: clean(h('x-synapsedx-account')),
     kind: clean(h('x-synapsedx-kind')),
   };
+}
+
+/** Principal for automated runs (webhook/cron): the workflow's stored run_as
+ *  (else owner) bound to its tenant. Webhooks do NOT run as anonymous, so
+ *  tenant-scoped first-party calls (e.g. SynapseLDS publish-record) keep
+ *  working without weakening tenancy. */
+export function workflowRunPrincipal(wf: {
+  org_id?: string | null; account_id?: string | null; owner_sub?: string | null; run_as?: string | null;
+}): import('./store').Principal | null {
+  const sub = String(wf.run_as || '').trim() || String(wf.owner_sub || '').trim();
+  if (!sub && !wf.org_id && !wf.account_id) return null;
+  return { sub: sub || 'workflow', org: wf.org_id || undefined, account: wf.account_id || undefined, kind: 'workflow' };
 }
 
 export function createApp(): express.Express {
@@ -661,10 +741,11 @@ export function createApp(): express.Express {
         if (Object.keys(req.query || {}).length) (input as any)._query = req.query;
       }
       const startedAt = new Date().toISOString();
+      const runPrincipal = workflowRunPrincipal(wf);
       const r = await runWorkflow(
         { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
         input,
-        { triggeredBy: 'webhook', principal: null, credentialResolver, synapsedxCall },
+        { triggeredBy: 'webhook', principal: runPrincipal, credentialResolver, synapsedxCall },
       );
       const finishedAt = new Date().toISOString();
       recordRun('webhook', r.status, r.nodeRuns);
@@ -672,7 +753,7 @@ export function createApp(): express.Express {
         workflow_id: wf.id, workflow_name: wf.name, status: r.status,
         input, output: r.output, node_runs: r.nodeRuns as any,
         error: (r as any).error ?? null, triggered_by: 'webhook',
-        principal: null, actor: actorFor(wf.id, null), startedAt, finishedAt,
+        principal: runPrincipal, actor: actorFor(wf.id, runPrincipal), startedAt, finishedAt,
       });
       res.status(r.status === 'success' ? 200 : 500).json({ ok: r.status === 'success', output: r.output, executionId: exec.id, error: (r as any).error ?? undefined });
     } catch (e: any) {
@@ -1195,7 +1276,8 @@ function tenantBinding(
   app.post('/v1/workflows/test-run', async (req, res) => {
     const { definition, input, workflowId } = (req.body || {}) as any;
     if (!definition) return res.status(400).json({ error: 'definition required' });
-    const defErr = validateDefinition(definition);
+    // Sandbox fragments may omit trigger nodes (editor "try node without a graph").
+    const defErr = validateDefinition(definition, { requireTrigger: false });
     if (defErr) return res.status(400).json({ error: 'invalid_definition', message: defErr });
     let inSize = 0;
     try { inSize = Buffer.byteLength(JSON.stringify(input ?? {}), 'utf8'); } catch { return res.status(400).json({ error: 'invalid_body' }); }
@@ -1261,6 +1343,7 @@ export function listTemplates() {
     { name: 'code-transform', description: 'Webhook -> sandboxed JS transform -> conditional branch -> set fields' },
     { name: 'manual-starter', description: 'Manual trigger -> code transform -> set fields (click Execute to try)' },
     { name: 'synapsedx-self-check', description: 'Manual -> SynapseDX API (list orgs) -> count -> summary (first-party integration demo)' },
+    { name: 'webhook-to-lds', description: 'Webhook -> SynapseLDS: publish the payload as an NGSI-LD record (payload carries datasourceId)' },
     { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
   ];
 }
@@ -1377,6 +1460,20 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       },
     };
   }
+  if (name === 'webhook-to-lds') {
+    return {
+      name: wname,
+      nodes: [
+        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'lds-publish', httpMethod: 'POST' } },
+        { id: wid(), name: 'PublishToLDS', type: 'synapsedx.api', typeVersion: 1, position: [440, 300], parameters: { resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } } },
+        { id: wid(), name: 'Done', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [680, 300], parameters: {} },
+      ],
+      connections: {
+        Webhook: { main: [[{ node: 'PublishToLDS', type: 'main', index: 0 }]] },
+        PublishToLDS: { main: [[{ node: 'Done', type: 'main', index: 0 }]] },
+      },
+    };
+  }
   if (name === 'github-push-to-log') {
     return {
       name: wname,
@@ -1413,10 +1510,11 @@ function startCronLoop(): void {
         lastCronRun.set(wf.id, now);
         try {
           const startedAt = new Date().toISOString();
+          const runPrincipal = workflowRunPrincipal(wf);
           const r = await runWorkflow(
             { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
             { scheduledAt: startedAt },
-            { triggeredBy: 'cron', principal: null, credentialResolver, synapsedxCall },
+            { triggeredBy: 'cron', principal: runPrincipal, credentialResolver, synapsedxCall },
           );
           const finishedAt = new Date().toISOString();
           recordRun('cron', r.status, r.nodeRuns);
@@ -1424,7 +1522,7 @@ function startCronLoop(): void {
             workflow_id: wf.id, workflow_name: wf.name, status: r.status,
             input: { scheduledAt: startedAt }, output: r.output, node_runs: r.nodeRuns as any,
             error: (r as any).error ?? null, triggered_by: 'cron',
-            principal: null, actor: actorFor(wf.id, null), startedAt, finishedAt,
+            principal: runPrincipal, actor: actorFor(wf.id, runPrincipal), startedAt, finishedAt,
           });
           console.log(`[workflow][cron] ${wf.name} (${wf.id}) -> ${r.status}`);
         } catch (e: any) {

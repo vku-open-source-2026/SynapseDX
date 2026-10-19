@@ -117,7 +117,7 @@ services:
   iam:
     build:
       context: ./apps/iam-service
-    image: synapsedx/iam:0.3.1
+    image: synapsedx/iam:0.4.0
     restart: unless-stopped
     environment:
       PORT: 4001
@@ -158,7 +158,7 @@ services:
   workflow:
     build:
       context: ./apps/workflow-service
-    image: synapsedx/workflow:0.3.1
+    image: synapsedx/workflow:0.4.0
     restart: unless-stopped
     environment:
       PORT: 4002
@@ -185,7 +185,7 @@ services:
   ai:
     build:
       context: ./apps/ai-service
-    image: synapsedx/ai:0.3.1
+    image: synapsedx/ai:0.4.0
     restart: unless-stopped
     environment:
       PORT: 4003
@@ -210,16 +210,41 @@ services:
       start_period: 20s
     networks: [synapsedx-net]
 
+  lds:
+    build:
+      context: ./apps/lds-service
+    image: synapsedx/lds:0.4.0
+    restart: unless-stopped
+    environment:
+      PORT: 4004
+      DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${LDS_SERVICE_HOST_PORT:-127.0.0.1:4004}:4004"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4004/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
   gateway:
     build:
       context: ./apps/gateway
-    image: synapsedx/gateway:0.3.1
+    image: synapsedx/gateway:0.4.0
     restart: unless-stopped
     environment:
       PORT: 8080
       IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       WORKFLOW_SERVICE_URL: ${WORKFLOW_SERVICE_URL:-http://workflow:4002}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:4003}
+      LDS_SERVICE_URL: ${LDS_SERVICE_URL:-http://lds:4004}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
@@ -241,12 +266,14 @@ services:
         condition: service_healthy
       ai:
         condition: service_healthy
+      lds:
+        condition: service_healthy
     networks: [synapsedx-net]
 
   console:
     build:
       context: ./apps/console
-    image: synapsedx/console:0.3.1
+    image: synapsedx/console:0.4.0
     restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

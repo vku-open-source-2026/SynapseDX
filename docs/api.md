@@ -2,7 +2,7 @@
 
 Base: `http://localhost:8080` (gateway) — every `/v1/*` route needs
 `Authorization: Bearer <JWT>` or `X-API-Key`, except `/v1/auth/*`.
-Calling `:4001`/`:4002` **directly** (bypassing the gateway) additionally requires
+Calling `:4001`/`:4002`/`:4004` **directly** (bypassing the gateway) additionally requires
 `x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` once the secret is configured
 (production), otherwise 401 — see `SECURITY.md`.
 
@@ -156,7 +156,7 @@ origins bypass the block AND forward the run principal as `x-synapsedx-*`
 headers so downstream services can authorize. Redirects are followed manually
 with every hop re-checked (max 5).
 
-Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). `synapsedx.api` (first-party SynapseDX block: `parameters.resource/operation/input` — resources `orgs/users/roles/policies/authorize/audit/keys/service-accounts/workflows/executions/templates`; runs as your login, values support `={{ $json.x }}`). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
+Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). `synapsedx.api` (first-party SynapseDX block: `parameters.resource/operation/input` — resources `orgs/users/roles/policies/authorize/audit/keys/service-accounts/workflows/executions/templates/lds`; runs as your login, values support `={{ $json.x }}`; `lds` = `list-datasources` | `publish-record`). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
 
 | Node | Key `parameters` | Notes |
 | --- | --- | --- |
@@ -178,10 +178,81 @@ update bumps `revision`. Export/import via the Console (portable
 
 Execution semantics: non-`if` nodes fan out to every branch; a diamond (`A→B, A→C, B→D, C→D`) runs `D` once per incoming edge with that edge's data. With several terminal nodes the final `output` is keyed by terminal node name (`{Left: …, Right: …}`); with one terminal it is that node's output directly. Per-node `nodeRuns[]` carry `status` (`success|error|skipped`), `input`, `output`, `error`, `durationMs`, `attempts?`.
 
+## Linked Data (SynapseLDS — `lds-service:4004`, gateway `/v1/lds`)
+
+Publish licensed open data as NGSI-LD. Records are stored split into three
+regions — `_core` (private platform metadata: internal id, tenant, source id,
+version, actor), `entity` (`id`/`type`, public identity) and `attributes`
+(dynamic business fields). The projector is a **structural allowlist**: it
+reads only `entity` + registry-approved `attributes`, so `_core` (and any
+future metadata field) can never leak. Unregistered attributes are stored but
+default-deny (never exported) until a steward marks them, and reserved names
+(`id`, `type`, `@context`, `internalId`, `tenantId`, …) are rejected at
+registration. Every export carries `X-LDS-License: <SPDX>`,
+`Link: <licenseUrl>; rel="license"` and the license URL inside `@context`.
+
+- `GET /v1/lds/licenses` → built-in catalog (`CC0-1.0`, `PDDL-1.0`,
+  `CC-BY-4.0`, `CC-BY-SA-4.0`, `ODbL-1.0`, `LicenseRef-Proprietary`) —
+  **public**: readable without a token
+- `GET /v1/lds/datasources` (`?orgId&accountId` — filters can only NARROW
+  within your principal: org rows to that org, account rows to that account,
+  foreign rows are never enumerated; the platform service-side context sees
+  everything, anonymous callers get `401 auth_required`)
+- `POST /v1/lds/datasources {name, entityType, license, slug?, licenseUrl?, contexts?, defaultVisibility?, description?}`
+  (custom licenses need a `LicenseRef-*` id + `licenseUrl`; `defaultVisibility`
+  is `internal` unless you say otherwise)
+- `GET /v1/lds/datasources/:id` → datasource + `attributes[]` + `stats`
+- `PATCH /v1/lds/datasources/:id {name?, slug?, entityType?, license?, licenseUrl?, contexts?, defaultVisibility?, description?}`
+- `DELETE /v1/lds/datasources/:id` → `{ok}` (registry + records cascade)
+- `GET /v1/lds/datasources/:id/attributes` → registry
+- `PUT /v1/lds/datasources/:id/attributes {attributes: [{name, ngsiLdType?: Property|Relationship|GeoProperty, visibility?: public|restricted|internal, description?, sourceField?}]}`
+  (atomic replace; `400 reserved_attribute` lists the offenders; unstated
+  visibility defaults to the datasource's `defaultVisibility`, itself
+  `internal` unless changed)
+- `POST /v1/lds/datasources/:id/records` (one record, `{records:[…]}` or
+  `{record:{…}}`, ≤1000/call) → `{ingested, created, updated, quarantined:[{field,reason}], entities:[{entityId, sourceRecordId, version}]}`.
+  `id` becomes `_core.sourceRecordId`; the public IRI is
+  `urn:ngsi-ld:<entityType>:<id>` unless an explicit `ngsiLdId`/`@id` IRI is
+  given. Reserved fields are quarantined, never promoted; the ingest summary
+  reports public identity only (no internal ids). Re-ingesting the same
+  source id bumps `version`.
+- `GET /v1/lds/datasources/:id/entities` (`?limit` 1..500, `?offset` ≥ 0 —
+  invalid values are a `400`, never a silent clamp; `?visibility=public|restricted`)
+  → NGSI-LD (JSON-LD) array. **Public channel**: this route (and the single-
+  entity route below) is also served anonymously through the gateway public
+  routes — spec rule "public = anyone reaching the API": an anonymous consumer
+  always gets the public-projection slice and can never ask for `restricted`
+  (→ `401 auth_required`). A Bearer token that verifies is honoured as optional
+  auth on the public route. Authenticated callers inside the datasource tenant
+  may request `?visibility=restricted` (served `private, no-store`); an
+  authenticated caller from a *different* tenant gets `404` (tenant data
+  existence is not enumerated — the anonymous public route is the sharing
+  channel). `internal` never leaves the API.
+- `GET /v1/lds/datasources/:id/entities/:entityId` → single entity (404 when unknown)
+- `GET /v1/lds/datasources/:id/stats` → `{records, attributes:{public,restricted,internal}, lastIngestAt}`
+
+```bash
+# publish → export in two calls (public attributes only)
+curl -s -X POST http://localhost:8080/v1/lds/datasources/$DS/records \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"id":"55001","name":"Công ty ABC","locatedIn":"urn:ngsi-ld:AdministrativeArea:danang"}'
+curl -s http://localhost:8080/v1/lds/datasources/$DS/entities
+# → [{"id":"urn:ngsi-ld:Organization:55001","type":"Organization","name":{…},"@context":[…]}]
+# the same export URL works with NO token at all (anonymous open-data consumers)
+curl -s http://localhost:8080/v1/lds/datasources/$DS/entities   # 200 public slice
+```
+
+From workflows: the `synapsedx.api` node gains resource `lds` with operations
+`list-datasources` (no args) and `publish-record` (`datasourceId` required —
+validated at save time, `record` object — `={{ $json }}` passes the whole
+payload). Template `webhook-to-lds`: webhook → publish → done (webhook/cron
+runs act as the workflow's tenant principal, so tenant-bound datasources stay
+publishable). See `docs/specs/synapsedx-lds.md`.
+
 ## Health / Metrics
 
 - `GET /health` (each service + gateway)
-- `GET /ready` (gateway: aggregates iam + workflow + ai, 503 when degraded)
+- `GET /ready` (gateway: aggregates iam + workflow + ai + lds, 503 when degraded)
 - `GET /metrics` (gateway, Prometheus)
 
 ## Tracing

@@ -320,7 +320,7 @@ export const NODE_TYPES = [
   { type: 'n8n-nodes-base.code', label: 'Code', hint: 'Run sandboxed JavaScript — $input in, return value out', category: 'actions', placeholder: 'return { doubled: ($input.value ?? 0) * 2 }' },
   { type: 'n8n-nodes-base.set', label: 'Set', hint: 'Add/overwrite fields — supports {{ $json.x }} templating', category: 'actions', placeholder: 'Set tag = processed, keep the rest' },
   { type: 'n8n-nodes-base.if', label: 'If', hint: 'Branch on a condition — output 0 = true, output 1 = false', category: 'logic', placeholder: '$input.value > 10 → Big / Small' },
-  { type: 'synapsedx.api', label: 'SynapseDX API', hint: 'Call SynapseDX itself — orgs, users, audit, workflows… (runs as you)', category: 'integrations', placeholder: 'orgs.list → passes the org list downstream' },
+  { type: 'synapsedx.api', label: 'SynapseDX API', hint: 'Call SynapseDX itself — orgs, users, audit, workflows, LDS datasets… (runs as you)', category: 'integrations', placeholder: 'orgs.list → passes the org list downstream (or lds.publish-record)' },
   { type: 'n8n-nodes-base.noOp', label: 'NoOp', hint: 'Do nothing — passes input through (useful log point)', category: 'utils', placeholder: 'Passthrough for debugging' },
 ];
 

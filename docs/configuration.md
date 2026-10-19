@@ -65,6 +65,21 @@ reads which key (audited from source):
 | `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4003` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 
+## Linked data — SynapseLDS (`apps/lds-service`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `PORT` | 4004 | listen port (gateway route `/v1/lds`, auth `either`) |
+| `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`lds_datasources` + `lds_attributes` + `lds_records`); required in production |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4004` bypass |
+| `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
+
+Records are stored as `{_core, entity, attributes}`; the NGSI-LD projector only reads
+`entity` + registry-approved `attributes` (structural allowlist), so `_core` (tenant,
+internal id, source id, actor, any future field) can never be serialized. Unregistered
+attributes default-deny; visibility is resolved at read time from the registry
+(`public|restricted|internal`, restricted needs an in-org principal).
+
 ## Console (`apps/console`, runtime via `config.js`)
 
 | Key | Default | Meaning |

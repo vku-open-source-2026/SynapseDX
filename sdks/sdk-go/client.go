@@ -659,6 +659,208 @@ func (c *Client) RotateCredential(id, secret string) (map[string]any, error) {
 	return out, nil
 }
 
+// ---------- LDS (datasources / licenses / attributes / records / entities) ----------
+//
+// Contract: GET /v1/lds/licenses returns the built-in SPDX + proprietary
+// catalog; datasources own a name/entityType/license plus a set of typed
+// attributes; records are ingested into NGSI-LD entities exported as JSON-LD.
+// Every endpoint accepts a Bearer JWT or an X-API-Key.
+
+// ListLDSLicenses lists the built-in license catalog ({id, name, url, openData}).
+func (c *Client) ListLDSLicenses() ([]any, error) {
+	b, err := c.do("GET", "/v1/lds/licenses", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListLDSDatasources lists datasources, optionally filtered by orgID/accountID
+// (pass "" to omit a filter).
+func (c *Client) ListLDSDatasources(orgID, accountID string) ([]any, error) {
+	q := url.Values{}
+	if orgID != "" {
+		q.Set("orgId", orgID)
+	}
+	if accountID != "" {
+		q.Set("accountId", accountID)
+	}
+	p := "/v1/lds/datasources"
+	if qs := q.Encode(); qs != "" {
+		p += "?" + qs
+	}
+	b, err := c.do("GET", p, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// CreateLDSDatasource creates a datasource from the contract body: name,
+// entityType and license are required; slug/licenseUrl/contexts/
+// defaultVisibility/description/orgId/accountId are optional.
+func (c *Client) CreateLDSDatasource(body map[string]any) (map[string]any, error) {
+	b, err := c.do("POST", "/v1/lds/datasources", body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetLDSDatasource fetches one datasource plus its attributes and stats.
+func (c *Client) GetLDSDatasource(id string) (map[string]any, error) {
+	b, err := c.do("GET", "/v1/lds/datasources/"+pathEscape(id), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// UpdateLDSDatasource patches a datasource (partial body; same fields as create).
+func (c *Client) UpdateLDSDatasource(id string, patch map[string]any) (map[string]any, error) {
+	b, err := c.do("PATCH", "/v1/lds/datasources/"+pathEscape(id), patch)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteLDSDatasource removes a datasource ({ok: true} on success).
+func (c *Client) DeleteLDSDatasource(id string) error {
+	_, err := c.do("DELETE", "/v1/lds/datasources/"+pathEscape(id), nil)
+	return err
+}
+
+// ListLDSAttributes lists a datasource's attribute definitions.
+func (c *Client) ListLDSAttributes(datasourceID string) ([]any, error) {
+	b, err := c.do("GET", "/v1/lds/datasources/"+pathEscape(datasourceID)+"/attributes", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// SetLDSAttributes replaces a datasource's attribute definitions
+// ([{name, ngsiLdType?, visibility?, description?, sourceField?}]). The server
+// rejects reserved names with 400 reserved_attribute.
+func (c *Client) SetLDSAttributes(datasourceID string, attributes []any) ([]any, error) {
+	b, err := c.do("PUT", "/v1/lds/datasources/"+pathEscape(datasourceID)+"/attributes",
+		map[string]any{"attributes": attributes})
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// IngestLDSRecords ingests records into a datasource. records accepts a single
+// record object, a []any of records (wrapped as {"records": ...}), or a
+// pre-wrapped map already carrying a "records" or "record" key.
+func (c *Client) IngestLDSRecords(datasourceID string, records any) (map[string]any, error) {
+	var body any
+	switch v := records.(type) {
+	case []any:
+		body = map[string]any{"records": v}
+	case map[string]any:
+		if _, ok := v["records"]; ok {
+			body = v
+		} else if _, ok := v["record"]; ok {
+			body = v
+		} else {
+			body = map[string]any{"record": v}
+		}
+	default:
+		body = map[string]any{"record": records}
+	}
+	b, err := c.do("POST", "/v1/lds/datasources/"+pathEscape(datasourceID)+"/records", body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListLDSEntities lists NGSI-LD entities of a datasource. params is allowlisted
+// to limit (1..500, server default 100), offset and visibility=public|restricted.
+func (c *Client) ListLDSEntities(datasourceID string, params map[string]string) ([]any, error) {
+	allowed := []string{"limit", "offset", "visibility"}
+	q := url.Values{}
+	for _, k := range allowed {
+		if v, ok := params[k]; ok && v != "" {
+			q.Set(k, v)
+		}
+	}
+	p := "/v1/lds/datasources/" + pathEscape(datasourceID) + "/entities"
+	if qs := q.Encode(); qs != "" {
+		p += "?" + qs
+	}
+	b, err := c.do("GET", p, nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetLDSEntity fetches one entity by its NGSI-LD id (404 not_found when absent).
+func (c *Client) GetLDSEntity(datasourceID, entityID string) (map[string]any, error) {
+	b, err := c.do("GET", "/v1/lds/datasources/"+pathEscape(datasourceID)+"/entities/"+pathEscape(entityID), nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetLDSStats reads a datasource's record/attribute counts and last ingest time.
+func (c *Client) GetLDSStats(datasourceID string) (map[string]any, error) {
+	b, err := c.do("GET", "/v1/lds/datasources/"+pathEscape(datasourceID)+"/stats", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ---------- workflows / templates / executions ----------
 
 func (c *Client) ListWorkflows() (any, error) {

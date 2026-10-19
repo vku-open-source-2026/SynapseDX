@@ -558,6 +558,7 @@ export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
   workflows: ['list', 'get'],
   executions: ['list', 'get'],
   templates: ['list', 'get'],
+  lds: ['list-datasources', 'publish-record'],
 };
 
 /** Required args per resource.operation (values may be ={{ }} templates). */
@@ -571,10 +572,12 @@ const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
   'workflows.get': ['id'],
   'executions.get': ['id'],
   'templates.get': ['name'],
+  'lds.publish-record': ['datasourceId'],
 };
 
-/** Save-time validation for synapsedx.api node params (values are checked
- *  at run time since they may be ={{ }} templates). */
+/** Save-time validation for synapsedx.api node params. Required args must be
+ *  present here too (values may be `={{ }}` templates — emptiness is
+ *  re-checked at run time after resolution). */
 export function validateSynapseDXParams(params: any): string | null {
   const p = params && typeof params === 'object' ? params : {};
   const resource = typeof p.resource === 'string' ? p.resource : '';
@@ -584,6 +587,13 @@ export function validateSynapseDXParams(params: any): string | null {
   if (!ops) return `synapsedx.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapsedx-self-check)`;
   if (!operation) return `synapsedx.api: 'operation' is required for '${resource}' (${ops.join(', ')})`;
   if (!ops.includes(operation)) return `synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`;
+  const input = p.input && typeof p.input === 'object' && !Array.isArray(p.input) ? p.input : {};
+  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    const v = (input as any)[f];
+    if (v === undefined || v === null || String(v).trim() === '') {
+      return `synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
+    }
+  }
   return null;
 }
 

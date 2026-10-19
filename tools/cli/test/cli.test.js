@@ -58,7 +58,7 @@ describe('synapsedx cli offline', () => {
   it('help lists commands', async () => {
     const r = await run('help');
     assert.equal(r.code, 0);
-    for (const cmd of ['login', 'refresh', 'logout-all', 'verify', 'orgs', 'users', 'authz', 'workflows', 'executions', 'templates', 'audit', 'keys', 'sa', 'credentials', 'call', 'webhook']) {
+    for (const cmd of ['login', 'refresh', 'logout-all', 'verify', 'orgs', 'users', 'authz', 'workflows', 'executions', 'templates', 'audit', 'keys', 'sa', 'credentials', 'call', 'webhook', 'lds']) {
       assert.ok(r.stdout.includes(cmd), cmd);
     }
   });

@@ -587,6 +587,34 @@ func UnwrapExecutions(b []byte) ([]any, error)
 Normalizes a raw `GET /v1/executions` payload (envelope `{data: []}` or bare
 array) to a slice. `ListExecutions()` already applies it.
 
+### Linked Data (SynapseLDS)
+
+```go
+licenses, _ := c.ListLDSLicenses()
+ds, _ := c.CreateLDSDatasource(map[string]any{
+    "name": "Business Registry", "entityType": "Organization", "license": "CC-BY-4.0",
+})
+id := ds["id"].(string)
+c.SetLDSAttributes(id, []any{
+    map[string]any{"name": "name", "visibility": "public"},
+    map[string]any{"name": "taxCode", "visibility": "restricted"},
+})
+c.IngestLDSRecords(id, map[string]any{"id": "55001", "name": "ACME"}) // map or slice
+ents, _ := c.ListLDSEntities(id, map[string]string{"limit": "50"})    // NGSI-LD JSON-LD
+one, _ := c.GetLDSEntity(id, "urn:ngsi-ld:Organization:55001")
+stats, _ := c.GetLDSStats(id)
+c.DeleteLDSDatasource(id)
+_ = licenses
+_ = one
+_ = stats
+```
+
+`_core` metadata is never serialized; attributes without a registry entry (or
+not visible to the caller) are omitted from entity listings. The public export
+surface (`lds licenses`, `lds entities`, `lds entity`) reads anonymously — no
+token required for the public projection; a token earns same-tenant
+`restricted` reads (other tenants → `404`).
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

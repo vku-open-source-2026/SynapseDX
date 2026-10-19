@@ -16,19 +16,22 @@
               ┌────────────▼────────┐    ┌─────────▼───────────┐
               │ Gateway (:8080)     │    │ Workflow svc (:4002) │
               │ proxy + JWT/API key │───►│ local engine + tmpl │
-              │ rate-limit + metrics│    │                     │
-              └────────────┬────────┘    └─────────┬───────────┘
-                           │              ┌────────▼───────────┐
-                           │              │ AI svc (:4003)     │
-                           │              │ testing assistant  │
-                           │              │ (LLM, server-side) │
-                           │              └────────┬───────────┘
-                           │                     │ REST (OpenRouter)
-                    ┌───────▼───────┐      ┌──────▼──────┐
-                    │ Postgres/Redis│      │  Postgres     │
-                    │ S3Mock (S3)   │      │ workflows +    │
-                    └───────────────┘      │ executions)      │
-                                           └─────────────┘
+              │ rate-limit + metrics│    │ + SynapseLDS blocks │
+              └────────────┬────────┘    └───┬─────────────┬───┘
+                           │                 │             │
+                           │          ┌──────▼─────┐  ┌────▼──────┐
+                           │          │ AI svc     │  │ LDS svc   │
+                           │          │ (:4003)    │  │ (:4004)   │
+                           │          │ testing    │  │ NGSI-LD   │
+                           │          │ assistant  │  │ exports   │
+                           │          └──────┬─────┘  └────┬──────┘
+                           │                 │ LLM         │ licensed
+                           │                 │ (OpenRouter)│ JSON-LD
+                    ┌───────▼───────┐      ┌──▼─────────┐ ┌─▼──────────┐
+                    │ Postgres/Redis│      │  Postgres  │ │  Postgres  │
+                    │ S3Mock (S3)   │      │ workflows+ │ │ lds_*      │
+                    └───────────────┘      │ executions │ │ tables     │
+                                           └────────────┘ └────────────┘
 ```
 
 ## Tier 1 = PaaS
@@ -56,6 +59,16 @@
 - **AI assistant**: `ai-service` answers testing questions on the Console API Docs
   (decision model picks the endpoint, LLM fills the try-it form; key server-side only,
   per-principal rate limit). Guidance-only — not a public API, not in the catalog.
+- **Linked data (SynapseLDS)**: `lds-service` publishes licensed open data as NGSI-LD.
+  Records land split into `_core` (private: tenant, internal id, source id, actor,
+  version) + `entity` (`id`/`type`) + `attributes`; the export projector is a
+  **structural allowlist** that never reads `_core`, so platform metadata cannot leak —
+  even as the schema evolves. The attribute registry is default-deny (unregistered
+  fields are stored but never exported) with per-field `public|restricted|internal`
+  visibility resolved at read time, reserved names rejected at registration and
+  quarantined at ingest, and tenant binding enforced with 404s. Every export carries
+  the user-picked license (`X-LDS-License` + `Link rel="license"`). Workflows publish
+  into it via `synapsedx.api → lds.publish-record` (`webhook-to-lds` template).
 
 ## Technical decisions
 

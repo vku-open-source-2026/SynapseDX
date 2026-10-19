@@ -553,6 +553,28 @@ def unwrap_executions(payload: Any) -> list
 Normalizes a raw `GET /v1/executions` payload (envelope `{"data": []}` or bare
 array) to a list. `list_executions()` already applies it.
 
+### Linked Data (SynapseLDS)
+
+```python
+c.list_lds_licenses()
+ds = c.create_lds_datasource("Business Registry", entity_type="Organization", license="CC-BY-4.0")
+c.set_lds_datasource_attributes(ds["id"], [
+    {"name": "name", "ngsiLdType": "Property", "visibility": "public"},
+    {"name": "taxCode", "visibility": "restricted"},
+])
+c.ingest_lds_records(ds["id"], {"id": "55001", "name": "ACME"})   # dict or list
+c.list_lds_entities(ds["id"], limit=50)                           # NGSI-LD JSON-LD
+c.get_lds_entity(ds["id"], "urn:ngsi-ld:Organization:55001")
+c.get_lds_datasource_stats(ds["id"])
+c.delete_lds_datasource(ds["id"])
+```
+
+`_core` metadata is never serialized; attributes without a registry entry (or
+not visible to the caller) are omitted from entity listings. The public export
+surface (`lds licenses`, `lds entities`, `lds entity`) reads anonymously — no
+token required for the public projection; a token earns same-tenant
+`restricted` reads (other tenants → `404`).
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

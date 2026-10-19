@@ -115,6 +115,7 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
 const get = (path, auth) => req(path, { ...auth });
 const post = (path, body, auth) => req(path, { method: 'POST', body, ...auth });
 const put = (path, body, auth) => req(path, { method: 'PUT', body, ...auth });
+const patch = (path, body, auth) => req(path, { method: 'PATCH', body, ...auth });
 const del = (path, auth) => req(path, { method: 'DELETE', ...auth });
 // Generic call through the session-aware client (silent refresh on 401).
 // Pages that fetch() directly bypass token rotation — use this instead.
@@ -190,4 +191,24 @@ export const api = {
   createCredential: (accountId, name, kind, secret, a) => post('/v1/credentials', { accountId, name, kind, secret }, a),
   deleteCredential: (id, a) => del(`/v1/credentials/${encodeURIComponent(id)}`, a),
   agent: (question, history, a) => post('/v1/ai/agent', { question, history }, a),
+  // ---- SynapseLDS (linked data service) ----
+  ldsLicenses: (a) => get('/v1/lds/licenses', a),
+  ldsDatasources: (a) => get('/v1/lds/datasources', a),
+  ldsCreateDatasource: (body, a) => post('/v1/lds/datasources', body, a),
+  ldsDatasource: (id, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}`, a),
+  ldsUpdateDatasource: (id, body, a) => patch(`/v1/lds/datasources/${encodeURIComponent(id)}`, body, a),
+  ldsDeleteDatasource: (id, a) => del(`/v1/lds/datasources/${encodeURIComponent(id)}`, a),
+  ldsAttributes: (id, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}/attributes`, a),
+  ldsSetAttributes: (id, attributes, a) => put(`/v1/lds/datasources/${encodeURIComponent(id)}/attributes`, { attributes }, a),
+  ldsIngest: (id, payload, a) => post(`/v1/lds/datasources/${encodeURIComponent(id)}/records`, payload, a),
+  ldsEntities: (id, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/lds/datasources/${encodeURIComponent(id)}/entities${s ? `?${s}` : ''}`, a);
+  },
+  ldsEntity: (id, entityId, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}/entities/${encodeURIComponent(entityId)}`, a),
+  ldsStats: (id, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}/stats`, a),
 };

@@ -117,7 +117,11 @@ body {
 
 /* Page enter transition — applied to Suspense fallbacks + pages */
 .sdx-page-enter {
-  animation: sdx-page-in 0.22s ease-out both;
+  /* NOTE: no fill-mode — `both`/`forwards` would freeze `transform: translateY(0)`
+     on <main> forever, and ANY transform turns <main> into the containing block
+     for `position: fixed` children (modals/overlays stopped covering the
+     viewport and tall modals were pushed above the top edge). */
+  animation: sdx-page-in 0.22s ease-out;
 }
 
 .sdx-fade-in {

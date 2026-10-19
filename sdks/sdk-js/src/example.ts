@@ -10,5 +10,6 @@ async function main() {
   console.log('login ok:', login.user?.email);
   c.setToken(login.accessToken);
   console.log(await c.listOrgs());
+  console.log('lds datasources:', await c.ldsDatasources());
 }
 main().catch((e) => { console.error(e); process.exit(1); });

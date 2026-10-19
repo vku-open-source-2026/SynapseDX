@@ -94,6 +94,23 @@ export const GROUPS = [
     ],
   },
   {
+    name: 'Linked Data (SynapseLDS)',
+    endpoints: [
+      { method: 'GET', path: '/v1/lds/licenses', auth: 'either', desc: 'Built-in open-data license catalog (SPDX ids + canonical URLs)' },
+      { method: 'GET', path: '/v1/lds/datasources', auth: 'either', desc: 'Datasources you can see (?orgId&accountId)' },
+      { method: 'POST', path: '/v1/lds/datasources', auth: 'either', desc: 'Create a datasource (license required; LicenseRef-* needs licenseUrl)', body: { name: 'Business Registry', entityType: 'Organization', license: 'CC-BY-4.0', contexts: ['https://data.example.vn/context/organization.jsonld'] } },
+      { method: 'GET', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Datasource + attribute registry + stats' },
+      { method: 'PATCH', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Update name/license/contexts/visibility', body: { license: 'ODbL-1.0' } },
+      { method: 'DELETE', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Delete a datasource (registry + records cascade)' },
+      { method: 'GET', path: '/v1/lds/datasources/:id/attributes', auth: 'either', desc: 'Attribute registry (schema)' },
+      { method: 'PUT', path: '/v1/lds/datasources/:id/attributes', auth: 'either', desc: 'Replace the registry; reserved names rejected (default deny)', body: { attributes: [{ name: 'name', ngsiLdType: 'Property', visibility: 'public' }] } },
+      { method: 'POST', path: '/v1/lds/datasources/:id/records', auth: 'either', desc: 'Ingest record(s) — reserved fields quarantined, id → _core.sourceRecordId', body: { id: '55001', name: 'Công ty ABC' } },
+      { method: 'GET', path: '/v1/lds/datasources/:id/entities', auth: 'either', desc: 'NGSI-LD export (?limit 1..500&offset&visibility=public|restricted; Link rel=license)' },
+      { method: 'GET', path: '/v1/lds/datasources/:id/entities/:entityId', auth: 'either', desc: 'One NGSI-LD entity (projection allowlist)' },
+      { method: 'GET', path: '/v1/lds/datasources/:id/stats', auth: 'either', desc: 'Record count + visibility buckets' },
+    ],
+  },
+  {
     name: 'Ops',
     endpoints: [
       { method: 'GET', path: '/health', auth: 'none', desc: 'Liveness per service + gateway' },

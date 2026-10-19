@@ -3,6 +3,76 @@
 All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
+## [0.4.0] - 2026-10-18
+### Added — SynapseLDS (linked data service)
+- New `apps/lds-service` (:4004, gateway `/v1/lds`, auth `either`): licensed
+  NGSI-LD datasources with an attribute schema registry
+  (`Property|Relationship|GeoProperty`; visibility `public|restricted|internal`),
+  record ingest with quarantine reporting, stats, and JSON-LD exports that carry
+  `X-LDS-License: <SPDX>` + `Link: <licenseUrl>; rel="license"`.
+- Security by construction (spec: `docs/specs/synapsedx-lds.md`): records store
+  `{_core, entity, attributes}`; the projector is a **structural allowlist**
+  (it never reads `_core`, so future metadata cannot leak); unregistered fields
+  default-deny (stored but never exported); reserved names
+  (`id/type/@context/internalId/tenantId/…`) are rejected at registration and
+  quarantined at ingest; restricted exports require an authenticated caller in
+  the datasource org.
+- Hardened after an independent QA review (all fix points covered by tests and
+  live production audits): datasource listing is principal-scoped (query params
+  can only narrow — no cross-tenant enumeration, incl. API-key principals);
+  org-bound/account-bound rows 404 outside their tenant (only unbound dev rows
+  are platform-scoped); account principals can never create into an org; the
+  ingest summary no longer echoes `_core` ids; the license URL rides inside the
+  export `@context` as well as the headers; escaped entity ids fetch correctly;
+  `limit/offset` and malformed bodies return `400` (never silent clamps or
+  500s); restricted exports are `Cache-Control: private, no-store`; registry
+  entries inherit `defaultVisibility`; webhook/cron runs execute as the
+  workflow's tenant principal (SynapseLDS publishes stay tenant-scoped);
+  `synapsedx.api` required args are validated at save time; prototype-chain
+  attribute names are rejected; Postgres record versions bump atomically.
+- **Anonymous public export channel** (spec "public = anyone reaching the
+  API"): gateway wildcard routes `/v1/lds/licenses` and
+  `/v1/lds/datasources/:id/entities[/:entityId]` are `auth: none` and stamp an
+  internal `x-synapsedx-anon` marker; LDS serves anonymous callers only the
+  public projection (license surfacing included) and answers `401
+  auth_required` for every write, the registry, stats, listing and
+  `?visibility=restricted`. A verifying Bearer token is honoured as optional
+  auth on public routes (same-tenant restricted queries keep working through
+  the same URL). Callers from a different tenant still get `404`
+  (existence stays private); the ingest/export copyable URL in the console now
+  works without a session. Gateway route syntax gains one-segment `*`
+  wildcards (specificity-scored; exclusive proxy matching).
+- Beyond the checklist: the workflow engine rejects trigger-less definitions
+  at save time (no more "active but dead" workflows; test-run sandboxes opt
+  out), the console pre-validates the create wizard against the server
+  contract with actionable messages, the schema "Saved" confirmation survives
+  the post-save refresh, and monitoring now scrapes `lds:4004/metrics`
+  (`synapsedx_lds_*`) + `workflow:4002/metrics` alongside the gateway.
+
+### Fixed
+- Console overlays (New-datasource modal, workflow editor, code editor): the
+  page-enter animation froze `transform: translateY(0)` on `<main>`, which made
+  `<main>` the containing block for every `position: fixed` child — tall modals
+  opened partly above the top edge (title and first fields unreachable, backdrop
+  not covering the page) and full-screen editors stopped covering the sidebar.
+  The animation no longer fill-forwards its transform and modals portal to
+  `<body>`, so overlays always cover the viewport; `Input` also merges a caller
+  `className` again instead of dropping it.
+- Prod edge (`infra/prod/*.conf`, `infra/tls/nginx-tls.conf`): upstreams resolve
+  dynamically via Docker's embedded DNS, so recreating `console`/`gateway`
+  (new container IP) no longer leaves the edge serving `502`s from a stale
+  upstream until the next nginx restart/reload.
+- License catalog built in (CC0-1.0, PDDL-1.0, CC-BY-4.0, CC-BY-SA-4.0,
+  ODbL-1.0, LicenseRef-Proprietary) — the user picks one per datasource.
+- Workflow integration: `synapsedx.api` resource `lds`
+  (`list-datasources`, `publish-record`) + template `webhook-to-lds`.
+- Console: **Linked Data** page — datasource create with license picker, schema
+  editor with visibility, JSON ingest, NGSI-LD preview, copyable export URL.
+- Clients at 0.4.0: JS/Python/Go SDKs and the CLI gain full LDS support;
+  gateway `/ready` aggregates lds; compose ships `synapsedx/lds:0.4.0`
+  (all images bumped to 0.4.0); e2e `api-check.sh` covers the LDS flow incl.
+  a metadata-leak assertion.
+
 ## [Unreleased]
 ### Changed — workflow engine replaced (BREAKING from n8n)
 - Removed n8n (SUL) from the default stack: `workflow-service` now runs its own

@@ -1290,6 +1290,7 @@ const SYNAPSEDX_API = {
   workflows: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Workflows you can access' },
   executions: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Run history (list accepts workflowId/status/limit)' },
   templates: { ops: ['list', 'get'], fields: { list: [], get: ['name'] }, hint: 'Built-in starters' },
+  lds: { ops: ['list-datasources', 'publish-record'], fields: { 'list-datasources': [], 'publish-record': ['datasourceId'] }, hint: 'SynapseLDS: list datasets, or publish a record (=record in Advanced JSON, e.g. ={{ $json }})' },
 };
 
 function SynapseDXApiForm({ params, onPatch }) {
