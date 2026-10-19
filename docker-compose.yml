@@ -140,6 +140,7 @@ services:
       OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-change_me_oidc_secret}
       OIDC_STATE_SECRET: ${OIDC_STATE_SECRET:-}
       OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-http://localhost:3000/oidc/callback}
+      OIDC_ALLOWED_ORGS: ${OIDC_ALLOWED_ORGS:-}
     ports:
       - "${IAM_HOST_PORT:-4001}:4001"
     healthcheck:

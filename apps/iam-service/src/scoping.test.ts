@@ -8,6 +8,7 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import { createApp } from './index';
+import { verifyAccess } from './tokens';
 
 describe('iam cross-tenant scoping', () => {
   let base = '';
@@ -30,6 +31,7 @@ describe('iam cross-tenant scoping', () => {
   let acc1 = '';
   let acc2 = '';
   let user1 = '';
+  let user2 = '';
   let role1 = '';
   let pol1 = '';
   let role2 = '';
@@ -73,6 +75,7 @@ describe('iam cross-tenant scoping', () => {
               const login2 = await post('/v1/auth/login', { email: 'other@test.local', orgSlug: 'otherorg' }, '');
               assert.equal(login2.status, 200);
               token2 = login2.json.accessToken;
+              user2 = login2.json.user.id;
               org2 = login2.json.user.org_id;
               const mk2 = async (path: string, body: any) => {
                 const r = await post(path, body, token2);
@@ -168,6 +171,9 @@ describe('iam cross-tenant scoping', () => {
     const ok = await post(`/v1/service-accounts/${sa1}/token`, {}, token);
     assert.equal(ok.status, 200);
     assert.ok(ok.json.accessToken);
+    // #8: an omitted scopes list falls back to the caller's own scopes — a
+    // user JWT holds none, so the minted token must not carry wildcards.
+    assert.deepEqual(verifyAccess(ok.json.accessToken).scopes, []);
     const saX = await mkSa(accX, token2);
     const denied = await post(`/v1/service-accounts/${saX}/token`, {}, token);
     assert.equal(denied.status, 403);
@@ -263,6 +269,50 @@ describe('iam cross-tenant scoping', () => {
     assert.equal(own.status, 200);
   });
 
+  it('cross-tenant reads are denied (#7)', async () => {
+    // Org listing only ever shows the caller's own org.
+    const orgs1: any = await (await fetch(`${base}/v1/orgs`, { headers: H(token) })).json();
+    assert.deepEqual(orgs1.map((o: any) => o.id), [org1]);
+    const orgs2: any = await (await fetch(`${base}/v1/orgs`, { headers: H(token2) })).json();
+    assert.deepEqual(orgs2.map((o: any) => o.id), [org2]);
+    // Org-scoped reads: own → 200, foreign → 403.
+    assert.equal((await fetch(`${base}/v1/orgs/${org1}/accounts`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/orgs/${org1}/users`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/orgs/${org2}/accounts`, { headers: H(token) })).status, 403);
+    assert.equal((await fetch(`${base}/v1/orgs/${org2}/users`, { headers: H(token) })).status, 403);
+    // Account-scoped reads.
+    assert.equal((await fetch(`${base}/v1/accounts/${acc1}/roles`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/accounts/${acc1}/policies`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/accounts/${acc1}/service-accounts`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/accounts/${accX}/roles`, { headers: H(token) })).status, 403);
+    assert.equal((await fetch(`${base}/v1/accounts/${accX}/policies`, { headers: H(token) })).status, 403);
+    assert.equal((await fetch(`${base}/v1/accounts/${accX}/service-accounts`, { headers: H(token) })).status, 403);
+    // Role → policies (full policy documents are tenant data).
+    assert.equal((await fetch(`${base}/v1/roles/${role1}/policies`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/roles/${roleX}/policies`, { headers: H(token) })).status, 403);
+    // User → policies/roles.
+    assert.equal((await fetch(`${base}/v1/users/${user1}/policies`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/users/${user1}/roles`, { headers: H(token) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/users/${user2}/policies`, { headers: H(token) })).status, 403);
+    assert.equal((await fetch(`${base}/v1/users/${user2}/roles`, { headers: H(token) })).status, 403);
+  });
+
+  it('audit rows are tenant-scoped (#7)', async () => {
+    const tag = `leak-${Date.now()}`;
+    const dry = { documents: [{ Version: '2026-01-01', Statement: [{ Effect: 'Allow', Action: tag, Resource: '*' }] }], action: tag, resource: '*' };
+    assert.equal((await post('/v1/authorize/dry-run', dry, token)).status, 200);
+    const mine: any = await (await fetch(`${base}/v1/audit?limit=200`, { headers: H(token) })).json();
+    assert.ok(mine.some((r: any) => r.action === tag), 'own dry-run row visible');
+    const theirs: any = await (await fetch(`${base}/v1/audit?limit=200`, { headers: H(token2) })).json();
+    assert.ok(!theirs.some((r: any) => r.action === tag), 'foreign dry-run rows hidden');
+    // Authorize rows follow the target user's org (here: org1).
+    assert.equal((await post('/v1/authorize', { userId: user1, action: tag, resource: '*' }, token)).status, 200);
+    const mine2: any = await (await fetch(`${base}/v1/audit?limit=200`, { headers: H(token) })).json();
+    assert.ok(mine2.some((r: any) => r.action === tag && r.actor_id === user1));
+    const theirs2: any = await (await fetch(`${base}/v1/audit?limit=200`, { headers: H(token2) })).json();
+    assert.ok(!theirs2.some((r: any) => r.action === tag));
+  });
+
   it('attach/assign malformed ids → 400 (not 404)', async () => {
     assert.equal((await post(`/v1/roles/${role1}/attach`, { policyId: 'nope' }, token)).json.error, 'invalid_policyId');
     assert.equal((await post(`/v1/roles/${role1}/attach`, { policyId: 123 }, token)).status, 400);
@@ -284,6 +334,33 @@ describe('iam cross-tenant scoping', () => {
       method: 'POST', headers: KH, body: JSON.stringify({ scopes: ['workflow:Execute'] }),
     });
     assert.equal(narrow.status, 200);
+    assert.deepEqual(verifyAccess((await narrow.json()).accessToken).scopes, ['workflow:Execute']);
+    // Omitted body → delegate the caller's own scopes (never widened).
+    const omitted = await fetch(`${base}/v1/service-accounts/${sa.json.id}/token`, {
+      method: 'POST', headers: KH, body: JSON.stringify({}),
+    });
+    assert.equal(omitted.status, 200);
+    assert.deepEqual(verifyAccess((await omitted.json()).accessToken).scopes, ['workflow:Execute']);
+  });
+
+  it('minting scopes the caller does not hold → 403 scope_escalation (#8)', async () => {
+    const fresh = await post('/v1/auth/login', { email: 'scoper@test.local', orgSlug: 'scopeorg' }, '');
+    assert.equal(fresh.status, 200);
+    const ft = fresh.json.accessToken;
+    const sa = await post(`/v1/accounts/${acc1}/service-accounts`, { slug: 'sa-scope-fresh' }, ft);
+    assert.equal(sa.status, 201);
+    // Explicit requested scopes must be a subset of the caller's authority: a
+    // role-less user JWT has none.
+    const explicit = await post(`/v1/service-accounts/${sa.json.id}/token`, { scopes: ['workflow:Execute'] }, ft);
+    assert.equal(explicit.status, 403);
+    assert.equal(explicit.json.error, 'scope_escalation');
+    const wild = await post(`/v1/service-accounts/${sa.json.id}/token`, { scopes: ['*'] }, ft);
+    assert.equal(wild.status, 403);
+    assert.equal(wild.json.error, 'scope_escalation');
+    // Omitted scopes stay allowed (console compatibility) but yield no authority.
+    const ok = await post(`/v1/service-accounts/${sa.json.id}/token`, {}, ft);
+    assert.equal(ok.status, 200);
+    assert.deepEqual(verifyAccess(ok.json.accessToken).scopes, []);
   });
 
   it('foreign-org account key list → 403 forbidden', async () => {
