@@ -545,9 +545,7 @@ class SynapseDXClient:
             patch["orgId"] = org_id
         if account_id is not None:
             patch["accountId"] = account_id
-        return self._req(
-            "PATCH", f"/v1/lds/datasources/{quote(ds_id, safe='')}", patch
-        )
+        return self._req("PATCH", f"/v1/lds/datasources/{quote(ds_id, safe='')}", patch)
 
     def delete_lds_datasource(self, ds_id: str) -> dict:
         """Delete a datasource."""
@@ -618,9 +616,7 @@ class SynapseDXClient:
 
     def get_lds_datasource_stats(self, ds_id: str) -> dict:
         """Fetch a datasource's ingestion stats."""
-        return self._req(
-            "GET", f"/v1/lds/datasources/{quote(ds_id, safe='')}/stats"
-        )
+        return self._req("GET", f"/v1/lds/datasources/{quote(ds_id, safe='')}/stats")
 
 
 def trigger_webhook(

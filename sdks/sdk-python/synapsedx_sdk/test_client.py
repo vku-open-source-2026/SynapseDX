@@ -408,9 +408,7 @@ def test_lds_ingest_records_single_list_and_envelope():
             "records": [{"id": "Park:1"}, {"id": "Park:2"}]
         }, _seen
         c.ingest_lds_records("d1", {"records": [{"id": "Park:3"}]})
-        assert json.loads(_seen["body"]) == {
-            "records": [{"id": "Park:3"}]
-        }, _seen
+        assert json.loads(_seen["body"]) == {"records": [{"id": "Park:3"}]}, _seen
     finally:
         srv.shutdown()
 
