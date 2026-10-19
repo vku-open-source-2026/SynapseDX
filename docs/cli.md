@@ -674,6 +674,35 @@ synapsedx executions exe_abc123
 synapsedx executions exe_abc123 --include-data
 ```
 
+### Linked Data (SynapseLDS)
+
+Publish licensed NGSI-LD open data. Reserved attribute names (id, type, @context,
+internalId, tenantId, …) are rejected with `400 reserved_attribute`; unregistered
+fields are stored but never exported (default deny — register them with `public`
+visibility first). `_core` metadata never appears in any response.
+
+```bash
+synapsedx lds licenses
+synapsedx lds datasources list [--org <orgId>] [--account <accountId>]
+synapsedx lds datasources create --name "Business Registry" --entity-type Organization \
+  --license CC-BY-4.0 [--slug business-registry] \
+  [--context https://data.example.vn/context/organization.jsonld]... [--visibility internal|public]
+synapsedx lds datasources get <id> | update <id> [--license ODbL-1.0] | delete <id>
+synapsedx lds attributes list <id>
+synapsedx lds attributes set <id> --file attributes.json   # [{name, ngsiLdType, visibility}]
+synapsedx lds ingest <id> --file record.json               # {"id":"55001","name":"ACME"}
+synapsedx lds entities <id> [--limit 20] [--offset 0] [--visibility public|restricted]
+synapsedx lds entity <id> <entityId>
+synapsedx lds stats <id>
+```
+
+`entities`/`entity` print pretty NGSI-LD JSON (each entity carries `@context`,
+and responses come back with `X-LDS-License` + `Link rel="license"`). The
+export read surface (`lds licenses`, `lds entities`, `lds entity`) is **public
+open data**: without any login it serves the public projection — that is the
+endpoint open-data consumers use. `--visibility restricted` needs a same-tenant
+session (other tenants only get `404`; no token + restricted → `401`).
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

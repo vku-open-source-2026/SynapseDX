@@ -70,3 +70,20 @@ routes:
     # agent room instead of cutting it off at the 30s global default.
     timeoutMs: 120000
 
+  # SynapseLDS — linked data service (NGSI-LD datasources + licensed exports).
+  # SynapseLDS public (anonymous) read surface — spec: public = "anyone reaching
+  # the API". LDS enforces GET/HEAD-only + public-only projection for anonymous
+  # callers (gateway-stamped x-synapsedx-anon marker; management routes stay
+  # authenticated via the /v1/lds rule below).
+  - path: /v1/lds/licenses
+    target: ${LDS_SERVICE_URL:http://lds:4004}
+    auth: none
+
+  - path: /v1/lds/datasources/*/entities/*
+    target: ${LDS_SERVICE_URL:http://lds:4004}
+    auth: none
+
+  - path: /v1/lds
+    target: ${LDS_SERVICE_URL:http://lds:4004}
+    auth: either
+

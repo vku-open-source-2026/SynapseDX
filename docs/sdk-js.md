@@ -538,6 +538,33 @@ Normalizes a raw `GET /v1/executions` payload (envelope `{data: []}` or bare
 array) to an array. `listExecutions()` already applies it — use it when you
 `fetch()` the endpoint yourself.
 
+### Linked Data (SynapseLDS)
+
+```ts
+const licenses = await c.ldsLicenses();
+const ds = await c.ldsCreateDatasource({ name: 'Business Registry', entityType: 'Organization', license: 'CC-BY-4.0' });
+await c.ldsSetAttributes(ds.id, [
+  { name: 'name', ngsiLdType: 'Property', visibility: 'public' },
+  { name: 'taxCode', visibility: 'restricted' },
+]);
+const res = await c.ldsIngest(ds.id, { id: '55001', name: 'ACME' });  // object or array
+const entities = await c.ldsEntities(ds.id, { limit: 50 });           // NGSI-LD JSON-LD
+await c.ldsDatasource(ds.id);
+await c.ldsStats(ds.id);
+await c.ldsEntity(ds.id, entities[0].id);
+await c.ldsUpdateDatasource(ds.id, { license: 'ODbL-1.0' });
+await c.ldsDeleteDatasource(ds.id);
+```
+
+`_core` metadata is never serialized; attributes without a registry entry (or
+not visible to the caller) are omitted from `ldsEntities`. The **public export
+surface is anonymous**: `GET /v1/lds/licenses` and
+`GET /v1/lds/datasources/:id/entities[/:entityId]` need no token (anyone can
+consume the public projection, license surfacing included). A set token is
+honoured as optional auth there — same-org callers may request
+`{ visibility: 'restricted' }`; other-tenant callers only get `404`.
+Management calls above still require a session or API key.
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

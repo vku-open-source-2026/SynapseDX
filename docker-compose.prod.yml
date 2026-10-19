@@ -33,6 +33,12 @@ services:
       HSTS_ENABLED: "true"
     ports: !reset []
 
+  lds:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+    ports: !reset []
+
   prometheus:
     ports: !reset []
 
@@ -44,7 +50,7 @@ services:
   nginx:
     build:
       context: ./infra/prod
-    image: synapsedx/edge:0.3.1
+    image: synapsedx/edge:0.4.0
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-synapsedx.sbs}

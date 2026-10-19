@@ -3,6 +3,7 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Spinner, TableSkeleton as TableSkeletonBase, ListSkeleton, InlineLoader } from './loading.jsx';
 
 export { Spinner, InlineLoader, ListSkeleton, TableSkeletonBase as TableSkeleton };
@@ -55,11 +56,11 @@ export function Field({ label, children }) {
   );
 }
 
-export function Input(props) {
+export function Input({ className = '', ...rest }) {
   return (
     <input
-      {...props}
-      className="w-full px-3 py-2 rounded-2xl border border-slate-200 text-sm text-main-text outline-none focus:border-main-blue"
+      {...rest}
+      className={`w-full px-3 py-2 rounded-2xl border border-slate-200 text-sm text-main-text outline-none focus:border-main-blue ${className}`}
     />
   );
 }
@@ -157,8 +158,13 @@ export function Modal({ title, onClose, children }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+  const overlay = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+      onClick={onClose}
+    >
       <div
         className="bg-white rounded-3xl shadow-md p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
@@ -173,6 +179,12 @@ export function Modal({ title, onClose, children }) {
       </div>
     </div>
   );
+  // Portal to <body>: a `fixed inset-0` overlay must never be trapped by an
+  // ancestor with a transform or overflow (page-enter animations, scroll
+  // containers) — it always needs to cover the full viewport and centre
+  // against it, not against the page column.
+  if (typeof document === 'undefined') return overlay; // SSR safety (ssr-smoke)
+  return createPortal(overlay, document.body);
 }
 
 // Editor test-output convention (WorkflowEditor.jsx): never mount more than a

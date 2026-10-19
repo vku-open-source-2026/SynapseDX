@@ -2,7 +2,10 @@
 
 SynapseDX ships with metrics out of the box: the gateway exposes Prometheus
 metrics at `GET /metrics` (`gateway_requests_total` + Node runtime metrics),
-and compose adds Prometheus (scrape + graph/alerts UI) + PG/Redis exporters.
+`lds-service` exposes `synapsedx_lds_http_requests_total` +
+`synapsedx_lds_datasources_total` / `synapsedx_lds_records_total`,
+`workflow-service` exposes `synapsedx_workflow_runs_total`, and compose adds
+Prometheus (scrape + graph/alerts UI) + PG/Redis exporters.
 
 ## Run
 
@@ -16,12 +19,14 @@ open http://localhost:9091  # Prometheus graph + /alerts + /targets
 | Job | Target | Source |
 |---|---|---|
 | `gateway` | `gateway:8080/metrics` | `prom-client` in `apps/gateway` |
+| `workflow` | `workflow:4002/metrics` | in-process counters in `apps/workflow-service` |
+| `lds` | `lds:4004/metrics` | in-process counters in `apps/lds-service` |
 | `postgres` | `postgres-exporter:9187` | `prometheuscommunity/postgres-exporter` |
 | `redis` | `redis-exporter:9121` | `oliver006/redis_exporter` |
 | `prometheus` | self | built-in |
 
 Config: `infra/monitoring/prometheus/prometheus.yml` (mounted read-only —
-`docker compose up -d prometheus` to reload). Alert rules in
+`docker compose restart prometheus` to pick up config changes). Alert rules in
 `infra/monitoring/prometheus/alerts.yml` (`GatewayDown`, `PostgresDown`,
 `RedisDown` — visible on Prometheus `/alerts`; wire Alertmanager when needed).
 

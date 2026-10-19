@@ -372,6 +372,42 @@ describe('engine: synapsedx.api first-party block', () => {
     assert.equal(missing.status, 'error');
     assert.match(missing.error || '', /needs 'orgId'/);
   });
+  it('validates required args at save time too (templates are allowed)', () => {
+    assert.match(validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: {} }) || '', /needs 'datasourceId'/);
+    assert.match(validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '  ' } }) || '', /needs 'datasourceId'/);
+    assert.equal(
+      validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } }),
+      null,
+    );
+    assert.equal(validateSynapseDXParams({ resource: 'orgs', operation: 'list', input: {} }), null);
+  });
+  it('supports the lds.publish-record resource with templated args (SynapseLDS)', async () => {
+    let seen: any = null;
+    const input = { ds: 'ds-1', id: '55001', name: 'ACME' };
+    const r = await runWorkflow(
+      defOf({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.ds }}', record: '={{ $json }}' } }),
+      input,
+      { synapsedxCall: async (resource, operation, args) => { seen = { resource, operation, args }; return { ingested: 1, created: 1 }; } },
+    );
+    assert.equal(r.status, 'success');
+    assert.equal(seen.resource, 'lds');
+    assert.equal(seen.operation, 'publish-record');
+    assert.equal(seen.args.datasourceId, 'ds-1');
+    // a full-object template passes the whole payload through as the record
+    assert.deepEqual(seen.args.record, input);
+    assert.deepEqual(r.output, { ingested: 1, created: 1 });
+    // datasourceId stays required at run time
+    const missing = await runWorkflow(defOf({ resource: 'lds', operation: 'publish-record', input: { record: '={{ $json }}' } }), input, {
+      synapsedxCall: async () => { throw new Error('must not be called'); },
+    });
+    assert.equal(missing.status, 'error');
+    assert.match(missing.error || '', /needs 'datasourceId'/);
+    // list-datasources needs no args
+    const list = await runWorkflow(defOf({ resource: 'lds', operation: 'list-datasources', input: {} }), {}, {
+      synapsedxCall: async () => ([{ id: 'ds-1', license: 'CC-BY-4.0' }]),
+    });
+    assert.equal(list.status, 'success');
+  });
   it('caps oversized responses', async () => {
     const r = await runWorkflow(defOf({ resource: 'orgs', operation: 'list', input: {} }), {}, {
       synapsedxCall: async () => ({ s: 'x'.repeat(600 * 1024) }),

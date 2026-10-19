@@ -28,6 +28,7 @@ const ROUTES = [
   '/keys',
   '/service-accounts',
   '/workflows',
+  '/lds',
   '/authorize',
   '/audit',
   '/api-docs',
@@ -50,6 +51,7 @@ const GUARDED = new Set([
   '/keys',
   '/service-accounts',
   '/workflows',
+  '/lds',
   '/authorize',
   '/audit',
 ]);

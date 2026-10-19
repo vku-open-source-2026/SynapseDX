@@ -5,7 +5,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
-import { findRoute, expandEnv, propagatePrincipal, RouteRule, createApp, verifyApiKeyUpstream } from './index';
+import { findRoute, expandEnv, propagatePrincipal, compileRoutePath, RouteRule, createApp, verifyApiKeyUpstream } from './index';
 
 const routes: RouteRule[] = [
   { path: '/v1/auth', target: 'http://iam:4001', auth: 'none' },
@@ -32,6 +32,60 @@ describe('findRoute', () => {
       { path: '/v1/workflows', target: 'x', auth: 'either' },
     ];
     assert.equal(findRoute(rs, '/v1/workflows/123/execute')?.target, 'http://workflow:4002');
+  });
+});
+
+describe('wildcard routes (LDS public export surface)', () => {
+  const rs: RouteRule[] = [
+    { path: '/v1/lds', target: 'http://lds:4004', auth: 'either' },
+    { path: '/v1/lds/licenses', target: 'http://lds:4004', auth: 'none' },
+    { path: '/v1/lds/datasources/*/entities/*', target: 'http://lds:4004', auth: 'none' },
+    ...routes,
+  ];
+  for (const r of rs) (r as any).compiled = compileRoutePath(r.path);
+
+  it('single wildcard segment matches one path segment only', () => {
+    assert.equal(findRoute(rs, '/v1/lds/datasources/abc-123/entities')?.auth, 'none');
+    assert.equal(findRoute(rs, '/v1/lds/datasources/abc-123/entities/urn%3Ax%3Ay')?.auth, 'none');
+    assert.equal(findRoute(rs, '/v1/lds/datasources/abc-123/entities/e1/extra')?.auth, 'none');
+    // siblings and nested ids stay on the authenticated rule
+    assert.equal(findRoute(rs, '/v1/lds/datasources/abc-123/records')?.auth, 'either');
+    assert.equal(findRoute(rs, '/v1/lds/datasources/abc-123/attributes')?.auth, 'either');
+    assert.equal(findRoute(rs, '/v1/lds/datasources')?.auth, 'either');
+    // wildcard must not eat empty or multi segments
+    assert.equal(findRoute(rs, '/v1/lds/datasources//entities')?.auth, 'either');
+    assert.equal(findRoute(rs, '/v1/lds/datasources/a/b/entities')?.auth, 'either');
+  });
+  it('static route shadows the generic prefix for licenses', () => {
+    assert.equal(findRoute(rs, '/v1/lds/licenses')?.auth, 'none');
+    assert.equal(findRoute(rs, '/v1/lds/licenses/sub')?.auth, 'none');
+  });
+  it('non-matching shapes fall through', () => {
+    assert.equal(findRoute(rs, '/v1/lds')?.path, '/v1/lds'); // exact hit on the generic rule
+    assert.equal(findRoute(rs, '/v1/ldsz')?.path, undefined);
+    // unknown subpaths under /v1/lds/* stay on the authenticated generic rule
+    assert.equal(findRoute(rs, '/v1/lds/licenses-extra')?.path, '/v1/lds');
+  });
+  it('compileRoutePath validates malformed wildcard patterns', () => {
+    assert.throws(() => compileRoutePath('/x/*//y'));
+    assert.throws(() => compileRoutePath('x/*'));
+  });
+});
+
+describe('propagatePrincipal: anonymous marker', () => {
+  it('stamps anon marker only for auth:none routes without a principal', () => {
+    const pub: any = { headers: { 'x-synapsedx-anon': 'spoof' }, synapsedxRoute: { auth: 'none' } };
+    propagatePrincipal(pub);
+    assert.equal(pub.headers['x-synapsedx-anon'], '1');
+    const authed: any = { headers: { 'x-synapsedx-anon': 'spoof' }, synapsedxRoute: { auth: 'either' } };
+    propagatePrincipal(authed);
+    assert.equal(authed.headers['x-synapsedx-anon'], undefined);
+    const withP: any = { headers: {}, principal: { type: 'jwt', sub: 'u' }, synapsedxRoute: { auth: 'either' } };
+    propagatePrincipal(withP);
+    assert.equal(withP.headers['x-synapsedx-anon'], undefined);
+    const platformDirect: any = { headers: {}, synapsedxRoute: undefined };
+    propagatePrincipal(platformDirect);
+    assert.equal(platformDirect.headers['x-synapsedx-anon'], undefined);
   });
 });
 

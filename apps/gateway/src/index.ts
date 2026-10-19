@@ -71,18 +71,63 @@ export interface RouteRule {
   /** Per-route proxy timeout (ms). LLM-backed routes legitimately need longer
    *  than the 30s default (retried model calls); unset = global default. */
   timeoutMs?: number;
+  /** Compiled matcher cache (set by loadRoutes / createApp validation). */
+  compiled?: { match: (pathname: string) => boolean; specificity: number };
 }
 
 export function expandEnv(s: string): string {
   return s.replace(/\$\{([^:}]+)(?::([^}]*))?\}/g, (_, k, d) => process.env[k] ?? d ?? '');
 }
 
-/** Longest-prefix match: /v1/orgs khớp /v1/orgs và /v1/orgs/..., không khớp /v1/organizations. */
+/**
+ * Route path syntax:
+ *  - static prefixes match exactly or as prefix (`/v1/orgs` + `/v1/orgs/...`,
+ *    không khớp `/v1/organizations`);
+ *  - a `*` segment matches exactly one non-empty path segment (slash-free);
+ *  - a trailing slash-star matches any remainder, including none, so the LDS
+ *    public rule covers both the export collection path and the single-entity
+ *    path below it — but never sibling resources like records or attributes.
+ * Specificity: more literal characters win, so static rules always shadow the
+ * shorter prefix they overlap with and wildcard rules shadow `/v1/lds` for
+ * their exact shape only.
+ */
+export function compileRoutePath(path: string): { match: (pathname: string) => boolean; specificity: number } {
+  if (!path.includes('*')) {
+    const match = (p: string) => p === path || p.startsWith(path + '/');
+    return { match, specificity: path.length };
+  }
+  if (/\/\//.test(path) || !path.startsWith('/')) throw new Error(`[gateway] invalid wildcard route path '${path}'`);
+  const segments = path.split('/');
+  let literal = 0;
+  let pattern = '^';
+  segments.forEach((seg, i) => {
+    if (i === 0) return;
+    if (seg === '*' && i === segments.length - 1) {
+      pattern += '(?:/.*)?';
+      literal += 1; // the slash itself
+    } else if (seg === '*') {
+      pattern += '/[^/]+';
+      literal += 1;
+    } else {
+      if (!seg) throw new Error(`[gateway] invalid wildcard route path '${path}' (empty segment)`);
+      pattern += '/' + seg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      literal += seg.length;
+    }
+  });
+  pattern += '$';
+  const re = new RegExp(pattern);
+  return { match: (p) => re.test(p), specificity: literal };
+}
+
 export function findRoute(routes: RouteRule[], pathname: string): RouteRule | undefined {
   let best: RouteRule | undefined;
+  let bestScore = -1;
   for (const r of routes) {
-    if (pathname === r.path || pathname.startsWith(r.path + '/')) {
-      if (!best || r.path.length > best.path.length) best = r;
+    const m = r.compiled || (r.compiled = compileRoutePath(r.path)); // compiled at load; lazily here for legacy callers
+    if (!m.match(pathname)) continue;
+    if (m.specificity > bestScore) {
+      best = r;
+      bestScore = m.specificity;
     }
   }
   return best;
@@ -110,7 +155,21 @@ function loadRoutes(): RouteRule[] {
 
 function authMiddleware(mode: RouteRule['auth']) {
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (mode === 'none') return next();
+    if (mode === 'none') {
+      // Public routes are anonymous, BUT a Bearer token that verifies is
+      // honoured as optional auth: LDS same-tenant restricted queries and
+      // tenant tools reuse the same export paths. An invalid/absent token
+      // stays anonymous (the upstream sees the anon marker) — public flows
+      // can never break on a stray Authorization header.
+      const h = String(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : (req.headers.authorization || ''));
+      if (h.startsWith('Bearer ')) {
+        try {
+          const decoded: any = jwt.verify(h.slice(7), JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
+          (req as any).principal = { type: 'jwt', sub: decoded.sub, org: decoded.org, account: decoded.account, scopes: decoded.scopes || [] };
+        } catch { /* anonymous */ }
+      }
+      return next();
+    }
     const h = String(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : (req.headers.authorization || ''));
     const hasBearer = h.startsWith('Bearer ');
     const apiKeyRaw = req.headers['x-api-key'] as string | string[] | undefined;
@@ -188,7 +247,11 @@ export async function verifyApiKeyUpstream(
   }
 }
 
-/** Xóa x-synapsedx-* do client gửi (chống spoof), ghi lại từ principal đã verify. */
+/** Xóa x-synapsedx-* do client gửi (chống spoof), ghi lại từ principal đã verify.
+ *  Auth:none routes: đánh dấu `x-synapsedx-anon: 1` để upstream phân biệt
+ *  khách ẩn danh công khai (public LDS export) với platform context nội bộ —
+ *  cả hai đều không có principal. Marker chỉ do gateway gắn, client gửi thêm
+ *  sẽ bị xóa trước. */
 export function propagatePrincipal(req: express.Request): void {
   const h = req.headers as Record<string, string | string[] | undefined>;
   delete h['x-synapsedx-user'];
@@ -197,24 +260,28 @@ export function propagatePrincipal(req: express.Request): void {
   delete h['x-synapsedx-scopes'];
   delete h['x-synapsedx-kind'];
   delete h['x-synapsedx-internal'];
+  delete h['x-synapsedx-anon'];
   // Service-to-service credential: downstream (iam/workflow) requires this header
   // when SYNAPSEDX_INTERNAL_SECRET is configured. Set AFTER stripping client input
   // but BEFORE the principal check — unauthenticated routes (/v1/auth/*) need it too.
   if (INTERNAL_SECRET) h['x-synapsedx-internal'] = INTERNAL_SECRET;
   const p = (req as any).principal;
-  if (!p) return;
-  if (p.type === 'jwt') {
+  if (p?.type === 'jwt') {
     if (p.sub) h['x-synapsedx-user'] = String(p.sub);
     if (p.org) h['x-synapsedx-org'] = String(p.org);
     if (p.account) h['x-synapsedx-account'] = String(p.account);
     if (Array.isArray(p.scopes) && p.scopes.length) h['x-synapsedx-scopes'] = p.scopes.join(',');
     h['x-synapsedx-kind'] = 'user';
-  } else if (p.type === 'apikey') {
+  } else if (p?.type === 'apikey') {
     h['x-synapsedx-kind'] = 'apikey';
     if ((p as any).account) h['x-synapsedx-account'] = String((p as any).account);
     if (Array.isArray((p as any).scopes) && (p as any).scopes.length) {
       h['x-synapsedx-scopes'] = (p as any).scopes.join(',');
     }
+  } else if ((req as any).synapsedxRoute?.auth === 'none') {
+    // Unauthenticated call on a public route → anonymous visitor marker.
+    // Platform context (internal ops, no marker) stays marker-less.
+    h['x-synapsedx-anon'] = '1';
   }
 }
 
@@ -303,19 +370,26 @@ export function createApp(): express.Express {
     const iamUrl = process.env.IAM_SERVICE_URL || 'http://iam:4001';
     const wfUrl = process.env.WORKFLOW_SERVICE_URL || 'http://workflow:4002';
     const aiUrl = process.env.AI_SERVICE_URL || 'http://ai:4003';
-    const [iam, workflow, ai] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl)]);
-    const allOk = iam.ok && workflow.ok && ai.ok;
-    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow, ai], time: new Date().toISOString() });
+    const ldsUrl = process.env.LDS_SERVICE_URL || 'http://lds:4004';
+    const [iam, workflow, ai, lds] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl), probe('lds', ldsUrl)]);
+    const allOk = iam.ok && workflow.ok && ai.ok && lds.ok;
+    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow, ai, lds], time: new Date().toISOString() });
   });
 
   const routes = loadRoutes();
-  // Fail fast on operator typos: unknown auth mode would 401 everything silently.
+  // Precompile matchers + fail fast on operator typos: unknown auth mode would
+  // 401 everything silently; malformed wildcard paths would throw mid-request.
   for (const r of routes) {
     if (!['none', 'jwt', 'apikey', 'either'].includes(r.auth)) {
       throw new Error(`[gateway] invalid auth mode '${r.auth}' for path '${r.path}' (want none|jwt|apikey|either)`);
     }
     if (typeof r.path !== 'string' || !r.path.startsWith('/')) {
       throw new Error(`[gateway] invalid route path '${r.path}' (must start with /)`);
+    }
+    try {
+      r.compiled = compileRoutePath(r.path);
+    } catch (e: any) {
+      throw new Error(`[gateway] ${e?.message || 'invalid route path'}`);
     }
     if (r.timeoutMs !== undefined && (!Number.isInteger(r.timeoutMs) || r.timeoutMs < 1000 || r.timeoutMs > 300000)) {
       throw new Error(`[gateway] invalid timeoutMs '${r.timeoutMs}' for path '${r.path}' (want 1000..300000)`);
@@ -361,8 +435,12 @@ export function createApp(): express.Express {
       const n = Number(process.env.PROXY_TIMEOUT_MS || 30000);
       return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 300000) : 30000;
     })();
+    // pathFilter = chuẩn theo cùng logic findRoute: mỗi request đúng MỘT proxy
+    // (exclusive match) — wildcard routes phải chiếm đúng shape của chúng mà
+    // không bị proxy prefix tổng ('/v1/lds') nhốt hết.
+    const routeMatcher = (pathname: string) => findRoute(routes, pathname) === r;
     const proxy = createProxyMiddleware({
-      pathFilter: r.path,
+      pathFilter: routeMatcher as any,
       target,
       changeOrigin: true,
       logLevel: 'warn',
@@ -399,6 +477,9 @@ export function createApp(): express.Express {
 }
 
 if (require.main === module) {
+  // 19+ routes → every proxy registers a close listener on the server; the
+  // default EventEmitter cap of 10 turns that into a scary warning per boot.
+  require('node:events').EventEmitter.defaultMaxListeners = 60;
   const app = createApp();
   const server = app.listen(PORT, () => console.log(`[gateway] listening on :${PORT}`));
   const shutdown = () => {

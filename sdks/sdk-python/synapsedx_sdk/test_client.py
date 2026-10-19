@@ -29,6 +29,9 @@ class Echo(BaseHTTPRequestHandler):
             self.path == "/v1/orgs"
             or self.path.startswith("/v1/executions")
             or self.path in ("/v1/templates", "/v1/workflows", "/v1/audit")
+            or self.path in ("/v1/lds/licenses", "/v1/lds/datasources")
+            or self.path.startswith("/v1/lds/datasources?")
+            or self.path.split("?")[0].endswith("/entities")
             or self.path.endswith(
                 (
                     "/accounts",
@@ -37,6 +40,7 @@ class Echo(BaseHTTPRequestHandler):
                     "/policies",
                     "/credentials",
                     "/service-accounts",
+                    "/attributes",
                 )
             )
         )
@@ -50,6 +54,28 @@ class Echo(BaseHTTPRequestHandler):
     do_GET = _send
     do_POST = _send
     do_PUT = _send
+    do_PATCH = _send
+    do_DELETE = _send
+
+    def log_message(self, *a):  # silent
+        pass
+
+
+class Failing(BaseHTTPRequestHandler):
+    """Always answers 500 with a JSON error body (HTTP error-mapping tests)."""
+
+    def _send(self):
+        payload = b'{"error":"boom"}'
+        self.send_response(500)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    do_GET = _send
+    do_POST = _send
+    do_PUT = _send
+    do_PATCH = _send
     do_DELETE = _send
 
     def log_message(self, *a):  # silent
@@ -58,6 +84,12 @@ class Echo(BaseHTTPRequestHandler):
 
 def _server():
     srv = HTTPServer(("127.0.0.1", 0), Echo)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def _failing_server():
+    srv = HTTPServer(("127.0.0.1", 0), Failing)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv
 
@@ -255,5 +287,169 @@ def test_credentials_crud_proposed_contract():
         c.delete_credential("c1")
         assert _seen["path"] == "/v1/credentials/c1", _seen
         assert _seen["method"] == "DELETE", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_list_licenses_returns_array():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        assert c.list_lds_licenses() == [], _seen
+        assert _seen["path"] == "/v1/lds/licenses", _seen
+        assert _seen["method"] == "GET", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_create_datasource_body():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.create_lds_datasource("parks", "Park", "CC-BY-4.0")
+        assert _seen["path"] == "/v1/lds/datasources", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {
+            "name": "parks",
+            "entityType": "Park",
+            "license": "CC-BY-4.0",
+        }, _seen
+        # Optional fields are only sent when passed.
+        c.create_lds_datasource(
+            "parks",
+            "Park",
+            "CC-BY-4.0",
+            slug="parks",
+            license_url="https://example.com/license",
+            contexts=["https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld"],
+            default_visibility="public",
+            description="city parks",
+            org_id="org1",
+            account_id="acct1",
+        )
+        assert json.loads(_seen["body"]) == {
+            "name": "parks",
+            "entityType": "Park",
+            "license": "CC-BY-4.0",
+            "slug": "parks",
+            "licenseUrl": "https://example.com/license",
+            "contexts": ["https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld"],
+            "defaultVisibility": "public",
+            "description": "city parks",
+            "orgId": "org1",
+            "accountId": "acct1",
+        }, _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_datasource_crud_paths():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        assert c.list_lds_datasources() == [], _seen
+        assert _seen["path"] == "/v1/lds/datasources", _seen
+        c.list_lds_datasources(org_id="o1", account_id="a1")
+        assert _seen["path"] == "/v1/lds/datasources?orgId=o1&accountId=a1", _seen
+        c.get_lds_datasource("d1")
+        assert _seen["path"] == "/v1/lds/datasources/d1", _seen
+        c.update_lds_datasource(
+            "d1", description="updated", default_visibility="restricted"
+        )
+        assert _seen["path"] == "/v1/lds/datasources/d1", _seen
+        assert _seen["method"] == "PATCH", _seen
+        assert json.loads(_seen["body"]) == {
+            "description": "updated",
+            "defaultVisibility": "restricted",
+        }, _seen
+        assert c.get_lds_datasource_stats("d1") == {"ok": True}, _seen
+        assert _seen["path"] == "/v1/lds/datasources/d1/stats", _seen
+        c.delete_lds_datasource("d1")
+        assert _seen["path"] == "/v1/lds/datasources/d1", _seen
+        assert _seen["method"] == "DELETE", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_set_attributes_puts_attribute_list():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        assert c.get_lds_datasource_attributes("d1") == [], _seen
+        assert _seen["path"] == "/v1/lds/datasources/d1/attributes", _seen
+        assert _seen["method"] == "GET", _seen
+        attrs = [
+            {"name": "name", "ngsiLdType": "Property", "visibility": "public"},
+            {"name": "capacity", "sourceField": "capacity_total"},
+        ]
+        c.set_lds_datasource_attributes("d1", attrs)
+        assert _seen["path"] == "/v1/lds/datasources/d1/attributes", _seen
+        assert _seen["method"] == "PUT", _seen
+        assert json.loads(_seen["body"]) == {"attributes": attrs}, _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_ingest_records_single_list_and_envelope():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.ingest_lds_records("d1", {"id": "Park:1", "name": "Central"})
+        assert _seen["path"] == "/v1/lds/datasources/d1/records", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {"id": "Park:1", "name": "Central"}, _seen
+        c.ingest_lds_records("d1", [{"id": "Park:1"}, {"id": "Park:2"}])
+        assert json.loads(_seen["body"]) == {
+            "records": [{"id": "Park:1"}, {"id": "Park:2"}]
+        }, _seen
+        c.ingest_lds_records("d1", {"records": [{"id": "Park:3"}]})
+        assert json.loads(_seen["body"]) == {
+            "records": [{"id": "Park:3"}]
+        }, _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_entities_with_query_params():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        out = c.list_lds_entities("d1", limit=5, offset=10, visibility="public")
+        assert isinstance(out, list), out
+        assert (
+            _seen["path"]
+            == "/v1/lds/datasources/d1/entities?limit=5&offset=10&visibility=public"
+        ), _seen
+        c.list_lds_entities("d1")
+        assert _seen["path"] == "/v1/lds/datasources/d1/entities", _seen
+        c.list_lds_entities("d1", visibility="restricted")
+        assert _seen["path"] == (
+            "/v1/lds/datasources/d1/entities?visibility=restricted"
+        ), _seen
+        c.get_lds_entity("d1", "urn:ngsi-ld:Park:1")
+        assert _seen["path"] == (
+            "/v1/lds/datasources/d1/entities/urn%3Angsi-ld%3APark%3A1"
+        ), _seen
+    finally:
+        srv.shutdown()
+
+
+def test_lds_http_error_mapping():
+    srv = _failing_server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        try:
+            c.list_lds_licenses()
+        except SynapseDXError as e:
+            assert "500" in str(e) and "boom" in str(e), e
+            return
+        raise AssertionError("expected SynapseDXError")
     finally:
         srv.shutdown()

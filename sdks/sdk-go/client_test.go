@@ -22,9 +22,9 @@ func echoServer(t *testing.T, seen map[string]string) *httptest.Server {
 			seen["body"] = string(b)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		// List endpoints (GET only) return arrays in the real API; everything else an object.
+		// List endpoints return arrays in the real API; everything else an object.
 		p := r.URL.Path
-		isList := r.Method == "GET" && (p == "/v1/orgs" ||
+		isList := (r.Method == "GET" && (p == "/v1/orgs" ||
 			strings.HasSuffix(p, "/accounts") ||
 			strings.HasSuffix(p, "/users") ||
 			strings.HasSuffix(p, "/roles") ||
@@ -32,7 +32,9 @@ func echoServer(t *testing.T, seen map[string]string) *httptest.Server {
 			strings.HasSuffix(p, "/credentials") ||
 			strings.HasSuffix(p, "/service-accounts") ||
 			strings.HasSuffix(p, "/keys") ||
-			p == "/v1/templates" || p == "/v1/workflows" || p == "/v1/audit")
+			p == "/v1/templates" || p == "/v1/workflows" || p == "/v1/audit" ||
+			p == "/v1/lds/licenses" || p == "/v1/lds/datasources")) ||
+			strings.HasSuffix(p, "/attributes") || strings.HasSuffix(p, "/entities")
 		if isList {
 			_, _ = w.Write([]byte(`[]`))
 			return
@@ -443,5 +445,221 @@ func TestCredentials(t *testing.T) {
 	}
 	if seen["path"] != "/v1/credentials/c1" || seen["method"] != "DELETE" {
 		t.Fatalf("delete: %v", seen)
+	}
+}
+
+func TestLDSLicensesAndDatasources(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	licenses, err := c.ListLDSLicenses()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/licenses" || seen["method"] != "GET" {
+		t.Fatalf("licenses: %v", seen)
+	}
+	if len(licenses) != 0 {
+		t.Fatalf("licenses list: %v", licenses)
+	}
+
+	if _, err := c.ListLDSDatasources("org1", "acc1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources?accountId=acc1&orgId=org1" {
+		t.Fatalf("datasources filters: %v", seen)
+	}
+	if _, err := c.ListLDSDatasources("", ""); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources" {
+		t.Fatalf("datasources plain: %v", seen)
+	}
+
+	created, err := c.CreateLDSDatasource(map[string]any{
+		"name": "Weather", "slug": "weather", "entityType": "WeatherObserved",
+		"license": "CC-BY-4.0", "defaultVisibility": "public",
+		"contexts": []any{"https://uri.etsi.org/ngsi-ld/v1/ngsi-ld-core-context.jsonld"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources" || seen["method"] != "POST" {
+		t.Fatalf("create: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("create body: %v", err)
+	}
+	for _, k := range []string{"name", "slug", "entityType", "license", "defaultVisibility", "contexts"} {
+		if _, ok := body[k]; !ok {
+			t.Fatalf("create body missing %q: %v", k, body)
+		}
+	}
+	if created["ok"] != true {
+		t.Fatalf("create out: %v", created)
+	}
+
+	if _, err := c.GetLDSDatasource("ds1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1" || seen["method"] != "GET" {
+		t.Fatalf("get: %v", seen)
+	}
+	if _, err := c.UpdateLDSDatasource("ds1", map[string]any{"name": "renamed"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1" || seen["method"] != "PATCH" {
+		t.Fatalf("patch: %v", seen)
+	}
+	if err := c.DeleteLDSDatasource("ds1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1" || seen["method"] != "DELETE" {
+		t.Fatalf("delete: %v", seen)
+	}
+}
+
+func TestLDSAttributes(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	attrs, err := c.ListLDSAttributes("ds1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/attributes" || seen["method"] != "GET" {
+		t.Fatalf("list attributes: %v", seen)
+	}
+	if len(attrs) != 0 {
+		t.Fatalf("attributes list: %v", attrs)
+	}
+
+	rows := []any{map[string]any{"name": "temperature", "ngsiLdType": "Property", "visibility": "public"}}
+	out, err := c.SetLDSAttributes("ds1", rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/attributes" || seen["method"] != "PUT" {
+		t.Fatalf("set attributes: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("set attributes body: %v", err)
+	}
+	got, ok := body["attributes"].([]any)
+	if !ok || len(got) != 1 {
+		t.Fatalf("set attributes body: %v", body)
+	}
+	if len(out) != 0 {
+		t.Fatalf("set attributes out: %v", out)
+	}
+}
+
+func TestLDSIngest(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	if _, err := c.IngestLDSRecords("ds1", map[string]any{"sensor": "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/records" || seen["method"] != "POST" {
+		t.Fatalf("ingest single: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("ingest single body: %v", err)
+	}
+	if _, ok := body["record"]; !ok {
+		t.Fatalf("single record must wrap in {record}: %v", body)
+	}
+
+	if _, err := c.IngestLDSRecords("ds1", []any{map[string]any{"sensor": "s1"}, map[string]any{"sensor": "s2"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("ingest array body: %v", err)
+	}
+	if arr, ok := body["records"].([]any); !ok || len(arr) != 2 {
+		t.Fatalf("array must wrap in {records}: %v", body)
+	}
+
+	if _, err := c.IngestLDSRecords("ds1", map[string]any{"records": []any{map[string]any{"sensor": "s3"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatalf("ingest wrapped body: %v", err)
+	}
+	if arr, ok := body["records"].([]any); !ok || len(arr) != 1 {
+		t.Fatalf("pre-wrapped records must pass through: %v", body)
+	}
+}
+
+func TestLDSEntitiesAndStats(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	entities, err := c.ListLDSEntities("ds1", map[string]string{
+		"limit": "50", "offset": "10", "visibility": "public", "bogus": "x",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/entities?limit=50&offset=10&visibility=public" {
+		t.Fatalf("entities query: %v", seen)
+	}
+	if strings.Contains(seen["path"], "bogus") {
+		t.Fatalf("unknown param leaked: %v", seen)
+	}
+	if len(entities) != 0 {
+		t.Fatalf("entities list: %v", entities)
+	}
+	if _, err := c.ListLDSEntities("ds1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/entities" {
+		t.Fatalf("entities plain: %v", seen)
+	}
+
+	if _, err := c.GetLDSEntity("ds1", "urn:ngsi-ld:Thing:t1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/entities/urn:ngsi-ld:Thing:t1" {
+		t.Fatalf("get entity: %v", seen)
+	}
+	if _, err := c.GetLDSEntity("ds1", "a/b"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/entities/a%2Fb" {
+		t.Fatalf("get entity escape: %v", seen)
+	}
+
+	if _, err := c.GetLDSStats("ds1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/lds/datasources/ds1/stats" || seen["method"] != "GET" {
+		t.Fatalf("stats: %v", seen)
+	}
+}
+
+func TestLDSSetAttributesReservedError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"reserved_attribute","message":"attribute name \"id\" is reserved"}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+	_, err := c.SetLDSAttributes("ds1", []any{map[string]any{"name": "id"}})
+	if err == nil || !strings.Contains(err.Error(), "synapsedx 400") || !strings.Contains(err.Error(), "reserved_attribute") {
+		t.Fatalf("expected reserved_attribute error, got %v", err)
 	}
 }

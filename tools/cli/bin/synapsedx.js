@@ -67,8 +67,36 @@ async function req(method, p, body, opts) {
   } catch {
     data = text;
   }
-  if (!r.ok) throw new Error(`HTTP ${r.status} ${p}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+  if (!r.ok) throw httpError(r.status, p, data);
   return data;
+}
+function httpError(status, p, data) {
+  // Clear messages for the two common LDS failures: reserved NGSI-LD
+  // attribute names (400 reserved_attribute) and missing resources (404).
+  const raw = typeof data === 'string' ? data : JSON.stringify(data);
+  let code = '';
+  let msg = '';
+  let reserved = [];
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    if (typeof data.code === 'string') code = data.code;
+    else if (typeof data.error === 'string') code = data.error;
+    if (data.error && typeof data.error === 'object') {
+      code = code || data.error.code || '';
+      msg = data.error.message || '';
+    }
+    msg = msg || (typeof data.message === 'string' ? data.message : '');
+    if (Array.isArray(data.reserved)) reserved = data.reserved.filter((x) => typeof x === 'string');
+  }
+  if (status === 400 && (code === 'reserved_attribute' || /reserved_attribute/i.test(raw || ''))) {
+    return new Error(
+      `HTTP 400 ${p}: reserved_attribute${msg ? ` — ${msg}` : ''}` +
+      `${reserved.length ? ` (reserved: ${reserved.join(', ')})` : ''}`,
+    );
+  }
+  if (status === 404) {
+    return new Error(`HTTP 404 ${p}: not found${msg ? ` — ${msg}` : raw && raw !== 'null' ? ` — ${raw}` : ''}`);
+  }
+  return new Error(`HTTP ${status} ${p}: ${raw}`);
 }
 const GET = (p, o) => req('GET', p, undefined, o);
 const POST = (p, b, o) => req('POST', p, b, o);
@@ -127,11 +155,11 @@ function parse(argv) {
     else if (a.startsWith('--base=')) opts.base = a.slice(7);
     else if (a.startsWith('--token=')) opts.token = a.slice(8);
     else if (a.startsWith('--apikey=')) opts.apikey = a.slice(9);
-    else if (a.startsWith('--context=')) (opts.context ??= {}), Object.assign(opts.context, parseKV(a.slice(10)));
+    else if (a.startsWith('--context=')) contextOpt(opts, a.slice(10));
     else if (a === '--context') {
       const v = argv[++i];
       if (!v) throw new Error('missing value for --context k=v');
-      (opts.context ??= {}), Object.assign(opts.context, parseKV(v));
+      contextOpt(opts, v);
     }
     else if (a === '--file') opts.file = argv[++i];
     else if (a.startsWith('--file=')) opts.file = a.slice(7);
@@ -179,6 +207,26 @@ function parse(argv) {
     else if (a.startsWith('--secret-file=')) opts.secretFile = a.slice(14);
     else if (a === '--expires-at') opts.expiresAt = argv[++i];
     else if (a.startsWith('--expires-at=')) opts.expiresAt = a.slice(13);
+    else if (a.startsWith('--account=')) opts.account = a.slice(10);
+    else if (a === '--account') opts.account = argv[++i];
+    else if (a === '--entity-type' || a === '--entityType') opts.entityType = argv[++i];
+    else if (a.startsWith('--entity-type=')) opts.entityType = a.slice(14);
+    else if (a.startsWith('--entityType=')) opts.entityType = a.slice(13);
+    else if (a.startsWith('--license=')) opts.license = a.slice(10);
+    else if (a === '--license') opts.license = argv[++i];
+    else if (a.startsWith('--slug=')) opts.slug = a.slice(7);
+    else if (a === '--slug') opts.slug = argv[++i];
+    else if (a.startsWith('--visibility=')) opts.visibility = a.slice(13);
+    else if (a === '--visibility') opts.visibility = argv[++i];
+    else if (a.startsWith('--description=')) opts.description = a.slice(14);
+    else if (a === '--description') opts.description = argv[++i];
+    // Explicit aliases for NGSI-LD @context URLs (see contextOpt above).
+    else if (a.startsWith('--context-url=')) (opts.contextUrls ??= []).push(a.slice(14));
+    else if (a === '--context-url' || a === '--contexts') {
+      const v = argv[++i];
+      if (!v) throw new Error('missing value for --context-url <url>');
+      (opts.contextUrls ??= []).push(v);
+    }
     else args.push(a);
   }
   return { args, opts };
@@ -188,8 +236,24 @@ function parseKV(s) {
   if (i < 0) throw new Error(`bad --context '${s}' (want k=v)`);
   return { [s.slice(0, i)]: s.slice(i + 1) };
 }
+function contextOpt(o, v) {
+  // `--context https://...` is an NGSI-LD @context URL (repeatable, LDS);
+  // `--context key=value` keeps its existing authz/sim decision-context meaning.
+  if (/^https?:\/\//i.test(v)) (o.contextUrls ??= []).push(v);
+  else (o.context ??= {}), Object.assign(o.context, parseKV(v));
+}
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+function readJsonArg(o, what) {
+  // Inline JSON via --data (or --input), else a file via --file (workflows exec style).
+  if (o.input) {
+    try { return JSON.parse(o.input); }
+    catch { return readJson(o.input); }
+  }
+  if (o.file) return readJson(o.file);
+  console.error(`missing ${what} (use --file <json> or --data '<json>')`);
+  process.exit(2);
 }
 
 // ---------- commands ----------
@@ -587,6 +651,116 @@ async function cmdCall(o) {
   return out(await req(m, rawPath, body, o), o);
 }
 
+// ---------- lds (SynapseLDS, /v1/lds) ----------
+const LDS = '/v1/lds';
+const LDS_DS_COLS = ['id', 'slug', 'name', 'entityType', 'license', 'defaultVisibility'];
+const LDS_ATTR_COLS = ['name', 'ngsiLdType', 'visibility', 'description'];
+
+function ldsVisibility(v, allowed) {
+  if (!allowed.split('|').includes(v)) throw new Error(`bad --visibility '${v}' (want ${allowed})`);
+  return v;
+}
+function ldsId(v, name) {
+  return encodeURIComponent(need(v, name));
+}
+async function cmdLds(o) {
+  const [sub, ...rest] = o._;
+  if (sub === 'licenses') {
+    const r = await GET(`${LDS}/licenses`, o);
+    return out(Array.isArray(r) ? r : r.data || r, o, ['id', 'name', 'openData']);
+  }
+  if (sub === 'datasources') return ldsDatasources(o, rest);
+  if (sub === 'attributes') return ldsAttributes(o, rest);
+  if (sub === 'ingest') return ldsIngest(o, rest);
+  if (sub === 'entities') return ldsEntities(o, rest);
+  if (sub === 'entity') return ldsEntity(o, rest);
+  if (sub === 'stats') return ldsStats(o, rest);
+  throw new Error(`usage: synapsedx lds licenses | lds datasources [list|create|get|update|delete] | lds attributes [list|set] <id> | lds ingest <id> | lds entities <id> | lds entity <id> <entity-id> | lds stats <id>`);
+}
+async function ldsDatasources(o, args) {
+  const [sub, ...rest] = args;
+  if (!sub || sub === 'list') {
+    const qs = new URLSearchParams();
+    if (o.org) qs.set('orgId', String(o.org));
+    if (o.account) qs.set('accountId', String(o.account));
+    const s = qs.toString();
+    const r = await GET(`${LDS}/datasources${s ? `?${s}` : ''}`, o);
+    return out(Array.isArray(r) ? r : r.data || r, o, LDS_DS_COLS);
+  }
+  if (sub === 'create') {
+    need(o.name, '--name <name>');
+    need(o.entityType, '--entity-type <Type>');
+    need(o.license, '--license <SPDX>');
+    const body = { name: o.name, entityType: o.entityType, license: o.license };
+    if (o.slug) body.slug = o.slug;
+    if (o.contextUrls?.length) body.contexts = o.contextUrls;
+    if (o.visibility) body.defaultVisibility = ldsVisibility(o.visibility, 'public|internal');
+    if (o.description) body.description = o.description;
+    return out(await POST(`${LDS}/datasources`, body, o), o);
+  }
+  if (sub === 'get') {
+    return out(await GET(`${LDS}/datasources/${ldsId(rest[0], 'datasource-id')}`, o), o);
+  }
+  if (sub === 'update') {
+    const id = ldsId(rest[0], 'datasource-id');
+    const patch = {};
+    if (o.name) patch.name = o.name;
+    if (o.entityType) patch.entityType = o.entityType;
+    if (o.license) patch.license = o.license;
+    if (o.slug) patch.slug = o.slug;
+    if (o.contextUrls?.length) patch.contexts = o.contextUrls;
+    if (o.visibility) patch.defaultVisibility = ldsVisibility(o.visibility, 'public|internal');
+    if (o.description) patch.description = o.description;
+    if (!Object.keys(patch).length) {
+      throw new Error('lds datasources update needs at least one of --name|--entity-type|--license|--slug|--context-url|--visibility|--description');
+    }
+    return out(await req('PATCH', `${LDS}/datasources/${id}`, patch, o), o);
+  }
+  if (sub === 'delete' || sub === 'rm') {
+    return out(await DEL(`${LDS}/datasources/${ldsId(rest[0], 'datasource-id')}`, o), o);
+  }
+  throw new Error(`unknown lds datasources subcommand '${sub}' (want list|create|get|update|delete)`);
+}
+async function ldsAttributes(o, args) {
+  const [sub, ...rest] = args;
+  if (sub === 'set' || sub === 'put') {
+    const id = ldsId(rest[0], 'datasource-id');
+    const payload = readJsonArg(o, 'attributes JSON');
+    const attributes = Array.isArray(payload) ? payload : payload && payload.attributes;
+    if (!Array.isArray(attributes)) throw new Error('lds attributes set wants a JSON array or {"attributes":[...]}');
+    return out(await req('PUT', `${LDS}/datasources/${id}/attributes`, { attributes }, o), o);
+  }
+  if (!sub || sub === 'list') {
+    const r = await GET(`${LDS}/datasources/${ldsId(rest[0], 'datasource-id')}/attributes`, o);
+    return out(Array.isArray(r) ? r : r.attributes || r.data || r, o, LDS_ATTR_COLS);
+  }
+  throw new Error(`unknown lds attributes subcommand '${sub}' (want list|set)`);
+}
+async function ldsIngest(o, args) {
+  const id = ldsId(args[0], 'datasource-id');
+  const record = readJsonArg(o, 'record JSON');
+  return out(await POST(`${LDS}/datasources/${id}/records`, record, o), o);
+}
+async function ldsEntities(o, args) {
+  const id = ldsId(args[0], 'datasource-id');
+  const qs = new URLSearchParams();
+  if (o.limit) qs.set('limit', String(o.limit));
+  if (o.offset) qs.set('offset', String(o.offset));
+  if (o.visibility) qs.set('visibility', ldsVisibility(o.visibility, 'public|restricted'));
+  const s = qs.toString();
+  const r = await GET(`${LDS}/datasources/${id}/entities${s ? `?${s}` : ''}`, o);
+  // NGSI-LD documents: always JSON (table columns would mangle nested properties).
+  console.log(JSON.stringify(r, null, 2));
+}
+async function ldsEntity(o, args) {
+  const id = ldsId(args[0], 'datasource-id');
+  const r = await GET(`${LDS}/datasources/${id}/entities/${ldsId(args[1], 'entity-id')}`, o);
+  console.log(JSON.stringify(r, null, 2));
+}
+async function ldsStats(o, args) {
+  return out(await GET(`${LDS}/datasources/${ldsId(args[0], 'datasource-id')}/stats`, o), o);
+}
+
 const COMMANDS = {
   login: { fn: cmdLogin, use: 'login --email E [--org ORG] [--base URL]', doc: 'Dev login, save token + refresh' },
   refresh: { fn: cmdRefresh, use: 'refresh [refresh-token]', doc: 'Rotate access token (atomic server-side)' },
@@ -616,6 +790,7 @@ const COMMANDS = {
   executions: { fn: cmdExecutions, use: 'executions [list] [--limit N] [--offset N] [--workflow-id ID] [--status success|error|running] [--triggered-by manual|webhook|cron|test] [--include-data] | executions <id> [--include-data]', doc: 'Workflow executions ({data:[]} envelope)' },
   webhook: { fn: cmdWebhook, use: 'webhook <path> [--data \'{...}\'|payload.json] [--file payload.json] [--method POST] [--base http://localhost:4002]', doc: 'Fire a public inbound webhook (no auth; --base = workflow origin)' },
   templates: { fn: cmdTemplates, use: 'templates [list|<name>]', doc: 'Built-in templates' },
+  lds: { fn: cmdLds, use: 'lds licenses | lds datasources [list] [--org <orgId>] [--account <accountId>] | lds datasources create --name N --entity-type T --license SPDX [--slug S] [--context URL]... [--visibility public|internal] [--description D] | lds datasources get|delete <id> | lds datasources update <id> [--name N] [--entity-type T] [--license SPDX] [--slug S] [--context URL]... [--visibility public|internal] [--description D] | lds attributes list <id> | lds attributes set <id> (--file attrs.json | --data \'[...]\') | lds ingest <id> (--file record.json | --data \'{...}\') | lds entities <id> [--limit N] [--offset N] [--visibility public|restricted] | lds entity <id> <entity-id> | lds stats <id>', doc: 'SynapseLDS: licenses, datasources, attribute registry, ingest, NGSI-LD entities' },
 };
 
 function help() {
@@ -628,7 +803,7 @@ Auth defaults: --base > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));
   for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: synapsedx ${COMMANDS[n].use}`);
-  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002');
+  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002\n  synapsedx lds licenses\n  synapsedx lds datasources create --name buildings --entity-type Building --license CC-BY-4.0\n  synapsedx lds entities ds_123 --limit 20 --visibility public');
 }
 
 async function main() {

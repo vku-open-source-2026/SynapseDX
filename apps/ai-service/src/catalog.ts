@@ -9,7 +9,7 @@
 // call itself (recursion + LLM cost).
 
 export interface CatalogEndpoint {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   path: string;
   auth: string;
   desc: string;
@@ -84,6 +84,19 @@ export const CATALOG: CatalogEndpoint[] = [
   { method: 'POST', path: '/v1/workflows/:id/execute', auth: 'either', desc: 'Execute manually', body: {} },
   { method: 'GET', path: '/v1/executions', auth: 'either', desc: 'Execution history (?limit&offset&workflowId&status&includeData, returns {data: []})' },
   { method: 'GET', path: '/v1/executions/:id', auth: 'either', desc: 'One execution in detail (?includeData=true for node I/O)' },
+  // SynapseLDS — linked data service (NGSI-LD datasources + licensed exports)
+  { method: 'GET', path: '/v1/lds/licenses', auth: 'either', desc: 'Built-in open-data license catalog (SPDX ids)' },
+  { method: 'GET', path: '/v1/lds/datasources', auth: 'either', desc: 'Datasources you can see (?orgId&accountId)' },
+  { method: 'POST', path: '/v1/lds/datasources', auth: 'either', desc: 'Create a datasource (license required)', body: { name: 'Business Registry', entityType: 'Organization', license: 'CC-BY-4.0' } },
+  { method: 'GET', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Datasource + attribute registry + stats' },
+  { method: 'PATCH', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Update license/contexts/visibility', body: { license: 'ODbL-1.0' } },
+  { method: 'DELETE', path: '/v1/lds/datasources/:id', auth: 'either', desc: 'Delete a datasource' },
+  { method: 'GET', path: '/v1/lds/datasources/:id/attributes', auth: 'either', desc: 'Attribute registry (schema)' },
+  { method: 'PUT', path: '/v1/lds/datasources/:id/attributes', auth: 'either', desc: 'Replace registry (reserved names rejected; default deny)', body: { attributes: [{ name: 'name', ngsiLdType: 'Property', visibility: 'public' }] } },
+  { method: 'POST', path: '/v1/lds/datasources/:id/records', auth: 'either', desc: 'Ingest record(s); reserved fields quarantined', body: { id: '55001', name: 'ACME' } },
+  { method: 'GET', path: '/v1/lds/datasources/:id/entities', auth: 'either', desc: 'NGSI-LD export (?limit&offset&visibility=public|restricted)' },
+  { method: 'GET', path: '/v1/lds/datasources/:id/entities/:entityId', auth: 'either', desc: 'One NGSI-LD entity' },
+  { method: 'GET', path: '/v1/lds/datasources/:id/stats', auth: 'either', desc: 'Record count + visibility buckets' },
   // Ops
   { method: 'GET', path: '/health', auth: 'none', desc: 'Liveness per service + gateway' },
   { method: 'GET', path: '/ready', auth: 'none', desc: 'Aggregate readiness (503 when degraded)' },

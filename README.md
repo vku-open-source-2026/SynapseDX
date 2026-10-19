@@ -27,6 +27,7 @@ standard OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
 | **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
 | **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
 | **Workflows** | Control plane over external n8n: versioned templates, activate/deactivate/execute (real webhook triggers), execution history, definition editor |
+| **Linked Data (SynapseLDS)** | Licence-picked NGSI-LD datasources: structural-allowlist projection (`_core` never serialized), per-attribute visibility (public/restricted/internal), default-deny schema registry, workflow publish node (`lds.publish-record`) |
 | **AI assistant** | Chatbot on the API Docs page: decision model picks the endpoint, LLM pre-fills the try-it form (server-side key, guidance-only, never public) |
 | **Clients** | TypeScript, Python and Go SDKs with full API parity, zero-dependency CLI, admin Console |
 
@@ -106,12 +107,14 @@ Production (TLS, edge rate limiting, hardened secrets): `docker-compose.prod.yml
 | Gateway | `http://localhost:8080` | The only public API in production |
 | IAM | `http://localhost:4001` | Internal (behind gateway in prod) |
 | Workflow | `http://localhost:4002` | Internal (behind gateway in prod) |
+| LDS | `http://localhost:4004` | Internal — SynapseLDS NGSI-LD datasources (behind gateway in prod) |
 
 ## Architecture
 
 ```
 Client → Gateway :8080 ─┬─► IAM :4001 (Org/Account/Role/Policy + tokens + OIDC)
-                         └─► Workflow :4002 ─► n8n :5678 (external engine)
+                         ├─► Workflow :4002 (built-in Apache-2.0 engine)
+                         └─► LDS :4004 (SynapseLDS: licensed NGSI-LD exports)
                          Postgres :5432 / Redis :6379 / S3-compatible :9090
 ```
 
@@ -125,6 +128,7 @@ apps/console               Admin UI (React + Vite + Tailwind)
 apps/gateway               API gateway (proxy, JWT/API-key, principal headers, /metrics)
 apps/iam-service           IAM + tokens + authorize/simulator + real OIDC code flow
 apps/workflow-service      n8n control plane (proxy + versioned templates)
+apps/lds-service           SynapseLDS — NGSI-LD datasources, registry, licensed exports
 sdks/sdk-js                @synapsedx/sdk (TypeScript, zero runtime deps)
 sdks/sdk-python            synapsedx-sdk (Python, requests only)
 sdks/sdk-go                synapsedx-sdk-go (Go, stdlib only)

@@ -26,6 +26,7 @@ const Policies = React.lazy(() => import('./pages/Policies.jsx'));
 const Keys = React.lazy(() => import('./pages/Keys.jsx'));
 const ServiceAccounts = React.lazy(() => import('./pages/ServiceAccounts.jsx'));
 const Workflows = React.lazy(() => import('./pages/Workflows.jsx'));
+const LinkedData = React.lazy(() => import('./pages/LinkedData.jsx'));
 const Authorize = React.lazy(() => import('./pages/Authorize.jsx'));
 const Audit = React.lazy(() => import('./pages/Audit.jsx'));
 const ApiDocs = React.lazy(() => import('./pages/ApiDocs.jsx'));
@@ -105,6 +106,7 @@ export default function App() {
       <Route path="/keys" element={<Guard><ConsoleLayout><Keys /></ConsoleLayout></Guard>} />
       <Route path="/service-accounts" element={<Guard><ConsoleLayout><ServiceAccounts /></ConsoleLayout></Guard>} />
       <Route path="/workflows" element={<Guard><ConsoleLayout><Workflows /></ConsoleLayout></Guard>} />
+      <Route path="/lds" element={<Guard><ConsoleLayout><LinkedData /></ConsoleLayout></Guard>} />
       <Route path="/authorize" element={<Guard><ConsoleLayout><Authorize /></ConsoleLayout></Guard>} />
       <Route path="/audit" element={<Guard><ConsoleLayout><Audit /></ConsoleLayout></Guard>} />
       <Route path="*" element={<Landing />} />

@@ -83,7 +83,7 @@ export default function Chatbot({ auth, headers, onOpenInDocs }) {
     if (!sug || sBusy) return;
     // The agent generates the call (not the user picking a documented
     // endpoint), so destructive methods get an explicit confirm.
-    if ((sug.method === 'PUT' || sug.method === 'DELETE') && !window.confirm(`${sug.method} ${sug.path} — proceed?`)) {
+    if ((sug.method === 'PUT' || sug.method === 'PATCH' || sug.method === 'DELETE') && !window.confirm(`${sug.method} ${sug.path} — proceed?`)) {
       return;
     }
     setSErr(null);

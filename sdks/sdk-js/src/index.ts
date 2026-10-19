@@ -11,6 +11,51 @@ export interface SynapseDXClientOptions {
   timeoutMs?: number; // per-request timeout (default 15000)
 }
 
+/** LDS attribute/datasource visibility (`internal` is settable but not listable via `?visibility`). */
+export type LdsVisibility = 'public' | 'restricted' | 'internal';
+
+/** NGSI-LD attribute types accepted by PUT /v1/lds/datasources/:id/attributes. */
+export type LdsAttributeType = 'Property' | 'Relationship' | 'GeoProperty';
+
+/** Body of POST /v1/lds/datasources; PATCH accepts a partial of this. */
+export interface LdsDatasourceInput {
+  name: string;
+  slug?: string;
+  entityType: string;
+  license: string;
+  licenseUrl?: string;
+  contexts?: string[];
+  defaultVisibility?: LdsVisibility;
+  description?: string;
+  orgId?: string;
+  accountId?: string;
+}
+
+/** One attribute row for PUT /v1/lds/datasources/:id/attributes. */
+export interface LdsAttributeInput {
+  name: string;
+  ngsiLdType?: LdsAttributeType;
+  visibility?: LdsVisibility;
+  description?: string;
+  sourceField?: string;
+}
+
+/** Query for GET /v1/lds/datasources/:id/entities (limit 1..500, default 100). */
+export interface LdsEntitiesQuery {
+  limit?: number;
+  offset?: number;
+  visibility?: 'public' | 'restricted';
+}
+
+/** Result of POST /v1/lds/datasources/:id/records (quarantine reasons are per field). */
+export interface LdsIngestResult {
+  ingested: number;
+  created: number;
+  updated: number;
+  quarantined: { field: string; reason: string }[];
+  entities: { id: string; entityId: string; sourceRecordId?: string }[];
+}
+
 export class SynapseDXClient {
   private baseUrl: string;
   private token?: string;
@@ -243,6 +288,73 @@ export class SynapseDXClient {
   }
   rotateCredential(id: string, secret: string) {
     return this.req(`/v1/credentials/${encodeURIComponent(id)}/rotate`, { method: 'POST', body: JSON.stringify({ secret }) });
+  }
+
+  // ---- LDS (datasource / license catalog; base path /v1/lds) ----
+  //
+  // Contract: GET /v1/lds/licenses returns the built-in SPDX + proprietary
+  // catalog; datasources own a name/entityType/license and a set of typed
+  // attributes; records are ingested into NGSI-LD entities and exported as
+  // JSON-LD. Every endpoint accepts Bearer JWT or X-API-Key.
+  ldsLicenses(): Promise<any[]> { return this.req('/v1/lds/licenses'); }
+  ldsDatasources(query: { orgId?: string; accountId?: string } = {}): Promise<any[]> {
+    const params = new URLSearchParams();
+    if (query.orgId) params.set('orgId', query.orgId);
+    if (query.accountId) params.set('accountId', query.accountId);
+    const s = params.toString();
+    return this.req(`/v1/lds/datasources${s ? `?${s}` : ''}`);
+  }
+  ldsCreateDatasource(input: LdsDatasourceInput) {
+    return this.req('/v1/lds/datasources', { method: 'POST', body: JSON.stringify(input) });
+  }
+  ldsDatasource(id: string) { return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}`); }
+  ldsUpdateDatasource(id: string, patch: Partial<LdsDatasourceInput>) {
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  }
+  ldsDeleteDatasource(id: string) {
+    return this.req<{ ok: boolean }>(`/v1/lds/datasources/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+  ldsAttributes(id: string): Promise<any[]> {
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}/attributes`);
+  }
+  ldsSetAttributes(id: string, attributes: LdsAttributeInput[]): Promise<any[]> {
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}/attributes`, {
+      method: 'PUT', body: JSON.stringify({ attributes }),
+    });
+  }
+  /**
+   * Ingest into a datasource. `records` accepts a single record object, an
+   * array (wrapped as `{records}`), or a pre-wrapped `{records}`/`{record}`
+   * body — all three shapes the endpoint accepts.
+   */
+  ldsIngest(id: string, records: Record<string, unknown> | Record<string, unknown>[]): Promise<LdsIngestResult> {
+    const body = Array.isArray(records)
+      ? { records }
+      : records && typeof records === 'object' && ('records' in records || 'record' in records)
+        ? records
+        : { record: records };
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}/records`, {
+      method: 'POST', body: JSON.stringify(body),
+    });
+  }
+  /** List NGSI-LD entities; limit 1..500 (default 100), visibility public|restricted only. */
+  ldsEntities(id: string, query: LdsEntitiesQuery = {}): Promise<any[]> {
+    const allowed = ['limit', 'offset', 'visibility'] as const;
+    const params = new URLSearchParams();
+    for (const k of allowed) {
+      const v = query[k];
+      if (v !== undefined && v !== null && String(v) !== '') params.set(k, String(v));
+    }
+    const s = params.toString();
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}/entities${s ? `?${s}` : ''}`);
+  }
+  ldsEntity(id: string, entityId: string) {
+    return this.req(`/v1/lds/datasources/${encodeURIComponent(id)}/entities/${encodeURIComponent(entityId)}`);
+  }
+  ldsStats(id: string) {
+    return this.req<{ records: number; attributes: { public: number; restricted: number; internal: number }; lastIngestAt: string | null }>(
+      `/v1/lds/datasources/${encodeURIComponent(id)}/stats`,
+    );
   }
 }
 
