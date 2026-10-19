@@ -400,6 +400,9 @@ export async function listExecutionRecs(opts: {
   workflowId?: string;
   status?: string;
   triggeredBy?: string;
+  /** Tenant filters (P0-3/#6): match the principal snapshot stored at run time. */
+  orgId?: string;
+  accountId?: string;
   limit?: number;
   offset?: number;
 }): Promise<{ items: StoredExecution[]; total?: number }> {
@@ -421,6 +424,14 @@ export async function listExecutionRecs(opts: {
       params.push(opts.triggeredBy);
       conds.push(`triggered_by=$${params.length}`);
     }
+    if (opts.orgId) {
+      params.push(opts.orgId);
+      conds.push(`principal->>'org'=$${params.length}`);
+    }
+    if (opts.accountId) {
+      params.push(opts.accountId);
+      conds.push(`principal->>'account'=$${params.length}`);
+    }
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     params.push(limit);
     params.push(offset);
@@ -435,6 +446,8 @@ export async function listExecutionRecs(opts: {
   if (opts.workflowId) arr = arr.filter((e) => e.workflow_id === opts.workflowId);
   if (opts.status) arr = arr.filter((e) => e.status === opts.status);
   if (opts.triggeredBy) arr = arr.filter((e) => e.triggered_by === opts.triggeredBy);
+  if (opts.orgId) arr = arr.filter((e) => (e.principal?.org || null) === opts.orgId);
+  if (opts.accountId) arr = arr.filter((e) => (e.principal?.account || null) === opts.accountId);
   return { items: arr.slice(offset, offset + limit) };
 }
 
@@ -465,6 +478,8 @@ export type CredentialKind = 'bearer' | 'api-key' | 'basic' | 'hmac';
 export interface StoredCredential {
   id: string;
   account_id: string;
+  /** Owning org (P0-4/#5): null only for legacy/anonymous dev credentials. */
+  org_id?: string | null;
   name: string;
   kind: CredentialKind;
   /** AES-256-GCM envelope: {iv, tag, data} base64 (never the raw secret). */
@@ -477,6 +492,7 @@ const MIGRATE_CRED_SQL = `
 CREATE TABLE IF NOT EXISTS synapsedx_credentials (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL,
+  org_id TEXT,
   name TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'bearer',
   secret_enc TEXT NOT NULL,
@@ -484,7 +500,9 @@ CREATE TABLE IF NOT EXISTS synapsedx_credentials (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (account_id, name)
 );
+ALTER TABLE synapsedx_credentials ADD COLUMN IF NOT EXISTS org_id TEXT;
 CREATE INDEX IF NOT EXISTS idx_synapsedx_credentials_account ON synapsedx_credentials(account_id);
+CREATE INDEX IF NOT EXISTS idx_synapsedx_credentials_org ON synapsedx_credentials(org_id);
 `;
 
 export async function ensureCredentialTables(): Promise<void> {
@@ -541,6 +559,7 @@ function rowToCredential(r: any): StoredCredential {
   return {
     id: String(r.id),
     account_id: String(r.account_id || ''),
+    org_id: r.org_id ? String(r.org_id) : null,
     name: String(r.name || ''),
     kind: (['bearer', 'api-key', 'basic', 'hmac'].includes(r.kind) ? r.kind : 'bearer') as CredentialKind,
     secret_enc: String(r.secret_enc || ''),
@@ -554,19 +573,19 @@ export function toPublicCredential(c: StoredCredential): any {
   return { id: c.id, accountId: c.account_id, name: c.name, kind: c.kind, createdAt: c.created_at, updatedAt: c.updated_at };
 }
 
-export async function createCredentialRec(data: { account_id: string; name: string; kind: CredentialKind; secret: string }): Promise<StoredCredential> {
+export async function createCredentialRec(data: { account_id: string; org_id?: string | null; name: string; kind: CredentialKind; secret: string }): Promise<StoredCredential> {
   const rec: StoredCredential = {
-    id: randomUUID(), account_id: data.account_id, name: data.name, kind: data.kind,
+    id: randomUUID(), account_id: data.account_id, org_id: data.org_id ?? null, name: data.name, kind: data.kind,
     secret_enc: encryptSecret(data.secret), created_at: nowIso(), updated_at: nowIso(),
   };
   if (pool) {
     await ensureCredentialTables();
     try {
       const r = await pool.query(
-        `INSERT INTO synapsedx_credentials (id, account_id, name, kind, secret_enc)
-         VALUES ($1,$2,$3,$4,$5)
-         RETURNING id, account_id, name, kind, secret_enc, created_at, updated_at`,
-        [rec.id, rec.account_id, rec.name, rec.kind, rec.secret_enc],
+        `INSERT INTO synapsedx_credentials (id, account_id, org_id, name, kind, secret_enc)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         RETURNING id, account_id, org_id, name, kind, secret_enc, created_at, updated_at`,
+        [rec.id, rec.account_id, rec.org_id, rec.name, rec.kind, rec.secret_enc],
       );
       return rowToCredential(r.rows[0]);
     } catch (e: any) {
@@ -593,23 +612,34 @@ export async function getCredentialRec(id: string): Promise<StoredCredential | n
   if (pool) {
     await ensureCredentialTables();
     const r = await pool.query(
-      'SELECT id, account_id, name, kind, secret_enc, created_at, updated_at FROM synapsedx_credentials WHERE id=$1', [id],
+      'SELECT id, account_id, org_id, name, kind, secret_enc, created_at, updated_at FROM synapsedx_credentials WHERE id=$1', [id],
     );
     return r.rows[0] ? rowToCredential(r.rows[0]) : null;
   }
   return memCredentials.get(id) || null;
 }
 
-export async function listCredentialRecs(accountId?: string): Promise<StoredCredential[]> {
+/** List credential metadata. `accountId` narrows by owning account; `orgId`
+ *  (P0-4/#5) narrows by owning org — org-scoped callers must not see legacy
+ *  rows without an org binding. */
+export async function listCredentialRecs(accountId?: string, orgId?: string): Promise<StoredCredential[]> {
   if (pool) {
     await ensureCredentialTables();
-    const r = accountId
-      ? await pool.query('SELECT id, account_id, name, kind, secret_enc, created_at, updated_at FROM synapsedx_credentials WHERE account_id=$1 ORDER BY created_at ASC', [accountId])
-      : await pool.query('SELECT id, account_id, name, kind, secret_enc, created_at, updated_at FROM synapsedx_credentials ORDER BY created_at ASC');
+    const conds: string[] = [];
+    const params: any[] = [];
+    if (accountId) { params.push(accountId); conds.push(`account_id=$${params.length}`); }
+    if (orgId) { params.push(orgId); conds.push(`org_id=$${params.length}`); }
+    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+    const r = await pool.query(
+      `SELECT id, account_id, org_id, name, kind, secret_enc, created_at, updated_at FROM synapsedx_credentials ${where} ORDER BY created_at ASC`,
+      params,
+    );
     return r.rows.map(rowToCredential);
   }
-  const arr = [...memCredentials.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
-  return accountId ? arr.filter((c) => c.account_id === accountId) : arr;
+  let arr = [...memCredentials.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  if (accountId) arr = arr.filter((c) => c.account_id === accountId);
+  if (orgId) arr = arr.filter((c) => (c.org_id || null) === orgId);
+  return arr;
 }
 
 export async function deleteCredentialRec(id: string): Promise<boolean> {
