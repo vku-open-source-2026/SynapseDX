@@ -46,7 +46,8 @@ reads which key (audited from source):
 | `PORT` | 4002 | listen port |
 | `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`synapsedx_workflows` + `synapsedx_executions`); required in production |
 | `WORKFLOW_CRON_TICK_MS` | 15000 | cron scheduler tick (ms, clamped ≥10000) |
-| `IAM_SERVICE_URL` | — | reserved for cross-verification |
+| `IAM_SERVICE_URL` | `http://iam:4001` | internal base URL for `synapsedx.api` IAM nodes (users/roles/policies/audit/keys) |
+| `SYNAPSEDX_IAM_API_KEY` | — | service API key sent as `X-API-Key` on `synapsedx.api` IAM calls; IAM requires a real caller credential even with the internal secret. Create it on the workflow service account (`POST /v1/accounts/:accountId/keys`, scope `*`). Unset → IAM nodes fail with a clear configuration error |
 | `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4002` bypass (`/webhook/*` stays public) |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 

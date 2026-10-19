@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, workflowRunPrincipal } from './index';
+import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, workflowRunPrincipal, synapsedxCall, makeCredentialResolver } from './index';
 import { isBlockedUrl } from './engine';
-import { __clearMem } from './store';
+import { __clearMem, createCredentialRec } from './store';
 
 describe('workflow templates', () => {
   it('lists built-in templates', () => {
@@ -737,6 +737,105 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     assert.equal(one.principal?.sub, 'u1');
   });
 
+  it('credentials are org-scoped: list/delete refuse foreign orgs (#5)', async () => {
+    const create = await fetch(`${base}/v1/credentials`, {
+      method: 'POST',
+      headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+      body: JSON.stringify({ accountId: 'acc-a', name: 'org-a-secret', kind: 'bearer', secret: 'TOPSECRET-A' }),
+    });
+    assert.equal(create.status, 201);
+    const cred: any = await create.json();
+    // Same account id, other org → the secret is invisible and undeletable.
+    const foreignList: any = await (await fetch(`${base}/v1/credentials?accountId=acc-a`, {
+      headers: P({ 'x-synapsedx-user': 'ub', 'x-synapsedx-org': 'org-b' }),
+    })).json();
+    assert.deepEqual(foreignList.data, []);
+    const foreignDel = await fetch(`${base}/v1/credentials/${cred.id}`, {
+      method: 'DELETE', headers: P({ 'x-synapsedx-user': 'ub', 'x-synapsedx-org': 'org-b' }),
+    });
+    assert.equal(foreignDel.status, 403);
+    // Anonymous dev view is unchanged (no principal) but never leaks the secret.
+    const anonList: any = await (await fetch(`${base}/v1/credentials?accountId=acc-a`, { headers: H })).json();
+    assert.equal(anonList.data.length, 1);
+    assert.ok(!JSON.stringify(anonList).includes('TOPSECRET-A'));
+    // Owning org still sees and deletes it.
+    const ownList: any = await (await fetch(`${base}/v1/credentials?accountId=acc-a`, {
+      headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+    })).json();
+    assert.equal(ownList.data.length, 1);
+    const ownDel = await fetch(`${base}/v1/credentials/${cred.id}`, {
+      method: 'DELETE', headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+    });
+    assert.equal(ownDel.status, 200);
+  });
+
+  it('credential resolver refuses foreign-org secrets (#5)', async () => {
+    const rec = await createCredentialRec({ account_id: 'acc-res', org_id: 'org-a', name: 'res-cred', kind: 'bearer', secret: 'res-secret' });
+    assert.equal((await makeCredentialResolver({ sub: 'ua', org: 'org-a' })(rec.id))?.secret, 'res-secret');
+    assert.equal(await makeCredentialResolver({ sub: 'ub', org: 'org-b' })(rec.id), null);
+    assert.equal(await makeCredentialResolver({ sub: 'x' })(rec.id), null); // tenantless principal
+    assert.equal((await makeCredentialResolver({ sub: 'm', account: 'acc-res' })(rec.id))?.secret, 'res-secret');
+    assert.equal(await makeCredentialResolver({ sub: 'm2', account: 'acc-other' })(rec.id), null);
+  });
+
+  it('executions are tenant-scoped: foreign orgs cannot list or read payloads (#6)', async () => {
+    const wf: any = await (await fetch(`${base}/v1/workflows`, {
+      method: 'POST',
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      body: JSON.stringify({ template: 'manual-starter', name: 'exec-scope' }),
+    })).json();
+    const ex: any = await (await fetch(`${base}/v1/workflows/${wf.id}/execute`, {
+      method: 'POST',
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      body: JSON.stringify({ consignment: 'ORG_A_PAYLOAD' }),
+    })).json();
+    assert.equal(ex.status, 'success');
+    const foreignList: any = await (await fetch(`${base}/v1/executions?includeData=true`, {
+      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+    })).json();
+    assert.ok(!JSON.stringify(foreignList).includes('ORG_A_PAYLOAD'));
+    assert.ok((foreignList.data as any[]).every((e) => e.principal?.org === 'other'));
+    const foreignOne = await fetch(`${base}/v1/executions/${ex.executionId}?includeData=true`, {
+      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+    });
+    assert.equal(foreignOne.status, 404);
+    const own: any = await (await fetch(`${base}/v1/executions/${ex.executionId}?includeData=true`, {
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+    })).json();
+    assert.equal(own.principal?.org, 'acme');
+    // Anonymous dev/tests keep the full view.
+    const anon: any = await (await fetch(`${base}/v1/executions?includeData=true`, { headers: H })).json();
+    assert.ok(JSON.stringify(anon).includes('ORG_A_PAYLOAD'));
+  });
+
+  it('explicit tenant filters cannot cross tenants (#6)', async () => {
+    const foreignOrg = await fetch(`${base}/v1/workflows?orgId=other`, {
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+    });
+    assert.equal(foreignOrg.status, 403);
+    const foreignAcct = await fetch(`${base}/v1/workflows?accountId=acc-foreign`, {
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+    });
+    assert.equal(foreignAcct.status, 403);
+    const own: any = await (await fetch(`${base}/v1/workflows?orgId=acme`, {
+      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+    })).json();
+    assert.ok(Array.isArray(own) && own.every((w: any) => w.orgId === 'acme'));
+  });
+
+  it('account-only principals never see legacy tenant-free workflows (#6)', async () => {
+    const list: any = await (await fetch(`${base}/v1/workflows`, {
+      headers: P({ 'x-synapsedx-user': 'svc', 'x-synapsedx-account': 'acct-x' }),
+    })).json();
+    assert.ok(Array.isArray(list));
+    assert.ok(list.every((w: any) => w.accountId === 'acct-x'));
+    assert.ok(!list.some((w: any) => w.name === 'mask' || w.name === 'guarded'));
+    const legacy = await fetch(`${base}/v1/workflows?accountId=acct-x`, {
+      headers: P({ 'x-synapsedx-user': 'svc', 'x-synapsedx-account': 'acct-other' }),
+    });
+    assert.equal(legacy.status, 403);
+  });
+
   it('execution payloads mask secret-looking keys (P0-4)', async () => {
     const c: any = await (await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'manual-starter', name: 'mask' }) })).json();
     const ex: any = await (await fetch(`${base}/v1/workflows/${c.id}/execute`, {
@@ -754,5 +853,31 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     const text = await r.text();
     assert.ok(text.includes('synapsedx_workflow_runs_total'));
     assert.ok(text.includes('synapsedx_workflow_webhook_rejected_total'));
+  });
+});
+
+describe('synapsedx.api IAM service credential (#10)', () => {
+  it('sends X-API-Key + run principal, and fails loud without a key', async () => {
+    const origFetch = globalThis.fetch;
+    const seen: Array<{ url: string; headers: any }> = [];
+    (globalThis as any).fetch = async (url: any, init: any) => {
+      seen.push({ url: String(url), headers: init?.headers });
+      return { ok: true, status: 200, text: async () => '[]' } as any;
+    };
+    try {
+      process.env.SYNAPSEDX_IAM_API_KEY = 'svc-key-123';
+      const out = await synapsedxCall('orgs', 'list', {}, { sub: 'u1', org: 'acme' });
+      assert.deepEqual(out, []);
+      assert.equal(seen.length, 1);
+      assert.match(seen[0].url, /\/v1\/orgs$/);
+      assert.equal(seen[0].headers['X-API-Key'], 'svc-key-123');
+      assert.equal(seen[0].headers['X-SynapseDX-User'], 'u1');
+      assert.equal(seen[0].headers['X-SynapseDX-Org'], 'acme');
+    } finally {
+      delete process.env.SYNAPSEDX_IAM_API_KEY;
+      (globalThis as any).fetch = origFetch;
+    }
+    // Missing service key: a clear, actionable error instead of a bare IAM 401.
+    await assert.rejects(synapsedxCall('orgs', 'list', {}, null), /SYNAPSEDX_IAM_API_KEY/);
   });
 });

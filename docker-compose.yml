@@ -165,6 +165,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
       IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      SYNAPSEDX_IAM_API_KEY: ${SYNAPSEDX_IAM_API_KEY:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
       WORKFLOW_CRON_TICK_MS: ${WORKFLOW_CRON_TICK_MS:-15000}
     ports:

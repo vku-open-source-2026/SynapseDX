@@ -14,32 +14,80 @@ import { timingSafeEqual, randomUUID } from 'crypto';
 import {
   createWorkflowRec, getWorkflowRec, listWorkflowRecs, updateWorkflowRec, deleteWorkflowRec,
   createExecutionRec, getExecutionRec, listExecutionRecs, findActiveWebhookWorkflow,
-  listActiveCronWorkflows, ensureTables, useDb, StoredWorkflow,
+  listActiveCronWorkflows, ensureTables, useDb, StoredWorkflow, StoredCredential,
   createCredentialRec, getCredentialRec, listCredentialRecs, deleteCredentialRec,
   toPublicCredential, decryptSecret,
 } from './store';
+import type { Principal } from './store';
 import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor } from './engine';
 import type { CredentialResolver, RunPrincipal, SynapseDXCall } from './engine';
 
+/** May this credential be resolved for this run principal? (P0-4/#5)
+ *  - org-bound credentials: only inside their org, or by their owning account;
+ *  - legacy unbound credentials (no org): only the owning account — org
+ *    principals cannot reach secrets of unknown tenancy. */
+export function credentialVisibleTo(rec: StoredCredential, p: Principal | null | undefined): boolean {
+  if (!p) return true; // anonymous direct calls (dev/tests)
+  const acctOk = !!p.account && rec.account_id === p.account;
+  const orgOk = !!p.org && !!rec.org_id && rec.org_id === p.org;
+  if (rec.org_id) return orgOk || acctOk;
+  return acctOk;
+}
+
 /** Server-side credential resolver for node auth (P0-4): nodes reference
- *  credentialIds; secrets are decrypted only here, at run time. */
-const credentialResolver: CredentialResolver = async (credentialId: string) => {
-  if (!credentialId || typeof credentialId !== 'string') return null;
-  const rec = await getCredentialRec(credentialId);
-  if (!rec) return null;
-  try {
-    return { kind: rec.kind, secret: decryptSecret(rec.secret_enc) };
-  } catch {
-    return null;
-  }
-};
+ *  credentialIds; secrets are decrypted only here, at run time, and only for
+ *  the principal the run belongs to. */
+export function makeCredentialResolver(p: Principal | null | undefined): CredentialResolver {
+  return async (credentialId: string) => {
+    if (!credentialId || typeof credentialId !== 'string' || credentialId.length > 128 || /[\r\n]/.test(credentialId)) return null;
+    const rec = await getCredentialRec(credentialId);
+    if (!rec || !credentialVisibleTo(rec, p)) return null;
+    try {
+      return { kind: rec.kind, secret: decryptSecret(rec.secret_enc) };
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** Tenant read guard (P0-3): tenant-bound rows are invisible outside their
+ *  tenant. Org-bound rows belong to the org; account-only rows to the
+ *  account. Legacy global rows (no tenant at all) are dev/anonymous-only —
+ *  authenticated callers never see pre-tenancy leftovers. Returns false →
+ *  caller gets 404 (existence not leaked). */
+function canAccessWorkflow(w: StoredWorkflow, p: Principal | null | undefined): boolean {
+  if (!p) return true; // anonymous direct calls (dev/tests)
+  if (p.account && w.account_id === p.account) return true;
+  if (p.org && w.org_id === p.org) return true;
+  return false;
+}
+
+/** Tenant filter for execution lists (P0-3/#6): match the principal snapshot
+ *  stored at run time. Null = the caller has no tenant scope; callers must
+ *  fail closed on it (anonymous direct calls return {} = unfiltered only for
+ *  the dev/test fallback). */
+function executionScope(p: Principal | null | undefined): { orgId?: string; accountId?: string } | null {
+  if (!p) return {};
+  if (p.org) return { orgId: p.org };
+  if (p.account) return { accountId: p.account };
+  return null;
+}
+
+/** May this execution record be read by this principal? Same tenant rules as
+ *  canAccessWorkflow, applied to the run-time principal snapshot. */
+function canAccessExecution(e: { principal?: Principal | null }, p: Principal | null | undefined): boolean {
+  if (!p) return true;
+  if (p.account && e.principal?.account === p.account) return true;
+  if (p.org && e.principal?.org === p.org) return true;
+  return false;
+}
 
 /** First-party SynapseDX caller for synapsedx.api nodes: IAM resources go to
  *  IAM over the service network with the run principal stamped (IAM enforces
  *  its own canActFor tenant checks on it); workflow-local resources are read
  *  straight from the store, scoped by canAccessWorkflow. No arbitrary paths —
  *  only the engine's SYNAPSEDX_API_RESOURCES table can reach here. */
-const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal) => {
+export const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal) => {
   const cleanId = (v: unknown, field: string, max = 256): string => {
     const s = String(v ?? '');
     if (!s || s.length > max || /[\r\n]/.test(s)) throw new Error(`synapsedx.api: '${resource}.${operation}' needs a valid '${field}'`);
@@ -50,10 +98,10 @@ const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal
   if (resource === 'workflows') {
     if (operation === 'list') {
       const all = await listWorkflowRecs();
-      return all.filter((w) => !w.org_id || (!!principal?.org && principal.org === w.org_id)).map(toApiWorkflow);
+      return all.filter((w) => canAccessWorkflow(w, principal)).map(toApiWorkflow);
     }
     const w = await getWorkflowRec(cleanId(a.id, 'id', 128));
-    if (!w || (w.org_id && (!principal?.org || principal.org !== w.org_id))) throw new Error('synapsedx.api: workflows.get -> 404 (not found)');
+    if (!w || !canAccessWorkflow(w, principal)) throw new Error('synapsedx.api: workflows.get -> 404 (not found)');
     return toApiWorkflow(w);
   }
   if (resource === 'executions') {
@@ -62,11 +110,13 @@ const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal
       const offset = Math.max(Number(a.offset) || 0, 0);
       const status = typeof a.status === 'string' && ['success', 'error', 'running'].includes(a.status) ? a.status : undefined;
       const workflowId = typeof a.workflowId === 'string' && a.workflowId ? cleanId(a.workflowId, 'workflowId', 128) : undefined;
-      const { items } = await listExecutionRecs({ workflowId, status, limit, offset });
+      const scope = executionScope(principal);
+      if (!scope) return { data: [] };
+      const { items } = await listExecutionRecs({ workflowId, status, limit, offset, ...scope });
       return { data: items.map((e) => toApiExecution(e, false)) };
     }
     const e = await getExecutionRec(cleanId(a.id, 'id', 128));
-    if (!e) throw new Error('synapsedx.api: executions.get -> 404 (not found)');
+    if (!e || !canAccessExecution(e, principal)) throw new Error('synapsedx.api: executions.get -> 404 (not found)');
     return toApiExecution(e, true);
   }
   if (resource === 'templates') {
@@ -134,11 +184,19 @@ const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal
   // IAM resources over the service network as the run principal.
   const IAM_BASE = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
   const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  // #10: the IAM middleware requires a real caller credential even when the
+  // internal secret is present (the secret proves gateway-origin, not identity).
+  // Use a dedicated service API key — never the run user's JWT (workflow runs
+  // outlive tokens and webhook/cron runs hold no user credential at all).
+  const IAM_API_KEY = (process.env.SYNAPSEDX_IAM_API_KEY || '').trim();
   const iamFetch = async (method: string, path: string, body?: any): Promise<any> => {
+    if (!IAM_API_KEY) {
+      throw new Error('synapsedx.api: IAM calls need SYNAPSEDX_IAM_API_KEY (service credential) — see docs/configuration.md');
+    }
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 15000);
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-Key': IAM_API_KEY };
       if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
       if (principal?.sub) {
         headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
@@ -745,7 +803,7 @@ export function createApp(): express.Express {
       const r = await runWorkflow(
         { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
         input,
-        { triggeredBy: 'webhook', principal: runPrincipal, credentialResolver, synapsedxCall },
+        { triggeredBy: 'webhook', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapsedxCall },
       );
       const finishedAt = new Date().toISOString();
       recordRun('webhook', r.status, r.nodeRuns);
@@ -831,13 +889,6 @@ function idGate(req: any, res: any): string | null {
   return id;
 }
 
-/** Tenant read guard (P0-3): tenant-bound rows are invisible outside their
- *  org. Returns false → caller gets 404 (existence not leaked). */
-function canAccessWorkflow(w: StoredWorkflow, p: import('./store').Principal | null): boolean {
-  if (!w.org_id) return true;
-  return !!p?.org && p.org === w.org_id;
-}
-
 function cleanTenantField(v: unknown): string | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -876,26 +927,45 @@ function tenantBinding(
   }
 }
 
-  // List workflows. Authenticated callers (gateway-stamped principal) see
-  // their own tenant slice plus legacy-global rows (pre-tenancy, org-free);
-  // other tenants' rows are hidden. Explicit ?orgId=/accountId= filters
-  // exactly. Anonymous direct calls keep the legacy global view (dev/tests).
+  // List workflows. Authenticated callers see only their own tenant slice
+  // (org-bound rows for users, account-bound rows for machine identities;
+  // legacy tenant-free rows stay dev-only). Explicit ?orgId=/accountId=
+  // filters must stay inside the caller's own tenant (403 otherwise).
+  // Anonymous direct calls keep the legacy global view (dev/tests).
   app.get('/v1/workflows', async (req, res) => {
     const p = principalFromHeaders(req);
     const q = req.query as any;
-    if (typeof q.orgId === 'string' && q.orgId) {
-      const all = await listWorkflowRecs({ orgId: q.orgId.slice(0, 128) });
-      res.json(all.map(toApiWorkflow));
+    const orgQ = typeof q.orgId === 'string' && q.orgId ? q.orgId.slice(0, 128) : undefined;
+    const acctQ = typeof q.accountId === 'string' && q.accountId ? q.accountId.slice(0, 128) : undefined;
+    if (p) {
+      if (orgQ && (!p.org || orgQ !== p.org)) {
+        return res.status(403).json({ error: 'forbidden', message: 'orgId is outside your own org' });
+      }
+      if (acctQ && (!p.account || acctQ !== p.account)) {
+        return res.status(403).json({ error: 'forbidden', message: 'accountId is outside your own account' });
+      }
+      if (!p.org && !p.account) {
+        return res.status(403).json({ error: 'forbidden', message: 'caller has no tenant scope' });
+      }
+      const all = await listWorkflowRecs();
+      // Optional narrowing: when a user JWT (no account claim) filters by
+      // accountId, keep the org condition too so foreign accounts stay hidden.
+      const visible = all.filter((w) => {
+        if (!canAccessWorkflow(w, p)) return false;
+        if (orgQ && w.org_id !== orgQ) return false;
+        if (acctQ && w.account_id !== acctQ) return false;
+        return true;
+      });
+      res.json(visible.map(toApiWorkflow));
       return;
     }
-    if (typeof q.accountId === 'string' && q.accountId) {
-      const all = await listWorkflowRecs({ accountId: q.accountId.slice(0, 128) });
+    if (orgQ || acctQ) {
+      const all = await listWorkflowRecs({ ...(orgQ ? { orgId: orgQ } : {}), ...(acctQ ? { accountId: acctQ } : {}) });
       res.json(all.map(toApiWorkflow));
       return;
     }
     const all = await listWorkflowRecs();
-    const visible = p?.org ? all.filter((w) => !w.org_id || w.org_id === p.org) : all;
-    res.json(visible.map(toApiWorkflow));
+    res.json(all.map(toApiWorkflow));
   });
 
   // Get one workflow
@@ -1048,7 +1118,7 @@ function tenantBinding(
     const r = await runWorkflow(
       { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
       input,
-      { triggeredBy: 'manual', principal, credentialResolver, synapsedxCall },
+      { triggeredBy: 'manual', principal, credentialResolver: makeCredentialResolver(principal), synapsedxCall },
     );
     const finishedAt = new Date().toISOString();
     recordRun('manual', r.status, r.nodeRuns);
@@ -1148,7 +1218,10 @@ function tenantBinding(
       return res.status(400).json({ error: 'invalid_query', message: 'triggeredBy must be manual|webhook|cron|test' });
     }
     const includeData = q.includeData === 'true';
-    const { items } = await listExecutionRecs({ workflowId, status, triggeredBy, limit, offset });
+    const principal = principalFromHeaders(req);
+    const scope = executionScope(principal);
+    if (!scope) return res.status(403).json({ error: 'forbidden', message: 'caller has no tenant scope' });
+    const { items } = await listExecutionRecs({ workflowId, status, triggeredBy, limit, offset, ...scope });
     const mapped = items.map((e) => toApiExecution(e, includeData));
     // Console accepts both a raw array and {data: []} — return the envelope
     // with data for forward-compat (n8n proxied {data} before).
@@ -1160,7 +1233,9 @@ function tenantBinding(
     const id = idGate(req, res);
     if (id === null) return;
     const e = await getExecutionRec(id);
-    if (!e) return res.status(404).json({ error: 'not_found', message: 'execution not found' });
+    if (!e || !canAccessExecution(e, principalFromHeaders(req))) {
+      return res.status(404).json({ error: 'not_found', message: 'execution not found' });
+    }
     const includeData = (req.query as any).includeData === 'true';
     res.json(toApiExecution(e, includeData));
   });
@@ -1180,26 +1255,39 @@ function tenantBinding(
 
   // ---------- credentials (P0-4): account-scoped secrets, encrypted at rest ----------
   // Nodes store only credentialIds; secrets are resolved server-side at run
-  // time and never appear in nodeRuns, params or list responses.
-  function credentialAccountScope(req: any, accountId: string): { ok: boolean; status?: number; error?: string; message?: string } {
+  // time and never appear in nodeRuns, params or list responses. Credentials
+  // are additionally org-bound (#5): org callers can only list/create/delete
+  // credentials of their own org, and resolvers refuse foreign-org secrets.
+  function credentialAccountScope(req: any, accountId: string): { ok: boolean; status?: number; error?: string; message?: string; orgId?: string | null } {
     const p = principalFromHeaders(req);
-    if (p?.account && p.account !== accountId) {
-      return { ok: false, status: 403, error: 'cross_account', message: 'credential account is outside your own account' };
+    if (!p) return { ok: true, orgId: null }; // anonymous direct calls (dev/tests)
+    if (p.account) {
+      if (p.account !== accountId) {
+        return { ok: false, status: 403, error: 'cross_account', message: 'credential account is outside your own account' };
+      }
+      return { ok: true, orgId: null };
     }
-    return { ok: true };
+    if (!p.org) {
+      return { ok: false, status: 403, error: 'forbidden', message: 'caller has no tenant scope' };
+    }
+    return { ok: true, orgId: p.org };
   }
 
   app.get('/v1/credentials', async (req, res) => {
     const q = req.query as any;
-    const accountId = typeof q.accountId === 'string' ? q.accountId : principalFromHeaders(req)?.account;
+    const p = principalFromHeaders(req);
+    if (typeof q.accountId === 'string' && q.accountId.length > 128) {
+      return res.status(400).json({ error: 'invalid_account', message: 'accountId must be 1..128 chars' });
+    }
+    const accountId = typeof q.accountId === 'string' ? q.accountId : p?.account;
     if (accountId) {
       const scope = credentialAccountScope(req, accountId);
       if (!scope.ok) return res.status(scope.status!).json({ error: scope.error, message: scope.message });
-      const items = await listCredentialRecs(accountId);
+      const items = await listCredentialRecs(accountId, scope.orgId ?? undefined);
       return res.json({ data: items.map(toPublicCredential) });
     }
     // No account scope: anonymous dev view only (never secret material).
-    if (principalFromHeaders(req)) {
+    if (p) {
       return res.status(400).json({ error: 'account_required', message: 'pass ?accountId= (credentials are account-scoped)' });
     }
     const items = await listCredentialRecs();
@@ -1233,7 +1321,7 @@ function tenantBinding(
       }
     }
     try {
-      const c = await createCredentialRec({ account_id: accountId, name, kind, secret });
+      const c = await createCredentialRec({ account_id: accountId, org_id: scope.orgId ?? null, name, kind, secret });
       res.status(201).json(toPublicCredential(c));
     } catch (e: any) {
       if ((e as any)?.code === 'conflict') return res.status(409).json({ error: 'conflict', message: (e as any).message });
@@ -1248,6 +1336,13 @@ function tenantBinding(
     if (!cur) return res.status(404).json({ error: 'not_found', message: 'credential not found' });
     const scope = credentialAccountScope(req, cur.account_id);
     if (!scope.ok) return res.status(scope.status!).json({ error: scope.error, message: scope.message });
+    // Org-scoped callers may only manage credentials actually bound to their
+    // org — legacy/anonymous credentials of unknown tenancy are off-limits.
+    if (scope.orgId) {
+      if (!cur.org_id || cur.org_id !== scope.orgId) {
+        return res.status(403).json({ error: 'cross_tenant', message: 'credential is outside your own org' });
+      }
+    }
     await deleteCredentialRec(id);
     res.json({ ok: true, id });
   });
@@ -1294,7 +1389,7 @@ function tenantBinding(
     }
     const principal = principalFromHeaders(req);
     const startedAt = new Date().toISOString();
-    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver, synapsedxCall });
+    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver: makeCredentialResolver(principal), synapsedxCall });
     const finishedAt = new Date().toISOString();
     recordRun('test', r.status, r.nodeRuns);
     const wfId = attach ? attach.id : `test-${randomUUID().slice(0, 8)}`;
@@ -1514,7 +1609,7 @@ function startCronLoop(): void {
           const r = await runWorkflow(
             { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
             { scheduledAt: startedAt },
-            { triggeredBy: 'cron', principal: runPrincipal, credentialResolver, synapsedxCall },
+            { triggeredBy: 'cron', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapsedxCall },
           );
           const finishedAt = new Date().toISOString();
           recordRun('cron', r.status, r.nodeRuns);
