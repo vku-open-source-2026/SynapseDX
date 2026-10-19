@@ -65,6 +65,14 @@
 - Workflow definitions may contain HTTP nodes (inherent SSRF surface of any workflow
   engine): restrict who can create/execute workflows via RBAC, and run n8n
   egress-restricted in production (no cloud-metadata access).
+- Workflow HTTP nodes are SSRF-guarded at run time — the host literal (including
+  IPv4-mapped IPv6, decimal/hex IPv4) and every DNS-resolved address are checked
+  against private/reserved ranges on the first request and on every redirect hop.
+- Workflow `code` nodes run in a dedicated throwaway process: empty environment
+  (no service secrets), Node permission model (no fs / child_process / workers),
+  code generation from strings disabled, and a hard parent-enforced timeout.
+  `={{ ... }}` expressions run in an in-process vm context with a null-prototype
+  global and no host intrinsics; never treat `node:vm` alone as a sandbox.
 - IAM validates `email` (RFC, ≤320 chars, lowercased) and `slug` (`^[a-z0-9-]{1,64}$`)
   with zod on login / OIDC-callback / org / account / user creation.
 - No in-gateway rate limiting (removed by ops decision): brute-force protection

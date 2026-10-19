@@ -5,7 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams } from './engine';
+import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams, isBlockedUrl, assertUrlAllowed } from './engine';
 
 const N = (name: string, type: string, parameters: any = {}) => ({ name, type, parameters });
 
@@ -65,6 +65,40 @@ describe('engine: code sandbox', () => {
     assert.equal(r.status, 'error');
     assert.match(String(r.error), /code:/);
   });
+  it('blocks host-constructor escapes via host intrinsics (RCE regression, #4)', async () => {
+    // These payloads worked before the fix because host Math/Object/console
+    // were passed into the vm context, making codeGeneration:false useless.
+    const payloads = [
+      "return { pid: Math.constructor.constructor('return process')().pid };",
+      "return Object.constructor('return process')().env;",
+      "return (1).constructor.constructor('return process')().env;",
+      "return console.log.constructor('return process')().env;",
+      "return (async () => {}).constructor('return process')().env;",
+    ];
+    for (const code of payloads) {
+      await assert.rejects(execCodeSandbox(N('C', 'n8n-nodes-base.code', { code }) as any, {}), /code:/, code);
+    }
+  });
+  it('exposes no process/require/module/global escape hatch inside code nodes', async () => {
+    const out: any = await execCodeSandbox(N('C', 'n8n-nodes-base.code', {
+      code: 'return { process: typeof process, require: typeof require, module: typeof module, global: typeof globalThis.process, env: typeof process === "undefined" ? 0 : Object.keys(process.env).length };',
+    }) as any, {});
+    assert.equal(out.process, 'undefined');
+    assert.equal(out.require, 'undefined');
+    assert.equal(out.module, 'undefined');
+    assert.equal(out.global, 'undefined');
+    assert.equal(out.env, 0);
+  });
+  it('kills never-settling async code instead of hanging the service (#4)', async () => {
+    const started = Date.now();
+    const r = await runWorkflow({
+      nodes: [N('Start', 'n8n-nodes-base.manualTrigger'), N('C', 'n8n-nodes-base.code', { code: 'await new Promise(() => {});', timeoutMs: 1000 })],
+      connections: { Start: { main: [[{ node: 'C' }]] } } as any,
+    }, {});
+    assert.equal(r.status, 'error');
+    assert.match(String(r.error), /timed out/);
+    assert.ok(Date.now() - started < 8000, 'sandbox timeout must be enforced by the parent');
+  });
   it('times out infinite loops', async () => {
     const r = await runWorkflow({
       nodes: [N('Start', 'n8n-nodes-base.manualTrigger'), N('C', 'n8n-nodes-base.code', { code: 'while(true) {}' })],
@@ -90,6 +124,43 @@ describe('engine: http + ssrf + cycle + cron', () => {
     }, {});
     assert.equal(r.status, 'error');
     assert.match(String(r.error), /blocked/);
+  });
+  it('blocks IPv4-mapped IPv6 and other private/reserved literals (SSRF #11)', () => {
+    const blocked = [
+      'http://[::ffff:127.0.0.1]:8080/',
+      'http://[::ffff:7f00:1]:8080/',
+      'http://[0:0:0:0:0:ffff:127.0.0.1]/',
+      'http://[::1]/',
+      'http://[::]/',
+      'http://[fd00::1]/',
+      'http://[fe80::1]/',
+      'http://[ff02::1]/',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://10.0.0.5/',
+      'http://172.20.1.1/',
+      'http://192.168.1.1/',
+      'http://100.100.100.200/',
+      'http://2130706433/',   // decimal 127.0.0.1
+      'http://0x7f000001/',   // hex 127.0.0.1
+      'http://localhost/',
+      'http://postgres:5432/',
+    ];
+    for (const url of blocked) assert.equal(isBlockedUrl(url), true, url);
+    const allowed = [
+      'https://example.com/',
+      'http://93.184.216.34/',
+      'http://[2606:4700::1111]/',
+    ];
+    for (const url of allowed) assert.equal(isBlockedUrl(url), false, url);
+  });
+  it('blocks public names that resolve to private address space (rebinding, #11)', async () => {
+    await assert.rejects(assertUrlAllowed('https://rebind.example/', async () => ['10.1.2.3']), /blocked internal URL/);
+    await assert.rejects(assertUrlAllowed('https://rebind.example/', async () => ['93.184.216.34', '169.254.169.254']), /blocked internal URL/);
+    await assert.rejects(assertUrlAllowed('https://rebind.example/', async () => ['::ffff:127.0.0.1']), /blocked internal URL/);
+    await assert.rejects(assertUrlAllowed('https://rebind.example/', async () => ['/tmp/socket']), /blocked internal URL/);
+    await assert.doesNotReject(assertUrlAllowed('https://public.example/', async () => ['93.184.216.34']));
+    // Unresolvable names pass the guard and simply fail at fetch time.
+    await assert.doesNotReject(assertUrlAllowed('https://nxdomain.example/', async () => { throw new Error('ENOTFOUND'); }));
   });
   it('detects cycles', () => {
     const cyc = detectCycle(
