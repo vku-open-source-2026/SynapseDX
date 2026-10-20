@@ -14,7 +14,7 @@
 - Expect acknowledgement within 3 business days; we aim to ship a fix + advisory within 30 days for critical issues.
 
 ## Production checklist (do this before exposing anything)
-1. Change every `*_change_me_*` secret in `.env` (JWT, postgres, authentik, n8n, OIDC).
+1. Change every `*_change_me_*` secret in `.env` (JWT, postgres, authentik, OIDC).
 2. `IAM_JWT_SECRET`: random value ≥32 chars. Gateway and IAM **must share the same value**.
    The services refuse to boot in `NODE_ENV=production` with a default/weak secret.
 3. `SYNAPSEDX_INTERNAL_SECRET`: random 32+ chars, **same value** on gateway + iam + workflow.
@@ -35,8 +35,8 @@
    spurious 429s via a shared store). Without external rate limiting there is
    NO brute-force protection on `/v1/auth/*` (login/refresh). Never expose
    IAM/workflow directly.
-10. Track CVEs of the external engines and pin images: Authentik, n8n, PostgreSQL,
-    Redis (see `docker-compose.yml`). Rotate `N8N_API_KEY` and `N8N_ENCRYPTION_KEY`.
+10. Track CVEs of external engines and pin images: Authentik, PostgreSQL,
+    Redis (see `docker-compose.yml`).
 11. Console stores the session token in `localStorage` (XSS-readable by design for a
     static SPA). Mitigate with a strict CSP on your reverse proxy, keep dependencies
     patched, and use short `IAM_JWT_EXPIRES_IN` + refresh rotation (already atomic).
@@ -60,11 +60,10 @@
 - Baseline security headers are set by all services (`nosniff`, `DENY` framing,
   `no-referrer`, locked-down `Permissions-Policy`; HSTS opt-in via `HSTS_ENABLED`).
 - Gateway request-ids are sanitized to token chars (no CRLF/header injection).
-- Workflow `/v1/executions` only forwards an allowlisted query set to n8n
-  (`limit, offset, workflowId, status, includeData`) — no raw query passthrough.
+- Workflow `/v1/executions` only accepts an allowlisted query set
+  (`limit, offset, workflowId, status, includeData`).
 - Workflow definitions may contain HTTP nodes (inherent SSRF surface of any workflow
-  engine): restrict who can create/execute workflows via RBAC, and run n8n
-  egress-restricted in production (no cloud-metadata access).
+  engine): restrict who can create/execute workflows via RBAC.
 - Workflow HTTP nodes are SSRF-guarded at run time — the host literal (including
   IPv4-mapped IPv6, decimal/hex IPv4) and every DNS-resolved address are checked
   against private/reserved ranges on the first request and on every redirect hop.
@@ -79,7 +78,7 @@
   for `/v1/auth/*` MUST come from Ingress/WAF. The removed limiter once caused
   spurious 429s via a shared Redis store (fixed by keyspace separation, then
   removed entirely to keep CI/ops simple).
-- n8n/Authentik are external engines — track their own CVEs and pin images in `docker-compose.yml`.
+- Authentik is an external engine — track its own CVEs and pin images in `docker-compose.yml`.
 
 ## Known transitive findings (accepted, tracked)
 - `braces` (GHSA-vfj7-8cjw-p6xm, via `micromatch` ← `http-proxy-middleware` in gateway):

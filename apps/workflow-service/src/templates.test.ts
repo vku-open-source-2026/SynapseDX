@@ -35,16 +35,18 @@ describe('workflow templates', () => {
     assert.deepEqual(workflowRunPrincipal({ org_id: null, account_id: 'acc-2', owner_sub: 'u2', run_as: null }), { sub: 'u2', org: undefined, account: 'acc-2', kind: 'workflow' });
     assert.equal(workflowRunPrincipal({ org_id: null, account_id: null, owner_sub: null, run_as: null }), null);
   });
-  it('ships valid examples (CI: examples/n8n-templates pass validateDefinition)', () => {
+  it('ships valid examples (CI: examples/workflow-templates pass validateDefinition)', () => {
     // Locate the repo examples dir from either src/ (ts-node) or dist/.
     let dir = '';
     let cur = path.resolve(__dirname);
     for (let i = 0; i < 5; i++) {
-      const cand = path.join(cur, 'examples', 'n8n-templates');
+      const cand = path.join(cur, 'examples', 'workflow-templates');
+      const legacyCand = path.join(cur, 'examples', 'n8n-templates');
       if (fs.existsSync(cand)) { dir = cand; break; }
+      if (fs.existsSync(legacyCand)) { dir = legacyCand; break; }
       cur = path.dirname(cur);
     }
-    assert.ok(dir, 'examples/n8n-templates found');
+    assert.ok(dir, 'examples/workflow-templates found');
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.json'));
     assert.ok(files.length >= 2, 'example files present');
     for (const f of files) {
@@ -90,10 +92,10 @@ describe('self-call allowlist (P0-1)', () => {
     };
     assert.match(String(validateDefinition(dead)), /trigger node/);
     // webhook + manualTrigger + cron all satisfy the requirement
-    for (const type of ['n8n-nodes-base.webhook', 'n8n-nodes-base.manualTrigger', 'n8n-nodes-base.cron']) {
+    for (const type of ['n8n-nodes-base.webhook', 'n8n-nodes-base.manualTrigger', 'n8n-nodes-base.cron', 'webhook', 'manualTrigger', 'cron']) {
       const def = {
         nodes: [
-          { name: 'T', type, parameters: type === 'n8n-nodes-base.cron' ? { intervalMs: 15000 } : type === 'n8n-nodes-base.webhook' ? { path: 'p' } : {} },
+          { name: 'T', type, parameters: (type === 'n8n-nodes-base.cron' || type === 'cron') ? { intervalMs: 15000 } : (type === 'n8n-nodes-base.webhook' || type === 'webhook') ? { path: 'p' } : {} },
           { name: 'S', type: 'set', parameters: { values: { a: 1 } } },
         ],
         connections: { T: { main: [[{ node: 'S' }]] } },

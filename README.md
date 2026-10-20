@@ -8,11 +8,11 @@
 [![PyPI SDK](https://img.shields.io/pypi/v/synapsedx-sdk)](https://pypi.org/project/synapsedx-sdk/)
 
 **SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
-management, a core data cluster, and n8n workflows — operated through a web Console,
+management, a core data cluster, and native workflows — operated through a web Console,
 SDKs in three languages, and a zero-dependency CLI.**
 
-No lock-in: Authentik/Keycloak and n8n run as external engines, integrated over
-standard OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
+No lock-in: Authentik/Keycloak runs as an optional external IdP over
+standard OIDC. Everything else is SynapseDX code, pure Apache-2.0.
 
 - 🌐 **Live demo:** [synapsedx.sbs](https://synapsedx.sbs) · Console: [cloud.synapsedx.sbs](https://cloud.synapsedx.sbs) · API: `https://api.synapsedx.sbs/health`
 - 📦 **Install:** `npm i @synapsedx/sdk` · `pip install synapsedx-sdk` · `npx @synapsedx/cli` · Go SDK via the monorepo (see below)
@@ -26,7 +26,7 @@ standard OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
 | **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log, tenant isolation on every write (role-based, same-org fallback) |
 | **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
 | **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
-| **Workflows** | Control plane over external n8n: versioned templates, activate/deactivate/execute (real webhook triggers), execution history, definition editor |
+| **Workflows** | Built-in workflow engine (Apache-2.0): DAG runner, versioned templates, activate/deactivate/execute (real webhook & cron triggers), sandboxed code execution, execution history, visual graph editor |
 | **Linked Data (SynapseLDS)** | Licence-picked NGSI-LD datasources: structural-allowlist projection (`_core` never serialized), per-attribute visibility (public/restricted/internal), default-deny schema registry, workflow publish node (`lds.publish-record`) |
 | **AI assistant** | Chatbot on the API Docs page: decision model picks the endpoint, LLM pre-fills the try-it form (server-side key, guidance-only, never public) |
 | **Clients** | TypeScript, Python and Go SDKs with full API parity, zero-dependency CLI, admin Console |
@@ -127,7 +127,7 @@ user and all authorization. Details: `docs/architecture.md`, `docs/iam-model.md`
 apps/console               Admin UI (React + Vite + Tailwind)
 apps/gateway               API gateway (proxy, JWT/API-key, principal headers, /metrics)
 apps/iam-service           IAM + tokens + authorize/simulator + real OIDC code flow
-apps/workflow-service      n8n control plane (proxy + versioned templates)
+apps/workflow-service      Workflow engine (local built-in DAG runner, sandboxed code, triggers)
 apps/lds-service           SynapseLDS — NGSI-LD datasources, registry, licensed exports
 sdks/sdk-js                @synapsedx/sdk (TypeScript, zero runtime deps)
 sdks/sdk-python            synapsedx-sdk (Python, requests only)

@@ -267,10 +267,44 @@ export function actorFor(workflowId: string, principal?: RunPrincipal | null): s
   return `workflow:${workflowId} principal:${sub}`;
 }
 
+export function isWebhookType(type: unknown): boolean {
+  return type === 'webhook' || type === 'n8n-nodes-base.webhook' || type === 'synapsedx.webhook';
+}
+export function isCronType(type: unknown): boolean {
+  return type === 'cron' || type === 'n8n-nodes-base.cron' || type === 'synapsedx.cron';
+}
+export function isManualTriggerType(type: unknown): boolean {
+  return type === 'manualTrigger' || type === 'n8n-nodes-base.manualTrigger' || type === 'synapsedx.manualTrigger';
+}
+export function isTriggerType(type: unknown): boolean {
+  return isWebhookType(type) || isCronType(type) || isManualTriggerType(type);
+}
+export function isCodeType(type: unknown): boolean {
+  return type === 'code' || type === 'n8n-nodes-base.code' || type === 'synapsedx.code';
+}
+export function isHttpRequestType(type: unknown): boolean {
+  return type === 'httpRequest' || type === 'n8n-nodes-base.httpRequest' || type === 'synapsedx.httpRequest';
+}
+export function isSetType(type: unknown): boolean {
+  return type === 'set' || type === 'n8n-nodes-base.set' || type === 'synapsedx.set';
+}
+export function isIfType(type: unknown): boolean {
+  return type === 'if' || type === 'n8n-nodes-base.if' || type === 'synapsedx.if';
+}
+export function isNoOpType(type: unknown): boolean {
+  return type === 'noOp' || type === 'n8n-nodes-base.noOp' || type === 'synapsedx.noOp';
+}
+
 const TRIGGER_TYPES = new Set([
   'n8n-nodes-base.webhook',
   'n8n-nodes-base.cron',
   'n8n-nodes-base.manualTrigger',
+  'webhook',
+  'cron',
+  'manualTrigger',
+  'synapsedx.webhook',
+  'synapsedx.cron',
+  'synapsedx.manualTrigger',
 ]);
 
 const MAX_CODE_BYTES = 50 * 1024;
@@ -1041,33 +1075,49 @@ export async function runWorkflow(
           input: clone(data), output: clone(output), error: 'node disabled — passed through',
           durationMs: Date.now() - t0, startedAt, finishedAt,
         });
-        return node.type === 'n8n-nodes-base.if' ? { output, branch: 0 } : { output };
+        return isIfType(node.type) ? { output, branch: 0 } : { output };
       }
       let output: any;
       let skipped: string | null = null;
       let attempts = 1;
       switch (node.type) {
+        case 'webhook':
         case 'n8n-nodes-base.webhook':
+        case 'synapsedx.webhook':
+        case 'cron':
         case 'n8n-nodes-base.cron':
+        case 'synapsedx.cron':
+        case 'manualTrigger':
         case 'n8n-nodes-base.manualTrigger':
+        case 'synapsedx.manualTrigger':
           output = await execTrigger(node, data);
           break;
+        case 'noOp':
         case 'n8n-nodes-base.noOp':
+        case 'synapsedx.noOp':
           output = await execNoOp(node, data);
           break;
+        case 'set':
         case 'n8n-nodes-base.set':
+        case 'synapsedx.set':
           output = execSet(node, data);
           break;
+        case 'if':
         case 'n8n-nodes-base.if':
+        case 'synapsedx.if':
           output = clone(data);
           break;
-        case 'n8n-nodes-base.httpRequest': {
+        case 'httpRequest':
+        case 'n8n-nodes-base.httpRequest':
+        case 'synapsedx.httpRequest': {
           const r = await runNodeWithRetry('http', node, data);
           output = r.output;
           attempts = r.attempts;
           break;
         }
-        case 'n8n-nodes-base.code': {
+        case 'code':
+        case 'n8n-nodes-base.code':
+        case 'synapsedx.code': {
           const r = await runNodeWithRetry('code', node, data);
           output = r.output;
           attempts = r.attempts;
@@ -1094,7 +1144,7 @@ export async function runWorkflow(
         ...(attempts > 1 ? { attempts } : {}),
         durationMs: Date.now() - t0, startedAt, finishedAt,
       });
-      if (node.type === 'n8n-nodes-base.if') {
+      if (isIfType(node.type)) {
         const cond = execIfCondition(node, output);
         return { output, branch: cond ? 0 : 1 };
       }
@@ -1138,7 +1188,7 @@ export async function runWorkflow(
       if (continueOnError) {
         partialErrors.push(msg);
         execOut = {};
-        branch = node.type === 'n8n-nodes-base.if' ? 1 : undefined;
+        branch = isIfType(node.type) ? 1 : undefined;
       } else {
         failed = msg;
         break;
@@ -1295,7 +1345,7 @@ export function cronIntervalMs(node: EngineNode): number | null {
 export function workflowCronNextRunAt(workflow: { nodes?: EngineNode[] }, nowMs?: number): number | null {
   let best: number | null = null;
   for (const n of workflow?.nodes || []) {
-    if ((n as any)?.type !== 'n8n-nodes-base.cron') continue;
+    if (!isCronType((n as any)?.type)) continue;
     const t = cronNextRunAt((n as any)?.parameters, nowMs);
     if (t && (!best || t < best)) best = t;
   }
@@ -1305,7 +1355,7 @@ export function workflowCronNextRunAt(workflow: { nodes?: EngineNode[] }, nowMs?
 export function workflowCronIntervalMs(workflow: { nodes?: EngineNode[] }): number | null {
   let best: number | null = null;
   for (const n of workflow?.nodes || []) {
-    if ((n as any)?.type !== 'n8n-nodes-base.cron') continue;
+    if (!isCronType((n as any)?.type)) continue;
     const ms = cronIntervalMs(n as EngineNode);
     if (ms && (!best || ms < best)) best = ms;
   }

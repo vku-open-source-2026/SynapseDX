@@ -42,6 +42,24 @@ describe('engine: set / if / noOp passthrough', () => {
     assert.equal(r.status, 'success');
     assert.deepEqual(r.output, { a: 1 });
   });
+  it('runs workflow with native node types (no n8n-nodes-base prefix)', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('SetData', 'set', { values: { x: 5 } }),
+        N('Double', 'code', { code: 'return { result: $input.x * 2 };' }),
+        N('Pass', 'noOp'),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'SetData' }]] },
+        SetData: { main: [[{ node: 'Double' }]] },
+        Double: { main: [[{ node: 'Pass' }]] },
+      } as any,
+    };
+    const r = await runWorkflow(def, {});
+    assert.equal(r.status, 'success');
+    assert.equal((r.output as any).result, 10);
+  });
 });
 
 describe('engine: code sandbox', () => {

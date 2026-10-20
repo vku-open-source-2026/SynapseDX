@@ -23,7 +23,7 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism â€
 
 ## 2. Network & TLS
 
-- [ ] Gateway is the single entry point (Ingress + TLS); IAM/workflow/n8n/postgres/redis
+- [ ] Gateway is the single entry point (Ingress + TLS); IAM/workflow/postgres/redis
       are not internet-exposed (ClusterIP / internal compose network).
 - [ ] Lock down the gateway CORS to the real frontend origins (MVP default is wide open).
 - [ ] Rate limiting at the outer layer (Ingress NGINX `limit_req`, Cloudflare/AWS WAF):
