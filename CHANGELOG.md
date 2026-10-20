@@ -3,7 +3,9 @@
 All notable changes to this project will be documented in this file.
 Format based on Keep a Changelog; versioning follows SemVer.
 
-## [0.4.0] - 2026-10-18
+## [Unreleased]
+
+## [0.4.0] - 2026-10-20
 ### Added — SynapseLDS (linked data service)
 - New `apps/lds-service` (:4004, gateway `/v1/lds`, auth `either`): licensed
   NGSI-LD datasources with an attribute schema registry
@@ -72,8 +74,6 @@ Format based on Keep a Changelog; versioning follows SemVer.
   gateway `/ready` aggregates lds; compose ships `synapsedx/lds:0.4.0`
   (all images bumped to 0.4.0); e2e `api-check.sh` covers the LDS flow incl.
   a metadata-leak assertion.
-
-## [Unreleased]
 ### Changed — workflow engine replaced (BREAKING from n8n)
 - Removed n8n (SUL) from the default stack: `workflow-service` now runs its own
   Apache-2.0 local engine (`src/engine.ts` + `src/store.ts`, Postgres with in-memory
@@ -290,6 +290,26 @@ Format based on Keep a Changelog; versioning follows SemVer.
 - Slug pattern relaxed `{2,64}` → `{1,64}` (single-char slugs like e2e's `"r"`/`"p"`
   are legitimate; charset restrictions unchanged) + regression test.
 - Root `npm audit` (dropped version-fragile `--workspaces` flag).
+### Fixed (security hardening — post-0.4.0 review)
+- IAM reads are tenant-scoped like their writes: `GET /v1/orgs` only returns
+  the caller's org; org/account/role/user reads answer `403`/`404` outside the
+  caller's tenant; `GET /v1/audit` only shows rows targeting or triggered by
+  the caller's org.
+- Service-account token minting no longer widens scopes: an omitted `scopes`
+  list delegates the caller's own scopes (possibly `[]`), and explicit scopes
+  must be a subset of the caller's scopes unless it holds `*` — otherwise
+  `403 scope_escalation`. The JS/Python/Go SDKs stop defaulting to `['*']` and
+  omit the field instead.
+- OIDC login can no longer auto-join an existing org: a new slug remains
+  self-service, but joining an existing org requires an existing membership
+  (`403 org_membership_required`); optional `OIDC_ALLOWED_ORGS` gates
+  federation (`403 org_not_allowed`).
+- Workflow credentials, executions and workflow instances are tenant-scoped
+  end to end; IAM service-key wiring keeps gateway-authenticated internal
+  calls working after the hardening.
+- Code nodes run in a throwaway child process (no host `process`/`require`
+  escape, hard timeout) and the SSRF guard additionally blocks IPv4-mapped
+  IPv6, private-address DNS rebinding and internal redirect hops.
 
 ## [0.3.1] - 2026-10-12
 ### Fixed
