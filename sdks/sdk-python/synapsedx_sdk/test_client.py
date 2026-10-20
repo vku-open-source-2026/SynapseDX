@@ -187,6 +187,22 @@ def test_full_coverage_paths():
         srv.shutdown()
 
 
+def test_service_account_token_omits_scopes_unless_given():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.service_account_token("sa1")
+        assert _seen["path"] == "/v1/service-accounts/sa1/token"
+        assert json.loads(_seen["body"]) == {}
+        c.service_account_token("sa1", ["workflow:Execute"])
+        assert json.loads(_seen["body"]) == {"scopes": ["workflow:Execute"]}
+        c.service_account_token("sa1", [])
+        assert json.loads(_seen["body"]) == {"scopes": []}
+    finally:
+        srv.shutdown()
+
+
 def test_test_run_posts_definition_and_input():
     srv = _server()
     try:

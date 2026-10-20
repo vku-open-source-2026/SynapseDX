@@ -325,7 +325,10 @@ Lists service accounts in an account.
 ```ts
 serviceAccountToken(saId: string, scopes?: string[]): Promise<{ accessToken: string }>
 ```
-Mints a short-lived JWT for a service account. `scopes` defaults to `['*']`.
+Mints a short-lived JWT for a service account. When `scopes` is omitted the
+server delegates the caller's own scopes (it never widens to `['*']`). Pass an
+explicit list to narrow the minted token; it must be a subset of the caller's
+scopes unless the caller holds `*`.
 
 ```ts
 const { accessToken } = await c.serviceAccountToken(saId, ['workflow:Execute']);

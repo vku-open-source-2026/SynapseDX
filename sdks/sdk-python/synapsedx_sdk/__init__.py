@@ -342,10 +342,13 @@ class SynapseDXClient:
         return self._req("DELETE", f"/v1/policies/{quote(policy_id, safe='')}")
 
     def service_account_token(self, sa_id: str, scopes: list | None = None) -> dict:
+        # scopes omitted -> the server delegates the caller's own scopes (never
+        # widens to '*'). Pass an explicit list to narrow the minted token.
+        body = {} if scopes is None else {"scopes": scopes}
         return self._req(
             "POST",
             f"/v1/service-accounts/{quote(sa_id, safe='')}/token",
-            {"scopes": scopes or ["*"]},
+            body,
         )
 
     # ---- workflows ----

@@ -334,7 +334,10 @@ Lists service accounts in an account.
 ```python
 def service_account_token(self, sa_id: str, scopes: list | None = None) -> dict
 ```
-Mints a short-lived JWT for a service account. `scopes` defaults to `["*"]`.
+Mints a short-lived JWT for a service account. When `scopes` is omitted the
+server delegates the caller's own scopes (it never widens to `["*"]`). Pass an
+explicit list to narrow the minted token; it must be a subset of the caller's
+scopes unless the caller holds `*`.
 
 ```python
 result = c.service_account_token(sa_id, ["workflow:Execute"])
