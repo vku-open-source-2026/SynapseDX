@@ -352,7 +352,10 @@ Lists service accounts in an account.
 ```go
 func (c *Client) ServiceAccountToken(saID string, scopes []string) (map[string]any, error)
 ```
-Mints a short-lived JWT for a service account. `scopes` defaults to `["*"]`.
+Mints a short-lived JWT for a service account. A `nil` `scopes` slice delegates
+the caller's own scopes (it never widens to `["*"]`). Pass an explicit list to
+narrow the minted token; it must be a subset of the caller's scopes unless the
+caller holds `*`.
 
 ```go
 result, err := c.ServiceAccountToken(saID, []string{"workflow:Execute"})

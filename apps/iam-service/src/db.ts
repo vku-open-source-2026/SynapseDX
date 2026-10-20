@@ -283,6 +283,19 @@ export async function getUserById(id: string): Promise<User | null> {
   return mem.users.get(id) || null;
 }
 
+/** Membership check by (org, email) — used by the OIDC callback before letting
+ *  an IdP identity join an EXISTING org (no auto-join across tenants, #9). */
+export async function findUserByOrgEmail(orgId: string, email: string): Promise<User | null> {
+  if (pool) {
+    const r = await pool.query(
+      'SELECT id, org_id, email, display_name, external_sub FROM users WHERE org_id=$1 AND email=$2',
+      [orgId, email],
+    );
+    return r.rows[0] || null;
+  }
+  return [...mem.users.values()].find((u) => u.org_id === orgId && u.email === email) || null;
+}
+
 /** Existence checks for FK-safe attach/assign (404 thay vì 500 khi id lạ). */
 export async function roleExists(id: string): Promise<boolean> {
   if (pool) {
@@ -413,7 +426,7 @@ export async function logAudit(e: AuditEntry): Promise<void> {  if (pool) {
   if (((__mem as any).audit as any[]).length > 1000) ((__mem as any).audit as any[]).splice(0, 100);
 }
 
-export async function listAudit(limit = 50, actorId?: string, allowed?: boolean): Promise<any[]> {
+export async function listAudit(limit = 50, actorId?: string, allowed?: boolean, orgId?: string): Promise<any[]> {
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
   const dec = allowed === undefined ? undefined : !!allowed;
   if (pool) {
@@ -427,6 +440,13 @@ export async function listAudit(limit = 50, actorId?: string, allowed?: boolean)
       params.push(dec);
       conds.push(`decision=$${params.length}`);
     }
+    if (orgId) {
+      // Tenant scoping (#7): rows belong to the org they targeted
+      // (context.org) or to the org of the caller who triggered them
+      // (context.callerOrg, e.g. dry-run rows).
+      params.push(orgId);
+      conds.push(`(context->>'org'=$${params.length} OR context->>'callerOrg'=$${params.length})`);
+    }
     params.push(lim);
     const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
     const r = await pool.query(
@@ -437,7 +457,9 @@ export async function listAudit(limit = 50, actorId?: string, allowed?: boolean)
   }
   const all: any[] = (((__mem as any).audit as any[]) || []).slice().reverse();
   const filtered = all.filter(
-    (a) => (!actorId || a.actor_id === actorId) && (dec === undefined || !!a.decision === dec),
+    (a) => (!actorId || a.actor_id === actorId)
+      && (dec === undefined || !!a.decision === dec)
+      && (!orgId || a.context?.org === orgId || a.context?.callerOrg === orgId),
   );
   return filtered.slice(0, lim);
 }

@@ -15,6 +15,9 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism â€
 - [ ] Authentik/Keycloak behind TLS; `OIDC_ISSUER` uses the correct internal https URL.
 - [ ] Point `OIDC_REDIRECT_URI` at the Console `/oidc/callback` page so the real
       Authorization Code flow completes in the browser.
+- [ ] Optional: pin federation with `OIDC_ALLOWED_ORGS` (comma-separated slugs).
+      Without it a new slug is self-service; joining an **existing** org always
+      requires a membership (invited via `POST /v1/orgs/:orgId/users`).
 - [ ] K8s secrets via SealedSecrets/External Secrets â€” **never** commit filled-in files
       (see `infra/k8s/base/secrets.example.yaml`).
 

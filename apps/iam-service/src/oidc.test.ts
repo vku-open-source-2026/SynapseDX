@@ -75,7 +75,7 @@ interface Stub {
 /** Minimal OIDC provider: discovery + JWKS + token endpoint signing `alg`. */
 async function startStubIdp(
   alg: 'RS256' | 'HS256',
-  opts: { noEmail?: boolean; wrongIssuer?: boolean; unknownKid?: boolean } = {},
+  opts: { noEmail?: boolean; wrongIssuer?: boolean; unknownKid?: boolean; email?: string; sub?: string } = {},
 ): Promise<Stub> {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const privPem = privateKey.export({ format: 'pem', type: 'pkcs8' }) as string;
@@ -112,8 +112,8 @@ async function startStubIdp(
             : { algorithm: 'HS256', expiresIn: 300 };
         // jsonwebtoken v9: sign(payload, secretOrPrivateKey, options)
         const key = alg === 'RS256' ? privPem : 'weak-shared-secret';
-        const claims: any = { iss, aud: 'test-client', sub: 'stub-sub-1', name: 'Stub User' };
-        if (!opts.noEmail) claims.email = 'SSO@Example.COM';
+        const claims: any = { iss, aud: 'test-client', sub: opts.sub || 'stub-sub-1', name: 'Stub User' };
+        if (!opts.noEmail) claims.email = opts.email || 'SSO@Example.COM';
         const idToken = (jwt as any).sign(claims, key, signOpts);
         send(200, { id_token: idToken, token_type: 'Bearer', expires_in: 300 });
       });
@@ -159,6 +159,49 @@ describe('oidc authorization code flow (stub IdP)', () => {
       assert.equal(me.status, 200);
     } finally {
       await stub.close();
+    }
+  });
+
+  it('a different IdP identity cannot join an existing org (#9)', async () => {
+    const stubA = await startStubIdp('RS256');
+    try {
+      setIdp(stubA.url);
+      const startA = await call('GET', '/v1/auth/oidc/start?org=joinsorg');
+      const cbA = await call('POST', '/v1/auth/oidc/callback', { code: 'opaque-code', state: startA.data.state });
+      assert.equal(cbA.status, 200); // first login founds the org
+    } finally {
+      await stubA.close();
+    }
+    const stubB = await startStubIdp('RS256', { email: 'intruder@example.com', sub: 'stub-sub-2' });
+    try {
+      setIdp(stubB.url);
+      const startB = await call('GET', '/v1/auth/oidc/start?org=joinsorg');
+      const cbB = await call('POST', '/v1/auth/oidc/callback', { code: 'opaque-code', state: startB.data.state });
+      assert.equal(cbB.status, 403);
+      assert.equal(cbB.data.error, 'org_membership_required');
+    } finally {
+      await stubB.close();
+    }
+  });
+
+  it('OIDC_ALLOWED_ORGS gates which slugs can be targeted (#9)', async () => {
+    process.env.OIDC_ALLOWED_ORGS = 'allowedorg';
+    try {
+      const stub = await startStubIdp('RS256');
+      try {
+        setIdp(stub.url);
+        const blocked = await call('GET', '/v1/auth/oidc/start?org=otherorg');
+        const r = await call('POST', '/v1/auth/oidc/callback', { code: 'opaque-code', state: blocked.data.state });
+        assert.equal(r.status, 403);
+        assert.equal(r.data.error, 'org_not_allowed');
+        const allowed = await call('GET', '/v1/auth/oidc/start?org=allowedorg');
+        const ok = await call('POST', '/v1/auth/oidc/callback', { code: 'opaque-code', state: allowed.data.state });
+        assert.equal(ok.status, 200);
+      } finally {
+        await stub.close();
+      }
+    } finally {
+      delete process.env.OIDC_ALLOWED_ORGS;
     }
   });
 

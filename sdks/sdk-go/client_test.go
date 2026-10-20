@@ -194,6 +194,33 @@ func TestIAMCoverage(t *testing.T) {
 	_ = seen
 }
 
+func TestServiceAccountTokenScopeDelegation(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+	if _, err := c.ServiceAccountToken("sa1", nil); err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := body["scopes"]; ok {
+		t.Fatalf("nil scopes must be omitted: %v", seen["body"])
+	}
+	if _, err := c.ServiceAccountToken("sa1", []string{"workflow:Execute"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatal(err)
+	}
+	scopes, ok := body["scopes"].([]any)
+	if !ok || len(scopes) != 1 || scopes[0] != "workflow:Execute" {
+		t.Fatalf("explicit scopes not forwarded: %v", seen["body"])
+	}
+}
+
 func TestWorkflowCoverage(t *testing.T) {
 	seen := map[string]string{}
 	srv := echoServer(t, seen)

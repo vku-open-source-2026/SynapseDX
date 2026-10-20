@@ -204,8 +204,13 @@ export class SynapseDXClient {
     return this.req(`/v1/accounts/${encodeURIComponent(accountId)}/service-accounts`, { method: 'POST', body: JSON.stringify({ slug, description }) });
   }
   listServiceAccounts(accountId: string) { return this.req(`/v1/accounts/${encodeURIComponent(accountId)}/service-accounts`); }
-  serviceAccountToken(saId: string, scopes: string[] = ['*']) {
-    return this.req<{ accessToken: string }>(`/v1/service-accounts/${encodeURIComponent(saId)}/token`, { method: 'POST', body: JSON.stringify({ scopes }) });
+  // scopes omitted -> the server delegates the caller's own scopes (never
+  // widens to '*'). Pass an explicit list to narrow the minted token.
+  serviceAccountToken(saId: string, scopes?: string[]) {
+    return this.req<{ accessToken: string }>(`/v1/service-accounts/${encodeURIComponent(saId)}/token`, {
+      method: 'POST',
+      body: JSON.stringify(scopes === undefined ? {} : { scopes }),
+    });
   }
 
   // ---- workflows (local engine via workflow-service) ----

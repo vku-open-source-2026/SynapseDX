@@ -147,7 +147,7 @@ const sa = await c.createServiceAccount(accountId, 'etl-bot', 'ETL service accou
 // listServiceAccounts(accountId)
 const sas = await c.listServiceAccounts(accountId);
 
-// serviceAccountToken(saId, scopes = ['*'])
+// serviceAccountToken(saId, scopes?) — omitted scopes delegate the caller's own scopes
 const { accessToken: saToken } = await c.serviceAccountToken(saId, ['workflow:Execute']);`;
 
 const JS_WORKFLOWS = `// listWorkflows()

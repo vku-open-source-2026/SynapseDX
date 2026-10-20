@@ -9,7 +9,8 @@ import dotenv from 'dotenv';
 import { z } from 'zod';
 import {
   createOrganization, listOrganizations, getOrgBySlug,
-  createAccount, listAccounts, upsertUser, listUsers, getUserById, createRole, createPolicy,
+  createAccount, listAccounts, upsertUser, listUsers, getUserById, findUserByOrgEmail,
+  createRole, createPolicy,
   attachPolicy, assignRole, detachPolicy, unassignRole, policiesForUser, useDb, deleteRole, deletePolicy,
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies, logAudit, listAudit, purgeAudit,
@@ -126,6 +127,26 @@ async function resolveCallerOrg(req: express.Request, trustStamped: boolean): Pr
   return null;
 }
 
+/** User id of the caller (same stamped-trust rule as org). Service-account
+ *  tokens and API keys are machine identities → null. */
+async function resolveCallerUser(req: express.Request, trustStamped: boolean): Promise<string | null> {
+  if (trustStamped) {
+    const su = firstHeader(req.headers['x-synapsedx-user'] as any);
+    if (su) return su;
+  }
+  const h = firstHeader(req.headers.authorization as any);
+  if (h.startsWith('Bearer ')) {
+    try {
+      const claims = verifyAccess(h.slice(7));
+      if (claims.kind === 'service-account') return null;
+      return claims.sub || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 /** May the caller act for `accountId`? Role-based account membership first,
  *  then same-org fallback (login JWTs carry org but no account, and fresh
  *  users hold no roles yet — without this the bootstrap flow could never mint
@@ -145,6 +166,49 @@ async function canActForAccount(req: express.Request, trustStamped: boolean, acc
 async function canActForOrg(req: express.Request, trustStamped: boolean, orgId: string): Promise<boolean> {
   const org = await resolveCallerOrg(req, trustStamped);
   return !!org && org === orgId;
+}
+
+/** Optional OIDC org allowlist (#9): comma-separated slugs. Empty = any slug
+ *  is allowed (membership rules below still apply). */
+function oidcAllowedOrgs(): string[] {
+  return (process.env.OIDC_ALLOWED_ORGS || '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** Resolve the org + user for an OIDC identity (#9). A brand-new slug is
+ *  self-service (the org is created for the first login), but joining an
+ *  EXISTING org requires an existing membership (user row for that email):
+ *  an IdP login can never auto-join another tenant by guessing its slug.
+ *  Returns a typed failure for the fail-closed paths. */
+async function resolveOidcIdentity(
+  slug: string,
+  email: string,
+  displayName?: string,
+  externalSub?: string,
+): Promise<{ user: import('./db').User } | { error: 'org_not_allowed' | 'org_membership_required'; message: string }> {
+  const allowed = oidcAllowedOrgs();
+  if (allowed.length && !allowed.includes(slug)) {
+    return { error: 'org_not_allowed', message: `organization '${slug}' is not in OIDC_ALLOWED_ORGS` };
+  }
+  let org = await getOrgBySlug(slug);
+  if (!org) {
+    try {
+      org = await createOrganization(slug, slug);
+    } catch (e: any) {
+      // Lost a concurrent-create race → fall back to the membership rule.
+      org = await getOrgBySlug(slug);
+      if (!org) throw e;
+    }
+    return { user: await upsertUser(org.id, email, displayName, externalSub) };
+  }
+  const existing = await findUserByOrgEmail(org.id, email);
+  if (!existing) {
+    return {
+      error: 'org_membership_required',
+      message: 'Your IdP identity is not a member of this organization. Ask an admin to invite you, or start a new organization.',
+    };
+  }
+  // Member re-login: refresh display name/external sub from the IdP claims.
+  return { user: await upsertUser(org.id, email, displayName, externalSub) };
 }
 export function isDevLoginEnabled(): boolean {
   if (IS_PROD) return false; // fail-closed in production regardless of env
@@ -371,9 +435,13 @@ export function createApp(): express.Express {
         }
         try {
           const id = await exchangeCode(code, state);
-          const org = (await getOrgBySlug(id.org)) || (await createOrganization(id.org, id.org));
-          const user = await upsertUser(org.id, id.email, id.displayName, id.sub);
-          const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
+          // #9: new org → self-service; existing org → membership required.
+          const resolved = await resolveOidcIdentity(id.org, id.email, id.displayName, id.sub);
+          if ('error' in resolved) {
+            return res.status(403).json({ error: resolved.error, message: resolved.message });
+          }
+          const user = resolved.user;
+          const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: user.org_id });
           const rt = newRefreshToken();
           await storeRefresh(user.id, rt.hash, refreshExpiry());
           noStore(res);
@@ -401,9 +469,14 @@ export function createApp(): express.Express {
       const slug = parsed.data.orgSlug || 'acme';
       const safeName = sanitizeName(typeof displayName === 'string' && displayName.trim() ? displayName : normEmail);
       const safeSub = sanitizeName(typeof sub === 'string' && sub.trim() ? sub : normEmail, 320);
-      const org = (await getOrgBySlug(slug)) || (await createOrganization(slug, slug));
-      const user = await upsertUser(org.id, normEmail, safeName, safeSub);
-      const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: org.id });
+      // #9: same membership rule as the real code flow (no auto-join of an
+      // existing org by email alone).
+      const resolved = await resolveOidcIdentity(slug, normEmail, safeName, safeSub);
+      if ('error' in resolved) {
+        return res.status(403).json({ error: resolved.error, message: resolved.message });
+      }
+      const user = resolved.user;
+      const { token, expiresIn } = signAccess({ sub: user.id, email: user.email, org: user.org_id });
       const rt = newRefreshToken();
       await storeRefresh(user.id, rt.hash, refreshExpiry());
       noStore(res);
@@ -509,7 +582,13 @@ export function createApp(): express.Express {
   });
 
   // ---------- Organizations ----------
-  app.get('/v1/orgs', async (_req, res) => res.json(await listOrganizations()));
+  // Read scoped to the caller's own org (#7): an authenticated principal must
+  // not enumerate other tenants. Callers without an org (machine tokens) get [].
+  app.get('/v1/orgs', async (req, res) => {
+    const org = await resolveCallerOrg(req, TRUST_STAMPED);
+    const all = await listOrganizations();
+    res.json(org ? all.filter((o) => o.id === org) : []);
+  });
   app.post('/v1/orgs', async (req, res) => {
     try {
       const schema = z.object({
@@ -529,6 +608,11 @@ export function createApp(): express.Express {
   // ---------- Accounts ----------
   app.get('/v1/orgs/:orgId/accounts', async (req, res) => {
     if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
+    if (!(await getOrgById(req.params.orgId))) return res.status(404).json({ error: 'org_not_found' });
+    // Tenant guard (#7) — same as the write route.
+    if (!(await canActForOrg(req, TRUST_STAMPED, req.params.orgId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'organization belongs to another tenant' });
+    }
     res.json(await listAccounts(req.params.orgId));
   });
   app.post('/v1/orgs/:orgId/accounts', async (req, res) => {
@@ -573,6 +657,11 @@ export function createApp(): express.Express {
 
   app.get('/v1/orgs/:orgId/users', async (req, res) => {
     if (!isUuid(req.params.orgId)) return res.status(400).json({ error: 'invalid_id', message: 'orgId must be a UUID' });
+    if (!(await getOrgById(req.params.orgId))) return res.status(404).json({ error: 'org_not_found' });
+    // Tenant guard (#7) — same as the write route.
+    if (!(await canActForOrg(req, TRUST_STAMPED, req.params.orgId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'organization belongs to another tenant' });
+    }
     res.json(await listUsers(req.params.orgId));
   });
 
@@ -597,6 +686,11 @@ export function createApp(): express.Express {
 
   app.get('/v1/accounts/:accountId/roles', async (req, res) => {
     if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    // Tenant guard (#7) — same as the write route.
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.json(await listRoles(req.params.accountId));
   });
 
@@ -605,6 +699,10 @@ export function createApp(): express.Express {
     if (!isUuid(req.params.roleId)) return res.status(400).json({ error: 'invalid_id', message: 'roleId must be a UUID' });
     const role = await getRoleById(req.params.roleId);
     if (!role) return res.status(404).json({ error: 'role_not_found' });
+    // Tenant guard (#7): policy documents are tenant data.
+    if (!(await canActForAccount(req, TRUST_STAMPED, role.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'role belongs to another tenant' });
+    }
     res.json(await policiesForRole(req.params.roleId));
   });
 
@@ -637,6 +735,11 @@ export function createApp(): express.Express {
 
   app.get('/v1/accounts/:accountId/policies', async (req, res) => {
     if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    // Tenant guard (#7) — same as the write route.
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.json(await listPolicies(req.params.accountId));
   });
 
@@ -732,7 +835,14 @@ export function createApp(): express.Express {
     const user = await getUserById(userId);
     const ctx = { ...capContext(context), user: userId, org: user?.org_id, email: user?.email };
     const verdict = evaluatePolicies(docs, { action, resource }, ctx);
-    await logAudit({ actor_type: 'user', actor_id: userId, action, resource, decision: verdict.allowed, context: ctx }).catch(() => undefined);
+    // Audit rows carry the caller identity too (#7) so org-scoped /v1/audit
+    // can show callers the requests they triggered (evaluation ctx unchanged).
+    const callerOrg = await resolveCallerOrg(req, TRUST_STAMPED);
+    const callerUser = await resolveCallerUser(req, TRUST_STAMPED);
+    await logAudit({
+      actor_type: 'user', actor_id: userId, action, resource, decision: verdict.allowed,
+      context: { ...ctx, ...(callerOrg ? { callerOrg } : {}), ...(callerUser ? { callerUser } : {}) },
+    }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: docs.length });
   });
 
@@ -752,11 +862,20 @@ export function createApp(): express.Express {
     }
     const capped = capContext(context);
     const verdict = evaluatePolicies(documents, { action, resource }, capped);
-    await logAudit({ actor_type: 'dry-run', actor_id: '', action, resource, decision: verdict.allowed, context: capped }).catch(() => undefined);
+    // Dry-run rows belong to the caller's org (#7): no userId target exists,
+    // so record caller identity for the audit view and its scoping filter.
+    const callerOrg = await resolveCallerOrg(req, TRUST_STAMPED);
+    const callerUser = await resolveCallerUser(req, TRUST_STAMPED);
+    await logAudit({
+      actor_type: 'dry-run', actor_id: callerUser || '', action, resource, decision: verdict.allowed,
+      context: { ...capped, ...(callerOrg ? { callerOrg } : {}), ...(callerUser ? { callerUser } : {}) },
+    }).catch(() => undefined);
     res.json({ allowed: verdict.allowed, matchedBy: verdict.matchedBy, evaluatedPolicies: documents.length });
   });
 
-  // Audit log (đọc).
+  // Audit log (đọc). Tenant-scoped (#7): only rows that targeted the caller's
+  // org (context.org) or were triggered by the caller's org (context.callerOrg,
+  // dry-runs). Callers without an org (machine tokens) see nothing.
   app.get('/v1/audit', async (req, res) => {
     const limit = Number(req.query.limit || 50);
     const actor = (req.query.actor as string) || undefined;
@@ -765,7 +884,9 @@ export function createApp(): express.Express {
     if (rawAllowed !== undefined && !['true', 'false'].includes(String(rawAllowed).toLowerCase())) {
       return res.status(400).json({ error: 'invalid_allowed', message: 'allowed must be true or false' });
     }
-    res.json(await listAudit(limit, actor, allowed));
+    const org = await resolveCallerOrg(req, TRUST_STAMPED);
+    if (!org) return res.json([]);
+    res.json(await listAudit(limit, actor, allowed, org));
   });
 
   // ---------- API keys ----------
@@ -847,27 +968,25 @@ export function createApp(): express.Express {
 
   app.get('/v1/accounts/:accountId/service-accounts', async (req, res) => {
     if (!isUuid(req.params.accountId)) return res.status(400).json({ error: 'invalid_id', message: 'accountId must be a UUID' });
+    if (!(await getAccountById(req.params.accountId))) return res.status(404).json({ error: 'account_not_found' });
+    // Tenant guard (#7) — same as the write route.
+    if (!(await canActForAccount(req, TRUST_STAMPED, req.params.accountId))) {
+      return res.status(403).json({ error: 'forbidden', message: 'account belongs to another tenant' });
+    }
     res.json(await listServiceAccounts(req.params.accountId));
   });
 
   // Cấp JWT cho service account (kind=service-account, mang account scope).
-  // Hardening: callers cannot escalate to '*' unless they already hold '*' —
-  // the requested scopes must be a subset of the caller's own scopes when the
-  // caller presents an API-key/JWT with limited scopes (gateway-propagated).
+  // Hardening (#8): scopes are never silently widened.
+  //  - omitted → the caller's own scopes (may be [], i.e. a token with no
+  //    authority — never '*' derived from thin air);
+  //  - explicit → must be a subset of the caller's scopes unless the caller
+  //    holds '*' (a limited credential can only delegate what it has);
+  //  - callers whose scopes are empty can never mint '*'.
   // Tenant binding: the caller must belong to the SA's account — otherwise any
   // authenticated principal could mint tokens for any account's SA.
   app.post('/v1/service-accounts/:id/token', async (req, res) => {
     if (!isUuid(req.params.id)) return res.status(400).json({ error: 'invalid_id', message: 'service account id must be a UUID' });
-    const scopes: string[] = req.body?.scopes || ['*'];
-    if (!Array.isArray(scopes) || scopes.length === 0 || scopes.length > 100 ||
-        scopes.some((s) => typeof s !== 'string' || s.length === 0 || s.length > 200)) {
-      return res.status(400).json({ error: 'invalid_scopes', message: 'scopes must be 1..100 non-empty strings ≤200 chars' });
-    }
-    const sa = await getServiceAccount(req.params.id);
-    if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
-    if (!(await canActForAccount(req, TRUST_STAMPED, sa.account_id))) {
-      return res.status(403).json({ error: 'forbidden', message: 'service account belongs to another tenant' });
-    }
     // Caller scopes: stamped header only when trusted — otherwise derive from
     // the verified credential itself (dev callers can't spoof their way to '*').
     let callerScopes: string[] = [];
@@ -893,8 +1012,20 @@ export function createApp(): express.Express {
         }
       }
     }
-    if (callerScopes.length && !callerScopes.includes('*') && scopes.includes('*')) {
-      return res.status(403).json({ error: 'scope_escalation', message: 'Cannot mint wildcard scope from a limited caller' });
+    const requested = (req.body || {}).scopes;
+    const scopes: string[] = requested === undefined || requested === null ? callerScopes.slice() : requested;
+    if (!Array.isArray(scopes) || scopes.length > 100 ||
+        scopes.some((s) => typeof s !== 'string' || s.length === 0 || s.length > 200)) {
+      return res.status(400).json({ error: 'invalid_scopes', message: 'scopes must be up to 100 non-empty strings ≤200 chars' });
+    }
+    const sa = await getServiceAccount(req.params.id);
+    if (!sa) return res.status(404).json({ error: 'service_account_not_found' });
+    if (!(await canActForAccount(req, TRUST_STAMPED, sa.account_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'service account belongs to another tenant' });
+    }
+    const callerHasWildcard = callerScopes.includes('*');
+    if (!callerHasWildcard && scopes.some((s) => !callerScopes.includes(s))) {
+      return res.status(403).json({ error: 'scope_escalation', message: 'Cannot mint scopes the caller does not hold' });
     }
     const { token, expiresIn } = signAccess({ sub: sa.id, account: sa.account_id, scopes, kind: 'service-account' });
     noStore(res);
@@ -904,6 +1035,12 @@ export function createApp(): express.Express {
   // Liệt kê policy của user (hữu ích khi debug authorize).
   app.get('/v1/users/:userId/policies', async (req, res) => {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
+    const user = await getUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: 'user_not_found' });
+    // Tenant guard (#7): policy documents of another org's user are off-limits.
+    if (!(await canActForOrg(req, TRUST_STAMPED, user.org_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
+    }
     res.json(await policiesForUser(req.params.userId));
   });
 
@@ -912,6 +1049,10 @@ export function createApp(): express.Express {
     if (!isUuid(req.params.userId)) return res.status(400).json({ error: 'invalid_id', message: 'userId must be a UUID' });
     const user = await getUserById(req.params.userId);
     if (!user) return res.status(404).json({ error: 'user_not_found' });
+    // Tenant guard (#7) — same as assign/unassign.
+    if (!(await canActForOrg(req, TRUST_STAMPED, user.org_id))) {
+      return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
+    }
     res.json(await rolesForUser(req.params.userId));
   });
 

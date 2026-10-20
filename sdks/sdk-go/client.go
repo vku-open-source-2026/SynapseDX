@@ -545,11 +545,14 @@ func (c *Client) ListServiceAccounts(accountID string) ([]any, error) {
 }
 
 // ServiceAccountToken mints a short-lived JWT for a service account.
+// A nil scopes slice delegates the caller's own scopes (never widens to '*');
+// pass an explicit list to narrow the minted token.
 func (c *Client) ServiceAccountToken(saID string, scopes []string) (map[string]any, error) {
-	if len(scopes) == 0 {
-		scopes = []string{"*"}
+	body := map[string]any{}
+	if scopes != nil {
+		body["scopes"] = scopes
 	}
-	b, err := c.do("POST", "/v1/service-accounts/"+pathEscape(saID)+"/token", map[string]any{"scopes": scopes})
+	b, err := c.do("POST", "/v1/service-accounts/"+pathEscape(saID)+"/token", body)
 	if err != nil {
 		return nil, err
 	}

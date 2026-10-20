@@ -74,6 +74,11 @@ describe('iam defense-in-depth', () => {
     const r = await call('GET', '/v1/orgs', undefined, { Authorization: `Bearer ${login.data.accessToken}` });
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.data));
+    // #7: org listing is scoped to the caller's own org (secorg was created
+    // earlier in this suite and must not be visible).
+    assert.equal(r.data.length, 1);
+    assert.equal(r.data[0].slug, 'acme');
+    assert.ok(!r.data.some((o: any) => o.slug === 'secorg'));
   });
 
   it('oidc demo callback validates + honors the kill-switch', async () => {
@@ -87,8 +92,19 @@ describe('iam defense-in-depth', () => {
     } finally {
       delete process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK;
     }
-    const ok = await call('POST', '/v1/auth/oidc/callback', { email: 'oidc@acme.local' });
+    // #9: joining an existing org requires a membership — provision the member
+    // via dev login first; the demo callback then logs the same identity in.
+    const member = await call('POST', '/v1/auth/login', { email: 'oidc@acme.local', orgSlug: 'acme' });
+    assert.equal(member.status, 200);
+    const ok = await call('POST', '/v1/auth/oidc/callback', { email: 'oidc@acme.local', orgSlug: 'acme' });
     assert.equal(ok.status, 200);
+    // Unknown IdP identity cannot join the existing org by email/slug alone.
+    const intruder = await call('POST', '/v1/auth/oidc/callback', { email: 'intruder@acme.local', orgSlug: 'acme' });
+    assert.equal(intruder.status, 403);
+    assert.equal(intruder.data.error, 'org_membership_required');
+    // A brand-new org slug remains self-service.
+    const fresh = await call('POST', '/v1/auth/oidc/callback', { email: 'fresh@neworg.local', orgSlug: 'demo-neworg' });
+    assert.equal(fresh.status, 200);
   });
 
   it('keys/verify stays reachable for gateway-internal use, rejects junk', async () => {

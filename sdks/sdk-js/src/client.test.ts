@@ -102,6 +102,17 @@ describe('SynapseDXClient', () => {
     assert.equal(lastPath, '/v1/workflows/w1/deactivate');
   });
 
+  it('serviceAccountToken omits scopes unless explicitly given', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.serviceAccountToken('sa1');
+    assert.equal(lastPath, '/v1/service-accounts/sa1/token');
+    assert.deepEqual(JSON.parse(lastBody), {});
+    await c.serviceAccountToken('sa1', ['workflow:Execute']);
+    assert.deepEqual(JSON.parse(lastBody), { scopes: ['workflow:Execute'] });
+    await c.serviceAccountToken('sa1', []);
+    assert.deepEqual(JSON.parse(lastBody), { scopes: [] });
+  });
+
   it('testRun posts definition+input', async () => {
     const c = new SynapseDXClient({ baseUrl: base });
     const def = { nodes: [], connections: {} };
