@@ -1,12 +1,18 @@
 /*
  * Copyright 2026 SynapseDX Contributors
- * Licensed under the Apache License, Version 2.0 (the "License").
- * SynapseBase persistence — Postgres with in-memory fallback (dev/test).
- * Tables are auto-created on boot (additive, idempotent).
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * SynapseBase persistence — Drizzle ORM on Postgres with in-memory fallback
+ * (dev/test). Tables and indexes are defined in ./schema.ts and applied by
+ * versioned Drizzle migrations.
  */
+import path from 'path';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
+import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { BaseMapping, cloneJson, deepMerge, getPath, setPath } from './mapping';
+import { baseCollections, baseDocuments } from './schema';
 
 export interface StoredCollection {
   id: string;
@@ -42,95 +48,86 @@ export class StoreError extends Error {
 
 const DATABASE_URL = process.env.DATABASE_URL || '';
 let pool: Pool | null = null;
+let db: NodePgDatabase<typeof import('./schema')> | null = null;
 if (DATABASE_URL) {
   pool = new Pool({ connectionString: DATABASE_URL });
-  pool.on('error', (e) => console.error('[base][db] pool error', (e as any)?.message || e));
+  pool.on('error', (e) => console.error('[base][db] pool error', e.message));
+  db = drizzle(pool, { schema: { baseCollections, baseDocuments } });
+}
+
+let ensured = false;
+export async function ensureTables(): Promise<void> {
+  if (!db || ensured) return;
+  ensured = true;
+  try {
+    const client = await pool!.connect();
+    try {
+      // Hold the advisory lock on the same dedicated session that runs the
+      // migration (pool connections are not guaranteed to be reused).
+      const migrationDb = drizzle(client, { schema: { baseCollections, baseDocuments } });
+      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_base_migrations'))`);
+      try {
+        await migrate(migrationDb, {
+          migrationsFolder: path.join(__dirname, '..', 'drizzle'),
+          migrationsTable: '__drizzle_migrations_base',
+        });
+      } finally {
+        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapsedx_base_migrations'))`).catch(() => undefined);
+      }
+    } finally {
+      client.release();
+    }
+  } catch (e: any) {
+    ensured = false;
+    console.error('[base][db] migrations failed:', e?.message || e);
+  }
 }
 
 export function useDb(): boolean {
-  return !!pool;
+  return !!db;
 }
 
 function nowIso(): string {
   return new Date().toISOString();
 }
 
-// ---- in-memory fallback ----
-const memCollections = new Map<string, StoredCollection>();
-const memDocuments = new Map<string, Map<string, StoredDocument>>(); // collectionId -> id -> doc
-
-const CREATE_SQL = `
-CREATE TABLE IF NOT EXISTS synapsedx_base_collections (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  description TEXT,
-  mapping JSONB NOT NULL DEFAULT '{"fields":{}}',
-  org_id TEXT,
-  account_id TEXT,
-  created_by TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_base_collections_scope_name
-  ON synapsedx_base_collections (COALESCE(org_id, ''), COALESCE(account_id, ''), name);
-CREATE INDEX IF NOT EXISTS idx_base_collections_tenant
-  ON synapsedx_base_collections (org_id, account_id);
-
-CREATE TABLE IF NOT EXISTS synapsedx_base_documents (
-  collection_id TEXT NOT NULL REFERENCES synapsedx_base_collections(id) ON DELETE CASCADE,
-  id TEXT NOT NULL,
-  data JSONB NOT NULL DEFAULT '{}',
-  version INTEGER NOT NULL DEFAULT 1,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (collection_id, id)
-);
-CREATE INDEX IF NOT EXISTS idx_base_documents_updated
-  ON synapsedx_base_documents (collection_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_base_documents_data
-  ON synapsedx_base_documents USING GIN (data jsonb_path_ops);
-`;
-
-let ensured = false;
-export async function ensureTables(): Promise<void> {
-  if (!pool || ensured) return;
-  ensured = true;
-  try {
-    await pool.query(CREATE_SQL);
-  } catch (e: any) {
-    ensured = false;
-    console.error('[base][db] ensureTables failed:', e?.message || e);
-  }
+function iso(v: Date | string | null | undefined): string {
+  if (v instanceof Date) return v.toISOString();
+  return v ? String(v) : nowIso();
 }
 
-function rowToCollection(r: any): StoredCollection {
-  let mapping: BaseMapping = { fields: {} };
-  if (r.mapping && typeof r.mapping === 'object' && !Array.isArray(r.mapping)) {
-    mapping = r.mapping as BaseMapping;
-  }
+function rowToCollection(r: typeof baseCollections.$inferSelect): StoredCollection {
   return {
     id: String(r.id),
     name: String(r.name || ''),
     description: r.description != null ? String(r.description) : null,
-    mapping,
-    org_id: r.org_id != null ? String(r.org_id) : null,
-    account_id: r.account_id != null ? String(r.account_id) : null,
-    created_by: r.created_by != null ? String(r.created_by) : null,
-    created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || nowIso()),
-    updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || nowIso()),
+    mapping: r.mapping && typeof r.mapping === 'object' ? (r.mapping as BaseMapping) : { fields: {} },
+    org_id: r.orgId != null ? String(r.orgId) : null,
+    account_id: r.accountId != null ? String(r.accountId) : null,
+    created_by: r.createdBy != null ? String(r.createdBy) : null,
+    created_at: iso(r.createdAt),
+    updated_at: iso(r.updatedAt),
   };
 }
 
-function rowToDocument(r: any): StoredDocument {
+function rowToDocument(r: typeof baseDocuments.$inferSelect): StoredDocument {
   return {
-    collection_id: String(r.collection_id),
+    collection_id: String(r.collectionId),
     id: String(r.id),
     data: r.data && typeof r.data === 'object' && !Array.isArray(r.data) ? r.data : {},
     version: Number(r.version) || 1,
-    created_at: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at || nowIso()),
-    updated_at: r.updated_at instanceof Date ? r.updated_at.toISOString() : String(r.updated_at || nowIso()),
+    created_at: iso(r.createdAt),
+    updated_at: iso(r.updatedAt),
   };
 }
+
+function isUniqueViolation(e: any): boolean {
+  return String(e?.code) === '23505' || /duplicate|unique/i.test(String(e?.message));
+}
+
+// ---- in-memory fallback ----
+const memCollections = new Map<string, StoredCollection>();
+const memDocuments = new Map<string, Map<string, StoredDocument>>(); // collectionId -> id -> doc
 
 // ---------- collections ----------
 
@@ -157,21 +154,19 @@ export async function createCollectionRec(input: {
     created_at: nowIso(),
     updated_at: nowIso(),
   };
-  if (pool) {
+  if (db) {
     await ensureTables();
-    try {
-      const r = await pool.query(
-        `INSERT INTO synapsedx_base_collections (id, name, description, mapping, org_id, account_id, created_by)
-         VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7) RETURNING *`,
-        [rec.id, rec.name, rec.description, JSON.stringify(rec.mapping), rec.org_id, rec.account_id, rec.created_by],
-      );
-      return rowToCollection(r.rows[0]);
-    } catch (e: any) {
-      if (String(e?.code) === '23505' || /duplicate|unique/i.test(String(e?.message))) {
-        throw new StoreError('conflict', `collection '${input.name}' already exists in this scope`);
-      }
-      throw e;
-    }
+    const rows = await db.insert(baseCollections).values({
+      id: rec.id,
+      name: rec.name,
+      description: rec.description,
+      mapping: rec.mapping,
+      orgId: rec.org_id,
+      accountId: rec.account_id,
+      createdBy: rec.created_by,
+    }).onConflictDoNothing().returning();
+    if (!rows[0]) throw new StoreError('conflict', `collection '${input.name}' already exists in this scope`);
+    return rowToCollection(rows[0]);
   }
   for (const c of memCollections.values()) {
     if (c.name === rec.name && sameScope(c, rec)) {
@@ -192,31 +187,25 @@ export async function findCollectionRec(
   name: string,
   scope: { org_id?: string | null; account_id?: string | null; platform?: boolean },
 ): Promise<StoredCollection | null> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    let r;
+    let where;
     if (scope.platform && !scope.org_id && !scope.account_id) {
-      r = await pool.query(
-        `SELECT * FROM synapsedx_base_collections WHERE name=$1 AND org_id IS NULL AND account_id IS NULL
-         ORDER BY created_at ASC LIMIT 2`,
-        [name],
-      );
+      where = and(eq(baseCollections.name, name), isNull(baseCollections.orgId), isNull(baseCollections.accountId));
     } else if (scope.org_id) {
-      r = await pool.query(
-        `SELECT * FROM synapsedx_base_collections WHERE name=$1 AND org_id=$2 ORDER BY created_at ASC LIMIT 2`,
-        [name, scope.org_id],
-      );
+      where = and(eq(baseCollections.name, name), eq(baseCollections.orgId, scope.org_id));
     } else {
-      r = await pool.query(
-        `SELECT * FROM synapsedx_base_collections WHERE name=$1 AND org_id IS NULL AND account_id=$2
-         ORDER BY created_at ASC LIMIT 2`,
-        [name, scope.account_id ?? ''],
+      where = and(
+        eq(baseCollections.name, name),
+        isNull(baseCollections.orgId),
+        eq(baseCollections.accountId, scope.account_id ?? ''),
       );
     }
-    if (r.rows.length > 1) {
+    const rows = await db.select().from(baseCollections).where(where).orderBy(asc(baseCollections.createdAt)).limit(2);
+    if (rows.length > 1) {
       throw new StoreError('conflict', `collection '${name}' is ambiguous in this org; add accountId to disambiguate`);
     }
-    return r.rows[0] ? rowToCollection(r.rows[0]) : null;
+    return rows[0] ? rowToCollection(rows[0]) : null;
   }
   const candidates = [...memCollections.values()].filter((c) => {
     if (c.name !== name) return false;
@@ -231,19 +220,19 @@ export async function findCollectionRec(
 }
 
 export async function getCollectionRec(id: string): Promise<StoredCollection | null> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = await pool.query('SELECT * FROM synapsedx_base_collections WHERE id=$1', [id]);
-    return r.rows[0] ? rowToCollection(r.rows[0]) : null;
+    const rows = await db.select().from(baseCollections).where(eq(baseCollections.id, id)).limit(1);
+    return rows[0] ? rowToCollection(rows[0]) : null;
   }
   return memCollections.get(id) || null;
 }
 
 export async function listCollectionRecs(): Promise<StoredCollection[]> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = await pool.query('SELECT * FROM synapsedx_base_collections ORDER BY name ASC, created_at ASC');
-    return r.rows.map(rowToCollection);
+    const rows = await db.select().from(baseCollections).orderBy(asc(baseCollections.name), asc(baseCollections.createdAt));
+    return rows.map(rowToCollection);
   }
   return [...memCollections.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -252,26 +241,17 @@ export async function updateCollectionRec(
   id: string,
   patch: { name?: string; description?: string | null; mapping?: BaseMapping },
 ): Promise<StoredCollection | null> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const sets: string[] = [];
-    const vals: any[] = [];
-    let i = 1;
-    if (patch.name !== undefined) { sets.push(`name=$${i++}`); vals.push(patch.name); }
-    if (patch.description !== undefined) { sets.push(`description=$${i++}`); vals.push(patch.description); }
-    if (patch.mapping !== undefined) { sets.push(`mapping=$${i++}::jsonb`); vals.push(JSON.stringify(patch.mapping)); }
-    if (!sets.length) return getCollectionRec(id);
-    vals.push(id);
+    const values: Partial<typeof baseCollections.$inferInsert> = { updatedAt: new Date() };
+    if (patch.name !== undefined) values.name = patch.name;
+    if (patch.description !== undefined) values.description = patch.description;
+    if (patch.mapping !== undefined) values.mapping = patch.mapping;
     try {
-      const r = await pool.query(
-        `UPDATE synapsedx_base_collections SET ${sets.join(', ')}, updated_at=now() WHERE id=$${i} RETURNING *`,
-        vals,
-      );
-      return r.rows[0] ? rowToCollection(r.rows[0]) : null;
+      const rows = await db.update(baseCollections).set(values).where(eq(baseCollections.id, id)).returning();
+      return rows[0] ? rowToCollection(rows[0]) : null;
     } catch (e: any) {
-      if (String(e?.code) === '23505' || /duplicate|unique/i.test(String(e?.message))) {
-        throw new StoreError('conflict', 'collection name already exists in this scope');
-      }
+      if (isUniqueViolation(e)) throw new StoreError('conflict', 'collection name already exists in this scope');
       throw e;
     }
   }
@@ -296,10 +276,10 @@ export async function updateCollectionRec(
 }
 
 export async function deleteCollectionRec(id: string): Promise<boolean> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = await pool.query('DELETE FROM synapsedx_base_collections WHERE id=$1', [id]);
-    return (r.rowCount || 0) > 0;
+    const rows = await db.delete(baseCollections).where(eq(baseCollections.id, id)).returning({ id: baseCollections.id });
+    return rows.length > 0;
   }
   memDocuments.delete(id);
   return memCollections.delete(id);
@@ -320,21 +300,16 @@ export async function createDocumentRec(
     created_at: nowIso(),
     updated_at: nowIso(),
   };
-  if (pool) {
+  if (db) {
     await ensureTables();
-    try {
-      const r = await pool.query(
-        `INSERT INTO synapsedx_base_documents (collection_id, id, data, version)
-         VALUES ($1,$2,$3::jsonb,1) RETURNING *`,
-        [collectionId, id, JSON.stringify(rec.data)],
-      );
-      return rowToDocument(r.rows[0]);
-    } catch (e: any) {
-      if (String(e?.code) === '23505' || /duplicate|unique/i.test(String(e?.message))) {
-        throw new StoreError('conflict', `document '${id}' already exists`);
-      }
-      throw e;
-    }
+    const rows = await db.insert(baseDocuments).values({
+      collectionId,
+      id,
+      data: rec.data,
+      version: 1,
+    }).onConflictDoNothing().returning();
+    if (!rows[0]) throw new StoreError('conflict', `document '${id}' already exists`);
+    return rowToDocument(rows[0]);
   }
   const docs = memDocuments.get(collectionId) || new Map<string, StoredDocument>();
   if (docs.has(id)) throw new StoreError('conflict', `document '${id}' already exists`);
@@ -344,13 +319,12 @@ export async function createDocumentRec(
 }
 
 export async function getDocumentRec(collectionId: string, id: string): Promise<StoredDocument | null> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = await pool.query(
-      'SELECT * FROM synapsedx_base_documents WHERE collection_id=$1 AND id=$2',
-      [collectionId, id],
-    );
-    return r.rows[0] ? rowToDocument(r.rows[0]) : null;
+    const rows = await db.select().from(baseDocuments)
+      .where(and(eq(baseDocuments.collectionId, collectionId), eq(baseDocuments.id, id)))
+      .limit(1);
+    return rows[0] ? rowToDocument(rows[0]) : null;
   }
   const rec = memDocuments.get(collectionId)?.get(id);
   return rec ? cloneJson(rec) : null;
@@ -362,19 +336,17 @@ export async function listDocumentRecs(
   opts: { since?: string; scanLimit?: number } = {},
 ): Promise<StoredDocument[]> {
   const limit = Math.min(Math.max(Number(opts.scanLimit) || 10001, 1), 50001);
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = opts.since
-      ? await pool.query(
-          `SELECT * FROM synapsedx_base_documents WHERE collection_id=$1 AND updated_at > $2::timestamptz
-           ORDER BY updated_at ASC, id ASC LIMIT $3`,
-          [collectionId, opts.since, limit],
-        )
-      : await pool.query(
-          `SELECT * FROM synapsedx_base_documents WHERE collection_id=$1 ORDER BY id ASC LIMIT $2`,
-          [collectionId, limit],
-        );
-    return r.rows.map(rowToDocument);
+    const base = db.select().from(baseDocuments).where(
+      opts.since
+        ? and(eq(baseDocuments.collectionId, collectionId), gt(baseDocuments.updatedAt, new Date(opts.since)))
+        : eq(baseDocuments.collectionId, collectionId),
+    );
+    const rows = opts.since
+      ? await base.orderBy(asc(baseDocuments.updatedAt), asc(baseDocuments.id)).limit(limit)
+      : await base.orderBy(asc(baseDocuments.id)).limit(limit);
+    return rows.map(rowToDocument);
   }
   let docs = [...(memDocuments.get(collectionId)?.values() || [])];
   if (opts.since) {
@@ -393,45 +365,37 @@ export async function setDocumentRec(
   data: Record<string, unknown>,
   opts: { merge?: boolean; ifVersion?: number } = {},
 ): Promise<{ doc: StoredDocument; created: boolean }> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const cur = await client.query(
-        'SELECT * FROM synapsedx_base_documents WHERE collection_id=$1 AND id=$2 FOR UPDATE',
-        [collectionId, id],
-      );
-      if (!cur.rows[0]) {
+    return db.transaction(async (tx) => {
+      const cur = await tx.select().from(baseDocuments)
+        .where(and(eq(baseDocuments.collectionId, collectionId), eq(baseDocuments.id, id)))
+        .for('update')
+        .limit(1);
+      if (!cur[0]) {
         if (opts.ifVersion !== undefined && opts.ifVersion !== 0) {
           throw new StoreError('version_conflict', `document '${id}' does not exist`);
         }
-        const r = await client.query(
-          `INSERT INTO synapsedx_base_documents (collection_id, id, data, version)
-           VALUES ($1,$2,$3::jsonb,1) RETURNING *`,
-          [collectionId, id, JSON.stringify(data)],
-        );
-        await client.query('COMMIT');
-        return { doc: rowToDocument(r.rows[0]), created: true };
+        const rows = await tx.insert(baseDocuments).values({
+          collectionId,
+          id,
+          data: cloneJson(data),
+          version: 1,
+        }).returning();
+        return { doc: rowToDocument(rows[0]), created: true };
       }
-      const prev = rowToDocument(cur.rows[0]);
+      const prev = rowToDocument(cur[0]);
       if (opts.ifVersion !== undefined && prev.version !== opts.ifVersion) {
         throw new StoreError('version_conflict', `document version is ${prev.version}, expected ${opts.ifVersion}`);
       }
       const next = opts.merge ? deepMerge(prev.data, data) : cloneJson(data);
-      const r = await client.query(
-        `UPDATE synapsedx_base_documents SET data=$3::jsonb, version=version+1, updated_at=now()
-         WHERE collection_id=$1 AND id=$2 RETURNING *`,
-        [collectionId, id, JSON.stringify(next)],
-      );
-      await client.query('COMMIT');
-      return { doc: rowToDocument(r.rows[0]), created: false };
-    } catch (e) {
-      try { await client.query('ROLLBACK'); } catch { /* connection gone */ }
-      throw e;
-    } finally {
-      client.release();
-    }
+      const rows = await tx.update(baseDocuments).set({
+        data: next,
+        version: prev.version + 1,
+        updatedAt: new Date(),
+      }).where(and(eq(baseDocuments.collectionId, collectionId), eq(baseDocuments.id, id))).returning();
+      return { doc: rowToDocument(rows[0]), created: false };
+    });
   }
   const docs = memDocuments.get(collectionId) || new Map<string, StoredDocument>();
   const cur = docs.get(id);
@@ -469,23 +433,24 @@ export async function deleteDocumentRec(
   id: string,
   opts: { ifVersion?: number } = {},
 ): Promise<boolean> {
-  if (pool) {
+  if (db) {
     await ensureTables();
     if (opts.ifVersion !== undefined) {
-      const r = await pool.query(
-        'DELETE FROM synapsedx_base_documents WHERE collection_id=$1 AND id=$2 AND version=$3',
-        [collectionId, id, opts.ifVersion],
-      );
-      if ((r.rowCount || 0) > 0) return true;
+      const rows = await db.delete(baseDocuments).where(and(
+        eq(baseDocuments.collectionId, collectionId),
+        eq(baseDocuments.id, id),
+        eq(baseDocuments.version, opts.ifVersion),
+      )).returning({ id: baseDocuments.id });
+      if (rows.length > 0) return true;
       const exists = await getDocumentRec(collectionId, id);
       if (exists) throw new StoreError('version_conflict', `document version is ${exists.version}, expected ${opts.ifVersion}`);
       throw new StoreError('not_found', `document '${id}' not found`);
     }
-    const r = await pool.query(
-      'DELETE FROM synapsedx_base_documents WHERE collection_id=$1 AND id=$2',
-      [collectionId, id],
-    );
-    return (r.rowCount || 0) > 0;
+    const rows = await db.delete(baseDocuments).where(and(
+      eq(baseDocuments.collectionId, collectionId),
+      eq(baseDocuments.id, id),
+    )).returning({ id: baseDocuments.id });
+    return rows.length > 0;
   }
   const docs = memDocuments.get(collectionId);
   const cur = docs?.get(id);
@@ -503,25 +468,23 @@ export async function incrementDocumentRec(
   by: number,
   opts: { ifVersion?: number } = {},
 ): Promise<StoredDocument> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const cur = await client.query(
-        'SELECT * FROM synapsedx_base_documents WHERE collection_id=$1 AND id=$2 FOR UPDATE',
-        [collectionId, id],
-      );
+    return db.transaction(async (tx) => {
+      const cur = await tx.select().from(baseDocuments)
+        .where(and(eq(baseDocuments.collectionId, collectionId), eq(baseDocuments.id, id)))
+        .for('update')
+        .limit(1);
       let prev: StoredDocument;
       let created = false;
-      if (!cur.rows[0]) {
+      if (!cur[0]) {
         if (opts.ifVersion !== undefined && opts.ifVersion !== 0) {
           throw new StoreError('version_conflict', `document '${id}' does not exist`);
         }
         prev = { collection_id: collectionId, id, data: {}, version: 0, created_at: nowIso(), updated_at: nowIso() };
         created = true;
       } else {
-        prev = rowToDocument(cur.rows[0]);
+        prev = rowToDocument(cur[0]);
         if (opts.ifVersion !== undefined && prev.version !== opts.ifVersion) {
           throw new StoreError('version_conflict', `document version is ${prev.version}, expected ${opts.ifVersion}`);
         }
@@ -533,27 +496,21 @@ export async function incrementDocumentRec(
       const next = deepMerge(prev.data, {});
       setPath(next, field, (typeof current === 'number' ? current : 0) + by);
       if (created) {
-        const r = await client.query(
-          `INSERT INTO synapsedx_base_documents (collection_id, id, data, version)
-           VALUES ($1,$2,$3::jsonb,1) RETURNING *`,
-          [collectionId, id, JSON.stringify(next)],
-        );
-        await client.query('COMMIT');
-        return rowToDocument(r.rows[0]);
+        const rows = await tx.insert(baseDocuments).values({
+          collectionId,
+          id,
+          data: next,
+          version: 1,
+        }).returning();
+        return rowToDocument(rows[0]);
       }
-      const r = await client.query(
-        `UPDATE synapsedx_base_documents SET data=$3::jsonb, version=version+1, updated_at=now()
-         WHERE collection_id=$1 AND id=$2 RETURNING *`,
-        [collectionId, id, JSON.stringify(next)],
-      );
-      await client.query('COMMIT');
-      return rowToDocument(r.rows[0]);
-    } catch (e) {
-      try { await client.query('ROLLBACK'); } catch { /* connection gone */ }
-      throw e;
-    } finally {
-      client.release();
-    }
+      const rows = await tx.update(baseDocuments).set({
+        data: next,
+        version: prev.version + 1,
+        updatedAt: new Date(),
+      }).where(and(eq(baseDocuments.collectionId, collectionId), eq(baseDocuments.id, id))).returning();
+      return rowToDocument(rows[0]);
+    });
   }
   const docs = memDocuments.get(collectionId) || new Map<string, StoredDocument>();
   const cur = docs.get(id);
@@ -575,20 +532,18 @@ export async function incrementDocumentRec(
 }
 
 export async function documentStatsRec(collectionId: string): Promise<{ documents: number; bytes: number; lastUpdatedAt: string | null }> {
-  if (pool) {
+  if (db) {
     await ensureTables();
-    const r = await pool.query(
-      `SELECT COUNT(*)::int AS documents,
-              COALESCE(SUM(octet_length(data::text)), 0)::bigint AS bytes,
-              MAX(updated_at) AS last_updated
-       FROM synapsedx_base_documents WHERE collection_id=$1`,
-      [collectionId],
-    );
-    const row = r.rows[0] || {};
+    const rows = await db.select({
+      documents: sql<number>`count(*)::int`,
+      bytes: sql<number>`coalesce(sum(octet_length(${baseDocuments.data}::text)), 0)::bigint`,
+      lastUpdatedAt: sql<Date | null>`max(${baseDocuments.updatedAt})`,
+    }).from(baseDocuments).where(eq(baseDocuments.collectionId, collectionId));
+    const row = rows[0] || {} as any;
     return {
       documents: Number(row.documents) || 0,
       bytes: Number(row.bytes) || 0,
-      lastUpdatedAt: row.last_updated ? new Date(row.last_updated).toISOString() : null,
+      lastUpdatedAt: row.lastUpdatedAt ? iso(row.lastUpdatedAt) : null,
     };
   }
   const docs = [...(memDocuments.get(collectionId)?.values() || [])];

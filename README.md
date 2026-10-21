@@ -154,7 +154,7 @@ tools/cli                  synapsedx CLI (zero deps, Node 18+) + install.sh
 infra/prod                 Production edge: nginx + Certbot overlay
 infra/monitoring           Prometheus (scrape gateway/PG/Redis + alert rules)
 infra/k8s/base             Kustomize manifests for Kubernetes
-infra/postgres/init.sql    Core schema (orgs/accounts/users/roles/policies/keys/…)
+infra/postgres/init.sql    Database bootstrap (extensions + journal schema; services own migrations)
 examples/quickstart        End-to-end demo script
 tests/e2e                  Smoke tests + live SDK checks
 docs                       Start at docs/README.md

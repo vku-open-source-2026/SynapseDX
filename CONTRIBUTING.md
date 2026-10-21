@@ -31,25 +31,49 @@ as above (see also `tests/e2e/smoke.ps1`, `examples/quickstart/demo.ps1`).
 
 ## Testing backends (memory vs Postgres)
 
-Unit tests run against the in-memory DB by default (no `DATABASE_URL`), which is
-fast but only exercises the memory branches. Before merging DB-touching changes,
-run the IAM suite against a scratch Postgres to cover the SQL branches (the
-pre-existing `tokens.test.js` fixtures use non-UUID ids and only pass on memory —
-`scoping.test.js` uses real UUIDs and passes on both):
+Unit tests run against the in-memory DB by default (no `DATABASE_URL`) and the
+IAM suites explicitly force memory (`scoping.test.ts` deletes `DATABASE_URL`
+before importing the app), so `npm test` does **not** exercise the Postgres
+branches. Validate persistence through the Docker stack instead:
 
 ```bash
-docker run -d --name pg-scratch -e POSTGRES_USER=synapsedx \
-  -e POSTGRES_PASSWORD=testtest -e POSTGRES_DB=synapsedx \
-  -p 15432:5432 postgres:16-alpine
-docker cp infra/postgres/init.sql pg-scratch:/tmp/init.sql
-docker exec pg-scratch psql -U synapsedx -d synapsedx -v ON_ERROR_STOP=1 -f /tmp/init.sql
-cd apps/iam-service
-DATABASE_URL=postgres://synapsedx:testtest@127.0.0.1:15432/synapsedx \
-  node --test dist/scoping.test.js
-docker rm -f pg-scratch  # scratch only — never point this at prod data
+docker compose up -d
+SYNAPSEDX_BASE_URL=http://localhost:18080 bash tests/e2e/api-check.sh
+SYNAPSEDX_BASE_URL=http://localhost:18080 node tests/e2e/services-check.js
 ```
-Wipe + re-seed between runs: the suite uses fixed slugs/emails and is not
-rerunnable against a dirty database.
+
+The E2E scripts create fixed slugs (`e2e`, `sdkacc`, `pyfull`), so they are not
+rerunnable against a dirty database. Delete those test accounts or use a fresh
+database before rerunning them.
+
+## Database schema & migrations
+
+Each Postgres-backed service owns its schema and migrations:
+
+| Service | Drizzle schema | Migration journal |
+|---|---|---|
+| IAM | `apps/iam-service/src/schema.ts` | `drizzle.__drizzle_migrations_iam` |
+| Workflow | `apps/workflow-service/src/schema.ts` | `drizzle.__drizzle_migrations_workflow` |
+| LDS | `apps/lds-service/src/schema.ts` | `drizzle.__drizzle_migrations_lds` |
+| Base | `apps/base-service/src/schema.ts` | `drizzle.__drizzle_migrations_base` |
+
+`infra/postgres/init.sql` only installs database extensions and creates the
+`drizzle` migration-journal schema. Tables, indexes and the demo `acme` / `prod`
+seed are created by versioned migrations when a service starts. Migrations are
+applied under a per-service PostgreSQL advisory lock.
+
+To change a schema, edit `src/schema.ts`, then generate a migration with Node 20
+(the repo's supported runtime):
+
+```bash
+cd apps/iam-service   # or lds-service / workflow-service / base-service
+npm run db:generate
+```
+
+Review the generated SQL before committing it. Never edit a migration that has
+already been applied; add a new migration instead. Startup migrations must stay
+safe for both fresh and pre-existing databases (use `IF NOT EXISTS` /
+conditional constraint creation where needed).
 
 ## Commit style
 Conventional Commits: `feat(iam): ...`, `fix(gateway): ...`, `docs: ...`, `chore: ...`.

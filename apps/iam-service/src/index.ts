@@ -15,7 +15,7 @@ import {
   createServiceAccount, listServiceAccounts, getServiceAccount,
   listRoles, listPolicies, logAudit, listAudit, purgeAudit,
   getRoleById, getPolicyById, getAccountById, accountsForUser, getOrgById,
-  policiesForRole, rolesForUser,
+  policiesForRole, rolesForUser, ensureTables,
 } from './db';
 import { evaluatePolicies, validatePolicyDocument } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess, listApiKeys, findApiKeyById } from './tokens';
@@ -1086,13 +1086,15 @@ export function createApp(): express.Express {
 }
 
 if (require.main === module) {
-  const app = createApp();
-  const server = app.listen(PORT, () => console.log(`[iam] listening on :${PORT} db=${useDb() ? 'postgres' : 'memory'}`));
-  const shutdown = () => {
-    console.log('[iam] shutting down...');
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 8000).unref();
-  };
-  process.on('SIGTERM', shutdown);
-  process.on('SIGINT', shutdown);
+  ensureTables().finally(() => {
+    const app = createApp();
+    const server = app.listen(PORT, () => console.log(`[iam] listening on :${PORT} db=${useDb() ? 'postgres' : 'memory'}`));
+    const shutdown = () => {
+      console.log('[iam] shutting down...');
+      server.close(() => process.exit(0));
+      setTimeout(() => process.exit(0), 8000).unref();
+    };
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
+  });
 }

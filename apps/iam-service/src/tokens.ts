@@ -5,7 +5,9 @@
  */
 import jwt from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
-import { query, useDb, __mem, hashSecret, hashCandidates } from './db';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { ensureTables, getDb, useDb, __mem, hashSecret, hashCandidates } from './db';
+import { apiKeys, refreshTokens } from './schema';
 
 /** Fail fast on weak/default JWT secrets in production; warn loudly in dev. */
 function jwtSecret(): string {
@@ -74,9 +76,18 @@ function refreshHashes(value: string): string[] {
   return hashCandidates(value);
 }
 
+function iso(v: Date | string | null | undefined): string | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v.toISOString();
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? String(v) : d.toISOString();
+}
+
 export async function storeRefresh(userId: string, hash: string, expiresAt: Date): Promise<void> {
   if (useDb()) {
-    await query('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1,$2,$3)', [userId, hash, expiresAt.toISOString()]);
+    const db = getDb()!;
+    await ensureTables();
+    await db.insert(refreshTokens).values({ userId, tokenHash: hash, expiresAt });
     return;
   }
   __mem.refresh.set(hash, { user_id: userId, expires_at: expiresAt.toISOString(), revoked_at: null });
@@ -92,11 +103,17 @@ export async function consumeRefresh(value: string): Promise<{ user_id: string }
 
 async function consumeRefreshByHash(hash: string): Promise<{ user_id: string } | null> {
   if (useDb()) {
-    const r = await query('SELECT user_id, expires_at, revoked_at FROM refresh_tokens WHERE token_hash=$1', [hash]);
-    const row = r.rows[0];
-    if (!row || row.revoked_at) return null;
-    if (new Date(row.expires_at).getTime() < Date.now()) return null;
-    return { user_id: row.user_id };
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.select({
+      userId: refreshTokens.userId,
+      expiresAt: refreshTokens.expiresAt,
+      revokedAt: refreshTokens.revokedAt,
+    }).from(refreshTokens).where(eq(refreshTokens.tokenHash, hash)).limit(1);
+    const row = rows[0];
+    if (!row || row.revokedAt) return null;
+    if (new Date(row.expiresAt).getTime() < Date.now()) return null;
+    return { user_id: row.userId };
   }
   const rec = __mem.refresh.get(hash);
   if (!rec || rec.revoked_at) return null;
@@ -108,7 +125,11 @@ async function consumeRefreshByHash(hash: string): Promise<{ user_id: string } |
 export async function revokeRefresh(value: string): Promise<void> {
   for (const hash of refreshHashes(value)) {
     if (useDb()) {
-      await query('UPDATE refresh_tokens SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL', [hash]);
+      const db = getDb()!;
+      await ensureTables();
+      await db.update(refreshTokens)
+        .set({ revokedAt: sql`now()` })
+        .where(and(eq(refreshTokens.tokenHash, hash), isNull(refreshTokens.revokedAt)));
     } else {
       const rec = __mem.refresh.get(hash);
       if (rec && !rec.revoked_at) rec.revoked_at = new Date().toISOString();
@@ -130,13 +151,17 @@ export async function consumeAndRevokeRefresh(value: string): Promise<{ user_id:
 
 async function consumeAndRevokeByHash(hash: string): Promise<{ user_id: string } | null> {
   if (useDb()) {
-    const r = await query(
-      `UPDATE refresh_tokens SET revoked_at=now()
-       WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()
-       RETURNING user_id`,
-      [hash],
-    );
-    return r.rows[0] ? { user_id: r.rows[0].user_id } : null;
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.update(refreshTokens)
+      .set({ revokedAt: sql`now()` })
+      .where(and(
+        eq(refreshTokens.tokenHash, hash),
+        isNull(refreshTokens.revokedAt),
+        sql`${refreshTokens.expiresAt} > now()`,
+      ))
+      .returning({ userId: refreshTokens.userId });
+    return rows[0] ? { user_id: rows[0].userId } : null;
   }
   const rec = __mem.refresh.get(hash);
   if (!rec || rec.revoked_at) return null;
@@ -149,9 +174,12 @@ async function consumeAndRevokeByHash(hash: string): Promise<{ user_id: string }
 export async function findRefreshOwner(value: string): Promise<{ user_id: string } | null> {
   for (const hash of refreshHashes(value)) {
     if (useDb()) {
+      const db = getDb()!;
+      await ensureTables();
       try {
-        const r = await query('SELECT user_id FROM refresh_tokens WHERE token_hash=$1', [hash]);
-        if (r.rows[0]) return { user_id: r.rows[0].user_id };
+        const rows = await db.select({ userId: refreshTokens.userId })
+          .from(refreshTokens).where(eq(refreshTokens.tokenHash, hash)).limit(1);
+        if (rows[0]) return { user_id: rows[0].userId };
       } catch { /* ignore */ }
     } else {
       const rec = __mem.refresh.get(hash);
@@ -164,8 +192,13 @@ export async function findRefreshOwner(value: string): Promise<{ user_id: string
 /** Thu hồi TẤT CẢ refresh token của user (mất thiết bị). Trả về số token bị thu hồi. */
 export async function revokeAllRefresh(userId: string): Promise<number> {
   if (useDb()) {
-    const r = await query('UPDATE refresh_tokens SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL RETURNING id', [userId]);
-    return r.rows.length;
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.update(refreshTokens)
+      .set({ revokedAt: sql`now()` })
+      .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)))
+      .returning({ id: refreshTokens.id });
+    return rows.length;
   }
   let n = 0;
   for (const rec of __mem.refresh.values()) {
@@ -182,11 +215,18 @@ export async function createApiKeyRecord(accountId: string, userId: string | nul
   const prefix = raw.slice(0, 12);
   const hash = hashSecret(raw);
   if (useDb()) {
-    const r = await query(
-      'INSERT INTO api_keys (account_id, user_id, key_prefix, key_hash, name, scopes, expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
-      [accountId, userId, prefix, hash, name, scopes, expiresAt ? expiresAt.toISOString() : null],
-    );
-    return { id: r.rows[0].id, value: raw, prefix };
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.insert(apiKeys).values({
+      accountId,
+      userId,
+      keyPrefix: prefix,
+      keyHash: hash,
+      name,
+      scopes,
+      expiresAt,
+    }).returning({ id: apiKeys.id });
+    return { id: rows[0].id, value: raw, prefix };
   }
   const id = randomUUID();
   __mem.apiKeys.set(hash, { id, account_id: accountId, user_id: userId, key_prefix: prefix, name, scopes, expires_at: expiresAt?.toISOString() || null, revoked_at: null, created_at: new Date().toISOString() });
@@ -196,8 +236,13 @@ export async function createApiKeyRecord(accountId: string, userId: string | nul
 /** Thu hồi API key theo id (trả về false nếu không tồn tại). */
 export async function revokeApiKey(id: string): Promise<boolean> {
   if (useDb()) {
-    const r = await query('UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND revoked_at IS NULL RETURNING id', [id]);
-    return r.rows.length > 0;
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.update(apiKeys)
+      .set({ revokedAt: sql`now()` })
+      .where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt)))
+      .returning({ id: apiKeys.id });
+    return rows.length > 0;
   }
   for (const rec of __mem.apiKeys.values()) {
     if (rec.id === id && !rec.revoked_at) {
@@ -211,8 +256,10 @@ export async function revokeApiKey(id: string): Promise<boolean> {
 /** Lookup by id for tenant-scoped revoke (safe fields only). */
 export async function findApiKeyById(id: string): Promise<{ account_id: string } | null> {
   if (useDb()) {
-    const r = await query('SELECT account_id FROM api_keys WHERE id=$1', [id]);
-    return r.rows[0] || null;
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.select({ accountId: apiKeys.accountId }).from(apiKeys).where(eq(apiKeys.id, id)).limit(1);
+    return rows[0] ? { account_id: rows[0].accountId } : null;
   }
   for (const rec of __mem.apiKeys.values()) {
     if (rec.id === id) return { account_id: rec.account_id };
@@ -233,18 +280,28 @@ export interface ApiKeyInfo {
 
 export async function listApiKeys(accountId: string): Promise<ApiKeyInfo[]> {
   if (useDb()) {
-    const r = await query(
-      'SELECT id, name, key_prefix AS prefix, scopes, expires_at, revoked_at, created_at FROM api_keys WHERE account_id=$1 ORDER BY created_at DESC LIMIT 500',
-      [accountId],
-    );
-    return r.rows.map((x) => ({
-      id: x.id,
-      name: x.name,
-      prefix: x.prefix,
-      scopes: x.scopes || [],
-      expires_at: x.expires_at ? new Date(x.expires_at).toISOString() : null,
-      revoked_at: x.revoked_at ? new Date(x.revoked_at).toISOString() : null,
-      created_at: x.created_at ? new Date(x.created_at).toISOString() : null,
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.select({
+      id: apiKeys.id,
+      name: apiKeys.name,
+      prefix: apiKeys.keyPrefix,
+      scopes: apiKeys.scopes,
+      expiresAt: apiKeys.expiresAt,
+      revokedAt: apiKeys.revokedAt,
+      createdAt: apiKeys.createdAt,
+    }).from(apiKeys)
+      .where(eq(apiKeys.accountId, accountId))
+      .orderBy(desc(apiKeys.createdAt))
+      .limit(500);
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      prefix: r.prefix,
+      scopes: r.scopes || [],
+      expires_at: iso(r.expiresAt),
+      revoked_at: iso(r.revokedAt),
+      created_at: iso(r.createdAt),
     }));
   }
   return [...__mem.apiKeys.values()]
@@ -273,11 +330,18 @@ export async function verifyApiKey(raw: string): Promise<{ account_id: string; s
 
 async function verifyApiKeyByHash(hash: string): Promise<{ account_id: string; scopes: string[] } | null> {
   if (useDb()) {
-    const r = await query('SELECT account_id, scopes, expires_at, revoked_at FROM api_keys WHERE key_hash=$1', [hash]);
-    const row = r.rows[0];
-    if (!row || row.revoked_at) return null;
-    if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) return null;
-    return { account_id: row.account_id, scopes: row.scopes || [] };
+    const db = getDb()!;
+    await ensureTables();
+    const rows = await db.select({
+      accountId: apiKeys.accountId,
+      scopes: apiKeys.scopes,
+      expiresAt: apiKeys.expiresAt,
+      revokedAt: apiKeys.revokedAt,
+    }).from(apiKeys).where(eq(apiKeys.keyHash, hash)).limit(1);
+    const row = rows[0];
+    if (!row || row.revokedAt) return null;
+    if (row.expiresAt && new Date(row.expiresAt).getTime() < Date.now()) return null;
+    return { account_id: row.accountId, scopes: row.scopes || [] };
   }
   const rec = __mem.apiKeys.get(hash);
   if (!rec || rec.revoked_at) return null;
