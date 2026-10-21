@@ -4,7 +4,26 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faXmark, faMagnifyingGlassPlus, faMagnifyingGlassMinus, faTrash, faUndo, faRedo } from '@fortawesome/free-solid-svg-icons';
+import {
+  faPlus,
+  faXmark,
+  faMagnifyingGlassPlus,
+  faMagnifyingGlassMinus,
+  faTrash,
+  faUndo,
+  faRedo,
+  faBolt,
+  faClock,
+  faPlay,
+  faGlobe,
+  faCode,
+  faSliders,
+  faCodeBranch,
+  faCube,
+  faRobot,
+  faBrain,
+  faCircleDot,
+} from '@fortawesome/free-solid-svg-icons';
 import { api } from '../lib/api.js';
 import { Badge, Btn, Err } from './ui.jsx';
 import CodeEditor, { CodeDocs } from './CodeEditor.jsx';
@@ -27,11 +46,38 @@ import {
   wouldCycle,
   IF_TYPE,
   ifBranchLabel,
+  isDecisionType,
+  isIfType,
+  isAiAgentType,
   EXAMPLE_PARAMS,
 } from '../lib/workflow-graph.js';
 
-const NODE_W = 180;
-const NODE_H = 64;
+const NODE_W = 196;
+const NODE_H = 68;
+
+const NODE_ICONS = {
+  'n8n-nodes-base.webhook': { icon: faBolt, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  webhook: { icon: faBolt, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  'n8n-nodes-base.cron': { icon: faClock, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  cron: { icon: faClock, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  'n8n-nodes-base.manualTrigger': { icon: faPlay, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  manualTrigger: { icon: faPlay, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
+  'synapseflow.aiAgent': { icon: faRobot, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
+  'ai.agent': { icon: faRobot, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
+  'synapseflow.decision': { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  decision: { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  'n8n-nodes-base.httpRequest': { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
+  httpRequest: { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
+  'n8n-nodes-base.code': { icon: faCode, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+  code: { icon: faCode, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+  'n8n-nodes-base.set': { icon: faSliders, color: 'text-teal-600', bg: 'bg-teal-50 border-teal-200' },
+  set: { icon: faSliders, color: 'text-teal-600', bg: 'bg-teal-50 border-teal-200' },
+  'n8n-nodes-base.if': { icon: faCodeBranch, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+  if: { icon: faCodeBranch, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+  'synapsedx.api': { icon: faCube, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
+  'n8n-nodes-base.noOp': { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' },
+  noOp: { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' },
+};
 
 // Visual drag-and-drop editor for a workflow definition (our own code —
 // own code, no external UI). Persists through PUT /v1/workflows/:id.
@@ -678,12 +724,22 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
               return (
               <div key={g.id} className="mb-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-normal-text px-1 mt-1" title={g.blurb}>{g.label}</p>
-                {items.map((t) => (
-                  <button key={t.type} onClick={() => addNode(t.type)} title={`${t.hint}\n${t.placeholder || ''}`} className="w-full text-left px-2 py-1.5 rounded-xl hover:bg-background text-xs text-main-text flex items-center gap-1.5">
-                    <FontAwesomeIcon icon={faPlus} size="xs" className="text-main-blue" />
-                    <span className="truncate">{t.label}</span>
-                  </button>
-                ))}
+                {items.map((t) => {
+                  const meta = NODE_ICONS[t.type] || { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' };
+                  return (
+                    <button
+                      key={t.type}
+                      onClick={() => addNode(t.type)}
+                      title={`${t.hint}\n${t.placeholder || ''}`}
+                      className="w-full text-left px-2 py-1.5 rounded-xl hover:bg-background text-xs text-main-text flex items-center gap-2 group transition-colors"
+                    >
+                      <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border ${meta.bg} ${meta.color} group-hover:scale-105 transition-transform`}>
+                        <FontAwesomeIcon icon={meta.icon} size="xs" />
+                      </span>
+                      <span className="truncate font-medium">{t.label}</span>
+                    </button>
+                  );
+                })}
               </div>
               );
             })}
@@ -714,7 +770,19 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                     const active = selEdge && selEdge.from === e.from && selEdge.to === e.to;
                     const pa = port(a, 'out');
                     const pb = port(b, 'in');
-                    const showBranch = a.type === IF_TYPE && (e.branch === 0 || e.branch === 1);
+                    const isIf = isIfType(a.type);
+                    const isDec = isDecisionType(a.type);
+                    let branchLabel = '';
+                    let branchColor = '#4FACFE';
+                    if (isIf && (e.branch === 0 || e.branch === 1)) {
+                      branchLabel = ifBranchLabel(e.branch);
+                      branchColor = e.branch === 0 ? '#059669' : '#dc2626';
+                    } else if (isDec && typeof e.branch === 'number') {
+                      const p = a.parameters || {};
+                      const choices = Array.isArray(p.choices) ? p.choices : (Array.isArray(p.routes) ? p.routes : (p.choices && typeof p.choices === 'object' ? Object.keys(p.choices) : []));
+                      branchLabel = choices[e.branch] ? `${choices[e.branch]} (${e.branch})` : `route ${e.branch}`;
+                      branchColor = '#6366f1';
+                    }
                     return (
                       <g key={`${e.from}→${e.to}:${e.branch}:${i}`}>
                         <path
@@ -725,17 +793,17 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                           className="pointer-events-auto cursor-pointer"
                           onClick={(ev) => { ev.stopPropagation(); setSel({ edge: e }); }}
                         />
-                        {showBranch && (
+                        {branchLabel && (
                           <text
                             x={(pa.x + pb.x) / 2}
                             y={(pa.y + pb.y) / 2 - 6 / view.k}
                             textAnchor="middle"
-                            fontSize={11 / view.k}
+                            fontSize={10 / view.k}
                             fontWeight="700"
-                            fill={e.branch === 0 ? '#059669' : '#dc2626'}
+                            fill={branchColor}
                             className="pointer-events-none"
                           >
-                            {ifBranchLabel(e.branch)}
+                            {branchLabel}
                           </text>
                         )}
                       </g>
@@ -750,7 +818,8 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                 const st = runStatusByNode[n.name];
                 const known = isKnownType(n.type);
                 const disabled = n.disabled === true;
-                const border = sel === n.name ? 'border-main-blue' : st === 'success' ? 'border-emerald-400' : st === 'error' ? 'border-red-400' : 'border-slate-200';
+                const border = sel === n.name ? 'border-main-blue ring-2 ring-main-blue/20' : st === 'success' ? 'border-emerald-400' : st === 'error' ? 'border-red-400' : 'border-slate-200';
+                const iconMeta = NODE_ICONS[n.type] || { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' };
                 // Constant screen-size hit targets (m2): usable even when zoomed out.
                 const ps = 14;
                 const off = -ps / 2;
@@ -761,23 +830,32 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                   onPointerDown={(e) => onNodePointerDown(e, n)}
                   onPointerUp={(e) => onNodePointerUp(e, n)}
                   title={disabled ? `${n.name} (disabled — skipped at run time)` : n.name}
-                  className={`absolute rounded-2xl border-2 bg-white shadow-sm ${border} ${disabled ? 'opacity-50 border-dashed' : ''}`}
+                  className={`absolute rounded-2xl border-2 bg-white shadow-sm ${border} ${disabled ? 'opacity-50 border-dashed' : ''} hover:shadow-md transition-shadow`}
                   style={{ left: n.position[0] * view.k + view.x, top: n.position[1] * view.k + view.y, width: NODE_W * view.k, height: NODE_H * view.k, fontSize: 12 * view.k }}
                 >
-                  <div className="px-2 pt-1 font-semibold text-main-text truncate" style={{ fontSize: 12 * view.k }}>{disabled ? '⏸ ' : ''}{n.name}{st === 'success' ? ' ✓' : st === 'error' ? ' ✗' : ''}</div>
-                  <div
-                    className={`px-2 text-normal-text truncate ${known ? '' : 'underline decoration-wavy decoration-amber-500'}`}
-                    style={{ fontSize: 10 * view.k }}
-                    title={known ? String(n.type) : `${n.type} — unknown type: the engine passes it through as skipped`}
-                  >
-                    {String(n.type).split('.').pop()}{known ? '' : ' ⚠'}
+                  <div className="flex items-center gap-2 p-2 h-full">
+                    <span className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 border ${iconMeta.bg} ${iconMeta.color}`} style={{ width: 26 * view.k, height: 26 * view.k, fontSize: 12 * view.k }}>
+                      <FontAwesomeIcon icon={iconMeta.icon} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-main-text truncate leading-tight" style={{ fontSize: 12 * view.k }}>
+                        {disabled ? '⏸ ' : ''}{n.name}{st === 'success' ? ' ✓' : st === 'error' ? ' ✗' : ''}
+                      </div>
+                      <div
+                        className={`text-normal-text truncate leading-tight mt-0.5 ${known ? '' : 'underline decoration-wavy decoration-amber-500'}`}
+                        style={{ fontSize: 10 * view.k }}
+                        title={known ? String(n.type) : `${n.type} — unknown type: the engine passes it through as skipped`}
+                      >
+                        {String(n.type).split('.').pop()}{known ? '' : ' ⚠'}
+                      </div>
+                    </div>
                   </div>
                   <button
                     onClick={(e) => onPortClick(e, n, 'in')}
                     onPointerDown={(e) => e.stopPropagation()}
                     title="Input — click after picking an output to connect"
                     aria-label={`Connect input of ${n.name}`}
-                    className="absolute rounded-full bg-white border-2 border-slate-300 hover:border-main-blue"
+                    className="absolute rounded-full bg-white border-2 border-slate-300 hover:border-main-blue hover:scale-110 transition-transform"
                     style={{ left: off, top: '50%', marginTop: off, width: ps, height: ps }}
                   />
                   <button
@@ -785,7 +863,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                     onPointerDown={(e) => e.stopPropagation()}
                     title="Output — click, then click a target input"
                     aria-label={`Connect output of ${n.name}`}
-                    className={`absolute rounded-full border-2 ${pendingFrom === n.name ? 'bg-main-blue border-main-blue' : 'bg-white border-slate-300 hover:border-main-blue'}`}
+                    className={`absolute rounded-full border-2 ${pendingFrom === n.name ? 'bg-main-blue border-main-blue ring-2 ring-main-blue/30' : 'bg-white border-slate-300 hover:border-main-blue'} hover:scale-110 transition-transform`}
                     style={{ right: off, top: '50%', marginTop: off, width: ps, height: ps }}
                   />
                 </div>
@@ -800,14 +878,14 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
                   <div className="max-w-sm text-center rounded-3xl bg-white/90 shadow-md px-5 py-4">
                     <p className="text-sm font-semibold text-main-text">Empty canvas</p>
-                    <p className="text-xs text-normal-text mt-1">Add a trigger on the left (Webhook, Schedule or Manual), then wire it to an action. Every node ships with a runnable example — use Fill example, then Test-run before Save.</p>
+                    <p className="text-xs text-normal-text mt-1">Add a trigger on the left (Webhook, Schedule or Manual), then wire it to an action, AI Agent, or Decision Engine. Every node ships with a runnable example — use Fill example, then Test-run before Save.</p>
                   </div>
                 </div>
               )}
               {pendingFrom && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-2xl bg-main-blue text-white text-xs shadow-md flex items-center gap-2">
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-2xl bg-main-blue text-white text-xs shadow-md flex items-center gap-2 max-w-[90%] flex-wrap">
                   <span>Connecting from “{pendingFrom}” — click a target input (Esc to cancel)</span>
-                  {byName[pendingFrom]?.type === IF_TYPE && (
+                  {isIfType(byName[pendingFrom]?.type) && (
                     <span className="flex gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); setPendingBranch(0); }}
@@ -825,6 +903,24 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                       </button>
                     </span>
                   )}
+                  {isDecisionType(byName[pendingFrom]?.type) && (() => {
+                    const p = byName[pendingFrom]?.parameters || {};
+                    const choices = Array.isArray(p.choices) ? p.choices : (Array.isArray(p.routes) ? p.routes : (p.choices && typeof p.choices === 'object' ? Object.keys(p.choices) : ['route_0', 'route_1']));
+                    return (
+                      <span className="flex gap-1 flex-wrap">
+                        {choices.map((r, idx) => (
+                          <button
+                            key={r + idx}
+                            onClick={(e) => { e.stopPropagation(); setPendingBranch(idx); }}
+                            className={`px-2 py-0.5 rounded-xl font-bold ${pendingBranch === idx ? 'bg-white text-main-blue' : 'bg-white/20 text-white'}`}
+                            title={`Wire into ${r} (branch ${idx})`}
+                          >
+                            {r} ({idx})
+                          </button>
+                        ))}
+                      </span>
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -1004,6 +1100,18 @@ function NodeForm({ node, onPatch, workflowId, headers }) {
     case 'if':
     case 'n8n-nodes-base.if':
       return <IfForm params={p} onPatch={onPatch} />;
+    case 'decision':
+    case 'decision.route':
+    case 'synapseflow.decision':
+    case 'synapsedx.decision':
+    case 'n8n-nodes-base.decision':
+      return <DecisionForm params={p} onPatch={onPatch} />;
+    case 'ai.agent':
+    case 'synapseflow.aiAgent':
+    case 'synapsedx.aiAgent':
+    case 'agent':
+    case 'n8n-nodes-base.aiAgent':
+      return <AiAgentForm params={p} onPatch={onPatch} headers={headers} />;
     case 'synapsedx.api':
       return <SynapseDXApiForm params={p} onPatch={onPatch} />;
     case 'webhook':
@@ -1285,6 +1393,7 @@ function SetForm({ params, onPatch }) {
 }
 
 const SYNAPSEDX_API = {
+  // IAM
   orgs: { ops: ['list'], fields: { list: [] }, hint: 'All organizations you can see' },
   users: { ops: ['list'], fields: { list: ['orgId'] }, hint: 'Users in an org (orgId required)' },
   roles: { ops: ['list'], fields: { list: ['accountId'] }, hint: 'Roles in an account' },
@@ -1293,11 +1402,289 @@ const SYNAPSEDX_API = {
   audit: { ops: ['query'], fields: { query: ['limit'] }, hint: 'Recent authorize decisions (limit 1..200)' },
   keys: { ops: ['list'], fields: { list: ['accountId'] }, hint: 'API key metadata (never secrets)' },
   'service-accounts': { ops: ['list'], fields: { list: ['accountId'] }, hint: 'Machine identities in an account' },
-  workflows: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Workflows you can access' },
-  executions: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'Run history (list accepts workflowId/status/limit)' },
-  templates: { ops: ['list', 'get'], fields: { list: [], get: ['name'] }, hint: 'Built-in starters' },
-  lds: { ops: ['list-datasources', 'publish-record'], fields: { 'list-datasources': [], 'publish-record': ['datasourceId'] }, hint: 'SynapseLDS: list datasets, or publish a record (=record in Advanced JSON, e.g. ={{ $json }})' },
+  // Workflows & Flow
+  workflows: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'SynapseFlow: workflows you can access' },
+  executions: { ops: ['list', 'get'], fields: { list: [], get: ['id'] }, hint: 'SynapseFlow: run history' },
+  templates: { ops: ['list', 'get'], fields: { list: [], get: ['name'] }, hint: 'SynapseFlow: starters' },
+  // Sub-services
+  base: {
+    ops: ['list-collections', 'create-document', 'get-document', 'query-documents', 'delete-document'],
+    fields: {
+      'list-collections': [],
+      'create-document': ['collection'],
+      'get-document': ['collection', 'id'],
+      'query-documents': ['collection'],
+      'delete-document': ['collection', 'id'],
+    },
+    hint: 'SynapseBase: JSON document database',
+  },
+  faststore: {
+    ops: ['get', 'set', 'incr', 'delete', 'hash-get', 'hash-set'],
+    fields: {
+      get: ['key'],
+      set: ['key', 'value'],
+      incr: ['key'],
+      delete: ['key'],
+      'hash-get': ['key'],
+      'hash-set': ['key', 'values'],
+    },
+    hint: 'Synapse Faststore: ultra-fast in-memory cache and key-value store',
+  },
+  queue: {
+    ops: ['list', 'publish', 'consume', 'ack'],
+    fields: {
+      list: [],
+      publish: ['queue', 'payload'],
+      consume: ['queue'],
+      ack: ['queue', 'receipt'],
+    },
+    hint: 'SynapseQueue: reliable message queue with delayed delivery and receipts',
+  },
+  inference: {
+    ops: ['chat', 'embeddings', 'decision', 'route'],
+    fields: {
+      chat: ['messages'],
+      embeddings: ['input'],
+      decision: ['state', 'questions'],
+      route: ['input', 'choices'],
+    },
+    hint: 'Synapse Inference Engine: LLMs, embeddings, and Decision-2.0-Eos-0.8B SLMs',
+  },
+  lds: {
+    ops: ['list-datasources', 'publish-record', 'get-entity'],
+    fields: {
+      'list-datasources': [],
+      'publish-record': ['datasourceId'],
+      'get-entity': ['datasourceId', 'entityId'],
+    },
+    hint: 'SynapseLDS: Linked Data Store (NGSI-LD / smart data models)',
+  },
 };
+
+const AGENT_TOOLS = [
+  { id: 'synapsebase_query', label: 'SynapseBase Query', group: 'Data', desc: 'Query collections in SynapseBase document store' },
+  { id: 'faststore_cache', label: 'Faststore Cache', group: 'Data', desc: 'Read and write cache values with TTL' },
+  { id: 'code_sandbox', label: 'Isolated JS Sandbox', group: 'Logic', desc: 'Safely execute dynamic JavaScript calculations' },
+  { id: 'logic_calculator', label: 'Fast Math Calculator', group: 'Logic', desc: 'Evaluate arithmetic expressions' },
+  { id: 'decision_eval', label: 'Decision Model (Decision-2.0-Eos-0.8B)', group: 'AI', desc: 'Classify intent or evaluate choices' },
+  { id: 'queue_publish', label: 'SynapseQueue Publisher', group: 'Services', desc: 'Publish messages to SynapseQueue' },
+  { id: 'iam_check_permission', label: 'IAM Authorization Check', group: 'Services', desc: 'Verify caller permissions with SynapseIAM' },
+  { id: 'http_request', label: 'HTTP Request', group: 'Network', desc: 'Call external REST endpoints' },
+];
+
+function AiAgentForm({ params, onPatch, headers }) {
+  const core = params.core || 'synapse-inference';
+  const model = params.model || (core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini');
+  const tools = Array.isArray(params.tools) ? params.tools : ['synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator', 'decision_eval', 'http_request'];
+  const maxSteps = Number(params.maxSteps) || 5;
+
+  const toggleTool = (toolId) => {
+    const next = tools.includes(toolId) ? tools.filter((t) => t !== toolId) : [...tools, toolId];
+    onPatch({ tools: next });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="block text-xs font-semibold text-main-text mb-1">Core AI Engine</label>
+        <select
+          value={core}
+          onChange={(e) => {
+            const nextCore = e.target.value;
+            onPatch({
+              core: nextCore,
+              model: nextCore === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini',
+              baseUrl: nextCore === 'synapse-inference' ? undefined : 'https://api.openai.com/v1',
+            });
+          }}
+          className={rowInputCls()}
+        >
+          <option value="synapse-inference">Synapse Inference Engine (Default - OpenRouter / Local SLMs)</option>
+          <option value="openai-compatible">OpenAI-compatible API (Custom Provider)</option>
+        </select>
+        <p className="text-[10px] text-normal-text mt-0.5">
+          {core === 'synapse-inference'
+            ? 'Routes automatically through the self-hosted Synapse Inference Engine cluster.'
+            : 'Connects to any OpenAI-compatible API endpoint with your own API key.'}
+        </p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Model</label>
+        <input
+          value={model}
+          onChange={(e) => onPatch({ model: e.target.value })}
+          placeholder={core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini'}
+          className={`${rowInputCls()} font-mono`}
+        />
+      </div>
+
+      {core === 'openai-compatible' && (
+        <>
+          <div>
+            <label className="block text-xs text-normal-text mb-1">Base URL</label>
+            <input
+              value={params.baseUrl || 'https://api.openai.com/v1'}
+              onChange={(e) => onPatch({ baseUrl: e.target.value })}
+              placeholder="https://api.openai.com/v1"
+              className={`${rowInputCls()} font-mono`}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-normal-text mb-1">API Key</label>
+            <input
+              type="password"
+              value={params.apiKey || ''}
+              onChange={(e) => onPatch({ apiKey: e.target.value })}
+              placeholder="sk-..."
+              className={`${rowInputCls()} font-mono`}
+            />
+          </div>
+        </>
+      )}
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">User Prompt / Task</label>
+        <textarea
+          value={params.userPrompt || params.prompt || ''}
+          onChange={(e) => onPatch({ userPrompt: e.target.value, prompt: undefined })}
+          placeholder="={{ $json.message || 'Summarize data and save result to faststore' }}"
+          rows={3}
+          className={`${rowInputCls()} font-mono`}
+        />
+        <p className="text-[10px] text-normal-text mt-0.5">Supports ={'{{'} $json.field {'}}'} expressions.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">System Prompt / Instructions</label>
+        <textarea
+          value={params.systemPrompt || ''}
+          onChange={(e) => onPatch({ systemPrompt: e.target.value })}
+          placeholder="You are an intelligent autonomous AI Agent in SynapseFlow. Use tools to take actions."
+          rows={3}
+          className={rowInputCls()}
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-main-text mb-1">Pluggable Tools ({tools.length} active)</label>
+        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+          {AGENT_TOOLS.map((tool) => {
+            const active = tools.includes(tool.id);
+            return (
+              <label
+                key={tool.id}
+                onClick={() => toggleTool(tool.id)}
+                className={`flex items-start gap-2 p-1.5 rounded-xl border text-xs cursor-pointer transition-colors ${
+                  active ? 'bg-purple-50/50 border-purple-200 text-main-text' : 'bg-white border-slate-200 text-normal-text opacity-70 hover:opacity-100'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={() => {}}
+                  className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-[11px] leading-tight flex items-center gap-1.5">
+                    <span>{tool.label}</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">{tool.group}</span>
+                  </div>
+                  <div className="text-[10px] text-normal-text leading-tight mt-0.5">{tool.desc}</div>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Max Iterations (Turns)</label>
+        <input
+          type="number"
+          min={1}
+          max={10}
+          value={maxSteps}
+          onChange={(e) => onPatch({ maxSteps: Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 5)) })}
+          className={rowInputCls()}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DecisionForm({ params, onPatch }) {
+  const choices = Array.isArray(params.choices)
+    ? params.choices
+    : (Array.isArray(params.routes)
+      ? params.routes
+      : (params.choices && typeof params.choices === 'object' ? Object.keys(params.choices) : ['route_0', 'route_1']));
+  const choicesText = choices.join(', ');
+
+  const setChoicesText = (txt) => {
+    const list = txt.split(',').map((s) => s.trim()).filter(Boolean);
+    onPatch({ choices: list.length > 0 ? list : ['route_0', 'route_1'] });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-[11px] text-indigo-900 leading-tight">
+        Powered by <b>Decision-2.0-Eos-0.8B</b>. Classifies input text into multiple semantic routes, branching the workflow similar to an intelligent multi-way condition.
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Input Text / Message to Evaluate</label>
+        <input
+          value={params.input || ''}
+          onChange={(e) => onPatch({ input: e.target.value })}
+          placeholder="={{ $json.query || $json.text || $json.message }}"
+          className={`${rowInputCls()} font-mono`}
+        />
+        <p className="text-[10px] text-normal-text mt-0.5">Supports ={'{{'} $json.field {'}}'} templates.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Instruction / Context</label>
+        <input
+          value={params.instruction || ''}
+          onChange={(e) => onPatch({ instruction: e.target.value })}
+          placeholder="Classify user query into department route"
+          className={rowInputCls()}
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Routes / Branches (comma-separated)</label>
+        <input
+          value={choicesText}
+          onChange={(e) => setChoicesText(e.target.value)}
+          placeholder="billing, support, technical, sales"
+          className={`${rowInputCls()} font-mono`}
+        />
+        <div className="mt-1 flex flex-wrap gap-1">
+          {choices.map((c, i) => (
+            <span key={c + i} className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-indigo-100 text-indigo-800">
+              Branch {i}: {c}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Fallback Branch Index</label>
+        <input
+          type="number"
+          min={0}
+          max={Math.max(0, choices.length - 1)}
+          value={params.fallbackBranch !== undefined ? params.fallbackBranch : 0}
+          onChange={(e) => onPatch({ fallbackBranch: parseInt(e.target.value, 10) || 0 })}
+          className={rowInputCls()}
+        />
+        <p className="text-[10px] text-normal-text mt-0.5">Index used when confidence is below threshold or classification fails.</p>
+      </div>
+    </div>
+  );
+}
 
 function SynapseDXApiForm({ params, onPatch }) {
   const res = typeof params.resource === 'string' && SYNAPSEDX_API[params.resource] ? params.resource : '';

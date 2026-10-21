@@ -20,15 +20,15 @@ import {
 export const PLATFORM_SERVICES = [
   {
     to: '/workflows',
-    label: 'Workflows',
-    category: 'Automation & DAGs',
-    desc: 'Visual pipelines, cron, webhooks & executions',
+    label: 'SynapseFlow',
+    category: 'Automation & AI Agents',
+    desc: 'Visual pipelines, AI agents, decision routing & DAGs',
     icon: faBolt,
     iconColor: 'from-amber-400 to-amber-500',
     bgGradient: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
     shadowColor: 'rgba(245, 158, 11, 0.28)',
     match: (p) => p.startsWith('/workflows'),
-    keywords: ['workflow', 'dag', 'automation', 'cron', 'trigger', 'pipeline', 'execution'],
+    keywords: ['synapseflow', 'workflow', 'ai agent', 'decision', 'dag', 'automation', 'cron', 'trigger', 'pipeline', 'execution'],
   },
   {
     to: '/base',

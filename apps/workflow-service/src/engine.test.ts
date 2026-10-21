@@ -504,4 +504,185 @@ describe('engine: synapsedx.api first-party block', () => {
     assert.equal(r.status, 'error');
     assert.match(r.error || '', /exceeds 500KB/);
   });
+  it('supports base, faststore, queue and inference sub-services', async () => {
+    const calls: any[] = [];
+    const mockCall = async (resource: string, operation: string, args: any) => {
+      calls.push({ resource, operation, args });
+      return { ok: true, resource, operation };
+    };
+
+    // Base query
+    const rBase = await runWorkflow(
+      defOf({ resource: 'base', operation: 'query-documents', input: { collection: 'products', filter: { active: true } } }),
+      {},
+      { synapsedxCall: mockCall }
+    );
+    assert.equal(rBase.status, 'success');
+
+    // Faststore set
+    const rFs = await runWorkflow(
+      defOf({ resource: 'faststore', operation: 'set', input: { key: 'user:123', value: 'active', ttlSeconds: 300 } }),
+      {},
+      { synapsedxCall: mockCall }
+    );
+    assert.equal(rFs.status, 'success');
+
+    // Queue publish
+    const rQ = await runWorkflow(
+      defOf({ resource: 'queue', operation: 'publish', input: { queue: 'tasks', payload: { id: 1 } } }),
+      {},
+      { synapsedxCall: mockCall }
+    );
+    assert.equal(rQ.status, 'success');
+
+    // Inference route
+    const rInf = await runWorkflow(
+      defOf({ resource: 'inference', operation: 'route', input: { input: 'hello', choices: { a: 'A', b: 'B' } } }),
+      {},
+      { synapsedxCall: mockCall }
+    );
+    assert.equal(rInf.status, 'success');
+
+    assert.equal(calls.length, 4);
+    assert.equal(calls[0].resource, 'base');
+    assert.equal(calls[1].resource, 'faststore');
+    assert.equal(calls[2].resource, 'queue');
+    assert.equal(calls[3].resource, 'inference');
+  });
+});
+
+describe('engine: SynapseFlow Decision & AI Agent', () => {
+  it('routes multi-branch execution with synapseflow.decision', async () => {
+    const def = {
+      nodes: [
+        { name: 'Start', type: 'manualTrigger', parameters: {} },
+        {
+          name: 'Decider',
+          type: 'synapseflow.decision',
+          parameters: {
+            input: '={{ $json.query }}',
+            choices: ['billing', 'support', 'technical'],
+            instruction: 'Classify user query into routing branch',
+          },
+        },
+        { name: 'Branch0', type: 'set', parameters: { values: { department: 'billing' } } },
+        { name: 'Branch1', type: 'set', parameters: { values: { department: 'support' } } },
+        { name: 'Branch2', type: 'set', parameters: { values: { department: 'technical' } } },
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Decider' }]] },
+        Decider: {
+          main: [
+            [{ node: 'Branch0' }],
+            [{ node: 'Branch1' }],
+            [{ node: 'Branch2' }],
+          ],
+        },
+      } as any,
+    };
+
+    // Test with synapsedxCall routing to 'support' (index 1)
+    const res = await runWorkflow(def, { query: 'I need customer support' }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'route') {
+          return { best_choice: 'support', confidence: 0.98, probabilities: { support: 0.98, billing: 0.01, technical: 0.01 } };
+        }
+        throw new Error('unexpected call');
+      },
+    });
+
+    assert.equal(res.status, 'success');
+    assert.equal(res.output.department, 'support');
+    assert.equal(res.output.decision.branch, 1);
+    assert.equal(res.output.decision.route, 'support');
+  });
+
+  it('runs synapseflow.aiAgent with tool calling and data logic', async () => {
+    const def = {
+      nodes: [
+        { name: 'Start', type: 'manualTrigger', parameters: {} },
+        {
+          name: 'Agent',
+          type: 'synapseflow.aiAgent',
+          parameters: {
+            core: 'synapse-inference',
+            userPrompt: 'Calculate revenue and save to faststore',
+            tools: ['logic_calculator', 'code_sandbox', 'faststore_cache'],
+          },
+        },
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+      } as any,
+    };
+
+    let faststoreSetArgs: any = null;
+    let chatCalls = 0;
+
+    const res = await runWorkflow(def, { initial: true }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'chat') {
+          chatCalls++;
+          if (chatCalls === 1) {
+            // First LLM turn requests tool execution: logic_calculator
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  tool_calls: [{
+                    id: 'call_1',
+                    type: 'function',
+                    function: {
+                      name: 'logic_calculator',
+                      arguments: JSON.stringify({ expression: '25 * 40' }),
+                    },
+                  }],
+                },
+              }],
+            };
+          } else if (chatCalls === 2) {
+            // Second turn requests faststore_cache
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  tool_calls: [{
+                    id: 'call_2',
+                    type: 'function',
+                    function: {
+                      name: 'faststore_cache',
+                      arguments: JSON.stringify({ action: 'set', key: 'revenue', value: 1000 }),
+                    },
+                  }],
+                },
+              }],
+            };
+          } else {
+            // Final LLM turn returns natural response
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  content: 'Calculated total revenue is $1000, and it has been stored in faststore.',
+                },
+              }],
+            };
+          }
+        }
+        if (resource === 'faststore' && operation === 'set') {
+          faststoreSetArgs = args;
+          return { ok: true, created: true };
+        }
+        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+      },
+    });
+
+    assert.equal(res.status, 'success');
+    assert.equal(chatCalls, 3);
+    assert.deepEqual(faststoreSetArgs, { key: 'revenue', value: 1000, ttlSeconds: 3600 });
+    assert.match(res.output.agent.response, /Calculated total revenue is \$1000/);
+    assert.equal(res.output.agent.steps_count, 2);
+    assert.equal(res.output.agent.tools_used[0], 'logic_calculator');
+    assert.equal(res.output.agent.tools_used[1], 'faststore_cache');
+  });
 });

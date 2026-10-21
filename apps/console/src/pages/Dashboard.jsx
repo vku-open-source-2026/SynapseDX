@@ -62,7 +62,7 @@ const SERVICE_DEFS = [
 const FEATURE_META = {
   all: { label: 'All Features', icon: faLayerGroup, color: 'text-main-blue' },
   iam: { label: 'IAM & Security', icon: faUsers, hint: 'Orgs, accounts, users, roles, policies, keys' },
-  workflows: { label: 'Workflows', icon: faBolt, hint: 'Templates, graph runs, webhooks, credentials' },
+  workflows: { label: 'SynapseFlow', icon: faBolt, hint: 'Autonomous agents, decision routing, templates, graph runs' },
   ai: { label: 'AI Assistant', icon: faRobot, hint: 'Documentation chatbot & automated agent' },
   lds: { label: 'SynapseLDS', icon: faLink, hint: 'Linked Data datasources, NGSI-LD & licenses' },
   base: { label: 'SynapseBase', icon: faBoxes, hint: 'Document collections, queries & change feed' },
@@ -552,7 +552,7 @@ export default function Dashboard() {
                     >
                       <option value="all">All Features</option>
                       <option value="iam">IAM & Security</option>
-                      <option value="workflows">Workflows</option>
+                      <option value="workflows">SynapseFlow</option>
                       <option value="ai">AI Assistant</option>
                       <option value="lds">SynapseLDS</option>
                       <option value="base">SynapseBase</option>
@@ -1433,7 +1433,7 @@ export default function Dashboard() {
                     ['/orgs', 'Organizations'],
                     ['/accounts', 'Accounts'],
                     ['/users', 'Users'],
-                    ['/workflows', 'Workflows'],
+                    ['/workflows', 'SynapseFlow'],
                     ['/lds', 'Linked Data'],
                     ['/authorize', 'Authorize simulator'],
                     ['/audit', 'Audit log'],

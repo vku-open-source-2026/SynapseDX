@@ -291,6 +291,27 @@ export function isSetType(type: unknown): boolean {
 export function isIfType(type: unknown): boolean {
   return type === 'if' || type === 'n8n-nodes-base.if' || type === 'synapsedx.if';
 }
+export function isDecisionType(type: unknown): boolean {
+  return (
+    type === 'decision' ||
+    type === 'decision.route' ||
+    type === 'synapseflow.decision' ||
+    type === 'synapsedx.decision' ||
+    type === 'n8n-nodes-base.decision'
+  );
+}
+export function isAiAgentType(type: unknown): boolean {
+  return (
+    type === 'ai.agent' ||
+    type === 'synapseflow.aiAgent' ||
+    type === 'synapsedx.aiAgent' ||
+    type === 'agent' ||
+    type === 'n8n-nodes-base.aiAgent'
+  );
+}
+export function isBranchingType(type: unknown): boolean {
+  return isIfType(type) || isDecisionType(type);
+}
 export function isNoOpType(type: unknown): boolean {
   return type === 'noOp' || type === 'n8n-nodes-base.noOp' || type === 'synapsedx.noOp';
 }
@@ -347,9 +368,7 @@ export function outgoingBranches(from: string, connections: Connections): Array<
   const g = connections?.[from];
   const main = g?.main;
   if (!Array.isArray(main)) return [];
-  return main
-    .map((branch) => (Array.isArray(branch) ? branch.filter((e) => e && typeof e.node === 'string') : []))
-    .filter((b) => b.length > 0);
+  return main.map((branch) => (Array.isArray(branch) ? branch.filter((e) => e && typeof e.node === 'string') : []));
 }
 
 export function outgoingFlat(from: string, connections: Connections): string[] {
@@ -629,6 +648,112 @@ function execIfCondition(node: EngineNode, input: any): boolean {
   return !!input;
 }
 
+export async function execDecisionNode(
+  node: EngineNode,
+  input: any,
+  ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall }
+): Promise<{ output: any; branch: number }> {
+  const p = node.parameters || {};
+  let text = '';
+  if (p.input) {
+    const resolved = toValue(p.input, input);
+    text = typeof resolved === 'string' ? resolved : JSON.stringify(resolved ?? '');
+  } else if (input && typeof input === 'object') {
+    text = input.text || input.message || input.prompt || input.content || input.query || JSON.stringify(input);
+  } else {
+    text = String(input ?? '');
+  }
+
+  let routesList: string[] = [];
+  let choicesMap: Record<string, string> = {};
+
+  if (Array.isArray(p.choices)) {
+    routesList = p.choices.map((c: any) => String(c));
+    for (const r of routesList) choicesMap[r] = r;
+  } else if (p.choices && typeof p.choices === 'object') {
+    routesList = Object.keys(p.choices);
+    choicesMap = { ...p.choices };
+  } else if (Array.isArray(p.routes)) {
+    routesList = p.routes.map((c: any) => String(c));
+    for (const r of routesList) choicesMap[r] = r;
+  } else if (p.routes && typeof p.routes === 'object') {
+    routesList = Object.keys(p.routes);
+    choicesMap = { ...p.routes };
+  } else {
+    routesList = ['route_0', 'route_1'];
+    choicesMap = { route_0: 'Option 0', route_1: 'Option 1' };
+  }
+
+  let bestChoice = routesList[0] || 'default';
+  let confidence = 0.95;
+  let probabilities: Record<string, number> = {};
+
+  try {
+    if (ctx?.synapsedxCall) {
+      const res = await ctx.synapsedxCall(
+        'inference',
+        'route',
+        { input: text, choices: choicesMap, instruction: p.instruction },
+        ctx.principal
+      );
+      if (res && res.best_choice) {
+        bestChoice = String(res.best_choice);
+        confidence = Number(res.confidence) || 0.95;
+        probabilities = res.probabilities || {};
+      }
+    } else {
+      const INF_URL = (process.env.INFERENCE_SERVICE_URL || 'http://localhost:4008').replace(/\/$/, '');
+      const ctl = new AbortController();
+      const to = setTimeout(() => ctl.abort(), 8000);
+      try {
+        const resp = await fetch(`${INF_URL}/v1/inference/decision/route`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ input: text, choices: choicesMap, instruction: p.instruction }),
+          signal: ctl.signal,
+        });
+        if (resp.ok) {
+          const res: any = await resp.json();
+          bestChoice = String(res.best_choice || routesList[0]);
+          confidence = Number(res.confidence) || 0.95;
+          probabilities = res.probabilities || {};
+        }
+      } finally {
+        clearTimeout(to);
+      }
+    }
+  } catch {
+    // Deterministic keyword matching fallback
+    const lower = text.toLowerCase();
+    for (const r of routesList) {
+      if (lower.includes(r.toLowerCase())) {
+        bestChoice = r;
+        break;
+      }
+    }
+  }
+
+  let branchIndex = routesList.indexOf(bestChoice);
+  if (branchIndex < 0) {
+    branchIndex = Number(p.fallbackBranch) || 0;
+  }
+
+  const output = {
+    ...(input && typeof input === 'object' ? clone(input) : { value: input }),
+    decision: {
+      choice: bestChoice,
+      route: bestChoice,
+      confidence,
+      probabilities,
+      branch: branchIndex,
+      branchIndex,
+      input: text.slice(0, 500),
+    },
+  };
+
+  return { output, branch: branchIndex };
+}
+
 function hasHeader(headers: Record<string, string>, name: string): boolean {
   const want = name.toLowerCase();
   return Object.keys(headers).some((k) => k.toLowerCase() === want);
@@ -793,7 +918,11 @@ export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
   workflows: ['list', 'get'],
   executions: ['list', 'get'],
   templates: ['list', 'get'],
-  lds: ['list-datasources', 'publish-record'],
+  lds: ['list-datasources', 'publish-record', 'get-entity'],
+  base: ['list-collections', 'create-document', 'get-document', 'query-documents', 'delete-document'],
+  faststore: ['get', 'set', 'incr', 'delete', 'hash-get', 'hash-set'],
+  queue: ['list', 'publish', 'consume', 'ack'],
+  inference: ['chat', 'embeddings', 'decision', 'route'],
 };
 
 /** Required args per resource.operation (values may be ={{ }} templates). */
@@ -808,6 +937,24 @@ const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
   'executions.get': ['id'],
   'templates.get': ['name'],
   'lds.publish-record': ['datasourceId'],
+  'lds.get-entity': ['datasourceId', 'entityId'],
+  'base.create-document': ['collection'],
+  'base.get-document': ['collection', 'id'],
+  'base.query-documents': ['collection'],
+  'base.delete-document': ['collection', 'id'],
+  'faststore.get': ['key'],
+  'faststore.set': ['key', 'value'],
+  'faststore.incr': ['key'],
+  'faststore.delete': ['key'],
+  'faststore.hash-get': ['key'],
+  'faststore.hash-set': ['key', 'values'],
+  'queue.publish': ['queue', 'payload'],
+  'queue.consume': ['queue'],
+  'queue.ack': ['queue', 'receipt'],
+  'inference.chat': ['messages'],
+  'inference.embeddings': ['input'],
+  'inference.decision': ['state', 'questions'],
+  'inference.route': ['input', 'choices'],
 };
 
 /** Save-time validation for synapsedx.api node params. Required args must be
@@ -863,6 +1010,408 @@ async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: R
   const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
   if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error('synapsedx.api: response exceeds 500KB');
   return clone(out);
+}
+
+export async function execAiAgentNode(
+  node: EngineNode,
+  data: any,
+  ctx?: { principal?: RunPrincipal | null; credentialResolver?: CredentialResolver; synapsedxCall?: SynapseDXCall }
+): Promise<any> {
+  const p = node.parameters || {};
+  const core = String(p.core || 'synapse-inference');
+  const model = String(p.model || (core === 'synapse-inference' ? (process.env.AI_DEFAULT_MODEL || 'liquid/lfm-2.5-2.6b:free') : 'gpt-4o-mini'));
+  const baseUrl = String(p.baseUrl || (core === 'synapse-inference' ? (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008') : 'https://api.openai.com/v1')).replace(/\/$/, '');
+  let apiKey = String(p.apiKey || '');
+  if (!apiKey && p.credentialId && ctx?.credentialResolver) {
+    try {
+      const cred = await ctx.credentialResolver(p.credentialId);
+      if (cred) apiKey = cred.secret || (cred as any).apiKey || (cred as any).token || '';
+    } catch { /* use apiKey */ }
+  }
+  if (!apiKey && core === 'synapse-inference') {
+    apiKey = process.env.OPENROUTER_API_KEY || '';
+  }
+
+  const systemPrompt = String(
+    p.systemPrompt ||
+    'You are an intelligent autonomous AI Agent in SynapseFlow. Analyze the input, use the available tools to retrieve data or take actions, and provide a helpful, accurate result.'
+  );
+
+  let userPrompt = '';
+  if (p.prompt) {
+    const resolved = toValue(p.prompt, data);
+    userPrompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved ?? '');
+  } else if (p.message) {
+    const resolved = toValue(p.message, data);
+    userPrompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved ?? '');
+  } else if (data && typeof data === 'object') {
+    userPrompt = data.prompt || data.message || data.text || data.query || JSON.stringify(data);
+  } else {
+    userPrompt = String(data ?? '');
+  }
+
+  const enabledTools: string[] = Array.isArray(p.tools) ? p.tools.map(String) : [
+    'data_sources', 'logic_code', 'synapsedx_api', 'decision_model', 'http_request'
+  ];
+
+  const toolDefs: any[] = [];
+  if (enabledTools.some(t => t === 'data_sources' || t === 'synapsebase_query')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'synapsebase_query',
+        description: 'Query documents in SynapseBase collection',
+        parameters: {
+          type: 'object',
+          properties: {
+            collection: { type: 'string', description: 'Collection name' },
+            where: { type: 'object', description: 'Filter object' },
+            limit: { type: 'number', description: 'Max items' },
+          },
+          required: ['collection'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'data_sources' || t === 'faststore_get')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'faststore_get',
+        description: 'Read cached key from Synapse Faststore',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string', description: 'Key name' },
+          },
+          required: ['key'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'data_sources' || t === 'faststore_set')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'faststore_set',
+        description: 'Set cached key-value in Synapse Faststore',
+        parameters: {
+          type: 'object',
+          properties: {
+            key: { type: 'string' },
+            value: { description: 'Value to cache' },
+            ttlSeconds: { type: 'number' },
+          },
+          required: ['key', 'value'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'logic_code' || t === 'code_runner')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'code_runner',
+        description: 'Execute JavaScript code in a secure sandbox to calculate, transform, or parse data',
+        parameters: {
+          type: 'object',
+          properties: {
+            code: { type: 'string', description: 'JavaScript code snippet' },
+          },
+          required: ['code'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'decision_model' || t === 'decision_eval')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'decision_eval',
+        description: 'Evaluate options or classify intent using Decision-2.0-Eos-0.8B SLM',
+        parameters: {
+          type: 'object',
+          properties: {
+            input: { type: 'string', description: 'Text to classify' },
+            choices: { type: 'array', items: { type: 'string' }, description: 'Target choices' },
+            instruction: { type: 'string', description: 'Optional instruction' },
+          },
+          required: ['input', 'choices'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'synapsedx_api' || t === 'queue_publish')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'queue_publish',
+        description: 'Publish a message into SynapseQueue',
+        parameters: {
+          type: 'object',
+          properties: {
+            queue: { type: 'string' },
+            payload: { type: 'object' },
+          },
+          required: ['queue', 'payload'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'synapsedx_api' || t === 'iam_check_permission')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'iam_check_permission',
+        description: 'Check whether a user has permission for an action on a resource',
+        parameters: {
+          type: 'object',
+          properties: {
+            userId: { type: 'string' },
+            action: { type: 'string' },
+            resource: { type: 'string' },
+          },
+          required: ['userId', 'action', 'resource'],
+        },
+      },
+    });
+  }
+  if (enabledTools.some(t => t === 'http_request')) {
+    toolDefs.push({
+      type: 'function',
+      function: {
+        name: 'http_request',
+        description: 'Perform an HTTP GET or POST request to an external service',
+        parameters: {
+          type: 'object',
+          properties: {
+            url: { type: 'string' },
+            method: { type: 'string', enum: ['GET', 'POST'], default: 'GET' },
+            body: { description: 'Body for POST' },
+          },
+          required: ['url'],
+        },
+      },
+    });
+  }
+
+  const messages: any[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt },
+  ];
+
+  const maxSteps = Math.min(Math.max(Number(p.maxSteps) || 5, 1), 10);
+  const actionsTaken: Array<{ tool: string; args: any; result: any }> = [];
+  let finalAnswer = '';
+  const t0 = Date.now();
+
+  async function runTool(toolName: string, toolArgs: any): Promise<any> {
+    switch (toolName) {
+      case 'logic_calculator': {
+        const expr = String(toolArgs.expression || toolArgs.calc || toolArgs.code || '0');
+        try {
+          const sanitized = expr.replace(/[^0-9+\-*/().% ]/g, '');
+          // eslint-disable-next-line no-new-func
+          const result = Function(`'use strict'; return (${sanitized})`)();
+          return { expression: expr, result };
+        } catch {
+          return { expression: expr, error: 'calculation error' };
+        }
+      }
+      case 'code_runner':
+      case 'code_sandbox': {
+        const fakeNode: EngineNode = { name: 'agent_code', type: 'code', parameters: { code: toolArgs.code || toolArgs.script } };
+        return await execCodeSandbox(fakeNode, data);
+      }
+      case 'decision_model':
+      case 'decision_eval': {
+        const choicesMap: Record<string, string> = {};
+        for (const c of (toolArgs.choices || [])) choicesMap[c] = c;
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('inference', 'route', { input: toolArgs.input, choices: choicesMap, instruction: toolArgs.instruction }, ctx.principal);
+        }
+        return { choice: toolArgs.choices?.[0] || 'default', confidence: 0.9 };
+      }
+      case 'synapsebase_query': {
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('base', 'query-documents', { collection: toolArgs.collection, where: toolArgs.where, limit: toolArgs.limit || 10 }, ctx.principal);
+        }
+        return { items: [], total: 0 };
+      }
+      case 'faststore_get': {
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
+        }
+        return { key: toolArgs.key, value: null };
+      }
+      case 'faststore_set': {
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('faststore', 'set', { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 }, ctx.principal);
+        }
+        return { ok: true };
+      }
+      case 'faststore_cache': {
+        const action = toolArgs.action || (toolArgs.value !== undefined ? 'set' : 'get');
+        if (action === 'set') {
+          if (ctx?.synapsedxCall) {
+            return await ctx.synapsedxCall('faststore', 'set', { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 }, ctx.principal);
+          }
+          return { ok: true };
+        } else {
+          if (ctx?.synapsedxCall) {
+            return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
+          }
+          return { key: toolArgs.key, value: null };
+        }
+      }
+      case 'queue_publish': {
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('queue', 'publish', { queue: toolArgs.queue, payload: toolArgs.payload }, ctx.principal);
+        }
+        return { ok: true, id: 'mock-msg' };
+      }
+      case 'iam_check_permission': {
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall('authorize', 'check', { userId: toolArgs.userId, action: toolArgs.action, resource: toolArgs.resource }, ctx.principal);
+        }
+        return { allowed: true };
+      }
+      case 'http_request': {
+        assertUrlAllowed(toolArgs.url);
+        const method = (toolArgs.method || 'GET').toUpperCase();
+        const r = await fetch(toolArgs.url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: method === 'POST' && toolArgs.body ? JSON.stringify(toolArgs.body) : undefined,
+        });
+        const text = await r.text();
+        try { return JSON.parse(text); } catch { return text; }
+      }
+      default:
+        throw new Error(`Agent tool '${toolName}' not recognized`);
+    }
+  }
+
+  async function callLlm(msgs: any[]): Promise<any> {
+    if (core === 'synapse-inference' && ctx?.synapsedxCall) {
+      return await ctx.synapsedxCall('inference', 'chat', {
+        messages: msgs,
+        model,
+        temperature: Number(p.temperature) || 0.2,
+        max_tokens: Number(p.maxTokens) || 512,
+        tools: toolDefs.length > 0 ? toolDefs : undefined,
+      }, ctx.principal);
+    }
+    const url = core === 'synapse-inference'
+      ? `${baseUrl}/v1/inference/chat/completions`
+      : `${baseUrl}/chat/completions`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+
+    const payload: any = {
+      model,
+      messages: msgs,
+      temperature: Number(p.temperature) || 0.2,
+      max_tokens: Number(p.maxTokens) || 512,
+    };
+    if (toolDefs.length > 0) {
+      payload.tools = toolDefs;
+    }
+
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 30000);
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        signal: ctl.signal,
+      });
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`AI Agent LLM returned HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+      }
+      return await resp.json();
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  for (let step = 0; step < maxSteps; step++) {
+    let res: any;
+    try {
+      res = await callLlm(messages);
+    } catch (e: any) {
+      finalAnswer = `Agent execution halted: ${e.message}`;
+      break;
+    }
+
+    const choice = res?.choices?.[0];
+    const msg = choice?.message || {};
+    const toolCalls = msg.tool_calls;
+
+    if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+      messages.push(msg);
+      for (const tc of toolCalls) {
+        const fnName = tc.function?.name;
+        let fnArgs: any = {};
+        try { fnArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { /* ignore */ }
+        let result: any;
+        try {
+          result = await runTool(fnName, fnArgs);
+        } catch (err: any) {
+          result = { error: err.message };
+        }
+        actionsTaken.push({ tool: fnName, args: fnArgs, result });
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id || `call_${Date.now()}`,
+          content: JSON.stringify(result),
+        });
+      }
+      continue;
+    }
+
+    const content = msg.content || '';
+    const match = content.match(/<tool_call>\s*({.*?})\s*<\/tool_call>/s) || content.match(/```json\s*({"tool":\s*"[^"]+".*?})\s*```/s);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        const toolName = parsed.name || parsed.tool;
+        const toolArgs = parsed.arguments || parsed.args || parsed.input || {};
+        let result: any;
+        try {
+          result = await runTool(toolName, toolArgs);
+        } catch (err: any) {
+          result = { error: err.message };
+        }
+        actionsTaken.push({ tool: toolName, args: toolArgs, result });
+        messages.push({ role: 'assistant', content });
+        messages.push({ role: 'user', content: `Tool ${toolName} output: ${JSON.stringify(result)}. Continue to final answer.` });
+        continue;
+      } catch { /* proceed */ }
+    }
+
+    finalAnswer = content;
+    break;
+  }
+
+  const durationMs = Date.now() - t0;
+  return {
+    ...(data && typeof data === 'object' ? clone(data) : { value: data }),
+    agent: {
+      response: finalAnswer,
+      actions_taken: actionsTaken,
+      tools_used: actionsTaken.map(a => a.tool),
+      steps_count: actionsTaken.length,
+      model,
+      core,
+      durationMs,
+    },
+    response: finalAnswer,
+  };
 }
 
 function getCodeSource(node: EngineNode): string | null {
@@ -1075,7 +1624,7 @@ export async function runWorkflow(
           input: clone(data), output: clone(output), error: 'node disabled — passed through',
           durationMs: Date.now() - t0, startedAt, finishedAt,
         });
-        return isIfType(node.type) ? { output, branch: 0 } : { output };
+        return isIfType(node.type) ? { output, branch: 0 } : isDecisionType(node.type) ? { output, branch: 0 } : { output };
       }
       let output: any;
       let skipped: string | null = null;
@@ -1129,6 +1678,33 @@ export async function runWorkflow(
           attempts = r.attempts;
           break;
         }
+        case 'decision':
+        case 'decision.route':
+        case 'synapseflow.decision':
+        case 'synapsedx.decision':
+        case 'n8n-nodes-base.decision': {
+          const dec = await execDecisionNode(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall });
+          output = dec.output;
+          const finishedAt = new Date().toISOString();
+          nodeRuns.push({
+            node: node.name, type: node.type, status: 'success',
+            input: clone(data), output: clone(output),
+            durationMs: Date.now() - t0, startedAt, finishedAt,
+          });
+          return { output, branch: dec.branch };
+        }
+        case 'ai.agent':
+        case 'synapseflow.aiAgent':
+        case 'synapsedx.aiAgent':
+        case 'agent':
+        case 'n8n-nodes-base.aiAgent': {
+          output = await execAiAgentNode(node, data, {
+            principal: opts?.principal,
+            credentialResolver: opts?.credentialResolver,
+            synapsedxCall: opts?.synapsedxCall,
+          });
+          break;
+        }
         default:
           // Unknown types pass data through but are marked skipped (B4) —
           // silent success hid misconfigured nodes from execution history.
@@ -1147,6 +1723,10 @@ export async function runWorkflow(
       if (isIfType(node.type)) {
         const cond = execIfCondition(node, output);
         return { output, branch: cond ? 0 : 1 };
+      }
+      if (isDecisionType(node.type)) {
+        const dec = await execDecisionNode(node, output, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall });
+        return { output: dec.output, branch: dec.branch };
       }
       return { output };
     } catch (e: any) {
@@ -1188,14 +1768,14 @@ export async function runWorkflow(
       if (continueOnError) {
         partialErrors.push(msg);
         execOut = {};
-        branch = isIfType(node.type) ? 1 : undefined;
+        branch = isIfType(node.type) ? 1 : isDecisionType(node.type) ? 0 : undefined;
       } else {
         failed = msg;
         break;
       }
     }
     const branches = outgoingBranches(cur.name, connections);
-    if (!branches.length) {
+    if (!branches.some((b) => b.length > 0)) {
       terminalOutputs.set(cur.name, execOut);
       continue;
     }

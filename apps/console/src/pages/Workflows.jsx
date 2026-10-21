@@ -394,7 +394,7 @@ export default function Workflows() {
 
   return (
     <>
-      <PageTitle title="Workflows" sub="Local engine via workflow-service — click a workflow to interact" right={<><Btn onClick={createBlank} disabled={createBusy}>+ Blank</Btn> <Btn onClick={() => setOpen(true)}>+ From template</Btn> <Btn onClick={() => importRef.current?.click()} disabled={createBusy}>Import</Btn><input ref={importRef} type="file" accept="application/json,.json" onChange={importWorkflow} className="hidden" aria-label="Import workflow JSON" /></>} />
+      <PageTitle title="SynapseFlow" sub="Next-generation workflow & autonomous AI agent automation engine — click a workflow to interact" right={<><Btn onClick={createBlank} disabled={createBusy}>+ Blank</Btn> <Btn onClick={() => setOpen(true)}>+ From template</Btn> <Btn onClick={() => importRef.current?.click()} disabled={createBusy}>Import</Btn><input ref={importRef} type="file" accept="application/json,.json" onChange={importWorkflow} className="hidden" aria-label="Import workflow JSON" /></>} />
       <Err e={err} />
       <div className="grid md:grid-cols-2 gap-4">
         <Card>
@@ -415,7 +415,7 @@ export default function Workflows() {
           )}
         </Card>
         <Card>
-          <h3 className="font-semibold text-main-text mb-2">Workflows</h3>
+          <h3 className="font-semibold text-main-text mb-2">SynapseFlow Workflows</h3>
           {flows === null ? (
             <ListSkeleton rows={4} />
           ) : list.length ? (

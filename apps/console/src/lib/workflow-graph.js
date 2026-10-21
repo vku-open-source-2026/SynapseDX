@@ -177,16 +177,37 @@ export function wouldCycle(nodes, connections, fromName, toName) {
 
 export const IF_TYPE = 'n8n-nodes-base.if';
 export function isIfType(t) {
-  return t === 'if' || t === 'n8n-nodes-base.if' || t === IF_TYPE;
+  return t === 'if' || t === 'n8n-nodes-base.if' || t === IF_TYPE || t === 'synapsedx.if';
+}
+export function isDecisionType(t) {
+  return (
+    t === 'decision' ||
+    t === 'decision.route' ||
+    t === 'synapseflow.decision' ||
+    t === 'synapsedx.decision' ||
+    t === 'n8n-nodes-base.decision'
+  );
+}
+export function isAiAgentType(t) {
+  return (
+    t === 'ai.agent' ||
+    t === 'synapseflow.aiAgent' ||
+    t === 'synapsedx.aiAgent' ||
+    t === 'agent' ||
+    t === 'n8n-nodes-base.aiAgent'
+  );
+}
+export function isBranchingType(t) {
+  return isIfType(t) || isDecisionType(t);
 }
 export function isWebhookType(t) {
-  return t === 'webhook' || t === 'n8n-nodes-base.webhook';
+  return t === 'webhook' || t === 'n8n-nodes-base.webhook' || t === 'synapsedx.webhook';
 }
 export function isCronType(t) {
-  return t === 'cron' || t === 'n8n-nodes-base.cron';
+  return t === 'cron' || t === 'n8n-nodes-base.cron' || t === 'synapsedx.cron';
 }
 export function isCodeType(t) {
-  return t === 'code' || t === 'n8n-nodes-base.code';
+  return t === 'code' || t === 'n8n-nodes-base.code' || t === 'synapsedx.code';
 }
 /** Branch index contract for If nodes: main[0] = true, main[1] = false. */
 export const IF_BRANCH_TRUE = 0;
@@ -197,8 +218,8 @@ export function ifBranchLabel(i) {
 
 /** Add an edge fromName -> toName.
  *  For `if` sources the branch slot is positional (main[0]=true,
- *  main[1]=false), so callers must pass { branch } explicitly — otherwise
- *  a reconnect silently swaps true/false. For other sources each call
+ *  main[1]=false), and for `decision` sources slot i corresponds to route i,
+ *  so callers must pass { branch } explicitly. For other sources each call
  *  appends a new fan-out branch (engine runs every branch). No-op when the
  *  exact edge already exists. */
 export function connect(connections, fromName, toName, opts) {
@@ -213,7 +234,7 @@ export function connect(connections, fromName, toName, opts) {
     return out;
   }
   if (branch !== undefined) {
-    const idx = Math.max(0, Math.min(branch, 1));
+    const idx = Math.max(0, branch);
     while (mains.length <= idx) mains.push([]);
     mains[idx] = [...mains[idx], { node: toName, type: 'main', index: 0 }];
     out[fromName] = { main: mains };
@@ -225,8 +246,8 @@ export function connect(connections, fromName, toName, opts) {
 }
 
 /** Remove the edge fromName -> toName.
- *  For `if` sources pass { preserveSlots: true } so the surviving branch
- *  keeps its true/false index — collapsing would silently swap branches.
+ *  For `if` and `decision` sources pass { preserveSlots: true } so the surviving branch
+ *  keeps its true/false/route index — collapsing would silently swap branches.
  *  Otherwise emptied branches/groups are dropped. */
 export function disconnect(connections, fromName, toName, opts) {
   const preserve = !!(opts && opts.preserveSlots);
@@ -241,14 +262,14 @@ export function disconnect(connections, fromName, toName, opts) {
 }
 
 /** Remove a node by name + every edge touching it. Returns { nodes, connections }.
- *  Branch slots of surviving `if` sources are preserved (see disconnect). */
+ *  Branch slots of surviving `if` and `decision` sources are preserved (see disconnect). */
 export function removeNode(nodes, connections, name) {
   const byName = new Map((nodes || []).map((n) => [n.name, n]));
   const kept = nodes.filter((n) => n.name !== name);
   const out = cloneConnections(connections);
   delete out[name];
   for (const from of Object.keys(out)) {
-    const preserve = isIfType(byName.get(from)?.type);
+    const preserve = isBranchingType(byName.get(from)?.type);
     const mains = out[from].main
       .map((branch) => branch.filter((e) => e.node !== name));
     const keptBranches = preserve ? mains : mains.filter((branch) => branch.length > 0);
@@ -321,25 +342,57 @@ export function ifWarnings(nodes, connections) {
 /** True when the type is one the local engine + palette know about. */
 export function isKnownType(type) {
   if (NODE_TYPES.some((t) => t.type === type)) return true;
-  return ['webhook', 'cron', 'manualTrigger', 'httpRequest', 'code', 'set', 'if', 'noOp', 'synapsedx.api'].includes(type);
+  return [
+    'webhook', 'cron', 'manualTrigger', 'httpRequest', 'code', 'set', 'if', 'noOp', 'synapsedx.api',
+    'decision', 'decision.route', 'synapseflow.decision', 'synapsedx.decision', 'n8n-nodes-base.decision',
+    'ai.agent', 'synapseflow.aiAgent', 'synapsedx.aiAgent', 'agent', 'n8n-nodes-base.aiAgent',
+  ].includes(type);
 }
+
+/** Icon name mapping for UI canvas badges and palette icons. */
+export const NODE_ICON_MAP = {
+  'n8n-nodes-base.webhook': 'bolt',
+  webhook: 'bolt',
+  'n8n-nodes-base.cron': 'clock',
+  cron: 'clock',
+  'n8n-nodes-base.manualTrigger': 'play',
+  manualTrigger: 'play',
+  'n8n-nodes-base.httpRequest': 'globe',
+  httpRequest: 'globe',
+  'n8n-nodes-base.code': 'code',
+  code: 'code',
+  'n8n-nodes-base.set': 'sliders',
+  set: 'sliders',
+  'n8n-nodes-base.if': 'code-branch',
+  if: 'code-branch',
+  'synapsedx.api': 'cube',
+  'synapseflow.aiAgent': 'robot',
+  'ai.agent': 'robot',
+  'synapseflow.decision': 'brain',
+  decision: 'brain',
+  'n8n-nodes-base.noOp': 'circle-dot',
+  noOp: 'circle-dot',
+};
 
 /** Curated local-engine node types for the palette (free-form type still allowed). */
 export const NODE_TYPES = [
   { type: 'n8n-nodes-base.webhook', label: 'Webhook', hint: 'Trigger via HTTP POST/GET — starts the run with the request body', category: 'triggers', placeholder: 'Receives {"hello":"world"} → passes it downstream' },
   { type: 'n8n-nodes-base.cron', label: 'Schedule', hint: 'Trigger on a timer — fires with {scheduledAt}', category: 'triggers', placeholder: 'Every 24h → fetches and transforms' },
   { type: 'n8n-nodes-base.manualTrigger', label: 'Manual', hint: 'Trigger by hand — run from Console with any JSON input', category: 'triggers', placeholder: 'Click Execute with {"value": 21}' },
+  { type: 'synapseflow.aiAgent', label: 'AI Agent', hint: 'Autonomous agent powered by Synapse Inference or OpenAI-compatible API with pluggable tools', category: 'ai', placeholder: 'Core: Synapse Inference Engine, Tools: Faststore + Base + Logic Sandbox' },
+  { type: 'synapseflow.decision', label: 'Decision Engine', hint: 'Multi-branch intelligent routing using Decision-2.0-Eos-0.8B SLM', category: 'ai', placeholder: 'Routes: support / sales / technical / billing' },
   { type: 'n8n-nodes-base.httpRequest', label: 'HTTP Request', hint: 'Call a public API — GET/POST with headers + JSON body', category: 'actions', placeholder: 'GET https://api.example.com/health' },
   { type: 'n8n-nodes-base.code', label: 'Code', hint: 'Run sandboxed JavaScript — $input in, return value out', category: 'actions', placeholder: 'return { doubled: ($input.value ?? 0) * 2 }' },
   { type: 'n8n-nodes-base.set', label: 'Set', hint: 'Add/overwrite fields — supports {{ $json.x }} templating', category: 'actions', placeholder: 'Set tag = processed, keep the rest' },
   { type: 'n8n-nodes-base.if', label: 'If', hint: 'Branch on a condition — output 0 = true, output 1 = false', category: 'logic', placeholder: '$input.value > 10 → Big / Small' },
-  { type: 'synapsedx.api', label: 'SynapseDX API', hint: 'Call SynapseDX itself — orgs, users, audit, workflows, LDS datasets… (runs as you)', category: 'integrations', placeholder: 'orgs.list → passes the org list downstream (or lds.publish-record)' },
+  { type: 'synapsedx.api', label: 'SynapseDX API', hint: 'Call SynapseDX itself — IAM, Base, Faststore, Queue, LDS, Inference, Flow (runs as you)', category: 'integrations', placeholder: 'base.query-documents or inference.route' },
   { type: 'n8n-nodes-base.noOp', label: 'NoOp', hint: 'Do nothing — passes input through (useful log point)', category: 'utils', placeholder: 'Passthrough for debugging' },
 ];
 
 /** Palette groups in display order. */
 export const NODE_CATEGORIES = [
   { id: 'triggers', label: 'Triggers', blurb: 'How a run starts (pick one)' },
+  { id: 'ai', label: 'AI & Agents', blurb: 'Autonomous AI agents and decision engines' },
   { id: 'actions', label: 'Actions', blurb: 'Do work: fetch, transform, set fields' },
   { id: 'integrations', label: 'Integrations', blurb: 'First-party services (run as you)' },
   { id: 'logic', label: 'Logic', blurb: 'Branch the flow' },
@@ -368,6 +421,10 @@ const TYPE_VERSIONS = {
   if: 1,
   'n8n-nodes-base.if': 1,
   'synapsedx.api': 1,
+  'synapseflow.aiAgent': 1,
+  'ai.agent': 1,
+  'synapseflow.decision': 1,
+  decision: 1,
   noOp: 1,
   'n8n-nodes-base.noOp': 1,
 };
@@ -388,6 +445,34 @@ export const EXAMPLE_PARAMS = {
   'n8n-nodes-base.code': { code: 'return { ...$input, doubled: ($input.value ?? 0) * 2, at: $now };' },
   if: { condition: '$input.value > 10' },
   'n8n-nodes-base.if': { condition: '$input.value > 10' },
+  'synapseflow.decision': {
+    input: '={{ $json.query || $json.text || $json.message }}',
+    choices: ['route_0', 'route_1', 'route_2'],
+    instruction: 'Route input query to the most appropriate branch',
+    fallbackBranch: 0,
+  },
+  decision: {
+    input: '={{ $json.query || $json.text || $json.message }}',
+    choices: ['route_0', 'route_1', 'route_2'],
+    instruction: 'Route input query to the most appropriate branch',
+    fallbackBranch: 0,
+  },
+  'synapseflow.aiAgent': {
+    core: 'synapse-inference',
+    model: 'liquid/lfm-2.5-2.6b:free',
+    systemPrompt: 'You are an intelligent autonomous AI Agent in SynapseFlow. Use tools to take actions and produce results.',
+    userPrompt: '={{ $json.message || "Analyze input and execute next steps" }}',
+    tools: ['synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator', 'decision_eval', 'http_request'],
+    maxSteps: 5,
+  },
+  'ai.agent': {
+    core: 'synapse-inference',
+    model: 'liquid/lfm-2.5-2.6b:free',
+    systemPrompt: 'You are an intelligent autonomous AI Agent in SynapseFlow. Use tools to take actions and produce results.',
+    userPrompt: '={{ $json.message || "Analyze input and execute next steps" }}',
+    tools: ['synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator', 'decision_eval', 'http_request'],
+    maxSteps: 5,
+  },
   'synapsedx.api': { resource: 'orgs', operation: 'list', input: {} },
   set: { values: { tag: 'processed' } },
   'n8n-nodes-base.set': { values: { tag: 'processed' } },

@@ -159,6 +159,9 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
           throw new Error("synapsedx.api: lds.publish-record 'record' must be a JSON object");
         }
         body = { record };
+      } else if (operation === 'get-entity') {
+        method = 'GET';
+        path = `/v1/lds/datasources/${encodeURIComponent(cleanId(a.datasourceId, 'datasourceId', 128))}/entities/${encodeURIComponent(cleanId(a.entityId, 'entityId', 256))}`;
       } else {
         throw new Error(`synapsedx.api: unsupported call 'lds.${operation}'`);
       }
@@ -176,6 +179,241 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       return parsed;
     } catch (e: any) {
       if (e?.name === 'AbortError') throw new Error('synapsedx.api: SynapseLDS timed out after 20000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // Base service
+  if (resource === 'base') {
+    const BASE_BASE = (process.env.BASE_SERVICE_URL || 'http://base:4005').replace(/\/$/, '');
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 20000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+      }
+      let method = 'GET';
+      let path = '';
+      let body: any;
+      if (operation === 'list-collections') {
+        path = '/v1/base/collections';
+      } else if (operation === 'create-document') {
+        method = 'POST';
+        path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/documents`;
+        body = a.data !== undefined ? { id: a.id, data: a.data } : (a.document !== undefined ? { id: a.id, data: a.document } : a);
+      } else if (operation === 'get-document') {
+        method = 'GET';
+        path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/documents/${encodeURIComponent(cleanId(a.id, 'id', 256))}`;
+      } else if (operation === 'query-documents') {
+        method = 'POST';
+        path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/query`;
+        body = { filter: a.filter, sort: a.sort, limit: a.limit, offset: a.offset };
+      } else if (operation === 'delete-document') {
+        method = 'DELETE';
+        path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/documents/${encodeURIComponent(cleanId(a.id, 'id', 256))}`;
+      } else {
+        throw new Error(`synapsedx.api: unsupported call 'base.${operation}'`);
+      }
+      const r = await fetch(`${BASE_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Base service timed out after 20000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // Faststore service
+  if (resource === 'faststore') {
+    const FASTSTORE_BASE = (process.env.FASTSTORE_SERVICE_URL || 'http://faststore:4006').replace(/\/$/, '');
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseDX-Tenant'] = String(principal.org || principal.account || principal.sub);
+      } else {
+        headers['X-SynapseDX-Tenant'] = 'platform';
+      }
+      let method = 'GET';
+      let path = '';
+      let body: any;
+      if (operation === 'get') {
+        path = `/v1/faststore/keys/${encodeURIComponent(cleanId(a.key, 'key', 256))}`;
+      } else if (operation === 'set') {
+        method = 'PUT';
+        path = `/v1/faststore/keys/${encodeURIComponent(cleanId(a.key, 'key', 256))}`;
+        body = { value: a.value, ttlSeconds: a.ttlSeconds, nx: a.nx, xx: a.xx };
+      } else if (operation === 'incr') {
+        method = 'POST';
+        path = `/v1/faststore/keys/${encodeURIComponent(cleanId(a.key, 'key', 256))}/incr`;
+        body = { by: a.by !== undefined ? Number(a.by) : 1, ttlSeconds: a.ttlSeconds };
+      } else if (operation === 'delete') {
+        method = 'DELETE';
+        path = `/v1/faststore/keys/${encodeURIComponent(cleanId(a.key, 'key', 256))}`;
+      } else if (operation === 'hash-get') {
+        path = `/v1/faststore/hashes/${encodeURIComponent(cleanId(a.key, 'key', 256))}${a.field ? `/${encodeURIComponent(String(a.field))}` : ''}`;
+      } else if (operation === 'hash-set') {
+        method = 'PUT';
+        path = `/v1/faststore/hashes/${encodeURIComponent(cleanId(a.key, 'key', 256))}`;
+        body = { values: a.values || a.fields || (a.field && a.value !== undefined ? { [a.field]: a.value } : {}), ttlSeconds: a.ttlSeconds };
+      } else {
+        throw new Error(`synapsedx.api: unsupported call 'faststore.${operation}'`);
+      }
+      const r = await fetch(`${FASTSTORE_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Faststore service timed out after 15000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // Queue service
+  if (resource === 'queue') {
+    const QUEUE_BASE = (process.env.QUEUE_SERVICE_URL || 'http://queue:4007').replace(/\/$/, '');
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseDX-Tenant'] = String(principal.org || principal.account || principal.sub);
+      } else {
+        headers['X-SynapseDX-Tenant'] = 'platform';
+      }
+      let method = 'GET';
+      let path = '';
+      let body: any;
+      if (operation === 'list') {
+        path = '/v1/queue/queues';
+      } else if (operation === 'publish') {
+        method = 'POST';
+        path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/messages`;
+        body = {
+          payload: a.payload !== undefined ? a.payload : a.body !== undefined ? a.body : a.message,
+          priority: a.priority,
+          delaySeconds: a.delaySeconds,
+        };
+      } else if (operation === 'consume') {
+        method = 'POST';
+        path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/consume`;
+        body = { count: a.count !== undefined ? Number(a.count) : 1, visibilityTimeoutSeconds: a.visibilityTimeoutSeconds };
+      } else if (operation === 'ack') {
+        method = 'POST';
+        path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/ack`;
+        body = { receipt: a.receipt || a.receiptHandle };
+      } else {
+        throw new Error(`synapsedx.api: unsupported call 'queue.${operation}'`);
+      }
+      const r = await fetch(`${QUEUE_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Queue service timed out after 15000ms');
+      throw e instanceof Error ? e : new Error(String(e));
+    } finally {
+      clearTimeout(to);
+    }
+  }
+
+  // Inference service
+  if (resource === 'inference') {
+    const INF_BASE = (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008').replace(/\/$/, '');
+    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const ctl = new AbortController();
+    const to = setTimeout(() => ctl.abort(), 60000);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (principal?.sub) {
+        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseDX-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+      }
+      let method = 'POST';
+      let path = '';
+      let body: any;
+      if (operation === 'chat') {
+        path = '/v1/inference/chat/completions';
+        body = { messages: a.messages, model: a.model, temperature: a.temperature, max_tokens: a.max_tokens };
+      } else if (operation === 'embeddings') {
+        path = '/v1/inference/embeddings';
+        body = { input: a.input, model: a.model };
+      } else if (operation === 'decision') {
+        path = '/v1/inference/decision';
+        body = { state: a.state, questions: a.questions, instruction: a.instruction };
+      } else if (operation === 'route') {
+        path = '/v1/inference/decision/route';
+        body = { input: a.input, choices: a.choices, instruction: a.instruction };
+      } else {
+        throw new Error(`synapsedx.api: unsupported call 'inference.${operation}'`);
+      }
+      const r = await fetch(`${INF_BASE}${path}`, {
+        method, headers, signal: ctl.signal,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const text = await r.text();
+      let parsed: any = text;
+      try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      if (!r.ok) {
+        const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
+        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+      }
+      return parsed;
+    } catch (e: any) {
+      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Inference service timed out after 60000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
