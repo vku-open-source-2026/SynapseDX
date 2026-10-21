@@ -68,5 +68,6 @@ jobs:
       - run: bash tests/e2e/api-check.sh
       - run: pip install ./sdks/sdk-python -q && SYNAPSEDX_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
       - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
+      - run: SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
       - run: docker compose down -v
         if: always()

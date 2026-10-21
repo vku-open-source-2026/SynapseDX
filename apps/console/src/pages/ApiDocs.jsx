@@ -10,7 +10,10 @@ import { GROUPS } from '../lib/endpoints.js';
 import { Badge, Card, Code, Err, PageTitle, Spinner } from '../components/ui.jsx';
 import Chatbot from '../components/Chatbot.jsx';
 
-const METHOD_TONE = { GET: 'blue', POST: 'green', PUT: 'amber', DELETE: 'red' };
+const METHOD_TONE = { GET: 'blue', POST: 'green', PUT: 'amber', PATCH: 'amber', DELETE: 'red' };
+// Path params always follow a slash. This intentionally does not treat the
+// colon in action suffixes such as `documents:batch` as a `:batch` parameter.
+const PATH_PARAM = /(^|\/):([A-Za-z0-9_]+)/g;
 
 export default function ApiDocs() {
   const { headers, auth } = useAuth();
@@ -74,10 +77,10 @@ export default function ApiDocs() {
   };
 
   const fillPath = (p) =>
-    p.replace(/:([A-Za-z0-9_]+)/g, (_, n) => {
+    p.replace(PATH_PARAM, (_, prefix, n) => {
       const v = (pathVals[n] || '').trim();
       if (!v) throw new Error(`Enter :${n} to try the call`);
-      return encodeURIComponent(v);
+      return `${prefix}${encodeURIComponent(v)}`;
     });
 
   const run = async (e) => {
@@ -144,7 +147,7 @@ export default function ApiDocs() {
           <div className="divide-y divide-slate-100">
             {g.endpoints.map((e) => {
               const k = key(g.name, e);
-              const params = [...e.path.matchAll(/:([A-Za-z0-9_]+)/g)].map((m) => m[1]);
+              const params = [...e.path.matchAll(/(?:^|\/):([A-Za-z0-9_]+)/g)].map((m) => m[1]);
               return (
                 <div key={k} className="py-2">
                   <button onClick={() => toggle(g.name, e)} className="w-full flex flex-wrap items-center gap-x-2 gap-y-1 text-left">

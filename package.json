@@ -16,6 +16,9 @@
     "license-check": "node tools/license-check.cjs --sbom sbom.json",
     "dev:iam": "npm run dev --workspace=apps/iam-service",
     "dev:gateway": "npm run dev --workspace=apps/gateway",
-    "dev:workflow": "npm run dev --workspace=apps/workflow-service"
+    "dev:workflow": "npm run dev --workspace=apps/workflow-service",
+    "dev:base": "npm run dev --workspace=apps/base-service",
+    "dev:faststore": "npm run dev --workspace=apps/faststore-service",
+    "dev:queue": "npm run dev --workspace=apps/queue-service"
   }
 }

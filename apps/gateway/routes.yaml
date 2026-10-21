@@ -87,3 +87,18 @@ routes:
     target: ${LDS_SERVICE_URL:http://lds:4004}
     auth: either
 
+  # SynapseBase — self-managed document database (collections, mapping, queries).
+  - path: /v1/base
+    target: ${BASE_SERVICE_URL:http://base:4005}
+    auth: either
+
+  # Synapse Faststore — tenant-scoped cache, counters, data structures and locks.
+  - path: /v1/faststore
+    target: ${FASTSTORE_SERVICE_URL:http://faststore:4006}
+    auth: either
+
+  # SynapseQueue — message queue with visibility timeouts and dead letters.
+  - path: /v1/queue
+    target: ${QUEUE_SERVICE_URL:http://queue:4007}
+    auth: either
+

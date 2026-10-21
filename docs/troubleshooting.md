@@ -96,11 +96,12 @@ A node failed — the response `error` names the node (`Code: ...`, `httpRequest
 Fetch `GET /v1/executions/:id?includeData=true` for per-node input/output, or use
 `POST /v1/workflows/test-run` to try a definition without saving.
 
-## 401 `Missing or invalid internal credential` on direct :4001/:4002 calls
+## 401 `Missing or invalid internal credential` on direct service calls
 
-Once `SYNAPSEDX_INTERNAL_SECRET` is configured, IAM/workflow only accept gateway traffic
-(`x-synapsedx-internal` header). Call services directly with that header, or go through
-gateway `:8080`. Verify all 3 services share the **same** secret value.
+Once `SYNAPSEDX_INTERNAL_SECRET` is configured, every service only accepts
+gateway traffic (`x-synapsedx-internal` header). Call services directly with that
+header, or go through gateway `:8080`. Verify every service shares the **same**
+secret value.
 
 ## 401 `unauthorized` with a non-expired token
 

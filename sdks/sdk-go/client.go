@@ -19,6 +19,7 @@ type Client struct {
 	BaseURL string
 	Token   string // Bearer JWT (user or service-account token)
 	APIKey  string // X-API-Key
+	Tenant  string // x-synapsedx-tenant (platform callers of faststore/queue)
 	HTTP    *http.Client
 }
 
@@ -41,6 +42,10 @@ func (c *Client) SetToken(t string) { c.Token = t }
 // SetAPIKey sets the X-API-Key for subsequent calls.
 func (c *Client) SetAPIKey(k string) { c.APIKey = k }
 
+// SetTenant sets the x-synapsedx-tenant header used by platform callers of
+// Synapse Faststore and SynapseQueue. An empty string clears it.
+func (c *Client) SetTenant(t string) { c.Tenant = t }
+
 func (c *Client) do(method, path string, body any) ([]byte, error) {
 	var r io.Reader
 	if body != nil {
@@ -60,6 +65,9 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 	}
 	if c.APIKey != "" {
 		req.Header.Set("X-API-Key", c.APIKey)
+	}
+	if c.Tenant != "" {
+		req.Header.Set("x-synapsedx-tenant", c.Tenant)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

@@ -39,6 +39,24 @@ services:
       HSTS_ENABLED: "true"
     ports: !reset []
 
+  base:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+    ports: !reset []
+
+  faststore:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+    ports: !reset []
+
+  queue:
+    environment:
+      NODE_ENV: production
+      HSTS_ENABLED: "true"
+    ports: !reset []
+
   prometheus:
     ports: !reset []
 

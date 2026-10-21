@@ -30,7 +30,22 @@ orgs, err := c.ListOrgs()
 Full coverage: auth (login/refresh/logout/logout-all/verify/me), orgs, accounts,
 users, roles, policies, authorize + dry-run, audit, API keys (+verify), service
 accounts (+token), workflows (list/get/create from template or raw/activate/
-deactivate/execute), templates, executions.
+deactivate/execute), templates, executions, LDS.
+
+Data services:
+
+- **SynapseBase** — `Client.*Base*` methods plus the generic
+  `NewBaseCollection[T]` typed collection with object↔data mapping.
+- **Synapse Faststore** — `Client.Faststore*` for KV, counters, hashes, lists,
+  sets, sorted sets, scans, batches and distributed locks.
+- **SynapseQueue** — `Client.*Queue*` for publish (delay/dedupe), consume,
+  ack/nack/heartbeat, dead letters and replay.
+
+Platform callers of Faststore/Queue set the tenant explicitly:
+
+```go
+c.SetTenant("acme") // x-synapsedx-tenant
+```
 
 ## Full documentation
 

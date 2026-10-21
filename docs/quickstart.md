@@ -15,10 +15,13 @@ docker compose ps
 curl localhost:8080/health      # gateway
 curl localhost:4001/health      # iam
 curl localhost:4002/health      # workflow
+curl localhost:4005/health      # base (documents)
+curl localhost:4006/health      # faststore (cache/KV)
+curl localhost:4007/health      # queue (messaging)
 ```
 
 - First pull takes a while (authentik). For a lighter start:
-  `docker compose up -d --build postgres redis s3 s3-init iam workflow gateway`
+  `docker compose up -d --build postgres redis s3 s3-init iam workflow base faststore queue gateway`
   (authentik only starts when named).
 - Host port busy? Change `GATEWAY_HOST_PORT` (or any `*_HOST_PORT`) in `.env` —
   see `docs/troubleshooting.md`.
@@ -74,7 +77,44 @@ npx -y @synapsedx/cli@latest --base http://localhost:8080 login --email demo@acm
 - Harden inbound webhooks per node (shared secret / HMAC / JWT + rpm limit +
   idempotency key) before sharing the `/webhook/:path` URL.
 
-## 6. Object storage (S3)
+## 6. Data services (Base, Faststore, Queue)
+
+All three are behind the gateway and tenant-scoped automatically from your
+principal (org → account → user).
+
+```bash
+# SynapseBase: collection + mapped object + query
+curl -s -XPOST localhost:8080/v1/base/collections \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' \
+  -d '{"name":"parks","mapping":{"name":"profile.name","capacity":"profile.capacity"}}'
+curl -s -XPOST localhost:8080/v1/base/collections/parks/documents \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' \
+  -d '{"id":"park-1","object":{"name":"Central","capacity":120}}'
+curl -s "localhost:8080/v1/base/collections/parks/documents/park-1?as=object" \
+  -H"Authorization: Bearer $TOK"
+
+# Faststore: cache a value for 5 minutes and bump a counter
+curl -s -XPUT localhost:8080/v1/faststore/keys/cache:park:1 \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' \
+  -d '{"value":{"name":"Central"},"ttlSeconds":300}'
+curl -s -XPOST localhost:8080/v1/faststore/keys/visits/incr \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' -d '{"by":1}'
+
+# Queue: publish, consume, ack
+curl -s -XPOST localhost:8080/v1/queue/queues/emails/messages \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' \
+  -d '{"payload":{"to":"alice@acme.test"},"dedupeKey":"welcome:alice"}'
+curl -s -XPOST localhost:8080/v1/queue/queues/emails/consume \
+  -H"Authorization: Bearer $TOK" -H'Content-Type: application/json' \
+  -d '{"maxMessages":10,"consumer":"mailer-1"}'
+# then POST .../ack with the returned receipt
+```
+
+Guides: [synapsebase.md](synapsebase.md) · [faststore.md](faststore.md) ·
+[queue.md](queue.md). Base persists to Postgres, Faststore and Queue to Redis;
+without those env vars they fall back to per-process memory (dev only).
+
+## 7. Object storage (S3)
 
 - S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `synapsedx-core`
   auto-created by the `s3-init` service.
@@ -83,14 +123,14 @@ npx -y @synapsedx/cli@latest --base http://localhost:8080 login --email demo@acm
 - Production: switch to MinIO (`quay.io/minio/minio`) or real AWS S3 by replacing the
   `s3` service + `S3_ENDPOINT` — SDK/API code doesn't change since everything speaks S3.
 
-## 7. Stop
+## 8. Stop
 
 ```bash
 docker compose down        # keep data
 docker compose down -v     # wipe all data
 ```
 
-## 8. Seed sample data (optional)
+## 9. Seed sample data (optional)
 
 ```bash
 bash examples/quickstart/seed.sh   # demo org + prod/staging accounts + viewer+etl roles/policies
@@ -98,7 +138,7 @@ bash examples/quickstart/seed.sh   # demo org + prod/staging accounts + viewer+e
 
 Idempotent, safe to re-run. `SEED_ORG` / `SEED_EMAIL` change the org/email.
 
-## 9. Local HTTPS (optional)
+## 10. Local HTTPS (optional)
 
 ```bash
 bash infra/tls/gen-cert.sh

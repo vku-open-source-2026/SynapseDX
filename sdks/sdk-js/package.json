@@ -1,17 +1,55 @@
 {
   "name": "@synapsedx/sdk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "Apache-2.0",
   "description": "synapsedx SDK for JavaScript/TypeScript",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./iam": {
+      "types": "./dist/iam.d.ts",
+      "require": "./dist/iam.js",
+      "default": "./dist/iam.js"
+    },
+    "./workflow": {
+      "types": "./dist/workflow.d.ts",
+      "require": "./dist/workflow.js",
+      "default": "./dist/workflow.js"
+    },
+    "./lds": {
+      "types": "./dist/lds.d.ts",
+      "require": "./dist/lds.js",
+      "default": "./dist/lds.js"
+    },
+    "./base": {
+      "types": "./dist/base.d.ts",
+      "require": "./dist/base.js",
+      "default": "./dist/base.js"
+    },
+    "./faststore": {
+      "types": "./dist/faststore.d.ts",
+      "require": "./dist/faststore.js",
+      "default": "./dist/faststore.js"
+    },
+    "./queue": {
+      "types": "./dist/queue.d.ts",
+      "require": "./dist/queue.js",
+      "default": "./dist/queue.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
     "dist",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test dist/",
+    "test": "node --test dist/client.test.js dist/services.test.js",
     "lint": "echo lint-ok"
   },
   "dependencies": {},

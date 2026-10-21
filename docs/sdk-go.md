@@ -70,14 +70,23 @@ c := synapsedx.NewWithClient("http://localhost:8080", &http.Client{
 })
 ```
 
-### Auth methods
+### Auth and tenant
 
 ```go
-c.SetToken(jwt)    // set/replace Bearer token
-c.SetAPIKey(key)   // set/replace API key
+c.SetToken(jwt)      // set/replace Bearer token
+c.SetAPIKey(key)     // set/replace API key
+c.SetTenant("acme")  // set/replace x-synapsedx-tenant ("" clears)
 ```
 
-Both can be set at any time. When both are present, both headers are sent.
+Both credentials can be set at any time. When both are present, both headers are
+sent. `Tenant` is exported on the client and is only used by platform callers of
+Synapse Faststore and SynapseQueue; principal callers are always scoped to their
+verified org/account/user. SynapseBase takes `?orgId=`/`?accountId=` parameters
+instead (`ListBaseCollections(orgID, accountID)`, etc.).
+
+The SDK is organized as flat `Client` methods grouped by service
+(`Client.*Base*`, `Client.Faststore*`, `Client.*Queue*` for the new services), so
+existing code does not need a migration.
 
 ## API reference
 
@@ -617,6 +626,148 @@ not visible to the caller) are omitted from entity listings. The public export
 surface (`lds licenses`, `lds entities`, `lds entity`) reads anonymously — no
 token required for the public projection; a token earns same-tenant
 `restricted` reads (other tenants → `404`).
+
+### SynapseBase (`Client.*Base*`)
+
+Collections of JSON documents with a logical object↔data mapping, queries,
+optimistic concurrency, counters, batches and a change feed. Full guide:
+[synapsebase.md](synapsebase.md).
+
+```go
+type Park struct {
+    Name     string `json:"name"`
+    Capacity int    `json:"capacity,omitempty"`
+}
+
+c.SetTenant("") // Base selects tenants with orgID/accountID parameters instead
+
+_, err := c.CreateBaseCollection(map[string]any{
+    "name": "parks",
+    "mapping": map[string]any{"fields": map[string]any{
+        "name":     map[string]any{"path": "profile.name", "type": "string", "required": true},
+        "capacity": map[string]any{"path": "profile.capacity", "type": "number"},
+    }},
+})
+
+// Untyped API
+_, err = c.CreateBaseDocument("parks", synapsedx.BaseDocumentInput{
+    ID: "park-1", Object: map[string]any{"name": "Central", "capacity": 120},
+})
+doc, err := c.GetBaseDocument("parks", "park-1", "object")
+page, err := c.QueryBaseDocuments("parks", synapsedx.BaseQuery{
+    Where:   map[string]any{"capacity": map[string]any{"gte": 100}},
+    OrderBy: []synapsedx.BaseOrderBy{{Field: "name", Direction: "asc"}},
+    As:      "object",
+})
+feed, err := c.BaseChanges("parks", "2026-10-01T00:00:00Z", 100, "object")
+
+// Typed collection (generics + encoding/json)
+parks := synapsedx.NewBaseCollection[Park](c, "parks",
+    synapsedx.NewBaseMapping(map[string]string{"name": "profile.name", "capacity": "profile.capacity"}),
+)
+park, err := parks.Create(Park{Name: "Central", Capacity: 120}, "park-1")
+park, err = parks.Get("park-1")
+res, err := parks.Query(synapsedx.BaseQuery{
+    Where: map[string]any{"capacity": map[string]any{"gte": 100}},
+})
+park, err = parks.Increment("park-1", "profile.capacity", 10, 0)
+```
+
+Collection methods: `ListBaseCollections(orgID, accountID)`,
+`CreateBaseCollection`, `GetBaseCollection`, `UpdateBaseCollection`,
+`DeleteBaseCollection`, `GetBaseCollectionStats`.
+Document methods: `CreateBaseDocument`, `GetBaseDocument(collection, id, as)`,
+`SetBaseDocument`, `UpdateBaseDocument`, `DeleteBaseDocument`,
+`ListBaseDocuments`, `QueryBaseDocuments`, `IncrementBaseDocument`,
+`BatchBaseDocuments`, `BaseChanges`.
+
+`BaseDocumentInput` takes exactly one of `Data`/`Object`, plus `Merge`,
+`Unset` and `IfVersion` (use `> 0`; `0` means no precondition). Model fields are
+converted through `encoding/json`, so `json` tags must match logical mapping
+names. Use a full `BaseMapping` when you need types or `required`.
+
+### Synapse Faststore (`Client.Faststore*`)
+
+Redis-backed strings, counters, hashes, lists, sets, sorted sets, scans, batches
+and distributed locks. Full guide: [faststore.md](faststore.md).
+
+```go
+c.SetTenant("acme") // platform callers only; principals use their own scope
+
+_, err := c.FaststoreSet("cache:park:1", map[string]any{"name": "Central"},
+    synapsedx.FaststoreSetOptions{TTLSeconds: 300, IfNotExists: true})
+entry, err := c.FaststoreGet("cache:park:1")
+_, err = c.FaststoreIncr("visits", 1, 60)
+_, err = c.FaststoreTTL("cache:park:1")
+
+_, err = c.FaststoreHashSet("user:1", map[string]any{"name": "Alice"}, 3600)
+_, err = c.FaststoreHashIncr("user:1", "logins", 1, 0)
+_, err = c.FaststoreListPush("jobs", []any{map[string]any{"id": 1}},
+    synapsedx.FaststoreListPushOptions{Side: "left"})
+popped, err := c.FaststoreListPop("jobs", "left", 10)
+
+_, err = c.FaststoreSetAdd("tags", []any{"a", "b"}, 0)
+_, err = c.FaststoreZSetAdd("scores",
+    []synapsedx.FaststoreZSetMember{{Member: "alice", Score: 10}}, 0)
+top, err := c.FaststoreZSetRange("scores", 0, -1, true, true)
+
+lock, err := c.FaststoreLockAcquire("report", synapsedx.FaststoreLockOptions{
+    TTLSeconds: 60, WaitMS: 500,
+})
+if acquired, _ := lock["acquired"].(bool); acquired {
+    _, _ = c.FaststoreLockRelease("report", lock["token"].(string))
+}
+```
+
+Method families: `FaststoreGet/Set/Delete/TTL/Expire/Incr/Batch`,
+`FaststoreHash*`, `FaststoreList*`, `FaststoreSet*`, `FaststoreZSet*`,
+`FaststoreLockAcquire/Release/Extend`, `FaststoreStats`, `FaststoreKeys`.
+
+### SynapseQueue (`Client.*Queue*`)
+
+At-least-once queues with delays, deduplication, visibility-timeout leases,
+ack/nack/heartbeat, retries, dead letters and replay. Full guide:
+[queue.md](queue.md).
+
+```go
+c.SetTenant("acme") // platform callers only
+
+_, err := c.CreateQueue("emails", synapsedx.QueueConfig{
+    MaxAttempts: 5, VisibilityTimeoutSeconds: 60,
+})
+published, err := c.PublishMessage("emails",
+    map[string]any{"to": "alice@acme.test"},
+    synapsedx.QueuePublishOptions{DedupeKey: "welcome:alice"})
+_, err = c.PublishMessages("emails", []any{
+    map[string]any{"payload": map[string]any{"n": 1}},
+    map[string]any{"payload": map[string]any{"n": 2}, "delaySeconds": 30},
+})
+
+batch, err := c.ConsumeMessages("emails", synapsedx.QueueConsumeOptions{
+    MaxMessages: 10, Consumer: "mailer-1",
+})
+for _, raw := range batch["messages"].([]any) {
+    msg := raw.(map[string]any)
+    receipt := msg["receipt"].(string)
+    if err := send(msg["payload"]); err != nil {
+        _, _ = c.NackMessage("emails", receipt, synapsedx.QueueNackOptions{
+            DelaySeconds: 30, Error: err.Error(),
+        })
+        continue
+    }
+    _, _ = c.AckMessage("emails", receipt)
+}
+
+_, _ = c.HeartbeatMessage("emails", receipt, 60)
+_, _ = c.AckMessages("emails", []string{"receipt-1", "receipt-2"})
+stats, err := c.QueueStats("emails")
+dead, err := c.DeadMessages("emails", 20)
+_, err = c.ReplayDeadMessage("emails", id, 0, true)
+```
+
+Also: `ListQueues`, `GetQueue`, `DeleteQueue`, `PurgeQueue`, `PeekMessages`,
+`DeleteDeadMessage`. For a nack, `QueueNackOptions.Requeue` is a `*bool`; leaving
+it `nil` uses the server default (`true`).
 
 ### Webhooks (public, no auth)
 

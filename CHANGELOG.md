@@ -5,6 +5,59 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-21
+
+### Added — three self-managed data services
+- **SynapseBase** (`apps/base-service`, :4005, gateway `/v1/base`, auth
+  `either`): collections of JSON documents with Postgres (memory fallback),
+  server-side validation and a logical **object ↔ data mapping**
+  (`{fields: {logical: {path, type?, required?}}, additional?}`, plus the
+  `{logical: "dot.path"}` shorthand). Writes send exactly one of `data`/`object`;
+  reads use `?as=object`. Includes filters (`eq/ne/gt/gte/lt/lte/in/nin/contains/
+  startsWith/endsWith/exists` + `and/or/not`), ordering, offset/cursor paging,
+  projection, metadata fields (`$id/$version/$createdAt/$updatedAt`), optimistic
+  concurrency (`ifVersion` / `If-Match`), atomic increments, batch writes and a
+  change feed. Collections are org/account-bound and tenant-resolved.
+- **Synapse Faststore** (`apps/faststore-service`, :4006, gateway
+  `/v1/faststore`, auth `either`): Redis-backed cache/KV with TTL/NX/XX,
+  atomic counters, hashes, lists, sets, sorted sets, key scans, batches and
+  token-owned distributed locks. In-memory fallback for dev/tests. Keys are
+  namespaced per tenant (`org:`/`account:`/`user:`; platform callers use
+  `x-synapsedx-tenant` or `?tenant=`).
+- **SynapseQueue** (`apps/queue-service`, :4007, gateway `/v1/queue`, auth
+  `either`): at-least-once queues with delayed publishing, dedupe keys, custom
+  message ids/headers, visibility-timeout leases + receipts, ack/ack-batch,
+  nack/retry/dead-letter, heartbeat, inspection, purge, stats, dead-letter
+  replay/delete. Redis sorted sets + Lua in production, in-memory fallback in
+  dev/tests. Delivery is at-least-once, `maxAttempts` is enforced on nack, and
+  expired leases are reclaimed regardless of attempt count.
+- Gateway routes for all three prefixes and `/ready` probes; tenant header
+  `x-synapsedx-tenant` forwarded for platform callers (other client identity
+  headers remain stripped).
+- Compose, production compose, `.env.example`, K8s manifests and Prometheus
+  scrape/alert configs for the new services; root workspace dev scripts.
+
+### Added — SDK 0.5.0
+- **Python** (`synapsedx-sdk` 0.5.0): split into per-service modules
+  (`iam`, `workflow`, `lds`, `base`, `faststore`, `queue`) exposed as
+  `SynapseDXClient` namespaces, plus typed `BaseCollection`, `QueryResult`,
+  `UNSET` sentinel, `tenant` support and `as_view=` for Base reads. Legacy flat
+  methods remain and emit `DeprecationWarning`; LDS drops the `lds_` prefix.
+- **JavaScript/TypeScript** (`@synapsedx/sdk` 0.5.0): per-service modules and
+  subpath exports (`./iam`, `./workflow`, `./lds`, `./base`, `./faststore`,
+  `./queue`), typed `BaseCollection`, `tenant`/`setTenant`, runtime-installed
+  deprecated flat methods, `SynapseDXError` with `status`/`body`.
+- **Go** (`synapsedx-sdk-go`): `base.go`, `faststore.go`, `queue.go` with full
+  endpoint coverage, generic `BaseCollection[T]`, object↔data conversion and
+  `Client.Tenant` / `SetTenant`.
+- New SDK tests for every service; Python 32 tests, JS 34 tests, Go suite pass.
+
+### Added — documentation
+- New guides: `docs/synapsebase.md`, `docs/faststore.md`, `docs/queue.md`
+  (concepts, endpoint tables, tenancy, errors, limits, curl + Python/JS/Go).
+- `docs/api.md` covers the three services and the tenant header; docs index,
+  architecture, configuration, quickstart, SDK guides and root README updated.
+
 ## [0.4.0] - 2026-10-20
 ### Added — SynapseLDS (linked data service)
 - New `apps/lds-service` (:4004, gateway `/v1/lds`, auth `either`): licensed

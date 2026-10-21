@@ -71,6 +71,10 @@ spec:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
             - { name: WORKFLOW_SERVICE_URL, value: "http://workflow:4002" }
             - { name: AI_SERVICE_URL, value: "http://ai:4003" }
+            - { name: LDS_SERVICE_URL, value: "http://lds:4004" }
+            - { name: BASE_SERVICE_URL, value: "http://base:4005" }
+            - { name: FASTSTORE_SERVICE_URL, value: "http://faststore:4006" }
+            - { name: QUEUE_SERVICE_URL, value: "http://queue:4007" }
             # Gateway MUST share the JWT secret or every Bearer check fails closed.
             - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
             - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
@@ -179,6 +183,117 @@ metadata:
 spec:
   selector: { app: ai }
   ports: [{ port: 4003, targetPort: 4003 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: base
+  namespace: synapsedx
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: base }
+  template:
+    metadata:
+      labels: { app: base }
+    spec:
+      containers:
+        - name: base
+          image: ghcr.io/synapsedx/base:0.5.0
+          ports: [{ containerPort: 4005 }]
+          env:
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: database-url } } }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+            - { name: CORS_ORIGIN, value: "https://console.example.com" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+          livenessProbe: { httpGet: { path: /health, port: 4005 }, initialDelaySeconds: 15, periodSeconds: 20 }
+          readinessProbe: { httpGet: { path: /health, port: 4005 }, initialDelaySeconds: 5, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: base
+  namespace: synapsedx
+spec:
+  selector: { app: base }
+  ports: [{ port: 4005, targetPort: 4005 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: faststore
+  namespace: synapsedx
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: faststore }
+  template:
+    metadata:
+      labels: { app: faststore }
+    spec:
+      containers:
+        - name: faststore
+          image: ghcr.io/synapsedx/faststore:0.5.0
+          ports: [{ containerPort: 4006 }]
+          env:
+            - { name: FASTSTORE_REDIS_URL, value: "redis://redis:6379" }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+            - { name: CORS_ORIGIN, value: "https://console.example.com" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+          livenessProbe: { httpGet: { path: /health, port: 4006 }, initialDelaySeconds: 15, periodSeconds: 20 }
+          readinessProbe: { httpGet: { path: /health, port: 4006 }, initialDelaySeconds: 5, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: faststore
+  namespace: synapsedx
+spec:
+  selector: { app: faststore }
+  ports: [{ port: 4006, targetPort: 4006 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: queue
+  namespace: synapsedx
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: queue }
+  template:
+    metadata:
+      labels: { app: queue }
+    spec:
+      containers:
+        - name: queue
+          image: ghcr.io/synapsedx/queue:0.5.0
+          ports: [{ containerPort: 4007 }]
+          env:
+            - { name: QUEUE_REDIS_URL, value: "redis://redis:6379" }
+            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: NODE_ENV, value: "production" }
+            - { name: HSTS_ENABLED, value: "true" }
+            - { name: CORS_ORIGIN, value: "https://console.example.com" }
+          securityContext: { runAsNonRoot: true, runAsUser: 1000, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
+          resources: { requests: { cpu: "100m", memory: "128Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+          livenessProbe: { httpGet: { path: /health, port: 4007 }, initialDelaySeconds: 15, periodSeconds: 20 }
+          readinessProbe: { httpGet: { path: /health, port: 4007 }, initialDelaySeconds: 5, periodSeconds: 10 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: queue
+  namespace: synapsedx
+spec:
+  selector: { app: queue }
+  ports: [{ port: 4007, targetPort: 4007 }]
 ---
 apiVersion: apps/v1
 kind: Deployment
