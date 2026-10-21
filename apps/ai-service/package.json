@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/ai-service",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "license": "Apache-2.0",
   "description": "synapsedx AI agent - LLM-assisted API testing (decision model picks the endpoint, LLM generates the call)",
   "main": "dist/index.js",
