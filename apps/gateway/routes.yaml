@@ -41,6 +41,12 @@ routes:
     target: ${IAM_SERVICE_URL:http://iam:4001}
     auth: either
 
+  # Usage analytics (request/feature telemetry + drill-down). Gateway writes
+  # events to IAM internally; these reads are tenant-scoped in IAM.
+  - path: /v1/usage
+    target: ${IAM_SERVICE_URL:http://iam:4001}
+    auth: either
+
   - path: /v1/workflows
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: either

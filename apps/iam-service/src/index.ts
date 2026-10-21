@@ -20,6 +20,7 @@ import {
 import { evaluatePolicies, validatePolicyDocument } from './policy';
 import { signAccess, newRefreshToken, storeRefresh, consumeRefresh, revokeRefresh, revokeAllRefresh, consumeAndRevokeRefresh, findRefreshOwner, refreshExpiry, revokeApiKey, createApiKeyRecord, verifyApiKey, verifyAccess, listApiKeys, findApiKeyById } from './tokens';
 import { secretsEqual } from './db';
+import { ingestUsageEvents, listUsageEvents, purgeUsage, usageSummary, type UsageFilter } from './usage';
 import { signState, exchangeCode, oidcSettings, OidcError } from './oidc';
 
 dotenv.config();
@@ -237,6 +238,78 @@ function rateLimit(max: number, windowMs: number) {
   };
 }
 
+const USAGE_MAX_RANGE_MS = 366 * 86_400_000;
+type UsageQueryFilter = Omit<UsageFilter, 'orgId'>;
+
+/** Parse + validate the shared usage query parameters (summary + events). */
+function parseUsageFilter(req: express.Request): { filter?: UsageQueryFilter; error?: string } {
+  const now = Date.now();
+  const toRaw = typeof req.query.to === 'string' ? req.query.to : '';
+  const fromRaw = typeof req.query.from === 'string' ? req.query.from : '';
+  const to = toRaw ? new Date(toRaw) : new Date(now);
+  const from = fromRaw ? new Date(fromRaw) : new Date(to.getTime() - 86_400_000);
+  if (!Number.isFinite(to.getTime()) || !Number.isFinite(from.getTime())) {
+    return { error: 'from/to must be valid ISO timestamps' };
+  }
+  if (from.getTime() >= to.getTime()) return { error: 'from must be before to' };
+  if (to.getTime() - from.getTime() > USAGE_MAX_RANGE_MS) {
+    return { error: 'range must be at most 366 days' };
+  }
+
+  const filter: UsageQueryFilter = { from, to };
+  if (req.query.feature !== undefined) {
+    const feature = String(req.query.feature).trim().toLowerCase();
+    if (!/^[a-z0-9-]{1,64}$/.test(feature)) return { error: 'feature must match ^[a-z0-9-]{1,64}$' };
+    filter.feature = feature;
+  }
+  if (req.query.accountId !== undefined) {
+    const accountId = String(req.query.accountId);
+    if (!isUuid(accountId)) return { error: 'accountId must be a UUID' };
+    filter.accountId = accountId;
+  }
+  if (req.query.actor !== undefined) {
+    const actor = String(req.query.actor);
+    if (!isUuid(actor)) return { error: 'actor must be a UUID' };
+    filter.actor = actor;
+  }
+  if (req.query.method !== undefined) {
+    const method = String(req.query.method).trim().toUpperCase();
+    if (!/^[A-Z]{1,16}$/.test(method)) return { error: 'method must be a valid HTTP method' };
+    filter.method = method;
+  }
+  if (req.query.status !== undefined) {
+    const status = Number(req.query.status);
+    if (!Number.isInteger(status) || status < 100 || status > 599) {
+      return { error: 'status must be an integer 100..599' };
+    }
+    filter.status = status;
+  }
+  if (req.query.statusClass !== undefined) {
+    const cls = String(req.query.statusClass).trim().toLowerCase();
+    if (!/^[2-5]xx$/.test(cls)) return { error: 'statusClass must be one of 2xx..5xx' };
+    filter.statusClass = Number(cls[0]);
+  }
+  if (req.query.q !== undefined) {
+    const q = String(req.query.q).trim().slice(0, 200);
+    if (q) filter.q = q;
+  }
+  if (req.query.limit !== undefined) {
+    const limit = Number(req.query.limit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+      return { error: 'limit must be an integer 1..200' };
+    }
+    filter.limit = limit;
+  }
+  if (req.query.offset !== undefined) {
+    const offset = Number(req.query.offset);
+    if (!Number.isInteger(offset) || offset < 0 || offset > 100_000) {
+      return { error: 'offset must be an integer 0..100000' };
+    }
+    filter.offset = offset;
+  }
+  return { filter };
+}
+
 export function createApp(): express.Express {
   // Fail-closed production guards (checked at boot, before serving anything).
   if (IS_PROD) {
@@ -316,11 +389,31 @@ export function createApp(): express.Express {
     setInterval(sweep, 60 * 60 * 1000).unref?.();
     setTimeout(sweep, 30_000).unref?.();
   }
+  // Usage telemetry is high-volume: default retention 30 days (0 disables).
+  const USAGE_RETENTION_DAYS = (() => {
+    const n = Number(process.env.USAGE_RETENTION_DAYS ?? 30);
+    return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 3650) : 0;
+  })();
+  if (USAGE_RETENTION_DAYS > 0) {
+    const sweep = () => {
+      purgeUsage(USAGE_RETENTION_DAYS).then(
+        (n) => {
+          if (n > 0) console.log(`[iam] usage retention: purged ${n} rows older than ${USAGE_RETENTION_DAYS}d`);
+        },
+        (e) => console.error('[iam] usage retention failed:', e?.message || e),
+      );
+    };
+    setInterval(sweep, 60 * 60 * 1000).unref?.();
+    setTimeout(sweep, 45_000).unref?.();
+  }
   const PUBLIC_PREFIXES = ['/v1/auth/'];
   const PUBLIC_EXACT = new Set(['/v1/auth']);
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const p = req.path;
     if (p === '/health' || PUBLIC_EXACT.has(p) || PUBLIC_PREFIXES.some((x) => p.startsWith(x))) return next();
+    // Gateway telemetry ingest: authenticated by the shared internal secret in
+    // the handler itself (it has no end-user Bearer/API key to present).
+    if (p === '/v1/usage/ingest') return next();
     if (INTERNAL_SECRET) {
       const got = firstHeader(req.headers['x-synapsedx-internal'] as any);
       if (!got || !secretsEqual(got, INTERNAL_SECRET)) {
@@ -1054,6 +1147,75 @@ export function createApp(): express.Express {
       return res.status(403).json({ error: 'forbidden', message: 'user belongs to another tenant' });
     }
     res.json(await rolesForUser(req.params.userId));
+  });
+
+  // ---------- Usage analytics (gateway request telemetry) ----------
+  // Machine-to-machine ingest. The general auth gate is bypassed for this path
+  // (the gateway has no user credential); the shared internal secret is the
+  // authenticator. Without a configured secret this is dev-only (IAM is only
+  // reachable on the internal network / published localhost dev port).
+  const usageIngestSchema = z.object({
+    events: z
+      .array(
+        z.object({
+          createdAt: z.string().max(64).optional(),
+          requestId: z.string().max(128).optional(),
+          feature: z.string().regex(/^[a-z0-9-]{1,64}$/),
+          route: z.string().min(1).max(200),
+          method: z.string().min(1).max(16),
+          path: z.string().max(2000).optional(),
+          status: z.number().int().min(100).max(599),
+          durationMs: z.number().int().min(0).max(3_600_000),
+          authKind: z.string().max(32).optional(),
+          orgId: z.string().uuid().nullish(),
+          accountId: z.string().uuid().nullish(),
+          userId: z.string().uuid().nullish(),
+          error: z.string().max(500).nullish(),
+        }),
+      )
+      .min(1)
+      .max(500),
+  });
+  app.post('/v1/usage/ingest', async (req, res) => {
+    if (INTERNAL_SECRET) {
+      const got = firstHeader(req.headers['x-synapsedx-internal'] as any);
+      if (!got || !secretsEqual(got, INTERNAL_SECRET)) {
+        return res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid internal credential' });
+      }
+    }
+    const parsed = usageIngestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_body', message: parsed.error.message });
+    }
+    const accepted = await ingestUsageEvents(parsed.data.events);
+    noStore(res);
+    res.status(202).json({ ok: true, accepted });
+  });
+
+  app.get('/v1/usage/summary', async (req, res) => {
+    const org = await resolveCallerOrg(req, TRUST_STAMPED);
+    if (!org) {
+      return res.status(403).json({ error: 'forbidden', message: 'usage analytics requires an organization context' });
+    }
+    const parsed = parseUsageFilter(req);
+    if (!parsed.filter) {
+      return res.status(400).json({ error: 'invalid_query', message: parsed.error });
+    }
+    noStore(res);
+    res.json(await usageSummary({ ...parsed.filter, orgId: org }));
+  });
+
+  app.get('/v1/usage/events', async (req, res) => {
+    const org = await resolveCallerOrg(req, TRUST_STAMPED);
+    if (!org) {
+      return res.status(403).json({ error: 'forbidden', message: 'usage analytics requires an organization context' });
+    }
+    const parsed = parseUsageFilter(req);
+    if (!parsed.filter) {
+      return res.status(400).json({ error: 'invalid_query', message: parsed.error });
+    }
+    noStore(res);
+    res.json(await listUsageEvents({ ...parsed.filter, orgId: org }));
   });
 
   // 404

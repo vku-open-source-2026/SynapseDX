@@ -70,6 +70,7 @@ const mem = {
   apiKeys: new Map<string, any>(), // hash -> record
   refresh: new Map<string, any>(),
   serviceAccounts: new Map<string, any>(),
+  usage: [] as any[], // request/feature usage events (schedule from gateway)
 };
 
 function seedMem() {

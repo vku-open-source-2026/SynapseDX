@@ -94,7 +94,7 @@ const IAM_METHODS = [
   'createApiKey', 'revokeApiKey', 'listApiKeys', 'verifyApiKey',
   'createServiceAccount', 'listServiceAccounts', 'serviceAccountToken',
   'createCredential', 'listCredentials', 'getCredential', 'deleteCredential',
-  'rotateCredential',
+  'rotateCredential', 'usageSummary', 'usageEvents',
 ] as const;
 
 const WORKFLOW_METHODS = [

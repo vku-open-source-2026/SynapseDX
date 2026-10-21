@@ -138,6 +138,20 @@ describe('SynapseDXClient', () => {
     assert.equal(lastPath, '/v1/executions/e1?includeData=true');
   });
 
+  it('iam usageSummary and usageEvents hit the right endpoints', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.iam.usageSummary({ feature: 'workflows' });
+    assert.equal(lastPath, '/v1/usage/summary?feature=workflows');
+    assert.equal(lastMethod, 'GET');
+
+    await c.iam.usageEvents({ limit: 25, offset: 50, q: 'test' });
+    assert.ok(lastPath.startsWith('/v1/usage/events?'));
+    assert.ok(lastPath.includes('limit=25'));
+    assert.ok(lastPath.includes('offset=50'));
+    assert.ok(lastPath.includes('q=test'));
+    assert.equal(lastMethod, 'GET');
+  });
+
   it('unwrapExecutions accepts envelope and bare array', () => {
     assert.deepEqual(unwrapExecutions({ data: [{ id: 'e1' }] }), [{ id: 'e1' }]);
     assert.deepEqual(unwrapExecutions([{ id: 'e2' }]), [{ id: 'e2' }]);

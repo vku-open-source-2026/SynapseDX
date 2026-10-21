@@ -118,6 +118,8 @@ describe('console silent refresh', () => {
     await api.executeWorkflow('w1', { value: 21 }, A);
     await api.audit(100, 'u1', A, true);
     await api.agent('hi', [{ role: 'user', text: 'hi' }], A);
+    await api.usageSummary({ feature: 'workflows' }, A);
+    await api.usageEvents({ limit: 10, offset: 0 }, A);
     assert.deepEqual(seen, [
       'POST /v1/orgs/o1/users',
       'POST /v1/auth/logout-all',
@@ -132,6 +134,8 @@ describe('console silent refresh', () => {
       'POST /v1/workflows/w1/execute',
       'GET /v1/audit?limit=100&actor=u1&allowed=true',
       'POST /v1/ai/agent',
+      'GET /v1/usage/summary?feature=workflows',
+      'GET /v1/usage/events?limit=10&offset=0',
     ]);
   });
 

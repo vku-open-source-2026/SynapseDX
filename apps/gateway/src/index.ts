@@ -11,6 +11,14 @@ import fs from 'fs';
 import yaml from 'js-yaml';
 import client from 'prom-client';
 import dotenv from 'dotenv';
+import {
+  enqueueUsage,
+  featureForRoute,
+  flushUsageNow,
+  isUsageExcluded,
+  isUsageTelemetryEnabled,
+  startUsageTelemetry,
+} from './usage';
 
 dotenv.config();
 
@@ -165,7 +173,14 @@ function authMiddleware(mode: RouteRule['auth']) {
       if (h.startsWith('Bearer ')) {
         try {
           const decoded: any = jwt.verify(h.slice(7), JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
-          (req as any).principal = { type: 'jwt', sub: decoded.sub, org: decoded.org, account: decoded.account, scopes: decoded.scopes || [] };
+          (req as any).principal = {
+            type: 'jwt',
+            kind: decoded.kind || 'user',
+            sub: decoded.sub,
+            org: decoded.org,
+            account: decoded.account,
+            scopes: decoded.scopes || [],
+          };
         } catch { /* anonymous */ }
       }
       return next();
@@ -179,9 +194,17 @@ function authMiddleware(mode: RouteRule['auth']) {
         const token = h.slice(7);
         try {
           const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
-          (req as any).principal = { type: 'jwt', sub: decoded.sub, org: decoded.org, account: decoded.account, scopes: decoded.scopes || [] };
+          (req as any).principal = {
+            type: 'jwt',
+            kind: decoded.kind || 'user',
+            sub: decoded.sub,
+            org: decoded.org,
+            account: decoded.account,
+            scopes: decoded.scopes || [],
+          };
           return next();
         } catch (e) {
+          (req as any).synapsedxError = 'invalid_token';
           if (mode === 'jwt') return res.status(401).json({ error: 'invalid_token', message: 'JWT invalid or expired' });
           // fallthrough to apikey check for 'either'
         }
@@ -194,11 +217,17 @@ function authMiddleware(mode: RouteRule['auth']) {
         if (isVerifyApiKeyEnabled()) {
           verifyApiKeyUpstream(apiKey).then(
             (info) => {
-              if (!info) return res.status(401).json({ error: 'invalid_api_key' });
+              if (!info) {
+                (req as any).synapsedxError = 'invalid_api_key';
+                return res.status(401).json({ error: 'invalid_api_key' });
+              }
               (req as any).principal = { type: 'apikey', account: info.account_id, scopes: info.scopes };
               return next();
             },
-            () => res.status(503).json({ error: 'iam_unavailable' }),
+            () => {
+              (req as any).synapsedxError = 'iam_unavailable';
+              return res.status(503).json({ error: 'iam_unavailable' });
+            },
           );
           return;
         }
@@ -209,8 +238,12 @@ function authMiddleware(mode: RouteRule['auth']) {
         (req as any).principal = { type: 'apikey' };
         return next();
       }
-      if (mode === 'apikey') return res.status(401).json({ error: 'missing_api_key', message: 'X-API-Key required' });
+      if (mode === 'apikey') {
+        (req as any).synapsedxError = 'missing_api_key';
+        return res.status(401).json({ error: 'missing_api_key', message: 'X-API-Key required' });
+      }
     }
+    (req as any).synapsedxError = 'unauthorized';
     return res.status(401).json({ error: 'unauthorized', message: 'Provide Bearer JWT and/or X-API-Key' });
   };
 }
@@ -319,6 +352,42 @@ export function createApp(): express.Express {
     res.setHeader('x-request-id', id);
     next();
   }) as any);
+  // Request telemetry: one event per matched route, recorded on response finish.
+  // The listener is installed before auth so rejected/anonymous calls are visible
+  // too; route resolution happens later in the pipeline and is read at finish.
+  app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const t0 = process.hrtime.bigint();
+    res.on('finish', () => {
+      const route = (req as any).synapsedxRoute as RouteRule | undefined;
+      if (!route || isUsageExcluded(req.path)) return;
+      const p = (req as any).principal;
+      let authKind = 'unauthenticated';
+      if (p?.type === 'jwt') authKind = p.kind || 'user';
+      else if (p?.type === 'apikey') authKind = 'apikey';
+      else if (route.auth === 'none') authKind = 'anonymous';
+
+      const durationMs = Math.max(0, Math.round(Number(process.hrtime.bigint() - t0) / 1e6));
+      const isUser = p?.type === 'jwt' && (p.kind || 'user') === 'user';
+      enqueueUsage({
+        createdAt: new Date().toISOString(),
+        requestId: String(req.headers['x-request-id'] || ''),
+        feature: featureForRoute(route.path),
+        route: route.path,
+        method: String(req.method || 'GET').toUpperCase(),
+        path: String(req.path || ''),
+        status: res.statusCode,
+        durationMs,
+        authKind,
+        orgId: p?.org || null,
+        accountId: p?.account || null,
+        userId: isUser ? p.sub || null : null,
+        error:
+          (req as any).synapsedxError ||
+          (res.statusCode >= 500 ? 'server_error' : res.statusCode >= 400 ? 'client_error' : null),
+      });
+    });
+    next();
+  }) as any);
   // In-memory edge rate limiting (per-IP; outer Ingress/WAF still required in prod
   // for DDoS, but this stops single-IP brute-force / /ready fan-out amplification).
   const hits = new Map<string, { n: number; reset: number }>();
@@ -334,7 +403,10 @@ export function createApp(): express.Express {
       const cur = hits.get(ip + ':' + max);
       if (!cur || cur.reset < now) { hits.set(ip + ':' + max, { n: 1, reset: now + WINDOW_MS }); return next(); }
       cur.n++;
-      if (cur.n > max) return res.status(429).json({ error: 'rate_limited', message: 'Too many requests, slow down' });
+      if (cur.n > max) {
+        (req as any).synapsedxError = 'rate_limited';
+        return res.status(429).json({ error: 'rate_limited', message: 'Too many requests, slow down' });
+      }
       return next();
     };
   }
@@ -459,6 +531,7 @@ export function createApp(): express.Express {
       // thay vì trang 504 mặc định của proxy.
       on: {
         error: (err: any, _req: any, res: any) => {
+          (_req as any).synapsedxError = 'upstream_unavailable';
           console.error(`[gateway] proxy ${r.path}->${target} failed:`, err?.message || err);
           try {
             if (!res.headersSent && !res.writableEnded) {
@@ -480,6 +553,7 @@ export function createApp(): express.Express {
     if (res.headersSent || res.writableEnded) return;
     res.status(500).json({ error: 'gateway_error' });
   });
+  if (isUsageTelemetryEnabled()) startUsageTelemetry();
   return app;
 }
 
@@ -491,7 +565,10 @@ if (require.main === module) {
   const server = app.listen(PORT, () => console.log(`[gateway] listening on :${PORT}`));
   const shutdown = () => {
     console.log('[gateway] shutting down...');
-    server.close(() => process.exit(0));
+    server.close(() => {
+      // Best-effort: ship the last telemetry batch before exiting.
+      void flushUsageNow().finally(() => process.exit(0));
+    });
     setTimeout(() => process.exit(0), 8000).unref();
   };
   process.on('SIGTERM', shutdown);

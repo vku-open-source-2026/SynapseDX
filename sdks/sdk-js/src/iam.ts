@@ -147,4 +147,52 @@ export class IamService {
   rotateCredential(id: string, secret: string) {
     return this.http.req(`/v1/credentials/${encodeURIComponent(id)}/rotate`, { method: 'POST', body: JSON.stringify({ secret }) });
   }
+
+  // ---- usage & telemetry ----
+  usageSummary(filter?: {
+    from?: string | Date;
+    to?: string | Date;
+    feature?: string;
+    accountId?: string;
+    actor?: string;
+    method?: string;
+    status?: number;
+    statusClass?: string;
+  }) {
+    const qs = new URLSearchParams();
+    if (filter) {
+      for (const [k, v] of Object.entries(filter)) {
+        if (v !== undefined && v !== null && String(v) !== '') {
+          qs.set(k, v instanceof Date ? v.toISOString() : String(v));
+        }
+      }
+    }
+    const s = qs.toString();
+    return this.http.req<any>(`/v1/usage/summary${s ? `?${s}` : ''}`);
+  }
+
+  usageEvents(filter?: {
+    from?: string | Date;
+    to?: string | Date;
+    feature?: string;
+    accountId?: string;
+    actor?: string;
+    method?: string;
+    status?: number;
+    statusClass?: string;
+    q?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    const qs = new URLSearchParams();
+    if (filter) {
+      for (const [k, v] of Object.entries(filter)) {
+        if (v !== undefined && v !== null && String(v) !== '') {
+          qs.set(k, v instanceof Date ? v.toISOString() : String(v));
+        }
+      }
+    }
+    const s = qs.toString();
+    return this.http.req<any>(`/v1/usage/events${s ? `?${s}` : ''}`);
+  }
 }

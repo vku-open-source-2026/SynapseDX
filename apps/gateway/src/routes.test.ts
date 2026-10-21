@@ -6,6 +6,10 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import { findRoute, expandEnv, propagatePrincipal, compileRoutePath, RouteRule, createApp, verifyApiKeyUpstream } from './index';
+import { featureForRoute, isUsageExcluded, isUsageTelemetryEnabled } from './usage';
+
+// No analytics side effects while booting ephemeral test apps.
+process.env.USAGE_TELEMETRY = 'false';
 
 const routes: RouteRule[] = [
   { path: '/v1/auth', target: 'http://iam:4001', auth: 'none' },
@@ -119,6 +123,33 @@ describe('propagatePrincipal', () => {
     propagatePrincipal(req);
     assert.equal(req.headers['x-synapsedx-account'], 'a1');
     assert.equal(req.headers['x-synapsedx-scopes'], 'x,y');
+  });
+});
+
+describe('usage telemetry helpers', () => {
+  it('maps routes to stable feature keys', () => {
+    assert.equal(featureForRoute('/v1/auth'), 'auth');
+    assert.equal(featureForRoute('/v1/orgs'), 'iam');
+    assert.equal(featureForRoute('/v1/roles'), 'iam');
+    assert.equal(featureForRoute('/v1/workflows'), 'workflows');
+    assert.equal(featureForRoute('/v1/executions'), 'workflows');
+    assert.equal(featureForRoute('/webhook'), 'workflows');
+    assert.equal(featureForRoute('/v1/lds/datasources/*/entities/*'), 'lds');
+    assert.equal(featureForRoute('/v1/base'), 'base');
+    assert.equal(featureForRoute('/v1/queue'), 'queue');
+    assert.equal(featureForRoute('/v1/new-service'), 'new-service');
+    assert.equal(featureForRoute('/'), 'other');
+  });
+
+  it('never counts its own usage endpoints', () => {
+    assert.equal(isUsageExcluded('/v1/usage'), true);
+    assert.equal(isUsageExcluded('/v1/usage/summary'), true);
+    assert.equal(isUsageExcluded('/v1/usagex'), false);
+    assert.equal(isUsageExcluded('/v1/workflows'), false);
+  });
+
+  it('can be disabled by env for tests', () => {
+    assert.equal(isUsageTelemetryEnabled(), false);
   });
 });
 

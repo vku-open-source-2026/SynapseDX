@@ -7,6 +7,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -176,6 +177,35 @@ export const legacyWorkflows = pgTable(
   (t) => [
     uniqueIndex('workflows_account_id_slug_key').on(t.accountId, t.slug),
     index('idx_workflows_account').on(t.accountId),
+  ],
+);
+
+/** Request/feature usage events written by the gateway (batched, best-effort).
+ *  Rows are tenant-scoped by org_id; account/user ids are optional because
+ *  API-key and anonymous traffic has no user principal. */
+export const usageEvents = pgTable(
+  'usage_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    requestId: text('request_id').notNull().default(''),
+    feature: text('feature').notNull(),
+    route: text('route').notNull(),
+    method: text('method').notNull(),
+    path: text('path').notNull().default(''),
+    status: integer('status').notNull(),
+    durationMs: integer('duration_ms').notNull(),
+    authKind: text('auth_kind').notNull().default('unknown'),
+    orgId: uuid('org_id'),
+    accountId: uuid('account_id'),
+    userId: uuid('user_id'),
+    error: text('error'),
+  },
+  (t) => [
+    index('idx_usage_time').on(t.createdAt.desc()),
+    index('idx_usage_org_time').on(t.orgId, t.createdAt.desc()),
+    index('idx_usage_feature_time').on(t.feature, t.createdAt.desc()),
+    index('idx_usage_status').on(t.status),
   ],
 );
 
