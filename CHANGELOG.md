@@ -5,6 +5,37 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-21
+
+### Added — Synapse Inference Engine & Multi-SDK Ecosystem
+- **Synapse Inference Engine (`apps/inference-service`)**: New dedicated multi-model
+  inference microservice running FastAPI:
+  - **LLM Proxy**: OpenRouter completions client (`/v1/inference/chat/completions`)
+    with resilient exponential backoff, SSE streaming and model fallback.
+  - **Self-Hosted Lightweight Embeddings**: `sentence-transformers/all-MiniLM-L6-v2`
+    (384 dimensions) with deterministic L2 normalized fallback for constrained dev environments.
+  - **Self-Hosted Decision-2.0-Eos-0.8B SLM**: Structured question evaluation (`system_one`)
+    and semantic intent classification/routing (`/v1/inference/decision/route`).
+  - **Security & Headers**: Standardized `x-request-id`, internal secret gating (`x-synapsedx-internal`),
+    HSTS headers, and non-root Docker container.
+- **Console Web UI Integration**:
+  - Added dedicated **SynapseInference** playground (`/inference`) with interactive tabs for
+    Decision & Semantic Routing (with confidence score visualizer), Text Embeddings
+    (with vector preview & stats), and LLM Chat Playground.
+  - Integrated into the Services sidebar drawer under "AI & Inference" (`faBrain`).
+  - Added dedicated service dashboards for SynapseBase, Synapse Faststore, and SynapseQueue.
+- **SDK Ecosystem (JS/TS, Python, Go)**:
+  - **JavaScript / TypeScript SDK** (`@synapsedx/sdk`): Exposed under `client.inference.*`
+    (`health`, `chat`, `embeddings`, `decision`, `route`).
+  - **Python SDK** (`synapsedx_sdk`): Exposed under `client.inference.*`
+    (`health`, `chat`, `embeddings`, `decision`, `route`).
+  - **Go SDK** (`github.com/synapsedx/synapsedx-sdk-go`): Added `c.InferenceHealth()`,
+    `c.InferenceChat()`, `c.InferenceEmbeddings()`, `c.InferenceDecision()`, and `c.InferenceRoute()`.
+- **E2E & Unit Test Coverage**:
+  - `npm run test:e2e:inference`: 8/8 comprehensive E2E tests through Gateway.
+  - `npm run test:e2e:go`: 10/10 comprehensive E2E tests for Go SDK through live microservice stack.
+  - Unit test coverage updated for all SDKs and services.
+
 ## [0.5.2] - 2026-10-21
 
 ### Fixed

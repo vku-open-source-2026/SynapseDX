@@ -24,6 +24,7 @@ import { LdsAttributeInput, LdsDatasourceInput, LdsEntitiesQuery, LdsIngestResul
 import { BaseService } from './base';
 import { FaststoreService } from './faststore';
 import { QueueService } from './queue';
+import { InferenceService } from './inference';
 
 export * from './_http';
 export * from './iam';
@@ -32,6 +33,7 @@ export * from './lds';
 export * from './base';
 export * from './faststore';
 export * from './queue';
+export * from './inference';
 
 /** Legacy flat LDS signatures (the namespaced service drops the `lds` prefix). */
 export interface LdsLegacyMethods {
@@ -57,6 +59,7 @@ export class SynapseDXClient {
   readonly base: BaseService;
   readonly faststore: FaststoreService;
   readonly queue: QueueService;
+  readonly inference: InferenceService;
 
   constructor(opts: SynapseDXClientOptions) {
     this.http = new HttpClient(opts);
@@ -66,6 +69,7 @@ export class SynapseDXClient {
     this.base = new BaseService(this.http);
     this.faststore = new FaststoreService(this.http);
     this.queue = new QueueService(this.http);
+    this.inference = new InferenceService(this.http);
   }
 
   get baseUrl(): string { return this.http.baseUrl; }

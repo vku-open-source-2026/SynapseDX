@@ -117,7 +117,7 @@ services:
   iam:
     build:
       context: ./apps/iam-service
-    image: synapsedx/iam:0.5.2
+    image: synapsedx/iam:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4001
@@ -159,7 +159,7 @@ services:
   workflow:
     build:
       context: ./apps/workflow-service
-    image: synapsedx/workflow:0.5.2
+    image: synapsedx/workflow:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4002
@@ -187,7 +187,7 @@ services:
   ai:
     build:
       context: ./apps/ai-service
-    image: synapsedx/ai:0.5.2
+    image: synapsedx/ai:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4003
@@ -215,7 +215,7 @@ services:
   lds:
     build:
       context: ./apps/lds-service
-    image: synapsedx/lds:0.5.2
+    image: synapsedx/lds:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4004
@@ -239,7 +239,7 @@ services:
   base:
     build:
       context: ./apps/base-service
-    image: synapsedx/base:0.5.2
+    image: synapsedx/base:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4005
@@ -265,7 +265,7 @@ services:
   faststore:
     build:
       context: ./apps/faststore-service
-    image: synapsedx/faststore:0.5.2
+    image: synapsedx/faststore:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4006
@@ -289,7 +289,7 @@ services:
   queue:
     build:
       context: ./apps/queue-service
-    image: synapsedx/queue:0.5.2
+    image: synapsedx/queue:0.6.0
     restart: unless-stopped
     environment:
       PORT: 4007
@@ -311,16 +311,44 @@ services:
         condition: service_healthy
     networks: [synapsedx-net]
 
+  inference:
+    build:
+      context: ./apps/inference-service
+    image: synapsedx/inference:0.6.0
+    restart: unless-stopped
+    environment:
+      PORT: 4008
+      INFERENCE_HOST: 0.0.0.0
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-${AI_BASE_URL:-https://openrouter.ai/api/v1}}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-${AI_API_KEY:-}}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-${AI_LLM_MODEL:-apodex/apodex-1.1-mini:free}}
+      OPENROUTER_FALLBACK_MODEL: ${OPENROUTER_FALLBACK_MODEL:-${AI_LLM_FALLBACK_MODEL:-inception/mercury-2.5}}
+      OPENROUTER_TIMEOUT_MS: ${OPENROUTER_TIMEOUT_MS:-30000}
+      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}
+      DECISION_MODEL_NAME: ${DECISION_MODEL_NAME:-vllm-sr/Decision-2.0-Eos-0.8B}
+      INFERENCE_DEVICE: ${INFERENCE_DEVICE:-auto}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+    ports:
+      - "${INFERENCE_HOST_PORT:-127.0.0.1:4008}:4008"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4008/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [synapsedx-net]
+
   gateway:
     build:
       context: ./apps/gateway
-    image: synapsedx/gateway:0.5.2
+    image: synapsedx/gateway:0.6.0
     restart: unless-stopped
     environment:
       PORT: 8080
       IAM_SERVICE_URL: ${IAM_SERVICE_URL:-http://iam:4001}
       WORKFLOW_SERVICE_URL: ${WORKFLOW_SERVICE_URL:-http://workflow:4002}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:4003}
+      INFERENCE_SERVICE_URL: ${INFERENCE_SERVICE_URL:-http://inference:4008}
       LDS_SERVICE_URL: ${LDS_SERVICE_URL:-http://lds:4004}
       BASE_SERVICE_URL: ${BASE_SERVICE_URL:-http://base:4005}
       FASTSTORE_SERVICE_URL: ${FASTSTORE_SERVICE_URL:-http://faststore:4006}
@@ -359,7 +387,7 @@ services:
   console:
     build:
       context: ./apps/console
-    image: synapsedx/console:0.5.2
+    image: synapsedx/console:0.6.0
     restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

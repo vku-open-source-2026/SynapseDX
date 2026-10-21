@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/cli",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "license": "Apache-2.0",
   "description": "synapsedx CLI - zero-dependency command line for Tier-1 PaaS (Node 18+)",
   "bin": {

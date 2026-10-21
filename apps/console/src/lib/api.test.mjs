@@ -171,6 +171,86 @@ describe('console silent refresh', () => {
     ]);
   });
 
+  it('base, queue, and faststore api client methods hit the right paths and verbs', async () => {
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      seen.push(`${init.method || 'GET'} ${String(url).replace(/^https?:\/\/[^/]+/, '')}`);
+      return { status: 200, ok: true, text: async () => '{"ok":true}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    const A = {};
+    await api.baseCollections(A);
+    await api.baseCreateCollection({ name: 'c1' }, A);
+    await api.baseDocuments('c1', { limit: 10 }, A);
+    await api.baseCreateDocument('c1', { object: { a: 1 } }, A);
+    await api.baseQuery('c1', { where: {} }, A);
+    await api.baseIncrement('c1', 'd1', { field: 'count', by: 1 }, A);
+
+    await api.queueList(A);
+    await api.queueCreate('q1', { maxAttempts: 5 }, A);
+    await api.queuePublish('q1', { payload: { a: 1 } }, A);
+    await api.queueConsume('q1', { maxMessages: 5 }, A);
+    await api.queueAck('q1', { receipt: 'r1' }, A);
+    await api.queueNack('q1', { receipt: 'r1', requeue: true }, A);
+    await api.queueDead('q1', { limit: 10 }, A);
+
+    await api.faststoreStats(A);
+    await api.faststoreKeys({ prefix: 'user:' }, A);
+    await api.faststoreGet('k1', A);
+    await api.faststoreSet('k1', { value: 123 }, A);
+    await api.faststoreIncr('k1', { by: 2 }, A);
+    await api.faststoreExpire('k1', 300, A);
+    await api.faststoreLockAcquire('l1', { ttlSeconds: 60 }, A);
+    await api.faststoreLockRelease('l1', { token: 'tok1' }, A);
+
+    assert.deepEqual(seen, [
+      'GET /v1/base/collections',
+      'POST /v1/base/collections',
+      'GET /v1/base/collections/c1/documents?limit=10',
+      'POST /v1/base/collections/c1/documents',
+      'POST /v1/base/collections/c1/query',
+      'POST /v1/base/collections/c1/documents/d1/increment',
+      'GET /v1/queue/queues',
+      'PUT /v1/queue/queues/q1',
+      'POST /v1/queue/queues/q1/messages',
+      'POST /v1/queue/queues/q1/consume',
+      'POST /v1/queue/queues/q1/ack',
+      'POST /v1/queue/queues/q1/nack',
+      'GET /v1/queue/queues/q1/dead?limit=10',
+      'GET /v1/faststore/stats',
+      'GET /v1/faststore/keys?prefix=user%3A',
+      'GET /v1/faststore/keys/k1',
+      'PUT /v1/faststore/keys/k1',
+      'POST /v1/faststore/keys/k1/incr',
+      'POST /v1/faststore/keys/k1/expire',
+      'POST /v1/faststore/locks/l1/acquire',
+      'POST /v1/faststore/locks/l1/release',
+    ]);
+  });
+
+  it('inference api client methods hit the right paths and verbs', async () => {
+    const seen = [];
+    globalThis.fetch = async (url, init = {}) => {
+      seen.push(`${init.method || 'GET'} ${String(url).replace(/^https?:\/\/[^/]+/, '')}`);
+      return { status: 200, ok: true, text: async () => '{"ok":true}', headers: new Map() };
+    };
+    authStore.get = () => null;
+    const A = {};
+    await api.inferenceHealth(A);
+    await api.inferenceChat({ messages: [] }, A);
+    await api.inferenceEmbeddings({ input: 'test' }, A);
+    await api.inferenceDecision({ state: 's', questions: {} }, A);
+    await api.inferenceRoute({ input: 'i', choices: {} }, A);
+
+    assert.deepEqual(seen, [
+      'GET /v1/inference/health',
+      'POST /v1/inference/chat/completions',
+      'POST /v1/inference/embeddings',
+      'POST /v1/inference/decision',
+      'POST /v1/inference/decision/route',
+    ]);
+  });
+
   it('401 with a newer stored token retries without rotating (sibling tab won)', async () => {
     const sessions = { refreshCalls: 0, validAccess: new Set(['tok-2']), validRefresh: new Map() };
     stubFetch(sessions);

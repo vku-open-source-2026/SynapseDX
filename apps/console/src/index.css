@@ -177,3 +177,43 @@ button:disabled {
     animation-iteration-count: 1;
   }
 }
+
+/* ---------- Dual sidebar layout system ---------- */
+@media (min-width: 1024px) {
+  .console-layout-dual {
+    margin-left: 280px !important;
+    margin-right: 280px !important;
+  }
+  .console-layout-single {
+    margin-left: 280px !important;
+    margin-right: 24px !important;
+  }
+  .console-topbar-dual {
+    left: 280px !important;
+    right: 280px !important;
+  }
+  .console-topbar-single {
+    left: 280px !important;
+    right: 24px !important;
+  }
+}
+
+@media (min-width: 1280px) {
+  .console-layout-dual {
+    margin-left: 324px !important;
+    margin-right: 324px !important;
+  }
+  .console-layout-single {
+    margin-left: 324px !important;
+    margin-right: 32px !important;
+  }
+  .console-topbar-dual {
+    left: 324px !important;
+    right: 324px !important;
+  }
+  .console-topbar-single {
+    left: 324px !important;
+    right: 32px !important;
+  }
+}
+

@@ -76,6 +76,12 @@ routes:
     # agent room instead of cutting it off at the 30s global default.
     timeoutMs: 120000
 
+  # Synapse Inference Engine — LLM proxy (OpenRouter), local embeddings, Decision-2.0-Eos-0.8B
+  - path: /v1/inference
+    target: ${INFERENCE_SERVICE_URL:http://inference:4008}
+    auth: either
+    timeoutMs: 120000
+
   # SynapseLDS — linked data service (NGSI-LD datasources + licensed exports).
   # SynapseLDS public (anonymous) read surface — spec: public = "anyone reaching
   # the API". LDS enforces GET/HEAD-only + public-only projection for anonymous

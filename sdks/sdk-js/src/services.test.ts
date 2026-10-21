@@ -559,6 +559,67 @@ describe('SynapseQueue', () => {
   });
 });
 
+describe('Synapse Inference Engine', () => {
+  it('covers health, chat, embeddings, decision and routing paths', async () => {
+    const hits: Array<{ method: string; path: string; body: unknown }> = [];
+    const server = http.createServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        hits.push({
+          method: req.method || 'GET',
+          path: req.url || '/',
+          body: raw ? JSON.parse(raw) : null,
+        });
+        res.setHeader('Content-Type', 'application/json');
+        if (req.url === '/v1/inference/health') {
+          res.end(JSON.stringify({ status: 'ok', service: 'inference' }));
+        } else if (req.url === '/v1/inference/chat/completions') {
+          res.end(JSON.stringify({ id: 'chat-1', choices: [{ message: { role: 'assistant', content: 'pong' } }] }));
+        } else if (req.url === '/v1/inference/embeddings') {
+          res.end(JSON.stringify({ object: 'list', data: [{ index: 0, embedding: [0.1, 0.2] }] }));
+        } else if (req.url === '/v1/inference/decision') {
+          res.end(JSON.stringify({ model: 'decision-0.8B', results: { team: { best_choice: 'support' } } }));
+        } else if (req.url === '/v1/inference/decision/route') {
+          res.end(JSON.stringify({ best_choice: 'workflow', confidence: 0.95 }));
+        } else {
+          res.statusCode = 404;
+          res.end(JSON.stringify({ error: 'not_found' }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const a = server.address();
+    const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
+    try {
+      const c = new SynapseDXClient({ baseUrl: url });
+      const h = await c.inference.health();
+      assert.equal(h.service, 'inference');
+
+      const chat = await c.inference.chat([{ role: 'user', content: 'ping' }]);
+      assert.equal(chat.choices[0].message.content, 'pong');
+
+      const emb = await c.inference.embeddings('hello');
+      assert.equal(emb.data.length, 1);
+
+      const dec = await c.inference.decision('test state', { team: { type: 'choice', instructions: 'pick' } });
+      assert.equal(dec.results.team.best_choice, 'support');
+
+      const r = await c.inference.route('run workflow', { workflow: 'DAGs', iam: 'Users' });
+      assert.equal(r.best_choice, 'workflow');
+
+      assert.equal(hits.length, 5);
+      assert.equal(hits[0].path, '/v1/inference/health');
+      assert.equal(hits[1].path, '/v1/inference/chat/completions');
+      assert.equal(hits[2].path, '/v1/inference/embeddings');
+      assert.equal(hits[3].path, '/v1/inference/decision');
+      assert.equal(hits[4].path, '/v1/inference/decision/route');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
 describe('error mapping', () => {
   it('carries status and parsed body', async () => {
     const server = http.createServer((_req, res) => {

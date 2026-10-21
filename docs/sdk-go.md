@@ -769,6 +769,47 @@ Also: `ListQueues`, `GetQueue`, `DeleteQueue`, `PurgeQueue`, `PeekMessages`,
 `DeleteDeadMessage`. For a nack, `QueueNackOptions.Requeue` is a `*bool`; leaving
 it `nil` uses the server default (`true`).
 
+### Synapse Inference Engine (`Client.Inference*`)
+
+OpenRouter-backed LLM chat completion proxy, self-hosted lightweight embeddings (`all-MiniLM-L6-v2`, 384 dimensions), and self-hosted `Decision-2.0-Eos-0.8B` structured questions and semantic routing.
+
+```go
+// 1. Health & status
+health, err := c.InferenceHealth()
+
+// 2. Chat Completions (OpenRouter proxy)
+chat, err := c.InferenceChat([]synapsedx.ChatMessage{
+    {Role: "user", Content: "Hello SynapseDX!"},
+}, synapsedx.ChatCompletionOptions{
+    Model:       "liquid/lfm-2.5-2.6b:free",
+    Temperature: 0.7,
+    MaxTokens:   100,
+})
+
+// 3. Text Embeddings (384-dim normalized vector)
+emb, err := c.InferenceEmbeddings([]string{"Hello world", "SynapseDX AI"})
+
+// 4. Decision-2.0-Eos-0.8B structured question evaluation (system_one)
+dec, err := c.InferenceDecision("User reported invoice overcharge", map[string]synapsedx.DecisionQuestion{
+    "department": {
+        Type:         "choice",
+        Instructions: "Choose the right department to handle this case",
+        Criteria: map[string]string{
+            "billing": "Invoice or fee complaints",
+            "support": "Technical app crashes",
+        },
+    },
+})
+
+// 5. Semantic Route for workflow branching
+route, err := c.InferenceRoute("Create and assign a new IAM policy", map[string]string{
+    "iam":      "Identity and access management tasks",
+    "workflow": "Workflow automation triggers",
+    "base":     "Database document operations",
+})
+// route["best_choice"] -> "iam"
+```
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

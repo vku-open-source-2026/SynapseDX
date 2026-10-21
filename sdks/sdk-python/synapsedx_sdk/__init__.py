@@ -51,6 +51,7 @@ from .faststore import FaststoreService
 from .iam import IamService
 from .lds import LdsService
 from .queue import QueueService
+from .inference import InferenceService
 from .workflow import WorkflowService, trigger_webhook, unwrap_executions
 
 __all__ = [
@@ -59,6 +60,7 @@ __all__ = [
     "BaseService",
     "FaststoreService",
     "IamService",
+    "InferenceService",
     "LdsService",
     "QueryResult",
     "QueueService",
@@ -98,6 +100,7 @@ class SynapseDXClient:
         self.base = BaseService(self._http)
         self.faststore = FaststoreService(self._http)
         self.queue = QueueService(self._http)
+        self.inference = InferenceService(self._http)
 
     # ---- transport knobs (also mirrored by JS setToken/setApiKey and Go) ----
     @property

@@ -32,7 +32,7 @@ users, roles, policies, authorize + dry-run, audit, API keys (+verify), service
 accounts (+token), workflows (list/get/create from template or raw/activate/
 deactivate/execute), templates, executions, LDS.
 
-Data services:
+Data services & AI:
 
 - **SynapseBase** — `Client.*Base*` methods plus the generic
   `NewBaseCollection[T]` typed collection with object↔data mapping.
@@ -40,6 +40,8 @@ Data services:
   sets, sorted sets, scans, batches and distributed locks.
 - **SynapseQueue** — `Client.*Queue*` for publish (delay/dedupe), consume,
   ack/nack/heartbeat, dead letters and replay.
+- **Synapse Inference Engine** — `Client.Inference*` for LLM chat proxy,
+  self-hosted embeddings, Decision-2.0-Eos-0.8B structured questions and semantic routing.
 
 Platform callers of Faststore/Queue set the tenant explicitly:
 

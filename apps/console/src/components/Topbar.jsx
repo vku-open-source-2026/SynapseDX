@@ -5,10 +5,22 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBars, faBuilding, faBoxes, faUser, faXmark } from '@fortawesome/free-solid-svg-icons';
+import {
+  faBars,
+  faBuilding,
+  faBoxes,
+  faUser,
+  faXmark,
+  faBolt,
+  faDatabase,
+  faInbox,
+  faGaugeHigh,
+  faLink,
+} from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 import { useScope } from './Scope.jsx';
+import { PLATFORM_SERVICES } from './ServicesSidebar.jsx';
 
 const PICK = 'px-2 py-1.5 rounded-2xl border border-slate-200 text-xs bg-white outline-none max-w-36 truncate';
 
@@ -41,7 +53,8 @@ function ScopePicks({ scope, onDone }) {
   );
 }
 
-export default function Topbar() {
+
+export default function Topbar({ servicesOpen = true, onToggleServices }) {
   const [open, setOpen] = useState(false);
   const [menu, setMenu] = useState(false);
   const { auth, headers, logout } = useAuth();
@@ -64,6 +77,7 @@ export default function Topbar() {
 
   return (
     <>
+      {/* Mobile Top Header */}
       <header className="lg:hidden fixed z-50 top-0 left-0 w-full bg-white/80 backdrop-blur-md shadow-sm">
         <div className="flex items-center justify-between px-4 h-14">
           <Link to="/" className="font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
@@ -74,58 +88,144 @@ export default function Topbar() {
           </button>
         </div>
       </header>
-      <div className="hidden lg:flex fixed top-0 right-0 p-4 z-40 items-center gap-2">
-        <ScopePicks scope={scope} />
-        <div className="relative">
-          <button
-            onClick={() => setMenu(!menu)}
-            title={email}
-            className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-2xl bg-white shadow-md text-normal-text hover:text-main-blue"
-          >
-            <span className="text-xs max-w-44 truncate">{email}</span>
-            <span className="w-7 h-7 rounded-full bg-background flex items-center justify-center">
-              <FontAwesomeIcon icon={faUser} size="xs" />
-            </span>
-          </button>
-          {menu && (
-            <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl p-2 text-sm" onMouseLeave={() => setMenu(false)}>
-              <div className="px-3 py-2 text-xs text-normal-text truncate">{email}</div>
-              <button onClick={() => { setMenu(false); logout(); }} className="w-full text-left px-3 py-2 rounded-xl hover:bg-background text-main-text">
-                Sign out
-              </button>
-              {auth?.refreshToken && (
-                <button onClick={logoutAll} className="w-full text-left px-3 py-2 rounded-xl hover:bg-background text-red-500">
-                  Sign out all sessions
-                </button>
-              )}
-            </div>
+
+      {/* Desktop Controls (Positioned strictly with deterministic CSS classes) */}
+      <div
+        className={`hidden lg:flex fixed top-0 ${
+          servicesOpen ? 'console-topbar-dual' : 'console-topbar-single'
+        } h-16 z-30 px-4 lg:px-6 items-center justify-end pointer-events-none transition-all duration-200`}
+      >
+        <div className="max-w-6xl mx-auto w-full flex items-center justify-end gap-2 pointer-events-auto">
+          <ScopePicks scope={scope} />
+
+          {/* Services Toggle Pill */}
+          {onToggleServices && (
+            <button
+              type="button"
+              onClick={onToggleServices}
+              title={servicesOpen ? 'Hide Services Sidebar' : 'Show Services Sidebar'}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-2xl shadow-sm text-xs font-medium transition-all ${
+                servicesOpen
+                  ? 'bg-main-blue text-white shadow-main-blue/20'
+                  : 'bg-white text-main-text hover:text-main-blue border border-slate-200 shadow-sm'
+              }`}
+            >
+              <FontAwesomeIcon icon={faBolt} className="text-xs" />
+              <span>Services</span>
+              <span
+                className={`w-4 h-4 rounded-full text-[10px] flex items-center justify-center font-bold ${
+                  servicesOpen ? 'bg-white/25 text-white' : 'bg-slate-100 text-normal-text'
+                }`}
+              >
+                5
+              </span>
+            </button>
           )}
+
+          {/* User Pill */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenu(!menu)}
+              title={email}
+              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-2xl bg-white shadow-md text-normal-text hover:text-main-blue"
+            >
+              <span className="text-xs max-w-36 truncate">{email}</span>
+              <span className="w-7 h-7 rounded-full bg-background flex items-center justify-center">
+                <FontAwesomeIcon icon={faUser} size="xs" />
+              </span>
+            </button>
+            {menu && (
+              <div className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl p-2 text-sm" onMouseLeave={() => setMenu(false)}>
+                <div className="px-3 py-2 text-xs text-normal-text truncate">{email}</div>
+                <button onClick={() => { setMenu(false); logout(); }} className="w-full text-left px-3 py-2 rounded-xl hover:bg-background text-main-text">
+                  Sign out
+                </button>
+                {auth?.refreshToken && (
+                  <button onClick={logoutAll} className="w-full text-left px-3 py-2 rounded-xl hover:bg-background text-red-500">
+                    Sign out all sessions
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Mobile Drawer */}
       {open && (
         <div className="lg:hidden fixed inset-0 z-40 bg-black/30 pt-14" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-b-3xl p-4 mx-3 shadow-md max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-b-3xl p-4 mx-3 shadow-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex flex-col gap-2 pb-3 mb-2 border-b border-slate-100">
               <ScopePicks scope={scope} onDone={() => setOpen(false)} />
             </div>
-            <Link to="/dashboard" onClick={() => setOpen(false)} className="block py-2 text-main-text">
-              Dashboard
-            </Link>
-            {['orgs', 'accounts', 'users', 'roles', 'policies', 'keys', 'service-accounts', 'workflows', 'authorize', 'audit', 'api-docs', 'docs'].map(
+
+            {/* Core Section */}
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 py-1">
+              Core Platform
+            </div>
+            {['dashboard', 'orgs', 'accounts', 'users', 'roles', 'policies', 'keys', 'service-accounts', 'authorize', 'audit'].map(
               (r) => (
-                <Link key={r} to={`/${r}`} onClick={() => setOpen(false)} className="block py-2 text-main-text capitalize">
+                <Link
+                  key={r}
+                  to={`/${r}`}
+                  onClick={() => setOpen(false)}
+                  className="block py-1.5 text-main-text capitalize text-sm hover:text-main-blue"
+                >
                   {r.replace('-', ' ')}
                 </Link>
               ),
             )}
-            <button onClick={() => { logout(); setOpen(false); }} className="block py-2 text-red-500">
-              Sign out
-            </button>
-            {auth?.refreshToken && (
-              <button onClick={() => { logoutAll(); setOpen(false); }} className="block py-2 text-red-500">
-                Sign out all sessions
+
+            {/* Services Section */}
+            <div className="mt-3 pt-2 border-t border-slate-100 text-[11px] font-semibold uppercase tracking-wider text-main-blue py-1">
+              Platform Services
+            </div>
+            {PLATFORM_SERVICES.map((s) => (
+              <Link
+                key={s.to}
+                to={s.to}
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 py-1.5 text-main-text text-sm hover:text-main-blue group"
+              >
+                <div
+                  style={{
+                    background: s.bgGradient,
+                    boxShadow: `0 2px 6px ${s.shadowColor}`,
+                  }}
+                  className="w-6 h-6 rounded-lg flex items-center justify-center text-white text-xs shrink-0 group-hover:scale-105 transition-transform"
+                >
+                  <FontAwesomeIcon icon={s.icon} className="w-3 h-3" />
+                </div>
+                <span className="font-medium text-xs">{s.label}</span>
+              </Link>
+            ))}
+
+            {/* Docs Section */}
+            <div className="mt-3 pt-2 border-t border-slate-100 text-[11px] font-semibold uppercase tracking-wider text-slate-400 py-1">
+              Docs &amp; APIs
+            </div>
+            {['api-docs', 'docs'].map((r) => (
+              <Link
+                key={r}
+                to={`/${r}`}
+                onClick={() => setOpen(false)}
+                className="block py-1.5 text-main-text capitalize text-sm hover:text-main-blue"
+              >
+                {r.replace('-', ' ')}
+              </Link>
+            ))}
+
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <button onClick={() => { logout(); setOpen(false); }} className="block py-2 text-red-500 text-sm font-medium">
+                Sign out
               </button>
-            )}
+              {auth?.refreshToken && (
+                <button onClick={logoutAll} className="block py-2 text-red-500 text-sm">
+                  Sign out all sessions
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -211,6 +211,119 @@ export const api = {
   },
   ldsEntity: (id, entityId, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}/entities/${encodeURIComponent(entityId)}`, a),
   ldsStats: (id, a) => get(`/v1/lds/datasources/${encodeURIComponent(id)}/stats`, a),
+  // ---- SynapseBase (document database) ----
+  baseCollections: (a) => get('/v1/base/collections', a),
+  baseCreateCollection: (body, a) => post('/v1/base/collections', body, a),
+  baseCollection: (col, a) => get(`/v1/base/collections/${encodeURIComponent(col)}`, a),
+  baseUpdateCollection: (col, body, a) => patch(`/v1/base/collections/${encodeURIComponent(col)}`, body, a),
+  baseDeleteCollection: (col, a) => del(`/v1/base/collections/${encodeURIComponent(col)}`, a),
+  baseCollectionStats: (col, a) => get(`/v1/base/collections/${encodeURIComponent(col)}/stats`, a),
+  baseDocuments: (col, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/base/collections/${encodeURIComponent(col)}/documents${s ? `?${s}` : ''}`, a);
+  },
+  baseDocument: (col, id, as, a) =>
+    get(`/v1/base/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}${as ? `?as=${encodeURIComponent(as)}` : ''}`, a),
+  baseCreateDocument: (col, body, a) =>
+    post(`/v1/base/collections/${encodeURIComponent(col)}/documents`, body, a),
+  baseUpdateDocument: (col, id, body, a) =>
+    put(`/v1/base/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}`, body, a),
+  basePatchDocument: (col, id, body, a) =>
+    patch(`/v1/base/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}`, body, a),
+  baseDeleteDocument: (col, id, a) =>
+    del(`/v1/base/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}`, a),
+  baseQuery: (col, body, a) =>
+    post(`/v1/base/collections/${encodeURIComponent(col)}/query`, body, a),
+  baseIncrement: (col, id, body, a) =>
+    post(`/v1/base/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}/increment`, body, a),
+  baseChanges: (col, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/base/collections/${encodeURIComponent(col)}/changes${s ? `?${s}` : ''}`, a);
+  },
+  // ---- SynapseQueue (messaging) ----
+  queueList: (a) => get('/v1/queue/queues', a),
+  queueCreate: (name, body, a) => put(`/v1/queue/queues/${encodeURIComponent(name)}`, body, a),
+  queueGet: (name, a) => get(`/v1/queue/queues/${encodeURIComponent(name)}`, a),
+  queueDelete: (name, a) => del(`/v1/queue/queues/${encodeURIComponent(name)}`, a),
+  queuePurge: (name, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/purge`, {}, a),
+  queueStats: (name, a) => get(`/v1/queue/queues/${encodeURIComponent(name)}/stats`, a),
+  queuePublish: (name, body, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/messages`, body, a),
+  queueConsume: (name, body, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/consume`, body, a),
+  queueAck: (name, body, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/ack`, body, a),
+  queueNack: (name, body, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/nack`, body, a),
+  queueHeartbeat: (name, body, a) => post(`/v1/queue/queues/${encodeURIComponent(name)}/heartbeat`, body, a),
+  queuePeek: (name, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/queue/queues/${encodeURIComponent(name)}/messages${s ? `?${s}` : ''}`, a);
+  },
+  queueDead: (name, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/queue/queues/${encodeURIComponent(name)}/dead${s ? `?${s}` : ''}`, a);
+  },
+  queueReplayDead: (name, id, body, a) =>
+    post(`/v1/queue/queues/${encodeURIComponent(name)}/dead/${encodeURIComponent(id)}/replay`, body, a),
+  queueDeleteDead: (name, id, a) =>
+    del(`/v1/queue/queues/${encodeURIComponent(name)}/dead/${encodeURIComponent(id)}`, a),
+  // ---- Synapse Faststore (cache / KV) ----
+  faststoreStats: (a) => get('/v1/faststore/stats', a),
+  faststoreKeys: (params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/faststore/keys${s ? `?${s}` : ''}`, a);
+  },
+  faststoreGet: (key, a) => get(`/v1/faststore/keys/${encodeURIComponent(key)}`, a),
+  faststoreSet: (key, body, a) => put(`/v1/faststore/keys/${encodeURIComponent(key)}`, body, a),
+  faststoreDelete: (key, a) => del(`/v1/faststore/keys/${encodeURIComponent(key)}`, a),
+  faststoreTtl: (key, a) => get(`/v1/faststore/keys/${encodeURIComponent(key)}/ttl`, a),
+  faststoreExpire: (key, ttlSeconds, a) => post(`/v1/faststore/keys/${encodeURIComponent(key)}/expire`, { ttlSeconds }, a),
+  faststoreIncr: (key, body, a) => post(`/v1/faststore/keys/${encodeURIComponent(key)}/incr`, body, a),
+  faststoreHashGet: (key, a) => get(`/v1/faststore/hashes/${encodeURIComponent(key)}`, a),
+  faststoreHashSet: (key, body, a) => put(`/v1/faststore/hashes/${encodeURIComponent(key)}`, body, a),
+  faststoreHashDelete: (key, a) => del(`/v1/faststore/hashes/${encodeURIComponent(key)}`, a),
+  faststoreListGet: (key, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/faststore/lists/${encodeURIComponent(key)}${s ? `?${s}` : ''}`, a);
+  },
+  faststoreListPush: (key, body, a) => post(`/v1/faststore/lists/${encodeURIComponent(key)}/push`, body, a),
+  faststoreListDelete: (key, a) => del(`/v1/faststore/lists/${encodeURIComponent(key)}`, a),
+  faststoreSetGet: (key, a) => get(`/v1/faststore/sets/${encodeURIComponent(key)}`, a),
+  faststoreSetAdd: (key, body, a) => post(`/v1/faststore/sets/${encodeURIComponent(key)}/add`, body, a),
+  faststoreSetDelete: (key, a) => del(`/v1/faststore/sets/${encodeURIComponent(key)}`, a),
+  faststoreZsetGet: (key, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/faststore/zsets/${encodeURIComponent(key)}${s ? `?${s}` : ''}`, a);
+  },
+  faststoreZsetAdd: (key, body, a) => post(`/v1/faststore/zsets/${encodeURIComponent(key)}/add`, body, a),
+  faststoreZsetDelete: (key, a) => del(`/v1/faststore/zsets/${encodeURIComponent(key)}`, a),
+  faststoreLockAcquire: (name, body, a) => post(`/v1/faststore/locks/${encodeURIComponent(name)}/acquire`, body, a),
+  faststoreLockRelease: (name, body, a) => post(`/v1/faststore/locks/${encodeURIComponent(name)}/release`, body, a),
   usageSummary: (params, a) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params || {})) {
@@ -227,4 +340,10 @@ export const api = {
     const s = qs.toString();
     return get(`/v1/usage/events${s ? `?${s}` : ''}`, a);
   },
+  // ---- Synapse Inference Engine ----
+  inferenceHealth: (a) => get('/v1/inference/health', a),
+  inferenceChat: (body, a) => post('/v1/inference/chat/completions', body, a),
+  inferenceEmbeddings: (body, a) => post('/v1/inference/embeddings', body, a),
+  inferenceDecision: (body, a) => post('/v1/inference/decision', body, a),
+  inferenceRoute: (body, a) => post('/v1/inference/decision/route', body, a),
 };

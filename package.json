@@ -1,6 +1,6 @@
 {
   "name": "synapsedx",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -19,7 +19,12 @@
     "dev:workflow": "npm run dev --workspace=apps/workflow-service",
     "dev:base": "npm run dev --workspace=apps/base-service",
     "dev:faststore": "npm run dev --workspace=apps/faststore-service",
-    "dev:queue": "npm run dev --workspace=apps/queue-service"
+    "dev:queue": "npm run dev --workspace=apps/queue-service",
+    "dev:inference": "cd apps/inference-service && (.venv/bin/uvicorn src.main:app --port 4008 --reload || uvicorn src.main:app --port 4008 --reload)",
+    "test:inference": "cd apps/inference-service && (.venv/bin/pytest tests || pytest tests)",
+    "test:sdk-go": "docker run --rm -v $(pwd)/sdks/sdk-go:/sdk -w /sdk golang:1.22-alpine go test -v ./...",
+    "test:e2e:go": "docker run --rm --network host -v $(pwd):/app -w /app/tests/e2e golang:1.22-alpine go run sdk-check.go",
+    "test:e2e:inference": "node tests/e2e/inference-check.js"
   },
   "devDependencies": {
     "drizzle-orm": "^0.45.4"
