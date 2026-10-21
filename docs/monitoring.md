@@ -30,6 +30,25 @@ Config: `infra/monitoring/prometheus/prometheus.yml` (mounted read-only —
 `infra/monitoring/prometheus/alerts.yml` (`GatewayDown`, `PostgresDown`,
 `RedisDown` — visible on Prometheus `/alerts`; wire Alertmanager when needed).
 
+## Request telemetry (usage analytics)
+
+Beyond Prometheus counters, the gateway records one event per matched route
+(status, latency, feature, caller, request id) and batch-flushes them (≤200
+events / 5 s) to IAM `POST /v1/usage/ingest`. IAM stores them in the Postgres
+`usage_events` table and serves the tenant-scoped console **Dashboard → Usage &
+Requests** tab through `GET /v1/usage/summary` + `GET /v1/usage/events`.
+
+| Knob | Default | Effect |
+|---|---|---|
+| `USAGE_TELEMETRY` | `true` | Gateway: `false` stops recording/flushing usage events |
+| `USAGE_RETENTION_DAYS` | `30` | IAM: hourly sweep drops events older than N days (`0` = keep forever) |
+| `SYNAPSEDX_INTERNAL_SECRET` | — | Required so only the gateway can call the ingest endpoint |
+
+Usage reads are org-scoped and never include another tenant. `/v1/usage/*` is
+excluded from telemetry, so refreshing the dashboard does not record itself.
+The dashboard intentionally does not apply the account picker (login JWTs only
+carry an `org` claim; per-account filtering would hide user-session traffic).
+
 ## Useful queries (paste into the Prometheus graph tab)
 
 ```promql

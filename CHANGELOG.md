@@ -5,6 +5,50 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-21
+
+### Fixed
+- IAM `GET /v1/usage/summary` on real PostgreSQL: the timeline series query
+  grouped by a duplicated parameterized bucket expression whose Drizzle
+  placeholders were numbered differently in `SELECT` (`$1/$2`) and `GROUP BY`
+  (`$6/$7`), so Postgres rejected it with `column "usage_events.created_at"
+  must appear in the GROUP BY clause` and the endpoint returned 500 (the
+  in-memory unit tests could not catch this). The query now groups/orders by
+  the output column position (`GROUP BY 1 / ORDER BY 1`).
+- E2E regression guard: `tests/e2e/api-check.sh` now exercises
+  `/v1/usage/summary` (totals, features, series), `/v1/usage/events` (+ total)
+  and org-wide attribution (`authKind=user` events carry an org, no account) on
+  the real Postgres stack in CI/CD.
+
+## [0.5.1] - 2026-10-21
+
+### Added — usage analytics & request telemetry
+- **Gateway telemetry**: every matched route records a usage event at response
+  `finish` (request id, feature, route, method, path, status, duration, auth
+  kind, org/account/user, error). Events are buffered per instance and flushed
+  to IAM `POST /v1/usage/ingest` with the shared internal secret; the gateway
+  never blocks traffic on telemetry. Disable with `USAGE_TELEMETRY=false`.
+- **IAM usage store**: `usage_events` lives in Postgres (Drizzle migration
+  `0001_true_zodiak`) with an in-memory fallback for dev/tests. Tenants only
+  ever see their own org slice. `GET /v1/usage/summary` returns totals (success
+  /4xx/5xx, error rate, avg/p95 latency, unique users/accounts, last request),
+  per-feature statistics, a bucketed timeline and top routes;
+  `GET /v1/usage/events` returns the raw request log (newest first, filters +
+  offset paging) used for drill-down. Retention is swept hourly
+  (`USAGE_RETENTION_DAYS`, default 30 — `0` keeps events forever).
+- **Console Dashboard — "Usage & Requests" tab**: KPI cards, stacked
+  success/error timeline, feature usage breakdown with traffic share/latency,
+  top API endpoints, method/status/feature/search filters, paging and a
+  per-request detail modal (status, error, latency, request id with copy,
+  caller, feature, path). "System & Health" keeps the cluster inventory view.
+  Telemetry is aggregated org-wide: login JWTs only carry an `org` claim, so
+  the account picker deliberately does not filter usage (it would hide every
+  user-session request).
+- **SDK (JS/TS)**: `usageSummary(params?)` and `usageEvents(params?)` on the
+  IAM client, exported from the root and `@synapsedx/sdk/iam` subpath.
+- **API catalog / docs**: `/v1/usage/*` added to the in-console API explorer,
+  `docs/api.md`, `docs/monitoring.md` and `docs/console.md`.
+
 ### Changed — PostgreSQL schema management
 - IAM, Workflow, LDS and Base now use Drizzle ORM for all PostgreSQL
   persistence. `apps/*/src/schema.ts` is the schema source of truth and each
@@ -16,6 +60,11 @@ Format based on Keep a Changelog; versioning follows SemVer.
   seed live in migrations.
 - Memory fallbacks, tenant scoping, JSONB handling and transaction/concurrency
   semantics are unchanged.
+
+### Fixed
+- Dashboard usage queries now compute the `[from, to]` bounds at fetch time, so
+  reloads always cover the freshest window instead of a time range frozen at
+  first render.
 
 ## [0.5.0] - 2026-10-21
 

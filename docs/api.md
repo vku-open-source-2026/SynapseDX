@@ -418,6 +418,31 @@ visibility 1..3600s (default 30), delay ≤7 days, consume/ack/publish batch ≤
 payload ≤ `QUEUE_MAX_PAYLOAD_BYTES` (default 256 KiB). Dedupe suppresses duplicates
 only while the original message still exists.
 
+## Usage analytics & request telemetry (`iam-service`, gateway `/v1/usage`)
+
+The gateway records one event per matched route at response `finish` (buffered
+and flushed in batches to `POST /v1/usage/ingest` with the internal secret —
+`USAGE_TELEMETRY=false` disables it). IAM persists events in Postgres
+(`usage_events`, migration `0001_true_zodiak`; in-memory fallback in dev) and
+only ever serves the caller's own org slice. `/v1/usage` itself is excluded
+from telemetry.
+
+- `GET /v1/usage/summary?from&to&feature&statusClass&method&q&accountId` →
+  `{range:{from,to}, totals:{requests,success,clientErrors,serverErrors,errorRate,avgMs,p95Ms,uniqueUsers,uniqueAccounts,lastRequestAt}, features:[{feature,requests,share,clientErrors,serverErrors,errorRate,avgMs,p95Ms,lastRequestAt}], series:[{ts,requests,success,errors,avgMs}], topRoutes:[{route,requests,errors,avgMs}]}`
+- `GET /v1/usage/events?from&to&limit&offset&feature&statusClass&method&q&accountId`
+  → `{total, limit, offset, items:[{id,createdAt,requestId,feature,route,method,path,status,durationMs,authKind,orgId,accountId,userId,userEmail,error}]}`
+  (newest first) — the drill-down source for the console request log.
+- `POST /v1/usage/ingest {events:[…]}` → `202 {ok, accepted}` — service-to-service
+  only (`X-SynapseDX-Internal`); requires `SYNAPSEDX_INTERNAL_SECRET` in prod.
+- Filters: `feature` (`iam|workflows|ai|lds|base|faststore|queue|auth|…`),
+  `statusClass` (`2xx|3xx|4xx|5xx`), `method`, `q` (matches path / request id),
+  `accountId` (optional — omit for org-wide telemetry; login JWTs carry only an
+  `org` claim, so account-filtered queries only see API-key/service-account
+  traffic). `from`/`to` are ISO timestamps (defaults: last 24 h, max 366 days);
+  `limit` 1..200 (default 20), `offset` ≤ 10 000.
+- Retention: sweep every hour, `USAGE_RETENTION_DAYS` (default 30, `0` keeps
+  events forever).
+
 ## Health / Metrics
 
 - `GET /health` (each service + gateway)

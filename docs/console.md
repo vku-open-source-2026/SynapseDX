@@ -49,9 +49,14 @@ npm run dev   # :3000, /api proxies to localhost:8080 when needed
 
 ## Pages
 
-Dashboard (inventory: orgs/accounts/users/workflows/recent executions, current
-context + shared org/account picker, gateway + IAM/workflow/AI health from
-aggregate /ready, recent activity with skeletons/empty/error states) ·
+Dashboard (two tabs: **Usage & Requests** — org-wide request/feature telemetry
+with KPI cards, a success/error timeline, feature usage breakdown, top API
+endpoints, method/status/feature/search filters, a paged request log and a
+per-request detail modal (status, error, latency, request id with copy, caller,
+feature, path); **System & Health** — inventory: orgs/accounts/users/workflows/
+recent executions, current context + shared org/account picker, gateway +
+IAM/workflow/AI health from aggregate /ready, recent activity with
+skeletons/empty/error states) ·
 Organizations · Accounts · Users (+create) · Roles · Policies (JSON editor +
 dry-run) · API Keys · Service Accounts · Workflows (built-in engine: templates + blank +
 duplicate with fresh webhook path + visual drag-and-drop editor grouped by
@@ -67,6 +72,9 @@ auth-gated AI chatbot bubble), Docs (SDK/CLI snippets), Login, OIDC callback.
 Signed-in users get the sidebar layout on API Docs/Docs too.
 
 The header carries a Google-Cloud-style organization/account picker backed by a
-shared `ScopeProvider` — changing it re-filters every page instantly. A route-level
+shared `ScopeProvider` — changing it re-filters every page instantly. Usage
+analytics are the exception: the Dashboard keeps them org-wide because login
+JWTs only carry an `org` claim, so per-account filtering would hide every
+user-session request. A route-level
 `ErrorBoundary` turns render failures into a recovery card (reload/dashboard)
 instead of a white screen.

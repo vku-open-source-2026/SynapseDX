@@ -172,6 +172,10 @@ export const CATALOG: CatalogEndpoint[] = [
   { method: 'GET', path: '/v1/queue/queues/:queue/dead', auth: 'either', desc: 'List dead letters' },
   { method: 'POST', path: '/v1/queue/queues/:queue/dead/:id/replay', auth: 'either', desc: 'Replay a dead letter', body: { delaySeconds: 0, resetAttempts: true } },
   { method: 'DELETE', path: '/v1/queue/queues/:queue/dead/:id', auth: 'either', desc: 'Delete a dead letter' },
+  // Usage & Telemetry (gateway request telemetry; org-scoped reads)
+  { method: 'GET', path: '/v1/usage/summary', auth: 'either', desc: 'Request/feature aggregates (?from&to&feature&statusClass&method&q&accountId)' },
+  { method: 'GET', path: '/v1/usage/events', auth: 'either', desc: 'Request log, newest first (?from&to&limit&offset + same filters)' },
+  { method: 'POST', path: '/v1/usage/ingest', auth: 'internal', desc: 'Gateway telemetry batch ingest (service-to-service)' },
   // Ops
   { method: 'GET', path: '/health', auth: 'none', desc: 'Liveness per service + gateway' },
   { method: 'GET', path: '/ready', auth: 'none', desc: 'Aggregate readiness (503 when degraded)' },

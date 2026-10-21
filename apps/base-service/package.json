@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/base-service",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "description": "SynapseBase - self-managed document database with collections, queries and object<->data mapping",
   "main": "dist/index.js",

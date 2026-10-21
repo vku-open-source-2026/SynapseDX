@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/workflow-service",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "description": "synapsedx Workflow - local built-in engine (no external dependency)",
   "main": "dist/index.js",

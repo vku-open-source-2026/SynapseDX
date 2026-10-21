@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/queue-service",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "description": "SynapseQueue - tenant-scoped message queue with visibility timeouts, retries, dead letters and replay",
   "main": "dist/index.js",

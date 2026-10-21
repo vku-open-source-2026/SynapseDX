@@ -1,6 +1,6 @@
 {
   "name": "synapsedx",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
