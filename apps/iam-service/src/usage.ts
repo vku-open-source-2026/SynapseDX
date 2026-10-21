@@ -475,8 +475,8 @@ export async function usageSummary(f: UsageFilter): Promise<UsageSummary> {
       })
       .from(usageEvents)
       .where(where)
-      .groupBy(sql`floor(${usageEvents.status} / 100)`)
-      .orderBy(sql`floor(${usageEvents.status} / 100)`);
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
 
     const authRows = await db
       .select({
@@ -503,7 +503,8 @@ export async function usageSummary(f: UsageFilter): Promise<UsageSummary> {
       .orderBy(desc(sql`count(*)`))
       .limit(10);
 
-    const bucketExpr = sql<Date>`to_timestamp(floor(extract(epoch from ${usageEvents.createdAt}) / ${bucketSeconds}) * ${bucketSeconds})`;
+    const bSec = Math.max(1, Math.floor(bucketSeconds));
+    const bucketExpr = sql<Date>`to_timestamp(floor(extract(epoch from ${usageEvents.createdAt}) / ${sql.raw(String(bSec))}) * ${sql.raw(String(bSec))})`;
     const seriesRows = await db
       .select({
         bucket: bucketExpr,
@@ -513,8 +514,8 @@ export async function usageSummary(f: UsageFilter): Promise<UsageSummary> {
       })
       .from(usageEvents)
       .where(where)
-      .groupBy(bucketExpr)
-      .orderBy(bucketExpr);
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
 
     const points = new Map<number, { requests: number; errors: number; avgSum: number }>();
     for (const s of seriesRows) {
