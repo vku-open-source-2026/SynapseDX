@@ -117,7 +117,7 @@ services:
   iam:
     build:
       context: ./apps/iam-service
-    image: synapsedx/iam:0.5.0
+    image: synapsedx/iam:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4001
@@ -159,7 +159,7 @@ services:
   workflow:
     build:
       context: ./apps/workflow-service
-    image: synapsedx/workflow:0.5.0
+    image: synapsedx/workflow:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4002
@@ -187,7 +187,7 @@ services:
   ai:
     build:
       context: ./apps/ai-service
-    image: synapsedx/ai:0.5.0
+    image: synapsedx/ai:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4003
@@ -215,7 +215,7 @@ services:
   lds:
     build:
       context: ./apps/lds-service
-    image: synapsedx/lds:0.5.0
+    image: synapsedx/lds:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4004
@@ -239,7 +239,7 @@ services:
   base:
     build:
       context: ./apps/base-service
-    image: synapsedx/base:0.5.0
+    image: synapsedx/base:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4005
@@ -265,7 +265,7 @@ services:
   faststore:
     build:
       context: ./apps/faststore-service
-    image: synapsedx/faststore:0.5.0
+    image: synapsedx/faststore:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4006
@@ -289,7 +289,7 @@ services:
   queue:
     build:
       context: ./apps/queue-service
-    image: synapsedx/queue:0.5.0
+    image: synapsedx/queue:0.5.1
     restart: unless-stopped
     environment:
       PORT: 4007
@@ -314,7 +314,7 @@ services:
   gateway:
     build:
       context: ./apps/gateway
-    image: synapsedx/gateway:0.5.0
+    image: synapsedx/gateway:0.5.1
     restart: unless-stopped
     environment:
       PORT: 8080
@@ -359,7 +359,7 @@ services:
   console:
     build:
       context: ./apps/console
-    image: synapsedx/console:0.5.0
+    image: synapsedx/console:0.5.1
     restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

@@ -149,6 +149,13 @@ function asList(v) {
   return null;
 }
 
+// Fresh telemetry window [now - rangeMs, now], computed at fetch time so a
+// reload always ends at the current moment instead of a frozen mount time.
+function usageWindow(rangeMs) {
+  const to = new Date();
+  return { from: new Date(to.getTime() - rangeMs).toISOString(), to: to.toISOString() };
+}
+
 function execStatus(x) {
   return String(x?.status || x?.mode || '').toLowerCase();
 }
@@ -207,13 +214,9 @@ export default function Dashboard() {
     return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Compute time window range strings
-  const timeWindow = useMemo(() => {
-    const hit = TIME_RANGES.find((r) => r.id === timeRange) || TIME_RANGES[1];
-    const to = new Date();
-    const from = new Date(to.getTime() - hit.ms);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, [timeRange]);
+  // Selected window length. The actual [from, to] bounds are computed inside
+  // each fetch so a reload always covers the freshest slice of telemetry.
+  const rangeMs = (TIME_RANGES.find((r) => r.id === timeRange) || TIME_RANGES[1]).ms;
 
   // Fetch Usage Summary
   const loadUsageSummary = useCallback(async () => {
@@ -225,12 +228,11 @@ export default function Dashboard() {
     setSummaryErr(null);
     setSummaryLoading(true);
     try {
-      const params = {
-        from: timeWindow.from,
-        to: timeWindow.to,
-      };
+      // Telemetry is org-wide: the per-account picker does not scope usage
+      // (login JWTs carry only an org claim, so filtering by account would
+      // hide every user-session request).
+      const params = usageWindow(rangeMs);
       if (featureFilter !== 'all') params.feature = featureFilter;
-      if (scope.accountId) params.accountId = scope.accountId;
       if (statusClassFilter !== 'all') params.statusClass = statusClassFilter;
       if (methodFilter !== 'all') params.method = methodFilter;
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
@@ -243,7 +245,7 @@ export default function Dashboard() {
     } finally {
       setSummaryLoading(false);
     }
-  }, [scope.orgId, scope.accountId, timeWindow, featureFilter, statusClassFilter, methodFilter, debouncedSearch, headers]);
+  }, [scope.orgId, rangeMs, featureFilter, statusClassFilter, methodFilter, debouncedSearch, headers]);
 
   // Fetch Usage Events
   const loadUsageEvents = useCallback(async () => {
@@ -256,13 +258,11 @@ export default function Dashboard() {
     setEventsLoading(true);
     try {
       const params = {
-        from: timeWindow.from,
-        to: timeWindow.to,
+        ...usageWindow(rangeMs),
         limit: EVENTS_LIMIT,
         offset,
       };
       if (featureFilter !== 'all') params.feature = featureFilter;
-      if (scope.accountId) params.accountId = scope.accountId;
       if (statusClassFilter !== 'all') params.statusClass = statusClassFilter;
       if (methodFilter !== 'all') params.method = methodFilter;
       if (debouncedSearch.trim()) params.q = debouncedSearch.trim();
@@ -275,7 +275,7 @@ export default function Dashboard() {
     } finally {
       setEventsLoading(false);
     }
-  }, [scope.orgId, scope.accountId, timeWindow, featureFilter, statusClassFilter, methodFilter, debouncedSearch, offset, headers]);
+  }, [scope.orgId, rangeMs, featureFilter, statusClassFilter, methodFilter, debouncedSearch, offset, headers]);
 
   // Load cluster system health
   const loadReady = useCallback(async () => {
@@ -445,7 +445,11 @@ export default function Dashboard() {
     <>
       <PageTitle
         title="Dashboard"
-        sub="Tier-1 PaaS cluster status & request telemetry"
+        sub={
+          activeTab === 'usage'
+            ? 'Organization-wide usage analytics, feature statistics & request telemetry'
+            : 'Tier-1 PaaS cluster status, services & inventory'
+        }
         right={
           <div className="flex flex-wrap items-center gap-2">
             {/* View Tab Selector */}
@@ -616,6 +620,14 @@ export default function Dashboard() {
                     )}
                   </div>
                 </div>
+
+                <p className="mt-3 pt-3 border-t border-slate-100 text-[11px] text-normal-text flex items-start gap-1.5">
+                  <FontAwesomeIcon icon={faLayerGroup} className="text-main-blue mt-0.5" />
+                  <span>
+                    Usage is aggregated across all accounts in this organization — the account picker
+                    above does not filter request telemetry.
+                  </span>
+                </p>
               </Card>
 
               {/* KPI Stat Cards (5 metrics) */}

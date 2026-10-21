@@ -63,6 +63,14 @@ export const GROUPS = [
     ],
   },
   {
+    name: 'Usage & Telemetry',
+    endpoints: [
+      { method: 'GET', path: '/v1/usage/summary', auth: 'either', desc: 'Org-scoped request/feature aggregates (?from, ?to, ?feature, ?statusClass=2xx..5xx, ?method, ?q, ?accountId)' },
+      { method: 'GET', path: '/v1/usage/events', auth: 'either', desc: 'Raw request log, newest first (?from, ?to, ?limit 1..200, ?offset + same filters) — drill-down for the dashboard' },
+      { method: 'POST', path: '/v1/usage/ingest', auth: 'internal', desc: 'Gateway telemetry batch ingest (service-to-service: X-SynapseDX-Internal)' },
+    ],
+  },
+  {
     name: 'Credentials (PROPOSED — backend in progress)',
     endpoints: [
       { method: 'POST', path: '/v1/accounts/:accountId/credentials', auth: 'either', desc: 'Store an account credential (secret write-only, encrypted at rest)', body: { name: 'stripe-live', type: 'bearer', secret: '<secret>' } },

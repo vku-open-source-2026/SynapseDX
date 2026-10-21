@@ -68,7 +68,7 @@ services:
   nginx:
     build:
       context: ./infra/prod
-    image: synapsedx/edge:0.5.0
+    image: synapsedx/edge:0.5.1
     restart: unless-stopped
     environment:
       DOMAIN: ${DOMAIN:-synapsedx.sbs}
