@@ -19,7 +19,7 @@ import {
   toPublicCredential, decryptSecret,
 } from './store';
 import type { Principal } from './store';
-import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor } from './engine';
+import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType } from './engine';
 import type { CredentialResolver, RunPrincipal, SynapseDXCall } from './engine';
 
 /** May this credential be resolved for this run principal? (P0-4/#5)
@@ -351,14 +351,14 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
       if (params !== undefined && (typeof params !== 'object' || params === null || Array.isArray(params))) {
         return `definition.nodes['${nm}'].parameters must be an object`;
       }
-      if ((n as any).type === 'n8n-nodes-base.code') {
+      if (isCodeType((n as any).type)) {
         const src = params?.code ?? params?.jsCode ?? params?.js;
         if (typeof src === 'string' && Buffer.byteLength(src, 'utf8') > 50 * 1024) {
           return `definition.nodes['${nm}'].code exceeds 50KB`;
         }
       }
       // M7: webhook trigger contract — path charset + method enum.
-      if ((n as any).type === 'n8n-nodes-base.webhook' && params && typeof params === 'object') {
+      if (isWebhookType((n as any).type) && params && typeof params === 'object') {
         if (params.path !== undefined && params.path !== null && String(params.path) !== '') {
           const wp = String(params.path).replace(/^\/+|\/+$/g, '');
           if (!wp || wp.length > 128 || !/^[A-Za-z0-9_.\/-]+$/.test(wp) || wp.split('/').includes('..')) {
@@ -410,7 +410,7 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
       }
       // P1-16: httpRequest credential reference shape (secret itself lives
       // in /v1/credentials and is resolved server-side at run time).
-      if ((n as any).type === 'n8n-nodes-base.httpRequest' && params && typeof params === 'object') {
+      if (isHttpRequestType((n as any).type) && params && typeof params === 'object') {
         const auth = (params as any).auth;
         if (auth !== undefined && auth !== null) {
           if (typeof auth !== 'object' || Array.isArray(auth)) {
@@ -437,7 +437,7 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
         if (perr) return `definition.nodes['${nm}']: ${perr}`;
       }
       // M8: reject schedules that would silently never fire.
-      if ((n as any).type === 'n8n-nodes-base.cron') {
+      if (isCronType((n as any).type)) {
         const ce = validateCronParams(params || {});
         if (ce) return `definition.nodes['${nm}']: ${ce}`;
       }
@@ -498,7 +498,7 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
     const triggerless: any[] = Array.isArray((definition as any).nodes) ? (definition as any).nodes : [];
     if (
       triggerless.length &&
-      !triggerless.some((n: any) => ['n8n-nodes-base.webhook', 'n8n-nodes-base.cron', 'n8n-nodes-base.manualTrigger'].includes(String(n?.type)))
+      !triggerless.some((n: any) => isTriggerType(String(n?.type)))
     ) {
       return 'definition needs at least one trigger node (webhook, cron or manualTrigger)';
     }
@@ -657,7 +657,7 @@ export function createApp(): express.Express {
   const webhookDedupe = new Map<string, number>();
   function webhookNodeFor(wf: StoredWorkflow, clean: string): any | null {
     for (const n of wf.nodes || []) {
-      if ((n as any)?.type !== 'n8n-nodes-base.webhook') continue;
+      if (!isWebhookType((n as any)?.type)) continue;
       if (String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '') === clean) return n;
     }
     return null;
@@ -1003,13 +1003,13 @@ function tenantBinding(
       // Template webhook paths must not collide: two active workflows sharing
       // a path makes /webhook/:path routing ambiguous. Suffix -2, -3, ….
       try {
-        const hookIdx = (payload.nodes || []).findIndex((n: any) => (n as any)?.type === 'n8n-nodes-base.webhook');
+        const hookIdx = (payload.nodes || []).findIndex((n: any) => isWebhookType((n as any)?.type));
         if (hookIdx >= 0) {
           const basePath = String(payload.nodes[hookIdx]?.parameters?.path || 'hook').replace(/^\/+|\/+$/g, '') || 'hook';
           const existing = new Set<string>();
           for (const w of await listWorkflowRecs()) {
             for (const n of (w.nodes || []) as any[]) {
-              if ((n as any)?.type === 'n8n-nodes-base.webhook') {
+              if (isWebhookType((n as any)?.type)) {
                 const p = String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '');
                 if (p) existing.add(p);
               }
@@ -1158,7 +1158,7 @@ function tenantBinding(
         const clash = all.find((w) => {
           if (w.id === id || !w.active) return false;
           return (w.nodes || []).some((n: any) => {
-            if ((n as any)?.type !== 'n8n-nodes-base.webhook') return false;
+            if (!isWebhookType((n as any)?.type)) return false;
             return String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '') === trig.path;
           });
         });
@@ -1456,7 +1456,7 @@ export function findWebhookTrigger(workflow: any): WebhookTrigger | null {
     const nodes = workflow?.nodes;
     if (!Array.isArray(nodes)) return null;
     for (const n of nodes) {
-      if ((n as any)?.type !== 'n8n-nodes-base.webhook') continue;
+      if (!isWebhookType((n as any)?.type)) continue;
       const p = String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '');
       if (!p || p.length > 128) continue;
       if (!/^[A-Za-z0-9_.\/-]+$/.test(p)) continue;

@@ -8,12 +8,11 @@
 [![PyPI SDK](https://img.shields.io/pypi/v/synapsedx-sdk)](https://pypi.org/project/synapsedx-sdk/)
 
 **SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
-management, a built-in workflow engine, and self-managed document, cache and queue
-services — operated through a web Console, SDKs in three languages, and a
-zero-dependency CLI.**
+management, a core data cluster (documents, cache and queue), and native workflows —
+operated through a web Console, SDKs in three languages, and a zero-dependency CLI.**
 
-No lock-in: Authentik/Keycloak (and S3-compatible storage) integrate over standard
-OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
+No lock-in: Authentik/Keycloak runs as an optional external IdP over
+standard OIDC. Everything else is SynapseDX code, pure Apache-2.0.
 
 - 🌐 **Live demo:** [synapsedx.sbs](https://synapsedx.sbs) · Console: [cloud.synapsedx.sbs](https://cloud.synapsedx.sbs) · API: `https://api.synapsedx.sbs/health`
 - 📦 **Install:** `npm i @synapsedx/sdk` · `pip install synapsedx-sdk` · `npx @synapsedx/cli` · Go SDK via the monorepo (see below)
@@ -30,7 +29,7 @@ OIDC and REST. Everything else is SynapseDX code, pure Apache-2.0.
 | **SynapseBase** | Self-managed document database: collections, object↔data mapping with validation, filters/cursors, optimistic concurrency, atomic counters, batches and a change feed (`/v1/base`) |
 | **Synapse Faststore** | Redis-backed cache/KV and data structures: TTL strings, counters, hashes, lists, sets, sorted sets, scans, batches and distributed locks (`/v1/faststore`) |
 | **SynapseQueue** | At-least-once messaging: delayed/deduplicated publishing, visibility-timeout leases, ack/nack/heartbeat, retries, dead letters and replay (`/v1/queue`) |
-| **Workflows** | Built-in Apache-2.0 engine: versioned templates, activate/deactivate/execute, webhook/cron/manual triggers, execution history, definition editor |
+| **Workflows** | Built-in workflow engine (Apache-2.0): DAG runner, versioned templates, activate/deactivate/execute (real webhook & cron triggers), sandboxed code execution, execution history, visual graph editor |
 | **Linked Data (SynapseLDS)** | Licence-picked NGSI-LD datasources: structural-allowlist projection (`_core` never serialized), per-attribute visibility (public/restricted/internal), default-deny schema registry, workflow publish node (`lds.publish-record`) |
 | **AI assistant** | Chatbot on the API Docs page: decision model picks the endpoint, LLM pre-fills the try-it form (server-side key, guidance-only, never public) |
 | **Clients** | TypeScript, Python and Go SDKs with full API parity, zero-dependency CLI, admin Console |
@@ -143,7 +142,7 @@ user and all authorization. Details: `docs/architecture.md`, `docs/iam-model.md`
 apps/console               Admin UI (React + Vite + Tailwind)
 apps/gateway               API gateway (proxy, JWT/API-key, principal headers, /metrics)
 apps/iam-service           IAM + tokens + authorize/simulator + real OIDC code flow
-apps/workflow-service      built-in workflow engine + versioned templates
+apps/workflow-service      Workflow engine (local built-in DAG runner, sandboxed code, triggers)
 apps/lds-service           SynapseLDS — NGSI-LD datasources, registry, licensed exports
 apps/base-service          SynapseBase — documents, mapping, queries, change feed
 apps/faststore-service     Synapse Faststore — cache/KV, data structures, locks

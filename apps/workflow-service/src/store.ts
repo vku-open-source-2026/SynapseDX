@@ -6,6 +6,7 @@
  */
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
+import { isWebhookType, isCronType } from './engine';
 
 /** Caller principal stamped by the gateway (P0-2). Anonymous when called
  *  directly with only the internal secret (dev/tests). */
@@ -458,7 +459,7 @@ export async function findActiveWebhookWorkflow(path: string): Promise<StoredWor
   for (const w of all) {
     if (!w.active) continue;
     for (const n of w.nodes || []) {
-      if ((n as any)?.type !== 'n8n-nodes-base.webhook') continue;
+      if (!isWebhookType((n as any)?.type)) continue;
       const p = String((n as any)?.parameters?.path || '').replace(/^\/+|\/+$/g, '');
       if (p === clean) return w;
     }
@@ -468,7 +469,7 @@ export async function findActiveWebhookWorkflow(path: string): Promise<StoredWor
 
 export async function listActiveCronWorkflows(): Promise<StoredWorkflow[]> {
   const all = await listWorkflowRecs();
-  return all.filter((w) => w.active && (w.nodes || []).some((n) => (n as any)?.type === 'n8n-nodes-base.cron'));
+  return all.filter((w) => w.active && (w.nodes || []).some((n) => isCronType((n as any)?.type)));
 }
 
 // ---------- credentials (P0-4): account-scoped secrets, encrypted at rest ----------

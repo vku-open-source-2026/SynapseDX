@@ -481,7 +481,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
     }
     // Fail fast on broken Code nodes instead of a wasted round-trip.
     for (const n of def.nodes || []) {
-      if (n?.type !== 'n8n-nodes-base.code') continue;
+      if (n?.type !== 'n8n-nodes-base.code' && n?.type !== 'code') continue;
       const src = n?.parameters?.code ?? n?.parameters?.jsCode ?? '';
       const chk = checkJSSyntax(typeof src === 'string' ? src : '');
       if (!chk.ok) {
@@ -992,18 +992,24 @@ function rowInputCls() {
 function NodeForm({ node, onPatch, workflowId, headers }) {
   const p = node.parameters || {};
   switch (node.type) {
+    case 'code':
     case 'n8n-nodes-base.code':
       return <CodeForm params={p} onPatch={onPatch} />;
+    case 'httpRequest':
     case 'n8n-nodes-base.httpRequest':
       return <HttpForm params={p} onPatch={onPatch} headers={headers} />;
+    case 'set':
     case 'n8n-nodes-base.set':
       return <SetForm params={p} onPatch={onPatch} />;
+    case 'if':
     case 'n8n-nodes-base.if':
       return <IfForm params={p} onPatch={onPatch} />;
     case 'synapsedx.api':
       return <SynapseDXApiForm params={p} onPatch={onPatch} />;
+    case 'webhook':
     case 'n8n-nodes-base.webhook':
       return <WebhookForm params={p} onPatch={onPatch} headers={headers} />;
+    case 'cron':
     case 'n8n-nodes-base.cron':
       return <CronForm params={p} onPatch={onPatch} />;
     default:

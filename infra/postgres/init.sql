@@ -105,12 +105,11 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Workflow metadata (legacy n8n workflow id cache, kept for backward compat)
+-- Workflow metadata (legacy table, kept for backward compat)
 CREATE TABLE IF NOT EXISTS workflows (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
   slug TEXT NOT NULL,
-  n8n_workflow_id TEXT UNIQUE,
   definition JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(account_id, slug)

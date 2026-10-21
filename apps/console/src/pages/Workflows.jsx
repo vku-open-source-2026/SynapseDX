@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 import { Badge, Btn, Card, Code, Empty, Err, Field, Input, ListSkeleton, Modal, PageTitle, Spinner, Table, TableSkeleton } from '../components/ui.jsx';
 import WorkflowEditor from '../components/WorkflowEditor.jsx';
-import { uid, webhookPathOf, describeCron } from '../lib/workflow-graph.js';
+import { uid, webhookPathOf, describeCron, isWebhookType, isCronType } from '../lib/workflow-graph.js';
 
 export default function Workflows() {
   const { headers } = useAuth();
@@ -59,7 +59,7 @@ export default function Workflows() {
   const webhookTrigger = (() => {
     if (!detail || !Array.isArray(detail.nodes)) return null;
     for (const n of detail.nodes) {
-      if (n?.type !== 'n8n-nodes-base.webhook') continue;
+      if (!isWebhookType(n?.type)) continue;
       const path = webhookPathOf([n]);
       if (!path) continue;
       const raw = String(n?.parameters?.httpMethod || 'POST').toUpperCase();
@@ -70,7 +70,7 @@ export default function Workflows() {
   })();
   const cronSummary = (() => {
     if (!detail || !Array.isArray(detail.nodes)) return null;
-    const cron = detail.nodes.find((n) => n?.type === 'n8n-nodes-base.cron');
+    const cron = detail.nodes.find((n) => isCronType(n?.type));
     if (!cron) return null;
     try {
       const d = describeCron(cron.parameters || {});
@@ -317,7 +317,7 @@ export default function Workflows() {
           const nodes = w.id === sel && detail ? detail.nodes : w.nodes;
           for (const n of nodes || []) {
             const p = n?.parameters?.path;
-            if (n?.type === 'n8n-nodes-base.webhook' && typeof p === 'string' && p) siblingPaths.add(p);
+            if (isWebhookType(n?.type) && typeof p === 'string' && p) siblingPaths.add(p);
           }
         }
       } catch {
@@ -333,7 +333,7 @@ export default function Workflows() {
       const nodes = (detail.nodes || []).map((n) => {
         if (!n || typeof n !== 'object') return n;
         const copy = { ...n, id: uid() };
-        if (copy.type === 'n8n-nodes-base.webhook') {
+        if (isWebhookType(copy.type)) {
           const params = { ...((copy.parameters || {})) };
           params.path = freshPath(params.path);
           copy.webhookId = uid();

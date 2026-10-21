@@ -176,6 +176,18 @@ export function wouldCycle(nodes, connections, fromName, toName) {
 }
 
 export const IF_TYPE = 'n8n-nodes-base.if';
+export function isIfType(t) {
+  return t === 'if' || t === 'n8n-nodes-base.if' || t === IF_TYPE;
+}
+export function isWebhookType(t) {
+  return t === 'webhook' || t === 'n8n-nodes-base.webhook';
+}
+export function isCronType(t) {
+  return t === 'cron' || t === 'n8n-nodes-base.cron';
+}
+export function isCodeType(t) {
+  return t === 'code' || t === 'n8n-nodes-base.code';
+}
 /** Branch index contract for If nodes: main[0] = true, main[1] = false. */
 export const IF_BRANCH_TRUE = 0;
 export const IF_BRANCH_FALSE = 1;
@@ -236,7 +248,7 @@ export function removeNode(nodes, connections, name) {
   const out = cloneConnections(connections);
   delete out[name];
   for (const from of Object.keys(out)) {
-    const preserve = byName.get(from)?.type === IF_TYPE;
+    const preserve = isIfType(byName.get(from)?.type);
     const mains = out[from].main
       .map((branch) => branch.filter((e) => e.node !== name));
     const keptBranches = preserve ? mains : mains.filter((branch) => branch.length > 0);
@@ -288,7 +300,7 @@ export function ifWarnings(nodes, connections) {
   const out = [];
   const byName = new Map((nodes || []).map((n) => [n.name, n]));
   for (const [from, groups] of Object.entries(connections || {})) {
-    if (byName.get(from)?.type !== IF_TYPE) continue;
+    if (!isIfType(byName.get(from)?.type)) continue;
     const mains = Array.isArray(groups?.main) ? groups.main : [];
     const hasTrue = (mains[0] || []).some((e) => e && typeof e.node === 'string');
     const hasFalse = (mains[1] || []).some((e) => e && typeof e.node === 'string');
@@ -299,7 +311,7 @@ export function ifWarnings(nodes, connections) {
   }
   // If sources with no outgoing edges at all.
   for (const n of nodes || []) {
-    if (n?.type === IF_TYPE && !connections?.[n.name]) {
+    if (isIfType(n?.type) && !connections?.[n.name]) {
       out.push(`if node '${n.name}' has no branches wired — both sides stop at '${n.name}'`);
     }
   }
@@ -308,7 +320,8 @@ export function ifWarnings(nodes, connections) {
 
 /** True when the type is one the local engine + palette know about. */
 export function isKnownType(type) {
-  return NODE_TYPES.some((t) => t.type === type);
+  if (NODE_TYPES.some((t) => t.type === type)) return true;
+  return ['webhook', 'cron', 'manualTrigger', 'httpRequest', 'code', 'set', 'if', 'noOp', 'synapsedx.api'].includes(type);
 }
 
 /** Curated local-engine node types for the palette (free-form type still allowed). */
@@ -340,14 +353,22 @@ export function nodesByCategory() {
 /** Known-good typeVersions (local engine contract, see
  *  workflow-service buildTemplate); unknown types default to 1. */
 const TYPE_VERSIONS = {
+  webhook: 2,
   'n8n-nodes-base.webhook': 2,
+  cron: 1,
   'n8n-nodes-base.cron': 1,
+  manualTrigger: 1,
   'n8n-nodes-base.manualTrigger': 1,
+  httpRequest: 4.2,
   'n8n-nodes-base.httpRequest': 4.2,
+  code: 1,
   'n8n-nodes-base.code': 1,
+  set: 1,
   'n8n-nodes-base.set': 1,
+  if: 1,
   'n8n-nodes-base.if': 1,
   'synapsedx.api': 1,
+  noOp: 1,
   'n8n-nodes-base.noOp': 1,
 };
 
@@ -355,21 +376,32 @@ const TYPE_VERSIONS = {
  *  workflow-service buildTemplate + engine.ts) — one click to start from
  *  something that actually executes. Every palette type has an entry. */
 export const EXAMPLE_PARAMS = {
+  webhook: { path: 'my-hook', httpMethod: 'POST' },
   'n8n-nodes-base.webhook': { path: 'my-hook', httpMethod: 'POST' },
+  cron: { rule: { interval: [{ field: 'hours', hoursInterval: 24 }] } },
   'n8n-nodes-base.cron': { rule: { interval: [{ field: 'hours', hoursInterval: 24 }] } },
+  manualTrigger: {},
   'n8n-nodes-base.manualTrigger': {},
+  httpRequest: { url: 'https://api.example.com/health', method: 'GET' },
   'n8n-nodes-base.httpRequest': { url: 'https://api.example.com/health', method: 'GET' },
+  code: { code: 'return { ...$input, doubled: ($input.value ?? 0) * 2, at: $now };' },
   'n8n-nodes-base.code': { code: 'return { ...$input, doubled: ($input.value ?? 0) * 2, at: $now };' },
+  if: { condition: '$input.value > 10' },
   'n8n-nodes-base.if': { condition: '$input.value > 10' },
   'synapsedx.api': { resource: 'orgs', operation: 'list', input: {} },
+  set: { values: { tag: 'processed' } },
   'n8n-nodes-base.set': { values: { tag: 'processed' } },
+  noOp: {},
   'n8n-nodes-base.noOp': {},
 };
 
 /** Sample test-run input suggested from the entry (trigger) node. */
 export const SAMPLE_INPUTS = {
+  webhook: { hello: 'world' },
   'n8n-nodes-base.webhook': { hello: 'world' },
+  cron: { scheduledAt: '2026-01-01T00:00:00.000Z' },
   'n8n-nodes-base.cron': { scheduledAt: '2026-01-01T00:00:00.000Z' },
+  manualTrigger: { value: 21 },
   'n8n-nodes-base.manualTrigger': { value: 21 },
   default: { value: 21 },
 };
@@ -385,7 +417,7 @@ export const GITHUB_PUSH_SAMPLE = {
 export function sampleInputFor(nodes) {
   const list = Array.isArray(nodes) ? nodes : [];
   const trig = list.find((n) => n && typeof n.type === 'string' && /webhook|cron|manualTrigger/.test(n.type));
-  if (trig?.type === 'n8n-nodes-base.webhook' && String(trig.parameters?.path || '').includes('github')) {
+  if (isWebhookType(trig?.type) && String(trig.parameters?.path || '').includes('github')) {
     return { ...GITHUB_PUSH_SAMPLE };
   }
   const t = trig?.type || '';
@@ -413,7 +445,7 @@ export function makeNode(type, x = 0, y = 0) {
     parameters: cloneJson(EXAMPLE_PARAMS[type] || {}),
   };
   // webhook identity: mint a webhookId like buildTemplate does.
-  if (type === 'n8n-nodes-base.webhook') node.webhookId = uid();
+  if (isWebhookType(type)) node.webhookId = uid();
   return node;
 }
 
@@ -429,7 +461,7 @@ export function uniqueName(nodes, base) {
 /** First webhook trigger path declared by a node list (for URL display). */
 export function webhookPathOf(nodes) {
   for (const n of nodes || []) {
-    if (n?.type !== 'n8n-nodes-base.webhook') continue;
+    if (!isWebhookType(n?.type)) continue;
     const p = String(n?.parameters?.path || '').replace(/^\/+|\/+$/g, '');
     if (p) return p;
   }
