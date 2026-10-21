@@ -503,6 +503,11 @@ export async function usageSummary(f: UsageFilter): Promise<UsageSummary> {
       .orderBy(desc(sql`count(*)`))
       .limit(10);
 
+    // Postgres cannot match `GROUP BY` to the selected expression when a
+    // duplicated fragment gets distinct placeholder numbers ($1/$2 vs
+    // $6/$7), which made this query fail with "must appear in the GROUP BY
+    // clause" on real Postgres. Group/order by the output column position
+    // instead of repeating the parameterized expression.
     const bucketExpr = sql<Date>`to_timestamp(floor(extract(epoch from ${usageEvents.createdAt}) / ${bucketSeconds}) * ${bucketSeconds})`;
     const seriesRows = await db
       .select({
@@ -513,8 +518,8 @@ export async function usageSummary(f: UsageFilter): Promise<UsageSummary> {
       })
       .from(usageEvents)
       .where(where)
-      .groupBy(bucketExpr)
-      .orderBy(bucketExpr);
+      .groupBy(sql`1`)
+      .orderBy(sql`1`);
 
     const points = new Map<number, { requests: number; errors: number; avgSum: number }>();
     for (const s of seriesRows) {

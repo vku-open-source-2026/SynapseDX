@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/console",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "license": "Apache-2.0",
   "description": "SynapseDX Console - AWS-style management UI (React + Vite + Tailwind)",
   "private": true,

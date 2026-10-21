@@ -103,6 +103,24 @@ curl -s -XDELETE "$BASE/v1/lds/datasources/$LDS_ID" -H"$H" | grep -q '"ok":true'
 [ "$(curl -s "$BASE/v1/templates" -H"$H" | jq 'length')" = "8" ] && ok templates || bad templates ""
 [ -n "$(curl -s -D- -o /dev/null "$BASE/health" | grep -i '^x-request-id:')" ] && ok request-id || bad request-id ""
 
+# usage telemetry: after the traffic above the gateway must flush events to IAM
+# and the Postgres-backed summary/events endpoints must answer. Regression guard
+# for the series bucket query (in-memory unit tests cannot catch it).
+USAGE_OK=0; SUM=""
+for i in $(seq 1 10); do
+  SUM=$(curl -s "$BASE/v1/usage/summary" -H"$H")
+  echo "$SUM" | jq -e '.totals.requests >= 1' >/dev/null 2>&1 && { USAGE_OK=1; break; }
+  sleep 2
+done
+[ "$USAGE_OK" = "1" ] && ok usage-summary || bad usage-summary "$SUM"
+echo "$SUM" | jq -e '.features | length >= 1' >/dev/null 2>&1 && ok usage-features || bad usage-features ""
+echo "$SUM" | jq -e '.series | length >= 1' >/dev/null 2>&1 && ok usage-series || bad usage-series ""
+EVS=$(curl -s "$BASE/v1/usage/events?limit=5" -H"$H")
+[ "$(echo "$EVS" | jq '.items | length' 2>/dev/null)" -ge 1 ] && ok usage-events || bad usage-events "$EVS"
+[ "$(echo "$EVS" | jq '.total' 2>/dev/null)" -ge 1 ] && ok usage-events-total || bad usage-events-total ""
+# org-wide: user-session traffic is attributed to the org with no account
+[ "$(echo "$EVS" | jq '[.items[] | select(.authKind=="user" and .orgId!=null)] | length' 2>/dev/null)" -ge 1 ] && ok usage-org-wide || bad usage-org-wide ""
+
 # negative / hardening checks (phai fail CLOSED)
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/orgs")" = "401" ] && ok anon-denied || bad anon-denied ""
 if [ "$E2E_UID" = "external" ]; then

@@ -5,6 +5,21 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-21
+
+### Fixed
+- IAM `GET /v1/usage/summary` on real PostgreSQL: the timeline series query
+  grouped by a duplicated parameterized bucket expression whose Drizzle
+  placeholders were numbered differently in `SELECT` (`$1/$2`) and `GROUP BY`
+  (`$6/$7`), so Postgres rejected it with `column "usage_events.created_at"
+  must appear in the GROUP BY clause` and the endpoint returned 500 (the
+  in-memory unit tests could not catch this). The query now groups/orders by
+  the output column position (`GROUP BY 1 / ORDER BY 1`).
+- E2E regression guard: `tests/e2e/api-check.sh` now exercises
+  `/v1/usage/summary` (totals, features, series), `/v1/usage/events` (+ total)
+  and org-wide attribution (`authKind=user` events carry an org, no account) on
+  the real Postgres stack in CI/CD.
+
 ## [0.5.1] - 2026-10-21
 
 ### Added — usage analytics & request telemetry
