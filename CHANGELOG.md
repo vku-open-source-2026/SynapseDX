@@ -5,6 +5,18 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+### Changed — PostgreSQL schema management
+- IAM, Workflow, LDS and Base now use Drizzle ORM for all PostgreSQL
+  persistence. `apps/*/src/schema.ts` is the schema source of truth and each
+  service ships versioned migrations in `apps/*/drizzle/`.
+- Services apply migrations on startup under per-service advisory locks and
+  journals (`drizzle.__drizzle_migrations_{iam,workflow,lds,base}`), so they can
+  share one database safely. `infra/postgres/init.sql` is now bootstrap-only
+  (extensions + the migration-journal schema); table/index DDL and the IAM demo
+  seed live in migrations.
+- Memory fallbacks, tenant scoping, JSONB handling and transaction/concurrency
+  semantics are unchanged.
+
 ## [0.5.0] - 2026-10-21
 
 ### Added — three self-managed data services

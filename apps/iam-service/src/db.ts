@@ -1,10 +1,17 @@
 /*
  * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * IAM persistence layer — Postgres with in-memory fallback for dev/test.
+ * IAM persistence layer — Drizzle ORM on Postgres with in-memory fallback
+ * (dev/test). Tables/indexes live in ./schema.ts and are applied by versioned
+ * Drizzle migrations.
  */
+import path from 'path';
 import { Pool } from 'pg';
 import { randomUUID, createHash, createHmac, timingSafeEqual } from 'crypto';
+import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import * as schema from './schema';
 
 export interface Organization { id: string; slug: string; display_name: string; created_at?: string }
 export interface Account { id: string; org_id: string; slug: string; display_name: string }
@@ -19,6 +26,35 @@ let pool: Pool | null = null;
 if (DATABASE_URL) {
   pool = new Pool({ connectionString: DATABASE_URL });
   pool.on('error', (e) => console.error('[iam][db] pool error', e.message));
+}
+const db: NodePgDatabase<typeof schema> | null = pool ? drizzle(pool, { schema }) : null;
+
+let ensured = false;
+export async function ensureTables(): Promise<void> {
+  if (!db || ensured) return;
+  ensured = true;
+  try {
+    const client = await pool!.connect();
+    try {
+      // Hold the advisory lock on the same dedicated session that runs the
+      // migration (pool connections are not guaranteed to be reused).
+      const migrationDb = drizzle(client, { schema });
+      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_iam_migrations'))`);
+      try {
+        await migrate(migrationDb, {
+          migrationsFolder: path.join(__dirname, '..', 'drizzle'),
+          migrationsTable: '__drizzle_migrations_iam',
+        });
+      } finally {
+        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapsedx_iam_migrations'))`).catch(() => undefined);
+      }
+    } finally {
+      client.release();
+    }
+  } catch (e: any) {
+    ensured = false;
+    console.error('[iam][db] migrations failed:', e?.message || e);
+  }
 }
 
 // ---- in-memory fallback ----
@@ -54,13 +90,32 @@ function seedMem() {
 }
 seedMem();
 
-export function useDb(): boolean { return !!pool; }
+export function useDb(): boolean { return !!db; }
 export function getPool(): Pool | null { return pool; }
+/** Internal Drizzle handle used by the token module; callers must check useDb(). */
+export function getDb(): NodePgDatabase<typeof schema> | null { return db; }
 
-export async function query<T extends import('pg').QueryResultRow = any>(text: string, params?: any[]): Promise<{ rows: T[] }> {
-  if (!pool) throw new Error('no pg pool');
-  const r = await pool.query<T>(text, params);
-  return { rows: r.rows };
+function iso(v: Date | string | null | undefined): string | undefined {
+  if (v == null) return undefined;
+  if (v instanceof Date) return v.toISOString();
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? String(v) : d.toISOString();
+}
+
+function orgRow(r: { id: string; slug: string; displayName: string; createdAt?: Date | null }): Organization {
+  return { id: r.id, slug: r.slug, display_name: r.displayName, ...(r.createdAt ? { created_at: iso(r.createdAt) } : {}) };
+}
+function accountRow(r: { id: string; orgId: string; slug: string; displayName: string }): Account {
+  return { id: r.id, org_id: r.orgId, slug: r.slug, display_name: r.displayName };
+}
+function userRow(r: { id: string; orgId: string; email: string; displayName: string | null; externalSub: string | null }): User {
+  return { id: r.id, org_id: r.orgId, email: r.email, display_name: r.displayName ?? undefined, external_sub: r.externalSub ?? undefined };
+}
+function roleRow(r: { id: string; accountId: string; slug: string; description: string | null }): Role {
+  return { id: r.id, account_id: r.accountId, slug: r.slug, description: r.description ?? '' };
+}
+function policyRow(r: { id: string; accountId: string; slug: string; description: string | null; document: Record<string, any> }): Policy {
+  return { id: r.id, account_id: r.accountId, slug: r.slug, description: r.description ?? '', document: r.document as PolicyDoc };
 }
 
 export function hashSecret(s: string): string {
@@ -97,9 +152,12 @@ export function secretsEqual(a: string, b: string): boolean {
 // ---------- high-level CRUD that works on both pg + memory ----------
 
 export async function createOrganization(slug: string, display_name: string): Promise<Organization> {
-  if (pool) {
-    const r = await pool.query('INSERT INTO organizations (slug, display_name) VALUES ($1,$2) RETURNING id, slug, display_name', [slug, display_name]);
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.organizations)
+      .values({ slug, displayName: display_name })
+      .returning({ id: schema.organizations.id, slug: schema.organizations.slug, displayName: schema.organizations.displayName });
+    return orgRow(rows[0]);
   }
   if (mem.orgsBySlug.has(slug)) throw Object.assign(new Error('org exists'), { status: 409 });
   const o: Organization = { id: randomUUID(), slug, display_name };
@@ -108,33 +166,52 @@ export async function createOrganization(slug: string, display_name: string): Pr
 }
 
 export async function listOrganizations(): Promise<Organization[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, slug, display_name, created_at FROM organizations ORDER BY created_at');
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.organizations.id,
+      slug: schema.organizations.slug,
+      displayName: schema.organizations.displayName,
+      createdAt: schema.organizations.createdAt,
+    }).from(schema.organizations).orderBy(asc(schema.organizations.createdAt));
+    return rows.map(orgRow);
   }
   return [...mem.orgs.values()];
 }
 
 export async function getOrgBySlug(slug: string): Promise<Organization | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, slug, display_name FROM organizations WHERE slug=$1', [slug]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.organizations.id,
+      slug: schema.organizations.slug,
+      displayName: schema.organizations.displayName,
+    }).from(schema.organizations).where(eq(schema.organizations.slug, slug)).limit(1);
+    return rows[0] ? orgRow(rows[0]) : null;
   }
   return mem.orgsBySlug.get(slug) || null;
 }
 
 export async function getOrgById(id: string): Promise<Organization | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, slug, display_name FROM organizations WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.organizations.id,
+      slug: schema.organizations.slug,
+      displayName: schema.organizations.displayName,
+    }).from(schema.organizations).where(eq(schema.organizations.id, id)).limit(1);
+    return rows[0] ? orgRow(rows[0]) : null;
   }
   return mem.orgs.get(id) || null;
 }
 
 export async function createAccount(orgId: string, slug: string, display_name: string): Promise<Account> {
-  if (pool) {
-    const r = await pool.query('INSERT INTO accounts (org_id, slug, display_name) VALUES ($1,$2,$3) RETURNING id, org_id, slug, display_name', [orgId, slug, display_name]);
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.accounts)
+      .values({ orgId, slug, displayName: display_name })
+      .returning({ id: schema.accounts.id, orgId: schema.accounts.orgId, slug: schema.accounts.slug, displayName: schema.accounts.displayName });
+    return accountRow(rows[0]);
   }
   const dup = [...mem.accounts.values()].find((a) => a.org_id === orgId && a.slug === slug);
   if (dup) throw Object.assign(new Error('account exists'), { status: 409 });
@@ -144,21 +221,36 @@ export async function createAccount(orgId: string, slug: string, display_name: s
 }
 
 export async function listAccounts(orgId: string): Promise<Account[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, org_id, slug, display_name FROM accounts WHERE org_id=$1 ORDER BY slug', [orgId]);
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.accounts.id,
+      orgId: schema.accounts.orgId,
+      slug: schema.accounts.slug,
+      displayName: schema.accounts.displayName,
+    }).from(schema.accounts).where(eq(schema.accounts.orgId, orgId)).orderBy(asc(schema.accounts.slug));
+    return rows.map(accountRow);
   }
   return [...mem.accounts.values()].filter((a) => a.org_id === orgId);
 }
 
 export async function upsertUser(orgId: string, email: string, displayName?: string, externalSub?: string): Promise<User> {
-  if (pool) {
-    const r = await pool.query(
-      `INSERT INTO users (org_id, email, display_name, external_sub) VALUES ($1,$2,$3,$4)
-       ON CONFLICT (org_id, email) DO UPDATE SET display_name=EXCLUDED.display_name RETURNING id, org_id, email, display_name, external_sub`,
-      [orgId, email, displayName || email, externalSub || null],
-    );
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.users)
+      .values({ orgId, email, displayName: displayName || email, externalSub: externalSub || null })
+      .onConflictDoUpdate({
+        target: [schema.users.orgId, schema.users.email],
+        set: { displayName: sql`excluded.display_name` },
+      })
+      .returning({
+        id: schema.users.id,
+        orgId: schema.users.orgId,
+        email: schema.users.email,
+        displayName: schema.users.displayName,
+        externalSub: schema.users.externalSub,
+      });
+    return userRow(rows[0]);
   }
   const existing = [...mem.users.values()].find((u) => u.org_id === orgId && u.email === email);
   if (existing) { existing.display_name = displayName || existing.display_name; return existing; }
@@ -168,9 +260,17 @@ export async function upsertUser(orgId: string, email: string, displayName?: str
 }
 
 export async function createRole(accountId: string, slug: string, description = ''): Promise<Role> {
-  if (pool) {
-    const r = await pool.query('INSERT INTO roles (account_id, slug, description) VALUES ($1,$2,$3) RETURNING id, account_id, slug, description', [accountId, slug, description]);
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.roles)
+      .values({ accountId, slug, description })
+      .returning({
+        id: schema.roles.id,
+        accountId: schema.roles.accountId,
+        slug: schema.roles.slug,
+        description: schema.roles.description,
+      });
+    return roleRow(rows[0]);
   }
   const dup = [...mem.roles.values()].find((r) => r.account_id === accountId && r.slug === slug);
   if (dup) throw Object.assign(new Error('role exists'), { status: 409 });
@@ -180,9 +280,18 @@ export async function createRole(accountId: string, slug: string, description = 
 }
 
 export async function createPolicy(accountId: string, slug: string, description: string, document: PolicyDoc): Promise<Policy> {
-  if (pool) {
-    const r = await pool.query('INSERT INTO policies (account_id, slug, description, document) VALUES ($1,$2,$3,$4) RETURNING id, account_id, slug, description, document', [accountId, slug, description, document]);
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.policies)
+      .values({ accountId, slug, description, document })
+      .returning({
+        id: schema.policies.id,
+        accountId: schema.policies.accountId,
+        slug: schema.policies.slug,
+        description: schema.policies.description,
+        document: schema.policies.document,
+      });
+    return policyRow(rows[0]);
   }
   const dup = [...mem.policies.values()].find((p) => p.account_id === accountId && p.slug === slug);
   if (dup) throw Object.assign(new Error('policy exists'), { status: 409 });
@@ -192,8 +301,9 @@ export async function createPolicy(accountId: string, slug: string, description:
 }
 
 export async function attachPolicy(roleId: string, policyId: string): Promise<void> {
-  if (pool) {
-    await pool.query('INSERT INTO role_policies (role_id, policy_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [roleId, policyId]);
+  if (db) {
+    await ensureTables();
+    await db.insert(schema.rolePolicies).values({ roleId, policyId }).onConflictDoNothing();
     return;
   }
   if (!mem.rolePolicies.has(roleId)) mem.rolePolicies.set(roleId, new Set());
@@ -201,8 +311,9 @@ export async function attachPolicy(roleId: string, policyId: string): Promise<vo
 }
 
 export async function assignRole(userId: string, roleId: string): Promise<void> {
-  if (pool) {
-    await pool.query('INSERT INTO user_roles (user_id, role_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [userId, roleId]);
+  if (db) {
+    await ensureTables();
+    await db.insert(schema.userRoles).values({ userId, roleId }).onConflictDoNothing();
     return;
   }
   if (!mem.userRoles.has(userId)) mem.userRoles.set(userId, new Set());
@@ -211,9 +322,13 @@ export async function assignRole(userId: string, roleId: string): Promise<void> 
 
 /** Idempotent removals (true when a row existed). */
 export async function detachPolicy(roleId: string, policyId: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('DELETE FROM role_policies WHERE role_id=$1 AND policy_id=$2', [roleId, policyId]);
-    return (r.rowCount || 0) > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.delete(schema.rolePolicies).where(and(
+      eq(schema.rolePolicies.roleId, roleId),
+      eq(schema.rolePolicies.policyId, policyId),
+    )).returning({ policyId: schema.rolePolicies.policyId });
+    return rows.length > 0;
   }
   const set = mem.rolePolicies.get(roleId);
   if (!set) return false;
@@ -221,9 +336,13 @@ export async function detachPolicy(roleId: string, policyId: string): Promise<bo
 }
 
 export async function unassignRole(userId: string, roleId: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('DELETE FROM user_roles WHERE user_id=$1 AND role_id=$2', [userId, roleId]);
-    return (r.rowCount || 0) > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.delete(schema.userRoles).where(and(
+      eq(schema.userRoles.userId, userId),
+      eq(schema.userRoles.roleId, roleId),
+    )).returning({ roleId: schema.userRoles.roleId });
+    return rows.length > 0;
   }
   const set = mem.userRoles.get(userId);
   if (!set) return false;
@@ -231,13 +350,14 @@ export async function unassignRole(userId: string, roleId: string): Promise<bool
 }
 
 export async function policiesForUser(userId: string): Promise<PolicyDoc[]> {
-  if (pool) {
-    const r = await pool.query(
-      `SELECT p.document FROM policies p
-       JOIN role_policies rp ON rp.policy_id = p.id
-       JOIN user_roles ur ON ur.role_id = rp.role_id
-       WHERE ur.user_id = $1`, [userId]);
-    return r.rows.map((x) => x.document);
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({ document: schema.policies.document })
+      .from(schema.policies)
+      .innerJoin(schema.rolePolicies, eq(schema.rolePolicies.policyId, schema.policies.id))
+      .innerJoin(schema.userRoles, eq(schema.userRoles.roleId, schema.rolePolicies.roleId))
+      .where(eq(schema.userRoles.userId, userId));
+    return rows.map((x) => x.document as PolicyDoc);
   }
   const roleIds = mem.userRoles.get(userId) || new Set();
   const docs: PolicyDoc[] = [];
@@ -252,33 +372,60 @@ export async function policiesForUser(userId: string): Promise<PolicyDoc[]> {
 }
 
 export async function listRoles(accountId: string): Promise<Role[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description FROM roles WHERE account_id=$1 ORDER BY slug', [accountId]);
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.roles.id,
+      accountId: schema.roles.accountId,
+      slug: schema.roles.slug,
+      description: schema.roles.description,
+    }).from(schema.roles).where(eq(schema.roles.accountId, accountId)).orderBy(asc(schema.roles.slug));
+    return rows.map(roleRow);
   }
   return [...mem.roles.values()].filter((r) => r.account_id === accountId);
 }
 
 export async function listPolicies(accountId: string): Promise<Policy[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description, document FROM policies WHERE account_id=$1 ORDER BY slug', [accountId]);
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.policies.id,
+      accountId: schema.policies.accountId,
+      slug: schema.policies.slug,
+      description: schema.policies.description,
+      document: schema.policies.document,
+    }).from(schema.policies).where(eq(schema.policies.accountId, accountId)).orderBy(asc(schema.policies.slug));
+    return rows.map(policyRow);
   }
   return [...mem.policies.values()].filter((p) => p.account_id === accountId);
 }
 
 export async function listUsers(orgId: string): Promise<User[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, org_id, email, display_name, external_sub FROM users WHERE org_id=$1 ORDER BY email', [orgId]);
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.users.id,
+      orgId: schema.users.orgId,
+      email: schema.users.email,
+      displayName: schema.users.displayName,
+      externalSub: schema.users.externalSub,
+    }).from(schema.users).where(eq(schema.users.orgId, orgId)).orderBy(asc(schema.users.email));
+    return rows.map(userRow);
   }
   return [...mem.users.values()].filter((u) => u.org_id === orgId);
 }
 
 export async function getUserById(id: string): Promise<User | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, org_id, email, display_name, external_sub FROM users WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.users.id,
+      orgId: schema.users.orgId,
+      email: schema.users.email,
+      displayName: schema.users.displayName,
+      externalSub: schema.users.externalSub,
+    }).from(schema.users).where(eq(schema.users.id, id)).limit(1);
+    return rows[0] ? userRow(rows[0]) : null;
   }
   return mem.users.get(id) || null;
 }
@@ -286,41 +433,57 @@ export async function getUserById(id: string): Promise<User | null> {
 /** Membership check by (org, email) — used by the OIDC callback before letting
  *  an IdP identity join an EXISTING org (no auto-join across tenants, #9). */
 export async function findUserByOrgEmail(orgId: string, email: string): Promise<User | null> {
-  if (pool) {
-    const r = await pool.query(
-      'SELECT id, org_id, email, display_name, external_sub FROM users WHERE org_id=$1 AND email=$2',
-      [orgId, email],
-    );
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.users.id,
+      orgId: schema.users.orgId,
+      email: schema.users.email,
+      displayName: schema.users.displayName,
+      externalSub: schema.users.externalSub,
+    }).from(schema.users).where(and(
+      eq(schema.users.orgId, orgId),
+      eq(schema.users.email, email),
+    )).limit(1);
+    return rows[0] ? userRow(rows[0]) : null;
   }
   return [...mem.users.values()].find((u) => u.org_id === orgId && u.email === email) || null;
 }
 
 /** Existence checks for FK-safe attach/assign (404 thay vì 500 khi id lạ). */
 export async function roleExists(id: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('SELECT 1 FROM roles WHERE id=$1', [id]);
-    return r.rows.length > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({ id: schema.roles.id }).from(schema.roles).where(eq(schema.roles.id, id)).limit(1);
+    return rows.length > 0;
   }
   return mem.roles.has(id);
 }
 
 export async function policyExists(id: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('SELECT 1 FROM policies WHERE id=$1', [id]);
-    return r.rows.length > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({ id: schema.policies.id }).from(schema.policies).where(eq(schema.policies.id, id)).limit(1);
+    return rows.length > 0;
   }
   return mem.policies.has(id);
 }
 
 /** Policies attached to a role / roles assigned to a user (for management UI). */
 export async function policiesForRole(roleId: string): Promise<Policy[]> {
-  if (pool) {
-    const r = await pool.query(
-      'SELECT p.id, p.account_id, p.slug, p.description, p.document FROM policies p JOIN role_policies rp ON rp.policy_id = p.id WHERE rp.role_id = $1 ORDER BY p.slug',
-      [roleId],
-    );
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.policies.id,
+      accountId: schema.policies.accountId,
+      slug: schema.policies.slug,
+      description: schema.policies.description,
+      document: schema.policies.document,
+    }).from(schema.policies)
+      .innerJoin(schema.rolePolicies, eq(schema.rolePolicies.policyId, schema.policies.id))
+      .where(eq(schema.rolePolicies.roleId, roleId))
+      .orderBy(asc(schema.policies.slug));
+    return rows.map(policyRow);
   }
   const out: Policy[] = [];
   for (const pid of mem.rolePolicies.get(roleId) || []) {
@@ -331,12 +494,18 @@ export async function policiesForRole(roleId: string): Promise<Policy[]> {
 }
 
 export async function rolesForUser(userId: string): Promise<Role[]> {
-  if (pool) {
-    const r = await pool.query(
-      'SELECT r.id, r.account_id, r.slug, r.description FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1 ORDER BY r.slug',
-      [userId],
-    );
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.roles.id,
+      accountId: schema.roles.accountId,
+      slug: schema.roles.slug,
+      description: schema.roles.description,
+    }).from(schema.roles)
+      .innerJoin(schema.userRoles, eq(schema.userRoles.roleId, schema.roles.id))
+      .where(eq(schema.userRoles.userId, userId))
+      .orderBy(asc(schema.roles.slug));
+    return rows.map(roleRow);
   }
   const out: Role[] = [];
   for (const rid of mem.userRoles.get(userId) || []) {
@@ -348,37 +517,57 @@ export async function rolesForUser(userId: string): Promise<Role[]> {
 
 /** Full-row lookups for cross-tenant scoping (attach/assign/mint). */
 export async function getRoleById(id: string): Promise<Role | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description FROM roles WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.roles.id,
+      accountId: schema.roles.accountId,
+      slug: schema.roles.slug,
+      description: schema.roles.description,
+    }).from(schema.roles).where(eq(schema.roles.id, id)).limit(1);
+    return rows[0] ? roleRow(rows[0]) : null;
   }
   return mem.roles.get(id) || null;
 }
 
 export async function getPolicyById(id: string): Promise<Policy | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description, document FROM policies WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.policies.id,
+      accountId: schema.policies.accountId,
+      slug: schema.policies.slug,
+      description: schema.policies.description,
+      document: schema.policies.document,
+    }).from(schema.policies).where(eq(schema.policies.id, id)).limit(1);
+    return rows[0] ? policyRow(rows[0]) : null;
   }
   return mem.policies.get(id) || null;
 }
 
 export async function getAccountById(id: string): Promise<Account | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, org_id, slug, display_name FROM accounts WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.accounts.id,
+      orgId: schema.accounts.orgId,
+      slug: schema.accounts.slug,
+      displayName: schema.accounts.displayName,
+    }).from(schema.accounts).where(eq(schema.accounts.id, id)).limit(1);
+    return rows[0] ? accountRow(rows[0]) : null;
   }
   return mem.accounts.get(id) || null;
 }
 
 /** Account ids where the user holds at least one role (tenant membership). */
 export async function accountsForUser(userId: string): Promise<string[]> {
-  if (pool) {
-    const r = await pool.query(
-      'SELECT DISTINCT r.account_id FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1',
-      [userId],
-    );
-    return r.rows.map((x) => x.account_id);
+  if (db) {
+    await ensureTables();
+    const rows = await db.selectDistinct({ accountId: schema.roles.accountId })
+      .from(schema.roles)
+      .innerJoin(schema.userRoles, eq(schema.userRoles.roleId, schema.roles.id))
+      .where(eq(schema.userRoles.userId, userId));
+    return rows.map((x) => x.accountId);
   }
   const out = new Set<string>();
   for (const rid of mem.userRoles.get(userId) || []) {
@@ -389,17 +578,19 @@ export async function accountsForUser(userId: string): Promise<string[]> {
 }
 
 export async function deleteRole(id: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('DELETE FROM roles WHERE id=$1', [id]);
-    return (r.rowCount || 0) > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.delete(schema.roles).where(eq(schema.roles.id, id)).returning({ id: schema.roles.id });
+    return rows.length > 0;
   }
   return mem.roles.delete(id);
 }
 
 export async function deletePolicy(id: string): Promise<boolean> {
-  if (pool) {
-    const r = await pool.query('DELETE FROM policies WHERE id=$1', [id]);
-    return (r.rowCount || 0) > 0;
+  if (db) {
+    await ensureTables();
+    const rows = await db.delete(schema.policies).where(eq(schema.policies.id, id)).returning({ id: schema.policies.id });
+    return rows.length > 0;
   }
   return mem.policies.delete(id);
 }
@@ -414,11 +605,17 @@ export interface AuditEntry {
   context?: any;
 }
 
-export async function logAudit(e: AuditEntry): Promise<void> {  if (pool) {
-    await pool.query(
-      'INSERT INTO audit_log (actor_type, actor_id, action, resource, decision, context) VALUES ($1,$2,$3,$4,$5,$6)',
-      [e.actor_type, e.actor_id, e.action, e.resource || '', !!e.decision, e.context || {}],
-    );
+export async function logAudit(e: AuditEntry): Promise<void> {
+  if (db) {
+    await ensureTables();
+    await db.insert(schema.auditLog).values({
+      actorType: e.actor_type,
+      actorId: e.actor_id,
+      action: e.action,
+      resource: e.resource || '',
+      decision: !!e.decision,
+      context: e.context || {},
+    });
     return;
   }
   if (!(__mem as any).audit) (__mem as any).audit = [];
@@ -429,31 +626,38 @@ export async function logAudit(e: AuditEntry): Promise<void> {  if (pool) {
 export async function listAudit(limit = 50, actorId?: string, allowed?: boolean, orgId?: string): Promise<any[]> {
   const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
   const dec = allowed === undefined ? undefined : !!allowed;
-  if (pool) {
-    const conds: string[] = [];
-    const params: any[] = [];
-    if (actorId) {
-      params.push(actorId);
-      conds.push(`actor_id=$${params.length}`);
-    }
-    if (dec !== undefined) {
-      params.push(dec);
-      conds.push(`decision=$${params.length}`);
-    }
+  if (db) {
+    await ensureTables();
+    const conds = [];
+    if (actorId) conds.push(eq(schema.auditLog.actorId, actorId));
+    if (dec !== undefined) conds.push(eq(schema.auditLog.decision, dec));
     if (orgId) {
       // Tenant scoping (#7): rows belong to the org they targeted
       // (context.org) or to the org of the caller who triggered them
       // (context.callerOrg, e.g. dry-run rows).
-      params.push(orgId);
-      conds.push(`(context->>'org'=$${params.length} OR context->>'callerOrg'=$${params.length})`);
+      conds.push(sql`(${schema.auditLog.context}->>'org' = ${orgId} OR ${schema.auditLog.context}->>'callerOrg' = ${orgId})`);
     }
-    params.push(lim);
-    const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
-    const r = await pool.query(
-      `SELECT id, created_at, actor_type, actor_id, action, resource, decision, context FROM audit_log ${where} ORDER BY created_at DESC LIMIT $${params.length}`,
-      params,
-    );
-    return r.rows;
+    const where = conds.length ? and(...conds) : undefined;
+    const rows = await db.select({
+      id: schema.auditLog.id,
+      createdAt: schema.auditLog.createdAt,
+      actorType: schema.auditLog.actorType,
+      actorId: schema.auditLog.actorId,
+      action: schema.auditLog.action,
+      resource: schema.auditLog.resource,
+      decision: schema.auditLog.decision,
+      context: schema.auditLog.context,
+    }).from(schema.auditLog).where(where).orderBy(desc(schema.auditLog.createdAt)).limit(lim);
+    return rows.map((r) => ({
+      id: r.id,
+      created_at: iso(r.createdAt),
+      actor_type: r.actorType,
+      actor_id: r.actorId,
+      action: r.action,
+      resource: r.resource,
+      decision: r.decision,
+      context: r.context,
+    }));
   }
   const all: any[] = (((__mem as any).audit as any[]) || []).slice().reverse();
   const filtered = all.filter(
@@ -468,18 +672,22 @@ export async function listAudit(limit = 50, actorId?: string, allowed?: boolean,
  *  Non-positive input is a no-op (retention disabled by default). */
 export async function purgeAudit(olderThanDays: number, batch = 1000): Promise<number> {
   if (!(olderThanDays > 0) || !Number.isFinite(olderThanDays)) return 0;
-  const cutoff = new Date(Date.now() - olderThanDays * 86400000).toISOString();
+  const cutoff = new Date(Date.now() - olderThanDays * 86400000);
   const lim = Math.min(Math.max(Math.floor(batch) || 1000, 1), 10000);
-  if (pool) {
+  if (db) {
+    await ensureTables();
     // Postgres has no DELETE..LIMIT: batch via id sub-select.
-    const r = await pool.query(
-      'DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE created_at < $1 LIMIT $2)',
-      [cutoff, lim],
-    );
-    return r.rowCount || 0;
+    const ids = await db.select({ id: schema.auditLog.id }).from(schema.auditLog)
+      .where(lt(schema.auditLog.createdAt, cutoff))
+      .limit(lim);
+    if (ids.length === 0) return 0;
+    const rows = await db.delete(schema.auditLog)
+      .where(inArray(schema.auditLog.id, ids.map((x) => x.id)))
+      .returning({ id: schema.auditLog.id });
+    return rows.length;
   }
   const arr: any[] = ((__mem as any).audit as any[]) || [];
-  const kept = arr.filter((a) => String(a.created_at || '') >= cutoff).slice(-10000);
+  const kept = arr.filter((a) => String(a.created_at || '') >= cutoff.toISOString()).slice(-10000);
   const removed = arr.length - kept.length;
   (__mem as any).audit = kept;
   return removed;
@@ -488,9 +696,17 @@ export async function purgeAudit(olderThanDays: number, batch = 1000): Promise<n
 export interface ServiceAccount { id: string; account_id: string; slug: string; description?: string }
 
 export async function createServiceAccount(accountId: string, slug: string, description = ''): Promise<ServiceAccount> {
-  if (pool) {
-    const r = await pool.query('INSERT INTO service_accounts (account_id, slug, description) VALUES ($1,$2,$3) RETURNING id, account_id, slug, description', [accountId, slug, description]);
-    return r.rows[0];
+  if (db) {
+    await ensureTables();
+    const rows = await db.insert(schema.serviceAccounts)
+      .values({ accountId, slug, description })
+      .returning({
+        id: schema.serviceAccounts.id,
+        accountId: schema.serviceAccounts.accountId,
+        slug: schema.serviceAccounts.slug,
+        description: schema.serviceAccounts.description,
+      });
+    return { id: rows[0].id, account_id: rows[0].accountId, slug: rows[0].slug, description: rows[0].description ?? '' };
   }
   const dup = [...__mem.serviceAccounts.values()].find((s: any) => s.account_id === accountId && s.slug === slug);
   if (dup) throw Object.assign(new Error('service account exists'), { status: 409 });
@@ -500,17 +716,31 @@ export async function createServiceAccount(accountId: string, slug: string, desc
 }
 
 export async function listServiceAccounts(accountId: string): Promise<ServiceAccount[]> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description FROM service_accounts WHERE account_id=$1 ORDER BY slug', [accountId]);
-    return r.rows;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.serviceAccounts.id,
+      accountId: schema.serviceAccounts.accountId,
+      slug: schema.serviceAccounts.slug,
+      description: schema.serviceAccounts.description,
+    }).from(schema.serviceAccounts).where(eq(schema.serviceAccounts.accountId, accountId)).orderBy(asc(schema.serviceAccounts.slug));
+    return rows.map((r) => ({ id: r.id, account_id: r.accountId, slug: r.slug, description: r.description ?? '' }));
   }
   return [...__mem.serviceAccounts.values()].filter((s: any) => s.account_id === accountId);
 }
 
 export async function getServiceAccount(id: string): Promise<ServiceAccount | null> {
-  if (pool) {
-    const r = await pool.query('SELECT id, account_id, slug, description FROM service_accounts WHERE id=$1', [id]);
-    return r.rows[0] || null;
+  if (db) {
+    await ensureTables();
+    const rows = await db.select({
+      id: schema.serviceAccounts.id,
+      accountId: schema.serviceAccounts.accountId,
+      slug: schema.serviceAccounts.slug,
+      description: schema.serviceAccounts.description,
+    }).from(schema.serviceAccounts).where(eq(schema.serviceAccounts.id, id)).limit(1);
+    return rows[0]
+      ? { id: rows[0].id, account_id: rows[0].accountId, slug: rows[0].slug, description: rows[0].description ?? '' }
+      : null;
   }
   return (__mem.serviceAccounts.get(id) as ServiceAccount) || null;
 }

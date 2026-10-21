@@ -4,6 +4,7 @@ COPY package.json package-lock.json* ./
 RUN npm install --production=false || npm install
 COPY tsconfig.json ./
 COPY src ./src
+COPY drizzle ./drizzle
 RUN npm run build \
   && rm -f dist/*.test.js dist/*.test.d.ts \
   && npm prune --omit=dev \

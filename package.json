@@ -20,5 +20,8 @@
     "dev:base": "npm run dev --workspace=apps/base-service",
     "dev:faststore": "npm run dev --workspace=apps/faststore-service",
     "dev:queue": "npm run dev --workspace=apps/queue-service"
+  },
+  "devDependencies": {
+    "drizzle-orm": "^0.45.4"
   }
 }

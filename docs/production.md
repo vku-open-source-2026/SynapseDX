@@ -38,9 +38,19 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism �
 - [ ] Postgres: durable volume + periodic backups (`pg_dump`, see `docs/troubleshooting.md`).
 - [ ] Object storage: S3Mock → MinIO/real S3 (`docs/object-storage.md`).
 - [ ] Redis AOF already on in compose; on K8s use a redis chart with persistence.
-- [ ] Pre-existing DB: `init.sql` only runs on first init — manually apply new
-      `CREATE INDEX IF NOT EXISTS idx_*` from `infra/postgres/init.sql`
-      (idempotent, safe to re-run) so list/DELETE CASCADE paths don't seq-scan.
+- [ ] Database schema is managed by Drizzle migrations in `apps/*/drizzle/`.
+      Services apply their own migrations at startup under a per-service
+      advisory lock and migration journal (`drizzle.__drizzle_migrations_*`).
+      `infra/postgres/init.sql` is bootstrap-only (extensions + the migration
+      journal schema); table/index DDL and the demo seed live in migrations.
+      Back up the database before the
+      first deploy of a schema-changing release, and review generated SQL.
+- [ ] Migration journals are service-specific because all services share one
+      database. Do not point multiple services at the same journal, and do not
+      edit migrations that have already been applied.
+- [ ] The service DB role can create/alter tables, indexes and the `drizzle`
+      schema (startup migrations need DDL rights), or migrations are pre-applied
+      once with a privileged role before the service rollout.
 
 ## 4. Operations
 
