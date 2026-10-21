@@ -8,8 +8,8 @@
 [![PyPI SDK](https://img.shields.io/pypi/v/synapsedx-sdk)](https://pypi.org/project/synapsedx-sdk/)
 
 **SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
-management, a core data cluster, and native workflows — operated through a web Console,
-SDKs in three languages, and a zero-dependency CLI.**
+management, a core data cluster (documents, cache and queue), and native workflows —
+operated through a web Console, SDKs in three languages, and a zero-dependency CLI.**
 
 No lock-in: Authentik/Keycloak runs as an optional external IdP over
 standard OIDC. Everything else is SynapseDX code, pure Apache-2.0.
@@ -26,6 +26,9 @@ standard OIDC. Everything else is SynapseDX code, pure Apache-2.0.
 | **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log, tenant isolation on every write (role-based, same-org fallback) |
 | **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
 | **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
+| **SynapseBase** | Self-managed document database: collections, object↔data mapping with validation, filters/cursors, optimistic concurrency, atomic counters, batches and a change feed (`/v1/base`) |
+| **Synapse Faststore** | Redis-backed cache/KV and data structures: TTL strings, counters, hashes, lists, sets, sorted sets, scans, batches and distributed locks (`/v1/faststore`) |
+| **SynapseQueue** | At-least-once messaging: delayed/deduplicated publishing, visibility-timeout leases, ack/nack/heartbeat, retries, dead letters and replay (`/v1/queue`) |
 | **Workflows** | Built-in workflow engine (Apache-2.0): DAG runner, versioned templates, activate/deactivate/execute (real webhook & cron triggers), sandboxed code execution, execution history, visual graph editor |
 | **Linked Data (SynapseLDS)** | Licence-picked NGSI-LD datasources: structural-allowlist projection (`_core` never serialized), per-attribute visibility (public/restricted/internal), default-deny schema registry, workflow publish node (`lds.publish-record`) |
 | **AI assistant** | Chatbot on the API Docs page: decision model picks the endpoint, LLM pre-fills the try-it form (server-side key, guidance-only, never public) |
@@ -49,9 +52,9 @@ pip install synapsedx-sdk
 ```python
 from synapsedx_sdk import SynapseDXClient
 c = SynapseDXClient("https://api.synapsedx.sbs")
-login = c.login("demo@acme.local")
+login = c.iam.login("demo@acme.local")
 c.set_api_key("<your-key>")  # create one in the Console: cloud.synapsedx.sbs → Keys
-print(c.list_orgs())
+print(c.iam.list_orgs())
 ```
 
 Or open the [Console](https://cloud.synapsedx.sbs) and sign in with an API key.
@@ -80,14 +83,19 @@ npx -y @synapsedx/cli@latest --help
 // TypeScript
 import { SynapseDXClient } from '@synapsedx/sdk';
 const c = new SynapseDXClient({ baseUrl: 'https://api.synapsedx.sbs' });
-const { accessToken, user } = await c.login('demo@acme.local');
+const { accessToken } = await c.iam.login('demo@acme.local');
 c.setToken(accessToken);
-await c.createWorkflowFromTemplate('webhook-to-log', 'demo');
+await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
+
+await c.faststore.set('cache:demo', { ok: true }, { ttlSeconds: 300 });
+await c.queue.publish('emails', { to: 'demo@acme.local' });
 ```
 
 All clients cover the full API (`docs/api.md`): auth/refresh/logout, orgs/accounts/users,
 roles/policies/attach/assign, authorize + dry-run, audit, API keys, service accounts,
-workflows/templates/executions.
+workflows/templates/executions, LDS, Base, Faststore and Queue. The SDKs are split
+per service namespace (`c.iam`, `c.workflow`, `c.lds`, `c.base`, `c.faststore`,
+`c.queue`); legacy flat methods still work with a deprecation warning.
 
 ## Self-host
 
@@ -95,6 +103,7 @@ workflows/templates/executions.
 cp .env.example .env   # then replace every *_change_me_* secret
 docker compose up -d --build
 curl localhost:8080/health && curl localhost:4001/health && curl localhost:4002/health
+curl localhost:4005/health && curl localhost:4006/health && curl localhost:4007/health
 open http://localhost:3000   # sign in: demo@acme.local / org acme
 ```
 
@@ -108,13 +117,19 @@ Production (TLS, edge rate limiting, hardened secrets): `docker-compose.prod.yml
 | IAM | `http://localhost:4001` | Internal (behind gateway in prod) |
 | Workflow | `http://localhost:4002` | Internal (behind gateway in prod) |
 | LDS | `http://localhost:4004` | Internal — SynapseLDS NGSI-LD datasources (behind gateway in prod) |
+| Base | `http://localhost:4005` | Internal — SynapseBase documents + mapping (behind gateway in prod) |
+| Faststore | `http://localhost:4006` | Internal — cache/KV/data structures (behind gateway in prod) |
+| Queue | `http://localhost:4007` | Internal — SynapseQueue messaging (behind gateway in prod) |
 
 ## Architecture
 
 ```
-Client → Gateway :8080 ─┬─► IAM :4001 (Org/Account/Role/Policy + tokens + OIDC)
-                         ├─► Workflow :4002 (built-in Apache-2.0 engine)
-                         └─► LDS :4004 (SynapseLDS: licensed NGSI-LD exports)
+Client → Gateway :8080 ─┬─► IAM :4001       (Org/Account/Role/Policy + tokens + OIDC)
+                         ├─► Workflow :4002  (built-in Apache-2.0 engine)
+                         ├─► LDS :4004       (licensed NGSI-LD exports)
+                         ├─► Base :4005      (documents + object↔data mapping)
+                         ├─► Faststore :4006 (cache/KV/data structures)
+                         └─► Queue :4007     (at-least-once messaging)
                          Postgres :5432 / Redis :6379 / S3-compatible :9090
 ```
 
@@ -129,6 +144,9 @@ apps/gateway               API gateway (proxy, JWT/API-key, principal headers, /
 apps/iam-service           IAM + tokens + authorize/simulator + real OIDC code flow
 apps/workflow-service      Workflow engine (local built-in DAG runner, sandboxed code, triggers)
 apps/lds-service           SynapseLDS — NGSI-LD datasources, registry, licensed exports
+apps/base-service          SynapseBase — documents, mapping, queries, change feed
+apps/faststore-service     Synapse Faststore — cache/KV, data structures, locks
+apps/queue-service         SynapseQueue — publish/consume, leases, retries, DLQ
 sdks/sdk-js                @synapsedx/sdk (TypeScript, zero runtime deps)
 sdks/sdk-python            synapsedx-sdk (Python, requests only)
 sdks/sdk-go                synapsedx-sdk-go (Go, stdlib only)
@@ -148,6 +166,9 @@ docs                       Start at docs/README.md
 |---|---|
 | `docs/quickstart.md` | Run in 3 commands, your first flow |
 | `docs/api.md` | Complete API reference |
+| `docs/synapsebase.md` | SynapseBase — documents, object↔data mapping, queries, changes |
+| `docs/faststore.md` | Synapse Faststore — cache/KV, data structures, locks |
+| `docs/queue.md` | SynapseQueue — publish, consume, leases, retries, dead letters |
 | `docs/iam-model.md` | Authorization model with examples |
 | `docs/configuration.md` | Every environment variable |
 | `docs/production.md` | Production checklist (secrets, TLS, edge) |

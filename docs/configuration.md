@@ -10,12 +10,17 @@ reads which key (audited from source):
 | `PORT` (fallback `GATEWAY_PORT`) | 8080 | listen port (inside the container) |
 | `IAM_SERVICE_URL` | `http://iam:4001` | IAM upstream |
 | `WORKFLOW_SERVICE_URL` | `http://workflow:4002` | workflow upstream |
+| `AI_SERVICE_URL` | `http://ai:4003` | AI assistant upstream |
+| `LDS_SERVICE_URL` | `http://lds:4004` | SynapseLDS upstream |
+| `BASE_SERVICE_URL` | `http://base:4005` | SynapseBase upstream |
+| `FASTSTORE_SERVICE_URL` | `http://faststore:4006` | Synapse Faststore upstream |
+| `QUEUE_SERVICE_URL` | `http://queue:4007` | SynapseQueue upstream |
 | `IAM_JWT_SECRET` | — | **must match** IAM, used to verify Bearer tokens |
 | `GATEWAY_ROUTES_PATH` | `./routes.yaml` | routing table |
 | `GATEWAY_VERIFY_APIKEY` | `true` | `true` → centralized `X-API-Key` verification via IAM (fail-closed 503 when IAM is down); `false` → edge presence check, upstream verifies (dev-only, forbidden in production) |
 | `PROXY_TIMEOUT_MS` | 30000 | upstream timeout (504 when exceeded) |
 | `CORS_ORIGIN` | (allow all) | `a.com,b.com` → only those origins (production) |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | gateway → iam/workflow credential (`x-synapsedx-internal` header); **identical** on all 3 services in production |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | gateway → service credential (`x-synapsedx-internal` header); **identical** on every service in production |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 | ~~`RATE_LIMIT_*` / `AUTH_RATE_LIMIT_*` / `TRUST_PROXY`~~ | — | removed from gateway (rate limiting lives at Ingress/WAF); restore by reverting the removal commit |
 | `REDIS_URL` | — (memory) | `redis://...` → Redis-backed rate limiting (shared across replicas, fail-open when Redis is down) |
@@ -82,6 +87,44 @@ internal id, source id, actor, any future field) can never be serialized. Unregi
 attributes default-deny; visibility is resolved at read time from the registry
 (`public|restricted|internal`, restricted needs an in-org principal).
 
+## Base — SynapseBase (`apps/base-service`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `PORT` | 4005 | listen port (gateway route `/v1/base`, auth `either`) |
+| `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend; **required in production** (otherwise a per-process in-memory store) |
+| `BASE_MAX_DOCUMENT_BYTES` | 262144 | max serialized document size, clamped 1024..4194304 |
+| `BASE_QUERY_SCAN_LIMIT` | 10000 | max documents scanned per query, clamped 100..100000; larger collections return `413 collection_too_large` |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4005` bypass |
+| `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
+| `BASE_SERVICE_HOST_PORT` | `127.0.0.1:4005` | compose host binding |
+
+## Faststore — Synapse Faststore (`apps/faststore-service`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `PORT` | 4006 | listen port (gateway route `/v1/faststore`, auth `either`) |
+| `FASTSTORE_REDIS_URL` | falls back to `REDIS_URL` | `redis://...` → Redis backend; **required in production** |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4006` bypass |
+| `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
+| `FASTSTORE_SERVICE_HOST_PORT` | `127.0.0.1:4006` | compose host binding |
+
+## Queue — SynapseQueue (`apps/queue-service`)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `PORT` | 4007 | listen port (gateway route `/v1/queue`, auth `either`) |
+| `QUEUE_REDIS_URL` | falls back to `REDIS_URL` | `redis://...` → Redis backend; **required in production** (an in-memory queue would split-brain across replicas) |
+| `QUEUE_MAX_PAYLOAD_BYTES` | 262144 | max serialized message payload, clamped 1024..1048576 |
+| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4007` bypass |
+| `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
+| `QUEUE_SERVICE_HOST_PORT` | `127.0.0.1:4007` | compose host binding |
+
+The three data services share the platform tenancy model: principal callers are
+scoped to their org/account/user; platform callers must select a tenant with
+`x-synapsedx-tenant` (Faststore/Queue) or `?orgId`/`?accountId` (Base). The gateway
+forwards `x-synapsedx-tenant` and strips the other client-supplied identity headers.
+
 ## Console (`apps/console`, runtime via `config.js`)
 
 | Key | Default | Meaning |
@@ -91,5 +134,7 @@ attributes default-deny; visibility is resolved at read time from the registry
 
 ## Core data / external engines
 
-Postgres (`POSTGRES_*`), Authentik (`AUTHENTIK_*`, host ports `AUTHENTIK_HTTP_PORT=19000`),
-S3 (`S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`, `S3_HOST_PORT=9090`).
+Postgres (`POSTGRES_*`; IAM, workflow, LDS and Base), Redis (`REDIS_URL`; gateway
+rate limiting, Faststore and Queue), Authentik (`AUTHENTIK_*`, host ports
+`AUTHENTIK_HTTP_PORT=19000`), S3 (`S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY`,
+`S3_HOST_PORT=9090`).

@@ -236,6 +236,81 @@ services:
         condition: service_healthy
     networks: [synapsedx-net]
 
+  base:
+    build:
+      context: ./apps/base-service
+    image: synapsedx/base:0.5.0
+    restart: unless-stopped
+    environment:
+      PORT: 4005
+      DATABASE_URL: postgres://${POSTGRES_USER:-synapsedx}:${POSTGRES_PASSWORD:-synapsedx_password_change_me}@postgres:5432/${POSTGRES_DB:-synapsedx}
+      BASE_MAX_DOCUMENT_BYTES: ${BASE_MAX_DOCUMENT_BYTES:-262144}
+      BASE_QUERY_SCAN_LIMIT: ${BASE_QUERY_SCAN_LIMIT:-10000}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${BASE_SERVICE_HOST_PORT:-127.0.0.1:4005}:4005"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4005/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
+  faststore:
+    build:
+      context: ./apps/faststore-service
+    image: synapsedx/faststore:0.5.0
+    restart: unless-stopped
+    environment:
+      PORT: 4006
+      FASTSTORE_REDIS_URL: ${FASTSTORE_REDIS_URL:-redis://redis:6379}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${FASTSTORE_SERVICE_HOST_PORT:-127.0.0.1:4006}:4006"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4006/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
+  queue:
+    build:
+      context: ./apps/queue-service
+    image: synapsedx/queue:0.5.0
+    restart: unless-stopped
+    environment:
+      PORT: 4007
+      QUEUE_REDIS_URL: ${QUEUE_REDIS_URL:-redis://redis:6379}
+      QUEUE_MAX_PAYLOAD_BYTES: ${QUEUE_MAX_PAYLOAD_BYTES:-262144}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${QUEUE_SERVICE_HOST_PORT:-127.0.0.1:4007}:4007"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4007/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
   gateway:
     build:
       context: ./apps/gateway
@@ -247,6 +322,9 @@ services:
       WORKFLOW_SERVICE_URL: ${WORKFLOW_SERVICE_URL:-http://workflow:4002}
       AI_SERVICE_URL: ${AI_SERVICE_URL:-http://ai:4003}
       LDS_SERVICE_URL: ${LDS_SERVICE_URL:-http://lds:4004}
+      BASE_SERVICE_URL: ${BASE_SERVICE_URL:-http://base:4005}
+      FASTSTORE_SERVICE_URL: ${FASTSTORE_SERVICE_URL:-http://faststore:4006}
+      QUEUE_SERVICE_URL: ${QUEUE_SERVICE_URL:-http://queue:4007}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
@@ -269,6 +347,12 @@ services:
       ai:
         condition: service_healthy
       lds:
+        condition: service_healthy
+      base:
+        condition: service_healthy
+      faststore:
+        condition: service_healthy
+      queue:
         condition: service_healthy
     networks: [synapsedx-net]
 

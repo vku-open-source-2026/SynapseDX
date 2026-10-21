@@ -1,10 +1,14 @@
 # API reference (via Gateway :8080, or services directly)
 
 Base: `http://localhost:8080` (gateway) — every `/v1/*` route needs
-`Authorization: Bearer <JWT>` or `X-API-Key`, except `/v1/auth/*`.
-Calling `:4001`/`:4002`/`:4004` **directly** (bypassing the gateway) additionally requires
+`Authorization: Bearer <JWT>` or `X-API-Key`, except `/v1/auth/*` and the public
+LDS export routes.
+Calling any service **directly** (bypassing the gateway) additionally requires
 `x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` once the secret is configured
 (production), otherwise 401 — see `SECURITY.md`.
+
+Service ports: IAM **4001**, workflow **4002**, AI **4003**, LDS **4004**,
+Base **4005**, Faststore **4006**, Queue **4007**, gateway **8080**.
 
 ## Principal propagation (gateway → upstream)
 
@@ -13,6 +17,12 @@ The gateway **strips** every client-sent `x-synapsedx-*` header (anti-spoofing),
 `x-synapsedx-user: <sub>`, `x-synapsedx-org`, `x-synapsedx-account`,
 `x-synapsedx-scopes`, plus `x-synapsedx-internal` (service-to-service credential when
 configured). Upstreams trust these directly without re-verifying the JWT.
+
+One header is intentionally forwarded rather than stripped:
+`x-synapsedx-tenant`. Principal callers are always scoped to their own
+org/account/user; **platform** callers (no principal) use `x-synapsedx-tenant`
+(or `?tenant=` for Faststore/Queue, `?orgId=`/`?accountId=` for Base) to select a
+tenant. Platform calls without a tenant fail with `400 tenant_required`.
 
 ## Input validation (400 on bad input)
 
@@ -249,11 +259,172 @@ payload). Template `webhook-to-lds`: webhook → publish → done (webhook/cron
 runs act as the workflow's tenant principal, so tenant-bound datasources stay
 publishable). See `docs/specs/synapsedx-lds.md`.
 
+## Base — documents with object ↔ data mapping (`base-service:4005`, gateway `/v1/base`)
+
+Collections of JSON documents with server-side validation, a logical
+object↔data mapping, queries, optimistic concurrency, atomic counters, batch
+writes and a change feed. Full guide: [synapsebase.md](synapsebase.md).
+
+- `GET /v1/base/collections` (`?orgId` / `?accountId` narrow the list)
+- `POST /v1/base/collections {name, description?, mapping?, orgId?, accountId?}`
+  (201; name `[A-Za-z][A-Za-z0-9_-]{0,63}`, unique per tenant scope)
+- `GET /v1/base/collections/:collection` → collection + `stats`
+- `PATCH /v1/base/collections/:collection {name?, description?, mapping?}`
+  (mapping replace is a view/validation change, not a data migration)
+- `DELETE /v1/base/collections/:collection` → collection + documents
+- `GET /v1/base/collections/:collection/stats` → `{documents, bytes, lastUpdatedAt}`
+- `POST /v1/base/collections/:collection/documents {id?, data|object}` — exactly
+  one of `data`/`object`; response is the data view
+- `GET /v1/base/collections/:collection/documents/:id?as=data|object`
+- `PUT /v1/base/collections/:collection/documents/:id {data|object, merge?, ifVersion?}`
+  — upsert (`201` created / `200` replaced); `If-Match: "<version>"` also accepted
+- `PATCH /v1/base/collections/:collection/documents/:id {data|object?, unset?, ifVersion?}`
+  — deep merge + dot-path removals, re-validated against the mapping
+- `DELETE /v1/base/collections/:collection/documents/:id?ifVersion=` (`?ifVersion`
+  or `If-Match`; unknown id `404`, stale version `409 version_conflict`)
+- `GET /v1/base/collections/:collection/documents?limit=100&offset=0` — raw data
+  view, id order
+- `POST /v1/base/collections/:collection/query {where, orderBy?, limit?, offset?|cursor?,
+  select?, as?}` — `where` accepts logical names or dot paths, leaf
+  `{field, op, value}`, groups `and`/`or`/`not`, shorthand
+  `{"capacity":{"gte":100}}`, and metadata `$id/$version/$createdAt/$updatedAt`.
+  Ops: `eq, ne, gt, gte, lt, lte, in, nin, contains, startsWith, endsWith, exists`.
+  Returns `{items, total, limit, offset, nextCursor}`.
+- `POST /v1/base/collections/:collection/documents/:id/increment {field, by?, ifVersion?}`
+  — `field` is a **raw dot path**; missing document is created at version 1
+  (`ifVersion: 0` is the explicit create form)
+- `POST /v1/base/collections/:collection/documents:batch {operations[]}` — 1..100
+  ordered ops `create|set|update|delete|increment`; per-op results, `ok` only when
+  everything succeeded; `ifVersion` is honored only by `delete`
+- `GET /v1/base/collections/:collection/changes?since=&limit=100&as=` — upserts
+  only (`deleted` is always false); reuse `nextSince`
+
+Mapping shape: `{fields: {logical: {path, type?, required?}}, additional?}` or the
+shorthand `{logical: "dot.path"}`. Types `string|number|boolean|date|array|object|any`;
+`additional:false` rejects undeclared keys on object writes. Write `object` to store
+at mapped paths, read `?as=object` to get logical keys.
+
+Tenancy: org principal → org-bound collections; account-only → `org_id=null,
+account_id=<acct>`; platform callers see only unbound collections unless they pass
+`?orgId=`/`?accountId=` (ambiguous name → `409 ambiguous_collection`).
+
+## Faststore — cache, key/value and data structures (`faststore-service:4006`, gateway `/v1/faststore`)
+
+Redis-backed, tenant-scoped strings, counters, hashes, lists, sets, sorted sets,
+bulk operations and distributed locks. Full guide: [faststore.md](faststore.md).
+
+- `GET /v1/faststore/stats` → `{backend, tenant, keys, byType}`
+- `GET /v1/faststore/keys?prefix=&limit=100&cursor=` → `{keys, cursor, truncated}`
+- `GET /v1/faststore/keys/:key` → `{key, type, value, ttlSeconds}`
+- `PUT /v1/faststore/keys/:key {value, ttlSeconds?, ifNotExists?, ifExists?}` — `POST` is an alias
+- `DELETE /v1/faststore/keys/:key` → `{key, deleted}`
+- `GET /v1/faststore/keys/:key/ttl` → `{key, ttlSeconds}` (`-1` = no expiry)
+- `POST /v1/faststore/keys/:key/expire {ttlSeconds}` (`0` clears)
+- `POST /v1/faststore/keys/:key/incr {by?, ttlSeconds?}`
+- `POST /v1/faststore/batch {operations[]}` — 1..100 ops `set|get|delete|incr|expire`
+
+Hashes:
+
+- `GET /v1/faststore/hashes/:key` → all fields
+- `GET /v1/faststore/hashes/:key/length` → field count
+- `PUT /v1/faststore/hashes/:key {values, ttlSeconds?}`
+- `DELETE /v1/faststore/hashes/:key`
+- `GET /v1/faststore/hashes/:key/:field`
+- `PUT /v1/faststore/hashes/:key/:field {value, ttlSeconds?}`
+- `DELETE /v1/faststore/hashes/:key/:field`
+- `POST /v1/faststore/hashes/:key/incr {field, by?, ttlSeconds?}`
+
+Lists:
+
+- `GET /v1/faststore/lists/:key?start=0&stop=-1` → range
+- `DELETE /v1/faststore/lists/:key`
+- `GET /v1/faststore/lists/:key/length`
+- `POST /v1/faststore/lists/:key/push {values, side?, ttlSeconds?}`
+- `POST /v1/faststore/lists/:key/pop {side?, count?}`
+- `POST /v1/faststore/lists/:key/trim {start, stop}`
+
+Sets:
+
+- `GET /v1/faststore/sets/:key` → members
+- `DELETE /v1/faststore/sets/:key`
+- `POST /v1/faststore/sets/:key/add {members, ttlSeconds?}`
+- `POST /v1/faststore/sets/:key/remove {members}`
+- `POST /v1/faststore/sets/:key/contains {member}`
+- `GET /v1/faststore/sets/:key/card` → cardinality
+
+Sorted sets:
+
+- `GET /v1/faststore/zsets/:key?start=0&stop=-1&rev=&withScores=` → range
+- `DELETE /v1/faststore/zsets/:key`
+- `GET /v1/faststore/zsets/:key/card` → cardinality
+- `POST /v1/faststore/zsets/:key/add {members:[{member,score}], ttlSeconds?}`
+- `POST /v1/faststore/zsets/:key/incr {member, by?}`
+- `POST /v1/faststore/zsets/:key/remove {members}`
+- `POST /v1/faststore/zsets/:key/score {member}`
+- `POST /v1/faststore/zsets/:key/rank {member, rev?}`
+
+Distributed locks:
+
+- `POST /v1/faststore/locks/:name/acquire {ttlSeconds?, waitMs?, token?}`
+- `POST /v1/faststore/locks/:name/release {token}`
+- `POST /v1/faststore/locks/:name/extend {token, ttlSeconds}`
+  Acquire success/failure is HTTP 200 with `acquired:true|false`
+
+TTL: 1..2,592,000 seconds; `0` clears it. Read responses use `ttlSeconds: null`
+when a key has no expiry. Platform callers select a tenant with
+`x-synapsedx-tenant` (SDK `tenant` option) or `?tenant=`; principal callers are
+always scoped to their own org/account/user.
+
+## Queue — messaging (`queue-service:4007`, gateway `/v1/queue`)
+
+At-least-once queues with delayed and deduplicated publishing,
+visibility-timeout leases, ack/nack/heartbeat, retries, dead letters and replay.
+Full guide: [queue.md](queue.md).
+
+- `GET /v1/queue/queues` → queue configs
+- `PUT /v1/queue/queues/:queue {maxAttempts?, visibilityTimeoutSeconds?}` —
+  idempotent create/update (`201` created, `200` existing)
+- `GET /v1/queue/queues/:queue` → config + `stats`
+- `DELETE /v1/queue/queues/:queue` → queue and all its messages
+- `POST /v1/queue/queues/:queue/purge` → clear **all** messages (pending, delayed,
+  in-flight, dead) and counters; keeps the queue config
+- `GET /v1/queue/queues/:queue/stats` → `{pending, inflight, dead, published,
+  acked, retried, replayed, maxAttempts, visibilityTimeoutSeconds}`; `pending`
+  includes delayed messages
+- `POST /v1/queue/queues/:queue/messages {payload, delaySeconds?, maxAttempts?,
+  headers?, id?, dedupeKey?}` — `201` published, `200` deduplicated (returns the
+  original id/message); `409 conflict` on a live custom id
+- `POST /v1/queue/queues/:queue/messages:batch {messages[]}` — 1..100 entries,
+  per-item results, always `200`
+- `POST /v1/queue/queues/:queue/consume {maxMessages?, visibilityTimeoutSeconds?,
+  consumer?}` → `{queue, count, visibilityTimeoutSeconds, messages:[{...,receipt,
+  leaseExpiresAt}]}`; up to 100 per call
+- `POST /v1/queue/queues/:queue/ack {receipt}` or `{receipts:[1..100]}` —
+  unknown/used receipt → `404 receipt_not_found`
+- `POST /v1/queue/queues/:queue/nack {receipt, requeue?, delaySeconds?, error?}` →
+  `{state:"retry"|"dead", attempts, availableAt|deadAt}`
+- `POST /v1/queue/queues/:queue/heartbeat {receipt, visibilityTimeoutSeconds?}`
+- `GET /v1/queue/queues/:queue/messages?limit=100&ready=` — peek pending (ready
+  and delayed); in-flight messages are not listed
+- `GET /v1/queue/queues/:queue/dead?limit=100` — dead letters, newest first
+- `POST /v1/queue/queues/:queue/dead/:id/replay {delaySeconds?, resetAttempts?}`
+- `DELETE /v1/queue/queues/:queue/dead/:id`
+
+Delivery semantics: consuming leases a message and increments `attempts`. Ack
+deletes it. Nack requeues it, or dead-letters it when `requeue:false` or
+`attempts >= maxAttempts`. Expired leases are reclaimed to pending regardless of
+attempts, so consumers must be idempotent. `maxAttempts` 1..100 (default 5),
+visibility 1..3600s (default 30), delay ≤7 days, consume/ack/publish batch ≤100,
+payload ≤ `QUEUE_MAX_PAYLOAD_BYTES` (default 256 KiB). Dedupe suppresses duplicates
+only while the original message still exists.
+
 ## Health / Metrics
 
 - `GET /health` (each service + gateway)
-- `GET /ready` (gateway: aggregates iam + workflow + ai + lds, 503 when degraded)
-- `GET /metrics` (gateway, Prometheus)
+- `GET /ready` (gateway: aggregates iam, workflow, ai, lds, base, faststore and
+  queue; 503 when any upstream is degraded)
+- `GET /metrics` (gateway, Prometheus); each service also exposes `/metrics` with
+  its own `synapsedx_<service>_*` metrics
 
 ## Tracing
 

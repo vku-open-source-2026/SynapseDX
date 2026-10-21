@@ -25,13 +25,13 @@ import { SynapseDXClient } from '@synapsedx/sdk';
 const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
 
 // Login (dev login or seed)
-const { accessToken, user } = await c.login('demo@acme.local');
+const { accessToken, user } = await c.iam.login('demo@acme.local');
 c.setToken(accessToken);
 
 // Create org, authorize user, deploy workflow
-await c.createOrg('acme-2', 'ACME 2');
-await c.authorize(user.id, 'workflow:Execute', '*');
-await c.createWorkflowFromTemplate('webhook-to-log', 'demo');
+await c.iam.createOrg('acme-2', 'ACME 2');
+await c.iam.authorize(user.id, 'workflow:Execute', '*');
+await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ```
 
 ## Constructor
@@ -45,16 +45,50 @@ new SynapseDXClient(opts: SynapseDXClientOptions)
 | `baseUrl` | `string` | — | Gateway URL, e.g. `http://localhost:8080` |
 | `token` | `string` | — | Bearer JWT (from login or service account) |
 | `apiKey` | `string` | — | API key sent as `X-API-Key` header |
+| `tenant` | `string` | — | `x-synapsedx-tenant`; platform callers only (Faststore/Queue) |
 | `timeoutMs` | `number` | `15000` | Per-request timeout in milliseconds |
 
 ### Auth methods
 
 ```ts
-c.setToken(jwt)    // set/replace Bearer token
-c.setApiKey(key)   // set/replace API key
+c.setToken(jwt)            // set/replace Bearer token
+c.setApiKey(key)           // set/replace API key
+c.setTenant('acme')        // set/replace x-synapsedx-tenant (undefined clears)
 ```
 
-Both can also be set via constructor options. When both are present, both headers are sent.
+Both credentials can also be set via constructor options. When both are present,
+both headers are sent. `tenant` is ignored for principal callers — the service
+always uses their verified org/account/user scope.
+
+## Service namespaces
+
+The SDK is split per service and also ships subpath entry points. `SynapseDXClient`
+shares one `HttpClient` across:
+
+| Namespace | Service | Subpath import |
+|---|---|---|
+| `c.iam` | IAM | `@synapsedx/sdk/iam` |
+| `c.workflow` | Workflow engine | `@synapsedx/sdk/workflow` |
+| `c.lds` | SynapseLDS | `@synapsedx/sdk/lds` |
+| `c.base` | SynapseBase | `@synapsedx/sdk/base` |
+| `c.faststore` | Synapse Faststore | `@synapsedx/sdk/faststore` |
+| `c.queue` | SynapseQueue | `@synapsedx/sdk/queue` |
+
+```ts
+import { SynapseDXClient } from '@synapsedx/sdk';
+import { BaseService } from '@synapsedx/sdk/base';
+import { QueueService } from '@synapsedx/sdk/queue';
+```
+
+The legacy flat methods (`c.login(...)`, `c.listTemplates(...)`,
+`c.ldsLicenses(...)`, ...) still work but emit a `DeprecationWarning` through
+`process.emitWarning` (or `console.warn` in browsers) and forward to the
+namespaced call. The LDS namespace **drops the `lds` prefix**:
+`c.ldsLicenses()` → `c.lds.licenses()`.
+
+The API reference below documents the legacy flat surface (kept for existing
+code); new code should use the namespace equivalents. The new services are
+documented below in their own sections.
 
 ## API reference
 
@@ -568,6 +602,124 @@ honoured as optional auth there — same-org callers may request
 `{ visibility: 'restricted' }`; other-tenant callers only get `404`.
 Management calls above still require a session or API key.
 
+### SynapseBase (`c.base`)
+
+Collections of JSON documents with a logical object↔data mapping, queries,
+optimistic concurrency, counters, batches and a change feed. Full guide:
+[synapsebase.md](synapsebase.md).
+
+```ts
+type Park = { name: string; capacity?: number };
+
+await c.base.createCollection({
+  name: 'parks',
+  mapping: {
+    name: { path: 'profile.name', type: 'string', required: true },
+    capacity: { path: 'profile.capacity', type: 'number' },
+  },
+});
+await c.base.createDocument('parks', { id: 'park-1', object: { name: 'Central', capacity: 120 } });
+const doc = await c.base.getDocument<Park>('parks', 'park-1', 'object');
+const page = await c.base.queryDocuments<Park>('parks', {
+  where: { capacity: { gte: 100 } },
+  orderBy: [{ field: 'name', direction: 'asc' }],
+  as: 'object',
+});
+console.log(page.total, page.nextCursor);
+
+// Typed collection
+const parks = c.base.collection<Park>('parks', {
+  mapping: { name: 'profile.name', capacity: 'profile.capacity' },
+});
+await parks.create({ name: 'Riverside', capacity: 80 }, { id: 'park-2' });
+for (const park of await parks.query({ where: { capacity: { gte: 100 } } }).then((r) => r.items)) {
+  console.log(park.name, park.capacity);
+}
+await parks.increment('park-1', { field: 'profile.capacity', by: 10 });
+const feed = await parks.changes({ since: '2026-10-01T00:00:00Z' });
+```
+
+Collection methods: `listCollections`, `createCollection`, `getCollection`,
+`updateCollection`, `deleteCollection`, `collectionStats`.
+Document methods: `createDocument`, `getDocument` (`as: 'data' | 'object'`),
+`setDocument`, `updateDocument`, `deleteDocument`, `listDocuments`,
+`queryDocuments`, `increment`, `batch`, `changes`.
+
+The typed `BaseCollection` takes `mapping` as `{logical: 'dot.path'}` for the
+raw-data endpoints (list/increment/changes) and sends writes as `object`.
+
+### Synapse Faststore (`c.faststore`)
+
+Redis-backed strings, counters, hashes, lists, sets, sorted sets, scans, batches
+and distributed locks. Full guide: [faststore.md](faststore.md).
+
+```ts
+await c.faststore.set('cache:park:1', { name: 'Central' }, { ttlSeconds: 300, ifNotExists: true });
+const entry = await c.faststore.get('cache:park:1');
+await c.faststore.incr('visits', { by: 1, ttlSeconds: 60 });
+
+await c.faststore.hashSet('user:1', { name: 'Alice' }, { ttlSeconds: 3600 });
+await c.faststore.hashIncr('user:1', 'logins', { by: 1 });
+await c.faststore.listPush('jobs', [{ id: 1 }], { side: 'left' });
+const popped = await c.faststore.listPop('jobs', { count: 10 });
+
+await c.faststore.setAdd('tags', ['a', 'b']);
+await c.faststore.zsetAdd('scores', [{ member: 'alice', score: 10 }]);
+const top = await c.faststore.zsetRange('scores', { rev: true, withScores: true });
+
+const lock = await c.faststore.lockAcquire('report', { ttlSeconds: 60, waitMs: 500 });
+if (lock.acquired) await c.faststore.lockRelease('report', lock.token);
+
+await c.faststore.batch([
+  { op: 'set', key: 'a', value: 1, ttlSeconds: 60 },
+  { op: 'incr', key: 'a', by: 2 },
+  { op: 'get', key: 'a' },
+]);
+```
+
+Method families: `get/set/delete/ttl/expire/incr/batch`, `hash*`, `list*`,
+`set*`, `zset*`, `lockAcquire/lockRelease/lockExtend`, `stats`, `listKeys`,
+`exists` (returns `false` on `404`).
+
+### SynapseQueue (`c.queue`)
+
+At-least-once queues with delays, deduplication, visibility-timeout leases,
+ack/nack/heartbeat, retries, dead letters and replay. Full guide:
+[queue.md](queue.md).
+
+```ts
+await c.queue.createQueue('emails', { maxAttempts: 5, visibilityTimeoutSeconds: 60 });
+const published = await c.queue.publish(
+  'emails',
+  { to: 'alice@acme.test' },
+  { dedupeKey: 'welcome:alice', headers: { traceId: 'abc-123' } },
+);
+await c.queue.publishBatch('emails', [
+  { payload: { n: 1 } },
+  { payload: { n: 2 }, delaySeconds: 30 },
+]);
+
+const batch = await c.queue.consume('emails', { maxMessages: 10, consumer: 'mailer-1' });
+for (const msg of batch.messages) {
+  try {
+    await send(msg.payload);
+    await c.queue.ack('emails', msg.receipt);
+  } catch (err) {
+    await c.queue.nack('emails', msg.receipt, { delaySeconds: 30, error: String(err) });
+  }
+}
+
+await c.queue.heartbeat('emails', receipt, { visibilityTimeoutSeconds: 60 });
+await c.queue.ackMany('emails', ['receipt-1', 'receipt-2']);
+
+const stats = await c.queue.queueStats('emails');
+const dead = await c.queue.deadLetters('emails', { limit: 20 });
+await c.queue.replayDead('emails', dead.messages[0].id, { resetAttempts: true });
+```
+
+Also: `listQueues`, `getQueue`, `deleteQueue`, `purgeQueue`,
+`peek({ limit, ready })` and `deleteDead`.
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares
@@ -592,17 +744,25 @@ curl -X POST http://localhost:4002/webhook/transform \
 
 ## Error handling
 
-All methods throw `Error` on failure. The error message includes the HTTP status and path:
+All methods throw `SynapseDXError` on failure (a subclass of `Error`). The
+message includes the HTTP status and path, and the class exposes the parsed
+response:
 
 ```ts
+import { SynapseDXError } from '@synapsedx/sdk';
+
 try {
-  await c.authorize(userId, 'workflow:Execute', '*');
+  await c.iam.authorize(userId, 'workflow:Execute', '*');
 } catch (e) {
-  console.error(e.message); // e.g. "synapsedx 403 /v1: ..."
+  if (e instanceof SynapseDXError) {
+    console.error(e.message); // e.g. "synapsedx 403 /v1/authorize: ..."
+    console.error(e.status, e.body);
+  }
 }
 ```
 
-Network errors are also thrown as `Error` with a descriptive message.
+Network errors are also `SynapseDXError`, with `status` undefined and a
+descriptive message.
 
 ## Full example
 

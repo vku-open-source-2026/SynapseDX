@@ -6,6 +6,9 @@
 | [architecture.md](architecture.md) | Tier-1 PaaS architecture + technical decisions |
 | [iam-model.md](iam-model.md) | Organization/Account/Role/Policy model + tokens + OIDC |
 | [api.md](api.md) | Full API reference via the gateway |
+| [synapsebase.md](synapsebase.md) | SynapseBase — documents, object↔data mapping, queries, changes |
+| [faststore.md](faststore.md) | Synapse Faststore — cache, key/value, hashes, lists, sets, locks |
+| [queue.md](queue.md) | SynapseQueue — publish, consume, leases, retries, dead letters |
 | [configuration.md](configuration.md) | Environment table for the whole stack |
 | [object-storage.md](object-storage.md) | S3 backends (default S3Mock, MinIO/S3 in prod) |
 | [troubleshooting.md](troubleshooting.md) | Busy ports, Windows curl, gateway 404s, backup/restore, OIDC errors |

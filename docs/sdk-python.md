@@ -33,19 +33,19 @@ from synapsedx_sdk import SynapseDXClient
 c = SynapseDXClient("http://localhost:8080")
 
 # Login (dev login or seed)
-login = c.login("demo@acme.local")
+login = c.iam.login("demo@acme.local")
 c.set_token(login["accessToken"])
 
 # Create org, authorize user, deploy workflow
-c.create_org("acme-2", "ACME 2")
-c.authorize(login["user"]["id"], "workflow:Execute", "*")
-c.create_workflow_from_template("webhook-to-log", "demo")
+c.iam.create_org("acme-2", "ACME 2")
+c.iam.authorize(login["user"]["id"], "workflow:Execute", "*")
+c.workflow.create_workflow_from_template("webhook-to-log", "demo")
 ```
 
 ## Constructor
 
 ```python
-SynapseDXClient(base_url, token=None, api_key=None, timeout=15)
+SynapseDXClient(base_url, token=None, api_key=None, timeout=15, tenant=None)
 ```
 
 | Parameter | Type | Default | Description |
@@ -54,15 +54,43 @@ SynapseDXClient(base_url, token=None, api_key=None, timeout=15)
 | `token` | `str \| None` | `None` | Bearer JWT (from login or service account) |
 | `api_key` | `str \| None` | `None` | API key sent as `X-API-Key` header |
 | `timeout` | `int` | `15` | Per-request timeout in seconds |
+| `tenant` | `str \| None` | `None` | `x-synapsedx-tenant`; platform callers only (Faststore/Queue) |
 
 ### Auth methods
 
 ```python
-c.set_token(token)    # set/replace Bearer token
-c.set_api_key(key)   # set/replace API key
+c.set_token(token)      # set/replace Bearer token
+c.set_api_key(key)      # set/replace API key
+c.tenant = "acme"       # set/replace x-synapsedx-tenant (or None)
 ```
 
-Both can also be set via constructor arguments. When both are present, both headers are sent.
+Both credentials can also be set via constructor arguments. When both are present,
+both headers are sent. `tenant` is ignored for principal callers — the service
+always uses their verified org/account/user scope.
+
+## Service namespaces
+
+The SDK is split by service. `SynapseDXClient` is a thin facade that shares one
+HTTP layer and exposes:
+
+| Namespace | Service | Examples |
+|---|---|---|
+| `c.iam` | IAM | `login`, `list_orgs`, `create_role`, `create_api_key`, credentials |
+| `c.workflow` | Workflow engine | `list_templates`, `create_workflow`, `execute_workflow`, `list_executions` |
+| `c.lds` | SynapseLDS | `licenses`, `create_datasource`, `set_attributes`, `ingest_records` |
+| `c.base` | SynapseBase | `create_collection`, `create_document`, `query_documents`, `changes` |
+| `c.faststore` | Synapse Faststore | `set`, `get`, `incr`, `hash_set`, `list_push`, `lock_acquire` |
+| `c.queue` | SynapseQueue | `publish`, `consume`, `ack`, `nack`, `dead_letters` |
+
+The legacy flat methods (`c.login(...)`, `c.list_templates(...)`,
+`c.list_lds_licenses(...)`, ...) still work but emit a `DeprecationWarning` and
+forward to the namespaced call. The LDS namespace **drops the `lds_` prefix**:
+`c.list_lds_licenses()` → `c.lds.list_licenses()`,
+`c.ingest_lds_records(...)` → `c.lds.ingest_records(...)`.
+
+The API reference below documents the legacy flat surface (kept for existing
+code). For new code prefer the namespace equivalents; the dedicated service
+guides show both.
 
 ## API reference
 
@@ -577,6 +605,130 @@ not visible to the caller) are omitted from entity listings. The public export
 surface (`lds licenses`, `lds entities`, `lds entity`) reads anonymously — no
 token required for the public projection; a token earns same-tenant
 `restricted` reads (other tenants → `404`).
+
+### SynapseBase (`c.base`)
+
+Collections of JSON documents with a logical object↔data mapping, queries,
+optimistic concurrency, counters, batches and a change feed. Full guide:
+[synapsebase.md](synapsebase.md).
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Park:
+    name: str
+    capacity: int | None = None
+
+# Dynamic API
+c.base.create_collection("parks", mapping={
+    "name": {"path": "profile.name", "type": "string", "required": True},
+    "capacity": {"path": "profile.capacity", "type": "number"},
+})
+c.base.create_document("parks", object={"name": "Central", "capacity": 120}, id="park-1")
+doc = c.base.get_document("parks", "park-1", as_view="object")
+page = c.base.query_documents(
+    "parks",
+    {"capacity": {"gte": 100}},
+    order_by=[{"field": "name", "direction": "asc"}],
+    as_view="object",
+)
+print(page.total, page.next_cursor)      # QueryResult is iterable + len()
+
+# Typed collection: model attributes must equal logical mapping names
+parks = c.base.collection(
+    "parks", model=Park,
+    mapping={"name": "profile.name", "capacity": "profile.capacity"},
+)
+parks.create(Park("Riverside", 80), id="park-2")
+for park in parks.query({"capacity": {"gte": 100}}):
+    print(park.name, park.capacity)
+parks.increment("park-1", "profile.capacity", by=10)
+feed = parks.changes("2026-10-01T00:00:00Z")
+```
+
+| Method | Purpose |
+|---|---|
+| `list_collections()` / `create_collection(name, mapping=, description=, org_id=, account_id=)` | collection registry |
+| `get_collection` / `update_collection` / `delete_collection` / `collection_stats` | collection lifecycle |
+| `create_document(collection, data=None, object=None, id=None)` | exactly one payload view |
+| `get_document(collection, id, as_view="data")` | `as_view` because `as` is a Python keyword |
+| `set_document(..., merge=False, if_version=None)` | replace/upsert |
+| `update_document(..., unset=None, if_version=None)` | merge + dot-path removals |
+| `delete_document(collection, id, if_version=None)` | optimistic delete |
+| `query_documents(collection, where=None, order_by=None, limit=None, offset=None, cursor=None, select=None, as_view=)` | returns `QueryResult` |
+| `list_documents` / `increment(collection, id, field, by=1, if_version=None)` / `batch` / `changes` | raw-data endpoints |
+| `collection(name, model=, mapping=)` | typed `BaseCollection` |
+
+`data`/`object` use the exported `UNSET` sentinel, so an explicit `None` is not
+mistaken for an omitted argument. Typed collections convert list/increment/
+changes results locally through `mapping`.
+
+### Synapse Faststore (`c.faststore`)
+
+Redis-backed strings, counters, hashes, lists, sets, sorted sets, scans, batches
+and distributed locks. Full guide: [faststore.md](faststore.md).
+
+```python
+c.faststore.set("cache:park:1", {"name": "Central"}, ttl_seconds=300, if_not_exists=True)
+entry = c.faststore.get("cache:park:1")
+print(entry["type"], entry["value"], entry["ttlSeconds"])
+print(c.faststore.exists("cache:park:1"))          # 404 -> False
+c.faststore.incr("visits", by=1, ttl_seconds=60)
+
+c.faststore.hash_set("user:1", {"name": "Alice", "plan": "pro"}, ttl_seconds=3600)
+c.faststore.hash_incr("user:1", "logins", by=1)
+c.faststore.list_push("jobs", [{"id": 1}], side="left", ttl_seconds=600)
+print(c.faststore.list_pop("jobs", count=10)["values"])
+c.faststore.set_add("tags", ["a", "b"])
+c.faststore.zset_add("scores", [{"member": "alice", "score": 10}])
+
+lock = c.faststore.lock_acquire("report", ttl_seconds=60, wait_ms=500)
+if lock["acquired"]:
+    try:
+        ...
+    finally:
+        c.faststore.lock_release("report", lock["token"])
+
+page = c.faststore.list_keys(prefix="cache:", limit=100)
+```
+
+Method families: `get/set/delete/ttl/expire/incr/batch`, `hash_*`, `list_*`,
+`set_*`, `zset_*`, `lock_acquire/lock_release/lock_extend`, `stats`,
+`list_keys`, `exists`.
+
+### SynapseQueue (`c.queue`)
+
+At-least-once queues with delays, deduplication, visibility-timeout leases,
+ack/nack/heartbeat, retries, dead letters and replay. Full guide:
+[queue.md](queue.md).
+
+```python
+c.queue.create_queue("emails", max_attempts=5, visibility_timeout_seconds=60)
+published = c.queue.publish(
+    "emails",
+    {"to": "alice@acme.test"},
+    dedupe_key="welcome:alice",
+    headers={"traceId": "abc-123"},
+)
+c.queue.publish_batch("emails", [{"payload": {"n": 1}}, {"payload": {"n": 2}, "delaySeconds": 30}])
+
+batch = c.queue.consume("emails", max_messages=10, consumer="mailer-1")
+for msg in batch["messages"]:
+    try:
+        send(msg["payload"])
+        c.queue.ack("emails", msg["receipt"])
+    except Exception as exc:
+        c.queue.nack("emails", msg["receipt"], delay_seconds=30, error=str(exc))
+
+c.queue.heartbeat("emails", receipt, visibility_timeout_seconds=60)
+print(c.queue.queue_stats("emails"))
+for dead in c.queue.dead_letters("emails")["messages"]:
+    c.queue.replay_dead("emails", dead["id"], reset_attempts=True)
+```
+
+Also: `list_queues`, `get_queue`, `delete_queue`, `purge_queue`, `ack_many`,
+`peek(limit=, ready=)` and `delete_dead`.
 
 ### Webhooks (public, no auth)
 

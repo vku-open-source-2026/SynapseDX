@@ -12,6 +12,30 @@ groups:
           summary: "SynapseDX gateway is down"
           description: "Prometheus cannot scrape gateway:8080/metrics for >1m."
 
+      - alert: BaseServiceDown
+        expr: up{job="base"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "SynapseBase is down"
+          description: "Prometheus cannot scrape base:4005/metrics for >2m."
+
+      - alert: FaststoreDown
+        expr: up{job="faststore"} == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Synapse Faststore is down"
+          description: "Prometheus cannot scrape faststore:4006/metrics for >2m."
+
+      - alert: QueueServiceDown
+        expr: up{job="queue"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "SynapseQueue is down"
+          description: "Prometheus cannot scrape queue:4007/metrics for >2m."
+
       - alert: PostgresDown
         expr: up{job="postgres"} == 0
         for: 2m

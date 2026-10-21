@@ -1,6 +1,22 @@
 # Roadmap
 
-## v0.1 (this release — Tier-1 PaaS MVP) ✅
+## v0.5 (this release) ✅
+- [x] **SynapseBase** (:4005, `/v1/base`): document collections, object↔data
+      mapping with validation, filters/ordering/cursors, `ifVersion`, atomic
+      increments, batch writes, change feed, Postgres + memory backend
+- [x] **Synapse Faststore** (:4006, `/v1/faststore`): Redis-backed TTL strings,
+      counters, hashes, lists, sets, sorted sets, scans, batches, distributed
+      locks; namespaced per tenant
+- [x] **SynapseQueue** (:4007, `/v1/queue`): delayed/deduped publish,
+      visibility-timeout leases, ack/nack/heartbeat, retries, dead letters,
+      replay, purge/stats; Redis Lua + memory backend
+- [x] Gateway routes + `/ready`, compose/prod/K8s/monitoring, env docs
+- [x] SDK 0.5.0: per-service Python modules, JS subpath exports, Go Base/
+      Faststore/Queue methods + typed `BaseCollection`; deprecated flat aliases
+- [x] Docs: service guides for all three + API/architecture/configuration/
+      quickstart/SDK/README updates
+
+## v0.1 (Tier-1 PaaS MVP) ✅
 - [x] API Gateway: proxy (pathFilter, no strip bugs), JWT/API-key (+strict verify mode),
       principal `x-synapsedx-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
       proxy timeout, CORS gating, `/ready` aggregate, Prometheus, graceful shutdown

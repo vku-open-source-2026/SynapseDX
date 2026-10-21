@@ -210,7 +210,7 @@ async function copyText(text) {
   document.body.removeChild(ta);
 }
 
-export function Code({ data, limit = CODE_LIMIT }) {
+export function Code({ data, limit = CODE_LIMIT, wrap = false }) {
   const [expanded, setExpanded] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   let text;
@@ -228,7 +228,7 @@ export function Code({ data, limit = CODE_LIMIT }) {
   };
   return (
     <div className="min-w-0">
-      <pre className="bg-background rounded-2xl p-3 text-xs overflow-x-auto text-main-text">
+      <pre className={`bg-background rounded-2xl p-3 text-xs ${wrap ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto'} text-main-text`}>
         {shown}
         {!expanded && long ? '…' : ''}
       </pre>

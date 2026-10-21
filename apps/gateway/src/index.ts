@@ -371,9 +371,16 @@ export function createApp(): express.Express {
     const wfUrl = process.env.WORKFLOW_SERVICE_URL || 'http://workflow:4002';
     const aiUrl = process.env.AI_SERVICE_URL || 'http://ai:4003';
     const ldsUrl = process.env.LDS_SERVICE_URL || 'http://lds:4004';
-    const [iam, workflow, ai, lds] = await Promise.all([probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl), probe('lds', ldsUrl)]);
-    const allOk = iam.ok && workflow.ok && ai.ok && lds.ok;
-    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams: [iam, workflow, ai, lds], time: new Date().toISOString() });
+    const baseUrl = process.env.BASE_SERVICE_URL || 'http://base:4005';
+    const faststoreUrl = process.env.FASTSTORE_SERVICE_URL || 'http://faststore:4006';
+    const queueUrl = process.env.QUEUE_SERVICE_URL || 'http://queue:4007';
+    const [iam, workflow, ai, lds, base, faststore, queue] = await Promise.all([
+      probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl), probe('lds', ldsUrl),
+      probe('base', baseUrl), probe('faststore', faststoreUrl), probe('queue', queueUrl),
+    ]);
+    const upstreams = [iam, workflow, ai, lds, base, faststore, queue];
+    const allOk = upstreams.every((u) => u.ok);
+    res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams, time: new Date().toISOString() });
   });
 
   const routes = loadRoutes();
