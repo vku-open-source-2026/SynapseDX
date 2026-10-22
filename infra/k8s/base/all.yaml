@@ -121,6 +121,8 @@ spec:
           env:
             - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
+            - { name: WORKFLOW_TIMEOUT_MS, value: "60000" }
+            - { name: INFERENCE_TIMEOUT_MS, value: "120000" }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -159,7 +161,7 @@ spec:
             - { name: AI_BASE_URL, value: "https://openrouter.ai/api/v1" }
             - { name: AI_API_KEY, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: ai-api-key } } }
             - { name: AI_DECISION_MODEL, value: "inception/mercury-2.5" }
-            - { name: AI_LLM_MODEL, value: "apodex/apodex-1.1-mini:free" }
+            - { name: AI_LLM_MODEL, value: "liquid/lfm-2.5-2.6b:free" }
             - { name: AI_LLM_FALLBACK_MODEL, value: "inception/mercury-2.5" }
             - { name: AI_TIMEOUT_MS, value: "20000" }
             - { name: AI_RATE_LIMIT, value: "30" }

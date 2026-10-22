@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, workflowRunPrincipal, synapsedxCall, makeCredentialResolver } from './index';
+import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, normalizeDecisionChoices, workflowRunPrincipal, synapsedxCall, makeCredentialResolver } from './index';
 import { isBlockedUrl, runWorkflow } from './engine';
 import { __clearMem, createCredentialRec } from './store';
 
@@ -29,6 +29,27 @@ describe('workflow templates', () => {
   it('unknown template returns null', () => {
     assert.equal(buildTemplate('nope'), null);
   });
+
+  it('normalizes legacy object decision choices into positional arrays', () => {
+    const def: any = {
+      nodes: [{
+        name: 'Route', type: 'synapseflow.decision', parameters: {
+          choices: {
+            billing: 'billing, invoice, refund',
+            technical: 'error, outage',
+            account: 'login, permission',
+          },
+        },
+      }],
+      connections: {},
+    };
+    normalizeDecisionChoices(def);
+    assert.deepEqual(def.nodes[0].parameters.choices, [
+      { name: 'billing', description: 'billing, invoice, refund' },
+      { name: 'technical', description: 'error, outage' },
+      { name: 'account', description: 'login, permission' },
+    ]);
+  });
   it('ai-triage-ops showcase round-trips and passes save validation', () => {
     const def: any = buildTemplate('ai-triage-ops', 'demo');
     assert.ok(def);
@@ -37,7 +58,7 @@ describe('workflow templates', () => {
     const agents = def.nodes.filter((n: any) => n.type === 'synapseflow.aiAgent');
     assert.equal(agents.length, 3);
     const decision = def.nodes.find((n: any) => n.type === 'synapseflow.decision');
-    assert.equal(Object.keys(decision.parameters.choices).length, 4);
+    assert.equal(decision.parameters.choices.length, 4);
     // Tool/model sockets are auxiliary: they must still be represented in the
     // definition consumed by the visual editor.
     const ports = Object.values(def.connections as any)
@@ -114,6 +135,136 @@ describe('workflow templates', () => {
     assert.equal(byNode.Done?.status, 'success');
     assert.ok(!byNode.Escalate);
   });
+  it('customer-360-orchestrator exposes every integration + socket in one graph', () => {
+    const def: any = buildTemplate('customer-360-orchestrator', 'demo');
+    assert.ok(def);
+    assert.equal(validateDefinition(def), null);
+    assert.equal(def.nodes.length, 30);
+    const types = new Set(def.nodes.map((n: any) => n.type));
+    for (const type of [
+      'synapsedx.base', 'synapsedx.faststore', 'synapsedx.iam', 'synapsedx.lds',
+      'synapsedx.queue', 'synapsedx.flow', 'synapseflow.decision',
+      'synapseflow.aiAgent', 'synapseflow.model',
+    ]) {
+      assert.ok(types.has(type), type);
+    }
+    const route = def.nodes.find((n: any) => n.name === 'Route');
+    assert.equal(route.parameters.choices.length, 4);
+    const agent = def.nodes.find((n: any) => n.name === 'IncidentAgent');
+    assert.ok(agent.parameters.tools.includes('synapsebase_query'));
+    const edgeEntries = Object.entries(def.connections as any)
+      .flatMap(([source, group]: any) => (group.main || []).flat().map((e: any) => ({ source, ...e })));
+    const canvasTools = edgeEntries.filter((e: any) => e.targetPort === 'tools').map((e: any) => e.source);
+    for (const name of ['KBLookup', 'TraceCache', 'PermissionProbe', 'FlowProbe']) {
+      assert.ok(canvasTools.includes(name), name);
+    }
+    assert.ok(edgeEntries.some((e: any) => e.targetPort === 'model' && e.node === 'IncidentAgent'));
+  });
+
+  it('customer-360-orchestrator runs all four lanes through real service calls', async () => {
+    const def: any = buildTemplate('customer-360-orchestrator', 'demo');
+    const base = {
+      customerId: 'cust-42',
+      userId: 'user-42',
+      datasourceId: 'ds-42',
+      tier: 'enterprise',
+      priority: 'normal',
+    };
+    const run = async (payload: any, expectedRoute: string) => {
+      const calls: string[] = [];
+      let seenTools: string[] = [];
+      const r = await runWorkflow(def, { ...base, eventId: `evt-${expectedRoute}`, ...payload }, {
+        synapsedxCall: async (resource, operation, args) => {
+          calls.push(`${resource}.${operation}`);
+          if (resource === 'inference' && operation === 'route') {
+            assert.equal(args.choices[expectedRoute] !== undefined, true);
+            return { best_choice: expectedRoute, confidence: 0.93, probabilities: { [expectedRoute]: 0.93 } };
+          }
+          if (resource === 'inference' && operation === 'chat') {
+            seenTools = (args.tools || []).map((t: any) => t.function?.name);
+            return { choices: [{ message: { role: 'assistant', content: 'Restart the edge pool and post a customer update.' } }] };
+          }
+          if (resource === 'base' && operation === 'create-document') {
+            return { id: args.id || 'doc-1', data: args.data, collection: args.collection };
+          }
+          if (resource === 'base' && operation === 'query-documents') return { items: [], total: 0 };
+          if (resource === 'faststore' && operation === 'set') return { ok: true, key: args.key, created: true };
+          if (resource === 'faststore' && operation === 'hash-set') return { key: args.key, values: args.values };
+          if (resource === 'faststore' && operation === 'incr') return { key: args.key, value: 1 };
+          if (resource === 'faststore' && operation === 'get') return { key: args.key, value: null, hit: false };
+          if (resource === 'queue' && operation === 'publish') return { ok: true, id: 'msg-1', queue: args.queue };
+          if (resource === 'lds' && operation === 'publish-record') return { ingested: 1, quarantined: [] };
+          if (resource === 'authorize' && operation === 'check') return { allowed: true, matchedBy: 'Allow' };
+          if (resource === 'workflows' && operation === 'list') return [{ id: 'wf-1', name: 'notify' }];
+          throw new Error(`unexpected call ${resource}.${operation}`);
+        },
+      });
+      assert.equal(r.status, 'success', r.error);
+      const byNode: any = Object.fromEntries(r.nodeRuns.map((n) => [n.node, n]));
+      assert.equal(byNode.Route.output.decision.route, expectedRoute);
+      assert.equal(byNode.Aggregate.output.route, expectedRoute);
+      assert.equal(byNode.FlowCatalog.status, 'success');
+      assert.equal(byNode.HasLDS.status, 'success');
+      assert.equal(byNode.PublishTimeline.status, 'success');
+      assert.equal(byNode.Metrics.status, 'success');
+      return { r, byNode, calls, seenTools };
+    };
+
+    const billing = await run({ query: 'Please refund my invoice and reverse the duplicate charge', amount: 1200 }, 'billing');
+    assert.equal(billing.byNode.BillingCalc.output.billing.credit, 180);
+    assert.equal(billing.byNode.BillingDone.output.route, 'billing');
+    assert.equal(billing.byNode.Aggregate.output.amount, 1200);
+    assert.equal(billing.byNode.Escalate.status, 'success');
+    assert.ok(billing.calls.includes('base.create-document'));
+    assert.ok(billing.calls.includes('faststore.set'));
+    assert.ok(billing.calls.includes('queue.publish'));
+    assert.ok(billing.calls.includes('lds.publish-record'));
+
+    const technical = await run({ query: 'Production API outage returns 502 for every request', amount: 0, priority: 'urgent' }, 'technical');
+    assert.equal(technical.byNode.IncidentAgent.status, 'success');
+    assert.equal(technical.byNode.IncidentAgent.output.agent.response, 'Restart the edge pool and post a customer update.');
+    assert.ok(technical.byNode.IncidentAgent.output.agent.canvas_tools.includes('KBLookup'));
+    assert.ok(technical.seenTools.includes('synapsebase_query'));
+    assert.ok(technical.seenTools.includes('KBLookup'));
+    assert.ok(technical.seenTools.includes('FlowProbe'));
+    assert.equal(technical.byNode.Escalate.status, 'success');
+
+    const account = await run({ query: 'I cannot login, permission denied after password reset', amount: 0 }, 'account');
+    assert.equal(account.byNode.AccountAuth.output.allowed, true);
+    assert.equal(account.byNode.AccountDone.output.route, 'account');
+    assert.ok(account.calls.includes('authorize.check'));
+    assert.ok(account.calls.includes('faststore.hash-set'));
+    assert.equal(account.byNode.Done.status, 'success');
+    assert.ok(!account.byNode.Escalate);
+
+    const growth = await run({ query: 'We want to upgrade and discuss pricing for our renewal', amount: 0 }, 'growth');
+    assert.equal(growth.byNode.GrowthPlan.status, 'success');
+    assert.equal(growth.byNode.GrowthRecord.status, 'success');
+    assert.equal(growth.byNode.GrowthDone.output.route, 'growth');
+    assert.equal(growth.byNode.Done.status, 'success');
+  });
+
+  it('customer-360-orchestrator skips LDS cleanly when no datasource is supplied', async () => {
+    const def: any = buildTemplate('customer-360-orchestrator', 'demo');
+    const r = await runWorkflow(def, {
+      query: 'refund invoice', amount: 50, customerId: 'cust-1', userId: 'u-1', eventId: 'evt-no-lds',
+    }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'route') return { best_choice: 'billing', confidence: 0.9, probabilities: {} };
+        if (resource === 'base' && operation === 'create-document') return { id: args.id, data: args.data };
+        if (resource === 'faststore' && operation === 'set') return { ok: true, key: args.key };
+        if (resource === 'faststore' && operation === 'incr') return { key: args.key, value: 1 };
+        if (resource === 'workflows' && operation === 'list') return [];
+        throw new Error(`unexpected call ${resource}.${operation}`);
+      },
+    });
+    assert.equal(r.status, 'success', r.error);
+    const byNode: any = Object.fromEntries(r.nodeRuns.map((n) => [n.node, n]));
+    assert.equal(byNode.HasLDS.status, 'success');
+    assert.equal(byNode.SkipLDS.status, 'success');
+    assert.ok(!byNode.PublishTimeline);
+  });
+
   it('automated (webhook/cron) runs act as the workflow tenant principal', () => {
     assert.deepEqual(workflowRunPrincipal({ org_id: 'tenant-a', owner_sub: 'u1', run_as: null }), { sub: 'u1', org: 'tenant-a', account: undefined, kind: 'workflow' });
     assert.equal(workflowRunPrincipal({ org_id: 't', run_as: 'svc-1' })!.sub, 'svc-1');

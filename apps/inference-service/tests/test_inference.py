@@ -168,7 +168,7 @@ async def test_chat_completions_mocked():
         "id": "gen-12345",
         "object": "chat.completion",
         "created": 1700000000,
-        "model": "apodex/apodex-1.1-mini:free",
+        "model": "liquid/lfm-2.5-2.6b:free",
         "choices": [
             {
                 "index": 0,

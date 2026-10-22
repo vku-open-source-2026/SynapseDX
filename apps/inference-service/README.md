@@ -18,7 +18,7 @@ Multi-model inference microservice for the SynapseDX ecosystem. Provides:
   OpenAI-compatible request body:
   ```json
   {
-    "model": "apodex/apodex-1.1-mini:free",
+    "model": "liquid/lfm-2.5-2.6b:free",
     "messages": [
       { "role": "system", "content": "You are a helpful assistant." },
       { "role": "user", "content": "Hello!" }
@@ -100,7 +100,7 @@ Multi-model inference microservice for the SynapseDX ecosystem. Provides:
 | `PORT` | `4008` | HTTP listening port |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
 | `OPENROUTER_API_KEY` | `""` | OpenRouter API Key |
-| `OPENROUTER_MODEL` | `apodex/apodex-1.1-mini:free` | Default LLM model |
+| `OPENROUTER_MODEL` | `liquid/lfm-2.5-2.6b:free` | Default LLM model |
 | `EMBEDDING_MODEL_NAME` | `sentence-transformers/all-MiniLM-L6-v2` | Lightweight embedding model |
 | `DECISION_MODEL_NAME` | `vllm-sr/Decision-2.0-Eos-0.8B` | Self-hosted 0.8B decision model |
 | `INFERENCE_DEVICE` | `auto` | `cpu` or `cuda` |

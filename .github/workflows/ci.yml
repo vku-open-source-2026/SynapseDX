@@ -54,7 +54,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: cp .env.example .env
-      - run: docker compose up -d --build postgres redis s3 s3-init iam workflow gateway
+      - run: docker compose up -d --build postgres redis s3 s3-init iam workflow inference gateway
       - run: |
           set -e
           for i in $(seq 1 36); do
@@ -69,5 +69,47 @@ jobs:
       - run: pip install ./sdks/sdk-python -q && SYNAPSEDX_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
       - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
       - run: SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
+      # IAM integration nodes authenticate as the workflow service with a real
+      # API key (the internal secret alone is not a caller identity).
+      - name: Configure workflow IAM service key
+        run: |
+          set -euo pipefail
+          BASE=http://localhost:8080
+          TOK=$(curl -sf -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' \
+            -d '{"email":"ci@acme.local","orgSlug":"acme"}' \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["accessToken"])')
+          ORG=$(curl -sf "$BASE/v1/orgs" -H"Authorization: Bearer $TOK" \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)[0]["id"])')
+          ACC=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H"Authorization: Bearer $TOK" \
+            -H'Content-Type: application/json' -d '{"slug":"ci-workflow","displayName":"CI Workflow"}' \
+            | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("id") or d.get("account",{}).get("id",""))')
+          if [ -z "$ACC" ]; then
+            ACC=$(curl -sf "$BASE/v1/orgs/$ORG/accounts" -H"Authorization: Bearer $TOK" \
+              | python3 -c 'import sys,json; print(next(a["id"] for a in json.load(sys.stdin) if a.get("slug")=="ci-workflow"))')
+          fi
+          KEY=$(curl -sf -XPOST "$BASE/v1/accounts/$ACC/keys" -H"Authorization: Bearer $TOK" \
+            -H'Content-Type: application/json' -d '{"name":"workflow-showcase","scopes":["*"]}' \
+            | python3 -c 'import sys,json; print(json.load(sys.stdin)["apiKey"])')
+          test -n "$KEY"
+          python3 - "$KEY" <<'PY'
+          import pathlib, sys
+          p = pathlib.Path('.env')
+          lines = [l for l in p.read_text().splitlines() if not l.startswith('SYNAPSEDX_IAM_API_KEY=')]
+          lines.append('SYNAPSEDX_IAM_API_KEY=' + sys.argv[1])
+          p.write_text('\n'.join(lines) + '\n')
+          PY
+          docker compose up -d workflow
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4002/health && break || sleep 2
+          done
+          # Re-establish gateway -> workflow and prove every upstream is healthy
+          # before the showcase starts.
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/ready && break || sleep 2
+          done
+      # Complex-workflow showcase: Decision -> Base/Faststore/IAM/LDS/Queue/Flow
+      # fan-out/fan-in. The AI lane is unit-tested; set SHOWCASE_RUN_AI=1 locally
+      # with inference credentials to exercise it live.
+      - run: SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/workflow-showcase.mjs
       - run: docker compose down -v
         if: always()

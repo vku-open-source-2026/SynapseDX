@@ -1601,7 +1601,12 @@ export async function execAiAgentNode(
         return await ctx.synapsedxCall(
           'base',
           'query-documents',
-          { collection: toolArgs.collection, where: toolArgs.where || {}, limit: toolArgs.limit || 10 },
+          {
+            collection: toolArgs.collection,
+            where: toolArgs.where !== undefined ? toolArgs.where : toolArgs.filter,
+            orderBy: toolArgs.orderBy !== undefined ? toolArgs.orderBy : toolArgs.sort,
+            limit: toolArgs.limit || 10,
+          },
           ctx.principal,
         );
       }
@@ -1747,7 +1752,7 @@ export async function execAiAgentNode(
     }
   }
 
-  async function callLlm(msgs: any[]): Promise<any> {
+  async function callLlm(msgs: any[], includeTools = true): Promise<any> {
     if (core === 'synapse-inference' && ctx?.synapsedxCall) {
       return await ctx.synapsedxCall(
         'inference',
@@ -1757,8 +1762,9 @@ export async function execAiAgentNode(
           model,
           temperature: Number(p.temperature) || 0.2,
           max_tokens: Number(p.maxTokens) || 512,
-          tools: toolDefs.length > 0 ? toolDefs : undefined,
-          tool_choice: toolDefs.length > 0 ? 'auto' : undefined,
+          ...(includeTools && toolDefs.length > 0
+            ? { tools: toolDefs, tool_choice: 'auto' }
+            : {}),
         },
         ctx.principal,
       );
@@ -1775,13 +1781,15 @@ export async function execAiAgentNode(
       temperature: Number(p.temperature) || 0.2,
       max_tokens: Number(p.maxTokens) || 512,
     };
-    if (toolDefs.length > 0) {
+    if (includeTools && toolDefs.length > 0) {
       payload.tools = toolDefs;
       payload.tool_choice = 'auto';
     }
 
+    const rawLlmTimeout = Number(process.env.INFERENCE_TIMEOUT_MS || 120000);
+    const llmTimeoutMs = Math.min(Math.max(Number.isFinite(rawLlmTimeout) ? rawLlmTimeout : 120000, 1000), 300000);
     const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 30000);
+    const to = setTimeout(() => ctl.abort(), llmTimeoutMs);
     try {
       const resp = await fetch(url, {
         method: 'POST',
@@ -1802,7 +1810,17 @@ export async function execAiAgentNode(
   for (let step = 0; step < maxSteps; step++) {
     let res: any;
     try {
-      res = await callLlm(messages);
+      // Reserve the final turn for a written answer, and hide the tool schemas
+      // entirely. Some reasoning models otherwise keep emitting their native
+      // tool-call markup even when tool_choice='none'.
+      const finalTurn = step === maxSteps - 1 && actionsTaken.length > 0;
+      if (finalTurn) {
+        messages.push({
+          role: 'user',
+          content: 'Provide the final remediation plan now in plain text, under 250 words, ending with a customer-safe update. Do not call, name or describe any tools.',
+        });
+      }
+      res = await callLlm(messages, !finalTurn);
     } catch (e: any) {
       throw new Error(`AI Agent '${node.name}': ${e?.message || e}`);
     }
@@ -2050,7 +2068,10 @@ export async function runWorkflow(
   const continueOnError = (definition as any)?.settings?.onError === 'continue';
   const byName = new Map(nodes.map((n) => [n.name, n]));
   const startedAll = Date.now();
-  const timeoutMs = opts?.timeoutMs ?? 60000;
+  const configuredTimeout = Number((definition as any)?.settings?.timeoutMs);
+  const envTimeout = Number(process.env.WORKFLOW_TIMEOUT_MS || 0);
+  const requestedTimeout = opts?.timeoutMs ?? (Number.isFinite(configuredTimeout) ? configuredTimeout : (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 60000));
+  const timeoutMs = Math.min(Math.max(Number(requestedTimeout) || 60000, 1000), 300000);
   const nodeRuns: NodeRun[] = [];
   const partialErrors: string[] = [];
 

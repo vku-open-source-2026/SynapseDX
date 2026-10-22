@@ -68,6 +68,9 @@ routes:
   - path: /webhook
     target: ${WORKFLOW_SERVICE_URL:http://workflow:4002}
     auth: none
+    # AI-agent lanes can take longer than the 30s global proxy default.
+    # Keep this aligned with the workflow/agent 300s execution budget.
+    timeoutMs: 300000
 
   - path: /v1/ai
     target: ${AI_SERVICE_URL:http://ai:4003}

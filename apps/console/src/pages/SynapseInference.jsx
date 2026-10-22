@@ -197,7 +197,7 @@ export default function SynapseInference() {
             <Badge variant="success">Online</Badge>
           </div>
           <div className="text-sm font-medium text-slate-800 truncate" title={health?.models?.llm || 'OpenRouter'}>
-            {health?.models?.llm || 'apodex/apodex-1.1-mini:free'}
+            {health?.models?.llm || 'liquid/lfm-2.5-2.6b:free'}
           </div>
           <div className="text-xs text-slate-500 mt-1 flex items-center justify-between">
             <span>Provider: {health?.components?.llm?.provider || 'OpenRouter'}</span>

@@ -52,6 +52,8 @@ reads which key (audited from source):
 | `PORT` | 4002 | listen port |
 | `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`synapsedx_workflows` + `synapsedx_executions`); required in production |
 | `WORKFLOW_CRON_TICK_MS` | 15000 | cron scheduler tick (ms, clamped ≥10000) |
+| `WORKFLOW_TIMEOUT_MS` | 60000 | hard execution budget for workflows without `settings.timeoutMs` (clamped 1000–300000). AI templates set 300000 |
+| `INFERENCE_TIMEOUT_MS` | 120000 | per-call budget for workflow → inference LLM requests (clamped 1000–300000) |
 | `IAM_SERVICE_URL` | `http://iam:4001` | internal base URL for `synapsedx.api` IAM nodes (users/roles/policies/audit/keys) |
 | `SYNAPSEDX_IAM_API_KEY` | — | service API key sent as `X-API-Key` on `synapsedx.api` IAM calls; IAM requires a real caller credential even with the internal secret. Create it on the workflow service account (`POST /v1/accounts/:accountId/keys`, scope `*`). Unset → IAM nodes fail with a clear configuration error |
 | `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4002` bypass (`/webhook/*` stays public) |
@@ -64,7 +66,7 @@ reads which key (audited from source):
 | `PORT` | 4003 | listen port |
 | `AI_BASE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible LLM provider (key stays server-side, never reaches the browser) |
 | `AI_API_KEY` | — | provider key; unset → `/v1/ai/agent` answers `503 ai_not_configured` |
-| `AI_DECISION_MODEL` / `AI_LLM_MODEL` | `inception/mercury-2.5` / `apodex/apodex-1.1-mini:free` | endpoint-picker model / call-generator model |
+| `AI_DECISION_MODEL` / `AI_LLM_MODEL` | `inception/mercury-2.5` / `liquid/lfm-2.5-2.6b:free` | endpoint-picker model / call-generator model |
 | `AI_TIMEOUT_MS` | 20000 | per-LLM-call timeout (clamped 1s–300s) |
 | `AI_RETRIES` | 2 | extra attempts on empty/invalid/5xx LLM replies (clamped 0–3; 4xx fail fast) |
 | `AI_LLM_FALLBACK_MODEL` | decision model | different-provider fallback for generate/guide after the primary exhausts retries; empty disables |

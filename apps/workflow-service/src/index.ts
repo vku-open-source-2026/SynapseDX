@@ -265,10 +265,20 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         method = 'POST';
         path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/query`;
         // base-service expects `where` + `orderBy`; older workflows and the
-        // AI tool use `filter`/`sort`, so accept both spellings.
+        // AI tool use `filter`/`sort`, so accept both spellings. An empty
+        // filter is invalid server-side, so omit it when the caller wants all.
+        const where = a.where !== undefined ? a.where : a.filter;
+        const orderBy = a.orderBy !== undefined ? a.orderBy : a.sort;
+        const hasWhere = where !== undefined && where !== null && (
+          Array.isArray(where)
+            ? where.length > 0
+            : typeof where === 'object'
+              ? Object.keys(where).length > 0
+              : String(where).trim().length > 0
+        );
         body = {
-          where: a.where !== undefined ? a.where : a.filter,
-          orderBy: a.orderBy !== undefined ? a.orderBy : a.sort,
+          ...(hasWhere ? { where } : {}),
+          ...(orderBy !== undefined ? { orderBy } : {}),
           limit: a.limit,
           offset: a.offset,
         };
@@ -438,8 +448,10 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   if (resource === 'inference') {
     const INF_BASE = (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008').replace(/\/$/, '');
     const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const rawInferenceTimeout = Number(process.env.INFERENCE_TIMEOUT_MS || 120000);
+    const inferenceTimeoutMs = Math.min(Math.max(Number.isFinite(rawInferenceTimeout) ? rawInferenceTimeout : 120000, 1000), 300000);
     const ctl = new AbortController();
-    const to = setTimeout(() => ctl.abort(), 60000);
+    const to = setTimeout(() => ctl.abort(), inferenceTimeoutMs);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
@@ -491,7 +503,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Inference service timed out after 60000ms');
+      if (e?.name === 'AbortError') throw new Error(`synapsedx.api: Inference service timed out after ${inferenceTimeoutMs}ms`);
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -1414,6 +1426,7 @@ function tenantBinding(
       } catch { /* uniquify is best-effort */ }
     }
     if (!payload) return res.status(400).json({ error: 'definition or template required' });
+    normalizeDecisionChoices(payload);
     // Built-in templates are trusted (fixed code); custom definitions get full validation.
     const defErr = fromTemplate ? null : validateDefinition(payload);
     if (defErr) return res.status(400).json({ error: 'invalid_definition', message: defErr });
@@ -1468,6 +1481,7 @@ function tenantBinding(
     let nodes = cur.nodes;
     let connections = cur.connections;
     if (definition != null) {
+      normalizeDecisionChoices(definition);
       const defErr = validateDefinition(definition);
       if (defErr) return res.status(400).json({ error: 'invalid_definition', message: defErr });
       nodes = (definition as any).nodes || [];
@@ -1830,6 +1844,7 @@ export function listTemplates() {
     { name: 'webhook-to-lds', description: 'Webhook -> SynapseLDS: publish the payload as an NGSI-LD record (payload carries datasourceId)' },
     { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
     { name: 'ai-triage-ops', description: 'AI triage showcase: webhook -> Decision (4 routes) -> 3 AI Agents with canvas Tools/Model sockets + Base/Faststore/IAM/HTTP tools -> aggregate -> escalation queue' },
+    { name: 'customer-360-orchestrator', description: 'Customer 360 showcase: webhook -> Decision (4 routes) -> AI SRE agent + canvas Tools/Model sockets -> Base/Faststore/IAM/LDS/Queue/Flow integrations -> fan-out/fan-in -> risk gate' },
   ];
 }
 
@@ -1862,6 +1877,28 @@ export function findWebhookTrigger(workflow: any): WebhookTrigger | null {
 /** First webhook trigger path of a workflow definition, or null. */
 export function findWebhookPath(workflow: any): string | null {
   return findWebhookTrigger(workflow)?.path || null;
+}
+
+/** Decide routes are positional (main[0..n]); PostgreSQL JSONB does not
+ *  preserve object key order. Normalize legacy object maps to ordered arrays
+ *  at save time so a Decision node keeps its route/branch contract. */
+export function normalizeDecisionChoices(definition: any): any {
+  const nodes = Array.isArray(definition?.nodes) ? definition.nodes : [];
+  for (const n of nodes) {
+    if (!isDecisionType(n?.type)) continue;
+    const p = n?.parameters;
+    if (!p || typeof p !== 'object' || Array.isArray(p)) continue;
+    for (const key of ['choices', 'routes'] as const) {
+      const raw = (p as any)[key];
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        (p as any)[key] = Object.entries(raw).map(([name, description]) => ({
+          name,
+          description: String(description ?? name),
+        }));
+      }
+    }
+  }
+  return definition;
 }
 
 export function buildTemplate(name: string, workflowName?: string): any | null {
@@ -1973,6 +2010,231 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       },
     };
   }
+  if (name === 'customer-360-orchestrator') {
+    const node = (n: string, type: string, x: number, y: number, parameters: any = {}) => ({
+      id: wid(), name: n, type, typeVersion: 1, position: [x, y], parameters,
+    });
+    const edge = (target: string) => ({ node: target, type: 'main', index: 0 });
+    const tool = (target: string) => ({ node: target, type: 'tools', index: 0, targetPort: 'tools' });
+    const model = (target: string) => ({ node: target, type: 'model', index: 0, targetPort: 'model' });
+    return {
+      name: wname,
+      settings: { onError: 'continue', timeoutMs: 300000 },
+      nodes: [
+        { ...node('Intake', 'n8n-nodes-base.webhook', 80, 480, { path: 'customer-360-demo', httpMethod: 'POST' }), webhookId: wid() },
+        node('Normalize', 'n8n-nodes-base.code', 320, 480, {
+          code:
+            'const p = $input || {};' +
+            'const query = String(p.query || p.message || p.intent || "customer health review").trim();' +
+            'const amount = Number(p.amount || p.mrr || 0);' +
+            'const tier = String(p.tier || "standard");' +
+            'const urgent = /(urgent|asap|down|outage|production|critical)/i.test(query);' +
+            'const eventId = p.eventId || ("evt-" + Date.now());' +
+            'const customerId = p.customerId || "demo-customer";' +
+            'const riskScore = Math.min(100, Math.round(amount / 100 + (tier === "enterprise" ? 25 : 0) + (urgent ? 30 : 0)));' +
+            'return { ...p, query, amount, tier, customerId, eventId, priority: p.priority || (urgent ? "urgent" : "normal"), riskScore, receivedAt: $now };',
+        }),
+        node('Route', 'synapseflow.decision', 580, 480, {
+          input: '={{ $json.query }}',
+          choices: [
+            { name: 'billing', description: 'billing, invoice, refund, charge, payment, subscription' },
+            { name: 'technical', description: 'technical, error, outage, api, bug, incident, production' },
+            { name: 'account', description: 'account, login, password, permission, access, user' },
+            { name: 'growth', description: 'growth, upgrade, pricing, plan, renewal, expansion, sales' },
+          ],
+          instruction: 'Route this customer event to the team best equipped to handle it.',
+          fallbackBranch: 3,
+          minConfidence: 0.25,
+        }),
+        node('FlowCatalog', 'synapsedx.flow', 840, 40, {
+          operation: 'workflows.list',
+          input: {},
+        }),
+        node('HasLDS', 'n8n-nodes-base.if', 840, 200, {
+          condition: '={{ !!$json.datasourceId }}',
+        }),
+        node('PublishTimeline', 'synapsedx.lds', 1100, 120, {
+          operation: 'publish-record',
+          input: {
+            datasourceId: '={{ $json.datasourceId }}',
+            record: {
+              id: '={{ $json.eventId }}',
+              eventId: '={{ $json.eventId }}',
+              kind: 'customer360.event',
+              customerId: '={{ $json.customerId }}',
+              route: 'pending',
+              query: '={{ $json.query }}',
+              amount: '={{ $json.amount }}',
+              priority: '={{ $json.priority }}',
+              receivedAt: '={{ $json.receivedAt }}',
+            },
+          },
+        }),
+        node('SkipLDS', 'n8n-nodes-base.noOp', 1100, 260, {}),
+
+        // Billing lane: calculation -> cache + Base audit in parallel -> aggregate.
+        node('BillingCalc', 'n8n-nodes-base.code', 840, 380, {
+          code:
+            'const amount = Number($input.amount || 0);' +
+            'const tier = String($input.tier || "standard");' +
+            'const discount = tier === "enterprise" ? 0.15 : tier === "pro" ? 0.08 : 0;' +
+            'const credit = Math.round(amount * discount * 100) / 100;' +
+            'return { ...$input, billing: { amount, credit, currency: "USD", tier, discount, decision: credit > 0 ? "credit_approved" : "no_credit", calculatedAt: $now } };',
+        }),
+        node('BillingCache', 'synapsedx.faststore', 1120, 320, {
+          operation: 'set',
+          input: { key: 'billing:{{ $json.eventId }}', value: '={{ $json.billing }}', ttlSeconds: 3600 },
+        }),
+        node('BillingRecord', 'synapsedx.base', 1120, 440, {
+          operation: 'create-document',
+          input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
+        }),
+        node('BillingDone', 'n8n-nodes-base.set', 1380, 440, {
+          values: { route: 'billing', branchResult: '={{ $json.data }}', processedBy: 'billing' },
+        }),
+
+        // Technical lane: autonomous SRE agent with built-in + canvas tools.
+        node('IncidentAgent', 'synapseflow.aiAgent', 840, 620, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+          systemPrompt:
+            'You are the SRE commander in SynapseFlow. Diagnose incidents using the available tools. ' +
+            'Prefer evidence from SynapseBase, Faststore, IAM and the workflow catalog. ' +
+            'The audit collection is customer360_events. SynapseBase filters are JSON objects, for example {"eventId":"evt-123"}; never pass a SQL-style string or guess a collection name. ' +
+            'Never invent status or customer data. Keep the final answer under 250 words and end with a one-paragraph customer-safe update.',
+          userPrompt:
+            'Incident: "{{ $json.query }}". Event: {{ $json.eventId }}. Customer: {{ $json.customerId }}. ' +
+            'Priority: {{ $json.priority }}. Route: {{ $json.decision.route }}. ' +
+            'Use at most two tools, then return the remediation plan.',
+          tools: [
+            'synapsebase_query',
+            'faststore_cache',
+            'iam_check_permission',
+            'workflow_list',
+          ],
+          maxSteps: 4,
+          maxTokens: 1024,
+          temperature: 0.1,
+        }),
+
+        // Account lane: permission check + cache snapshot in parallel, then audit.
+        node('AccountPrep', 'n8n-nodes-base.noOp', 840, 820, {}),
+        node('AccountAuth', 'synapsedx.iam', 1120, 740, {
+          operation: 'authorize.check',
+          input: { userId: '={{ $json.userId }}', action: 'read', resource: 'customer360' },
+        }),
+        node('AccountSnapshot', 'synapsedx.faststore', 1120, 840, {
+          operation: 'hash-set',
+          input: {
+            key: 'account:{{ $json.customerId }}',
+            values: { tier: '={{ $json.tier }}', riskScore: '={{ $json.riskScore }}', lastRoute: 'account', checkedAt: '={{ $now }}' },
+          },
+        }),
+        node('AccountRecord', 'synapsedx.base', 1120, 940, {
+          operation: 'create-document',
+          input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
+        }),
+        node('AccountDone', 'n8n-nodes-base.set', 1380, 940, {
+          values: { route: 'account', branchResult: '={{ $json.data }}', processedBy: 'account' },
+        }),
+
+        // Growth lane: deterministic plan + Base audit; Flow catalog ran above.
+        node('GrowthPlan', 'n8n-nodes-base.code', 840, 1080, {
+          code:
+            'const amount = Number($input.amount || 0);' +
+            'const tier = String($input.tier || "standard");' +
+            'const plan = amount >= 5000 ? "enterprise-expansion" : amount > 0 ? "growth-nurture" : "community";' +
+            'return { ...$input, growth: { plan, tier, nextStep: plan === "enterprise-expansion" ? "executive-business-review" : "self-serve-nurture", createdAt: $now } };',
+        }),
+        node('GrowthRecord', 'synapsedx.base', 1120, 1080, {
+          operation: 'create-document',
+          input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
+        }),
+        node('GrowthDone', 'n8n-nodes-base.set', 1380, 1080, {
+          values: { route: 'growth', branchResult: '={{ $json.data }}', processedBy: 'growth' },
+        }),
+
+        // Fan-in: normalize every lane into one result, then side-effect metrics.
+        node('Aggregate', 'n8n-nodes-base.code', 1680, 620, {
+          code:
+            'const p = $input || {};' +
+            'const payload = p.branchResult || p;' +
+            'const d = p.decision || payload.decision || {};' +
+            'const route = p.route || payload.route || d.route || "unknown";' +
+            'const agent = p.agent || payload.agent || {};' +
+            'return { ...p, route, confidence: d.confidence ?? payload.confidence ?? p.confidence ?? 1, ' +
+            'reply: p.response || agent.response || payload.reply || "", customerId: p.customerId || payload.customerId || "demo-customer", ' +
+            'eventId: p.eventId || payload.eventId || ("evt-" + Date.now()), amount: Number(p.amount ?? payload.amount ?? 0), ' +
+            'priority: p.priority || payload.priority || "normal", processedAt: $now };',
+        }),
+        node('Metrics', 'synapsedx.faststore', 1960, 500, {
+          operation: 'incr',
+          input: { key: 'customer360:processed', by: 1 },
+        }),
+        node('RiskGate', 'n8n-nodes-base.if', 1960, 640, {
+          condition: '={{ ($json.confidence ?? 1) < 0.55 || $json.priority === "urgent" || ($json.amount ?? 0) >= 1000 }}',
+        }),
+        node('Escalate', 'synapsedx.queue', 2240, 560, {
+          operation: 'publish',
+          input: { queue: 'customer360-escalations', payload: '={{ $json }}', priority: 8 },
+        }),
+        node('Done', 'n8n-nodes-base.noOp', 2240, 740, {}),
+
+        // Canvas tools (purple Tools sockets) + Model socket.
+        node('KBLookup', 'synapsedx.base', 840, 1360, {
+          operation: 'query-documents',
+          input: { collection: 'customer360_events', limit: 3 },
+        }),
+        node('TraceCache', 'synapsedx.faststore', 1060, 1360, {
+          operation: 'get',
+          input: { key: 'customer360:{{ $json.customerId }}' },
+        }),
+        node('PermissionProbe', 'synapsedx.iam', 1280, 1360, {
+          operation: 'authorize.check',
+          input: { userId: '={{ $json.userId }}', action: 'read', resource: 'customer360' },
+        }),
+        node('FlowProbe', 'synapsedx.flow', 1500, 1360, {
+          operation: 'workflows.list',
+          input: {},
+        }),
+        node('ModelCore', 'synapseflow.model', 1720, 1360, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+        }),
+      ],
+      connections: {
+        Intake: { main: [[edge('Normalize')]] },
+        Normalize: { main: [[edge('Route'), edge('FlowCatalog'), edge('HasLDS')]] },
+        HasLDS: { main: [[edge('PublishTimeline')], [edge('SkipLDS')]] },
+        Route: {
+          main: [
+            [edge('BillingCalc')],
+            [edge('IncidentAgent')],
+            [edge('AccountPrep')],
+            [edge('GrowthPlan')],
+          ],
+        },
+        BillingCalc: { main: [[edge('BillingCache'), edge('BillingRecord')]] },
+        BillingRecord: { main: [[edge('BillingDone')]] },
+        BillingDone: { main: [[edge('Aggregate')]] },
+        IncidentAgent: { main: [[edge('Aggregate')]] },
+        AccountPrep: { main: [[edge('AccountAuth'), edge('AccountSnapshot'), edge('AccountRecord')]] },
+        AccountRecord: { main: [[edge('AccountDone')]] },
+        AccountDone: { main: [[edge('Aggregate')]] },
+        GrowthPlan: { main: [[edge('GrowthRecord')]] },
+        GrowthRecord: { main: [[edge('GrowthDone')]] },
+        GrowthDone: { main: [[edge('Aggregate')]] },
+        Aggregate: { main: [[edge('Metrics'), edge('RiskGate')]] },
+        RiskGate: { main: [[edge('Escalate')], [edge('Done')]] },
+        // tool/model sockets (auxiliary edges, never execution flow)
+        KBLookup: { main: [[tool('IncidentAgent')]] },
+        TraceCache: { main: [[tool('IncidentAgent')]] },
+        PermissionProbe: { main: [[tool('IncidentAgent')]] },
+        FlowProbe: { main: [[tool('IncidentAgent')]] },
+        ModelCore: { main: [[model('IncidentAgent')]] },
+      },
+    };
+  }
   if (name === 'ai-triage-ops') {
     const node = (n: string, type: string, x: number, y: number, parameters: any = {}) => ({
       id: wid(), name: n, type, typeVersion: 1, position: [x, y], parameters,
@@ -1982,7 +2244,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
     const model = (target: string) => ({ node: target, type: 'model', index: 0, targetPort: 'model' });
     return {
       name: wname,
-      settings: { onError: 'continue' },
+      settings: { onError: 'continue', timeoutMs: 300000 },
       nodes: [
         node('Intake', 'n8n-nodes-base.webhook', 80, 340, { path: 'ai-triage-demo', httpMethod: 'POST' }),
         node('Normalize', 'n8n-nodes-base.code', 330, 340, {
@@ -1994,12 +2256,12 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         }),
         node('Triage', 'synapseflow.decision', 600, 340, {
           input: '={{ $json.query }}',
-          choices: {
-            billing: 'billing, invoices, refunds, payments, subscription charges',
-            technical: 'bugs, errors, API failures, outages, technical problems',
-            account: 'login, password, profile, permissions, account access',
-            sales: 'pricing, plans, purchase, upgrade, partnership',
-          },
+          choices: [
+            { name: 'billing', description: 'billing, invoices, refunds, payments, subscription charges' },
+            { name: 'technical', description: 'bugs, errors, API failures, outages, technical problems' },
+            { name: 'account', description: 'login, password, profile, permissions, account access' },
+            { name: 'sales', description: 'pricing, plans, purchase, upgrade, partnership' },
+          ],
           instruction: 'Route this support ticket to the team best equipped to handle it.',
           fallbackBranch: 3,
           minConfidence: 0.3,
@@ -2054,7 +2316,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         // ---- Canvas tools (connect to agents' Tools sockets) ----
         node('KBLookup', 'synapsedx.base', 620, 980, {
           operation: 'query-documents',
-          input: { collection: 'support_kb', where: {}, limit: 5 },
+          input: { collection: 'support_kb', limit: 5 },
         }),
         node('CustomerCache', 'synapsedx.faststore', 620, 1120, {
           operation: 'get',

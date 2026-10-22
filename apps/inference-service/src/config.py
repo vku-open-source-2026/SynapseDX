@@ -49,7 +49,7 @@ class Settings:
     ).rstrip("/")
     OPENROUTER_API_KEY: str = _get_env_str(["OPENROUTER_API_KEY", "AI_API_KEY"], "")
     OPENROUTER_MODEL: str = _get_env_str(
-        ["OPENROUTER_MODEL", "AI_LLM_MODEL"], "apodex/apodex-1.1-mini:free"
+        ["OPENROUTER_MODEL", "AI_LLM_MODEL"], "liquid/lfm-2.5-2.6b:free"
     )
     OPENROUTER_FALLBACK_MODEL: str = _get_env_str(
         ["OPENROUTER_FALLBACK_MODEL", "AI_LLM_FALLBACK_MODEL"], "inception/mercury-2.5"

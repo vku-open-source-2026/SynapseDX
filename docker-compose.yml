@@ -169,6 +169,8 @@ services:
       SYNAPSEDX_IAM_API_KEY: ${SYNAPSEDX_IAM_API_KEY:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
       WORKFLOW_CRON_TICK_MS: ${WORKFLOW_CRON_TICK_MS:-15000}
+      WORKFLOW_TIMEOUT_MS: ${WORKFLOW_TIMEOUT_MS:-60000}
+      INFERENCE_TIMEOUT_MS: ${INFERENCE_TIMEOUT_MS:-120000}
     ports:
       - "${WORKFLOW_HOST_PORT:-4002}:4002"
     healthcheck:
@@ -194,7 +196,7 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_DECISION_MODEL: ${AI_DECISION_MODEL:-inception/mercury-2.5}
-      AI_LLM_MODEL: ${AI_LLM_MODEL:-apodex/apodex-1.1-mini:free}
+      AI_LLM_MODEL: ${AI_LLM_MODEL:-liquid/lfm-2.5-2.6b:free}
       AI_LLM_FALLBACK_MODEL: ${AI_LLM_FALLBACK_MODEL:-inception/mercury-2.5}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
       AI_RATE_LIMIT: ${AI_RATE_LIMIT:-30}
@@ -321,7 +323,7 @@ services:
       INFERENCE_HOST: 0.0.0.0
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-${AI_BASE_URL:-https://openrouter.ai/api/v1}}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-${AI_API_KEY:-}}
-      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-${AI_LLM_MODEL:-apodex/apodex-1.1-mini:free}}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-${AI_LLM_MODEL:-liquid/lfm-2.5-2.6b:free}}
       OPENROUTER_FALLBACK_MODEL: ${OPENROUTER_FALLBACK_MODEL:-${AI_LLM_FALLBACK_MODEL:-inception/mercury-2.5}}
       OPENROUTER_TIMEOUT_MS: ${OPENROUTER_TIMEOUT_MS:-30000}
       EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-sentence-transformers/all-MiniLM-L6-v2}

@@ -12,7 +12,7 @@ other services):
 
 1. **Decision model** (`AI_DECISION_MODEL`, default `inception/mercury-2.5`)
    picks ONE endpoint from a server-side catalog (mirrors `docs/api.md`).
-2. **LLM** (`AI_LLM_MODEL`, default `apodex/apodex-1.1-mini:free`) generates the
+2. **LLM** (`AI_LLM_MODEL`, default `liquid/lfm-2.5-2.6b:free`) generates the
    concrete `pathValues` + JSON `body` for that endpoint.
 
 Both outputs are untrusted: the service validates method/path against the

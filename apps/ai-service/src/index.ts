@@ -28,7 +28,7 @@ export function createApp(): express.Express {
   const AI_BASE_URL = (process.env.AI_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
   const AI_API_KEY = process.env.AI_API_KEY || '';
   const AI_DECISION_MODEL = process.env.AI_DECISION_MODEL || 'inception/mercury-2.5';
-  const AI_LLM_MODEL = process.env.AI_LLM_MODEL || 'apodex/apodex-1.1-mini:free';
+  const AI_LLM_MODEL = process.env.AI_LLM_MODEL || 'liquid/lfm-2.5-2.6b:free';
   // Fallback model for the generate/guide steps (different provider =
   // uncorrelated outages). Defaults to the decision model; empty disables.
   const AI_LLM_FALLBACK_MODEL = (process.env.AI_LLM_FALLBACK_MODEL ?? AI_DECISION_MODEL).trim();

@@ -1,14 +1,15 @@
 {
   "name": "ai-triage-ops",
   "settings": {
-    "onError": "continue"
+    "onError": "continue",
+    "timeoutMs": 300000
   },
   "nodes": [
     {
-      "id": "d1a2b3c4-0001-4000-8000-000000000001",
+      "id": "a5b5d629-0500-4a28-a179-5d418c3a4eda",
       "name": "Intake",
       "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
+      "typeVersion": 1,
       "position": [
         80,
         340
@@ -16,11 +17,10 @@
       "parameters": {
         "path": "ai-triage-demo",
         "httpMethod": "POST"
-      },
-      "webhookId": "d1a2b3c4-9001-4000-8000-000000009001"
+      }
     },
     {
-      "id": "d1a2b3c4-0002-4000-8000-000000000002",
+      "id": "61e1b073-4d00-4214-a4d6-b9776a1b09d0",
       "name": "Normalize",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -29,11 +29,11 @@
         340
       ],
       "parameters": {
-        "code": "const p = $input || {};\nconst query = String(p.query || p.message || p.text || p.description || \"\").trim();\nconst urgent = /(urgent|asap|down|outage|production)/i.test(query);\nreturn { ...p, query, ticketId: p.ticketId || (\"T-\" + Date.now()), priority: p.priority || (urgent ? \"urgent\" : \"normal\"), receivedAt: $now };"
+        "code": "const p = $input || {};const query = String(p.query || p.message || p.text || p.description || \"\").trim();const urgent = /(urgent|asap|down|outage|production)/i.test(query);return { ...p, query, ticketId: p.ticketId || (\"T-\" + Date.now()), priority: p.priority || (urgent ? \"urgent\" : \"normal\"), receivedAt: $now };"
       }
     },
     {
-      "id": "d1a2b3c4-0003-4000-8000-000000000003",
+      "id": "ac9ad7da-3dda-4409-83f9-8a0bb1da4c92",
       "name": "Triage",
       "type": "synapseflow.decision",
       "typeVersion": 1,
@@ -43,19 +43,31 @@
       ],
       "parameters": {
         "input": "={{ $json.query }}",
-        "choices": {
-          "billing": "billing, invoices, refunds, payments, subscription charges",
-          "technical": "bugs, errors, API failures, outages, technical problems",
-          "account": "login, password, profile, permissions, account access",
-          "sales": "pricing, plans, purchase, upgrade, partnership"
-        },
+        "choices": [
+          {
+            "name": "billing",
+            "description": "billing, invoices, refunds, payments, subscription charges"
+          },
+          {
+            "name": "technical",
+            "description": "bugs, errors, API failures, outages, technical problems"
+          },
+          {
+            "name": "account",
+            "description": "login, password, profile, permissions, account access"
+          },
+          {
+            "name": "sales",
+            "description": "pricing, plans, purchase, upgrade, partnership"
+          }
+        ],
         "instruction": "Route this support ticket to the team best equipped to handle it.",
         "fallbackBranch": 3,
         "minConfidence": 0.3
       }
     },
     {
-      "id": "d1a2b3c4-0004-4000-8000-000000000004",
+      "id": "9a7423f8-0fe1-4237-8e1d-d306ed4c64f2",
       "name": "BillingAgent",
       "type": "synapseflow.aiAgent",
       "typeVersion": 1,
@@ -80,7 +92,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0005-4000-8000-000000000005",
+      "id": "a75532b7-4c87-4338-8e21-1e3448ddf887",
       "name": "TechAgent",
       "type": "synapseflow.aiAgent",
       "typeVersion": 1,
@@ -106,7 +118,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0006-4000-8000-000000000006",
+      "id": "f282f01a-e15e-4048-8c69-71aff04156ef",
       "name": "AccountAgent",
       "type": "synapseflow.aiAgent",
       "typeVersion": 1,
@@ -130,7 +142,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0007-4000-8000-000000000007",
+      "id": "6984e735-cf86-432c-9175-19e455cedd91",
       "name": "SalesReply",
       "type": "n8n-nodes-base.set",
       "typeVersion": 1,
@@ -146,7 +158,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0008-4000-8000-000000000008",
+      "id": "5f8feea1-37ca-402e-8b10-e5ca66a4c14e",
       "name": "Aggregate",
       "type": "n8n-nodes-base.code",
       "typeVersion": 1,
@@ -155,11 +167,11 @@
         340
       ],
       "parameters": {
-        "code": "const d = $input.decision || {};\nconst a = $input.agent || {};\nreturn { ...$input, route: d.route || $input.department || \"sales\", confidence: d.confidence ?? $input.confidence ?? 1, reply: a.response || $input.reply || \"\", department: d.route || $input.department || \"sales\", processedAt: $now };"
+        "code": "const d = $input.decision || {};const a = $input.agent || {};return { ...$input, route: d.route || $input.department || \"sales\", confidence: d.confidence ?? $input.confidence ?? 1, reply: a.response || $input.reply || \"\", department: d.route || $input.department || \"sales\", processedAt: $now };"
       }
     },
     {
-      "id": "d1a2b3c4-0009-4000-8000-000000000009",
+      "id": "21724897-e7bb-43b8-97a4-7db61aabaffd",
       "name": "NeedsEscalation",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
@@ -172,7 +184,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0010-4000-8000-000000000010",
+      "id": "076e6f02-a2c6-4116-ba1c-f9bc5516de05",
       "name": "Escalate",
       "type": "synapsedx.queue",
       "typeVersion": 1,
@@ -190,7 +202,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0011-4000-8000-000000000011",
+      "id": "7825e5b2-f106-4325-9bc2-8d7dc3051ab0",
       "name": "Done",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
@@ -201,7 +213,7 @@
       "parameters": {}
     },
     {
-      "id": "d1a2b3c4-0012-4000-8000-000000000012",
+      "id": "8d46f67c-effb-48af-8e49-1d6066746a19",
       "name": "KBLookup",
       "type": "synapsedx.base",
       "typeVersion": 1,
@@ -213,13 +225,12 @@
         "operation": "query-documents",
         "input": {
           "collection": "support_kb",
-          "where": {},
           "limit": 5
         }
       }
     },
     {
-      "id": "d1a2b3c4-0013-4000-8000-000000000013",
+      "id": "5a6af697-f7d8-445a-9d0e-39fcf43e9deb",
       "name": "CustomerCache",
       "type": "synapsedx.faststore",
       "typeVersion": 1,
@@ -235,7 +246,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0014-4000-8000-000000000014",
+      "id": "7d4638f9-ed63-4706-8c56-8eab345432eb",
       "name": "PermissionCheck",
       "type": "synapsedx.iam",
       "typeVersion": 1,
@@ -253,10 +264,10 @@
       }
     },
     {
-      "id": "d1a2b3c4-0015-4000-8000-000000000015",
+      "id": "ada97cf9-64ff-4c7b-9ce1-1a3604e69ef6",
       "name": "StatusAPI",
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 1,
       "position": [
         620,
         1400
@@ -267,7 +278,7 @@
       }
     },
     {
-      "id": "d1a2b3c4-0016-4000-8000-000000000016",
+      "id": "ccb2be43-77b2-4397-851b-49c3d9a8470c",
       "name": "ModelCore",
       "type": "synapseflow.model",
       "typeVersion": 1,
