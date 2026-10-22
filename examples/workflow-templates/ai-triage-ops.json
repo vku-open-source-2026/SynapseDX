@@ -1,0 +1,489 @@
+{
+  "name": "ai-triage-ops",
+  "settings": {
+    "onError": "continue"
+  },
+  "nodes": [
+    {
+      "id": "d1a2b3c4-0001-4000-8000-000000000001",
+      "name": "Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        80,
+        340
+      ],
+      "parameters": {
+        "path": "ai-triage-demo",
+        "httpMethod": "POST"
+      },
+      "webhookId": "d1a2b3c4-9001-4000-8000-000000009001"
+    },
+    {
+      "id": "d1a2b3c4-0002-4000-8000-000000000002",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        330,
+        340
+      ],
+      "parameters": {
+        "code": "const p = $input || {};\nconst query = String(p.query || p.message || p.text || p.description || \"\").trim();\nconst urgent = /(urgent|asap|down|outage|production)/i.test(query);\nreturn { ...p, query, ticketId: p.ticketId || (\"T-\" + Date.now()), priority: p.priority || (urgent ? \"urgent\" : \"normal\"), receivedAt: $now };"
+      }
+    },
+    {
+      "id": "d1a2b3c4-0003-4000-8000-000000000003",
+      "name": "Triage",
+      "type": "synapseflow.decision",
+      "typeVersion": 1,
+      "position": [
+        600,
+        340
+      ],
+      "parameters": {
+        "input": "={{ $json.query }}",
+        "choices": {
+          "billing": "billing, invoices, refunds, payments, subscription charges",
+          "technical": "bugs, errors, API failures, outages, technical problems",
+          "account": "login, password, profile, permissions, account access",
+          "sales": "pricing, plans, purchase, upgrade, partnership"
+        },
+        "instruction": "Route this support ticket to the team best equipped to handle it.",
+        "fallbackBranch": 3,
+        "minConfidence": 0.3
+      }
+    },
+    {
+      "id": "d1a2b3c4-0004-4000-8000-000000000004",
+      "name": "BillingAgent",
+      "type": "synapseflow.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        900,
+        80
+      ],
+      "parameters": {
+        "core": "synapse-inference",
+        "model": "liquid/lfm-2.5-2.6b:free",
+        "systemPrompt": "You are the Billing specialist in SynapseFlow. Use SynapseBase and Faststore tools to ground every answer in real data. Be concise, cite amounts and invoice ids, and never invent a payment.",
+        "userPrompt": "Handle this billing ticket. Customer says: \"{{ $json.query }}\". Ticket: {{ $json.ticketId }}. Look up the knowledge base/cache when useful, then produce the customer reply.",
+        "tools": [
+          "synapsebase_query",
+          "faststore_cache",
+          "decision_eval",
+          "http_request",
+          "workflow_run"
+        ],
+        "maxSteps": 7,
+        "temperature": 0.2
+      }
+    },
+    {
+      "id": "d1a2b3c4-0005-4000-8000-000000000005",
+      "name": "TechAgent",
+      "type": "synapseflow.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        900,
+        320
+      ],
+      "parameters": {
+        "core": "synapse-inference",
+        "model": "liquid/lfm-2.5-2.6b:free",
+        "systemPrompt": "You are the Technical support specialist in SynapseFlow. Diagnose the issue, use the code sandbox for calculations/transforms, and call the HTTP tool only for public status endpoints. Give concrete next steps.",
+        "userPrompt": "Diagnose and answer this technical ticket: \"{{ $json.query }}\". Priority: {{ $json.priority }}. Use the KB/status tools, then produce the customer reply.",
+        "tools": [
+          "synapsebase_query",
+          "code_sandbox",
+          "logic_calculator",
+          "decision_eval",
+          "queue_publish",
+          "http_request"
+        ],
+        "maxSteps": 8,
+        "temperature": 0.2
+      }
+    },
+    {
+      "id": "d1a2b3c4-0006-4000-8000-000000000006",
+      "name": "AccountAgent",
+      "type": "synapseflow.aiAgent",
+      "typeVersion": 1,
+      "position": [
+        900,
+        560
+      ],
+      "parameters": {
+        "core": "synapse-inference",
+        "model": "liquid/lfm-2.5-2.6b:free",
+        "systemPrompt": "You are the Account & Access specialist in SynapseFlow. Use the IAM permission check and cache tools before making claims about access. Never disclose secrets or other tenants' data.",
+        "userPrompt": "Resolve this account/access ticket: \"{{ $json.query }}\". Customer id: {{ $json.customerId || \"unknown\" }}. Check permissions with tools, then produce the customer reply.",
+        "tools": [
+          "iam_check_permission",
+          "faststore_cache",
+          "workflow_list",
+          "workflow_run"
+        ],
+        "maxSteps": 6,
+        "temperature": 0.2
+      }
+    },
+    {
+      "id": "d1a2b3c4-0007-4000-8000-000000000007",
+      "name": "SalesReply",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [
+        900,
+        800
+      ],
+      "parameters": {
+        "values": {
+          "department": "sales",
+          "reply": "Thanks for your interest in SynapseDX! Our sales team will reach out shortly with pricing and the right plan for your team."
+        }
+      }
+    },
+    {
+      "id": "d1a2b3c4-0008-4000-8000-000000000008",
+      "name": "Aggregate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1240,
+        340
+      ],
+      "parameters": {
+        "code": "const d = $input.decision || {};\nconst a = $input.agent || {};\nreturn { ...$input, route: d.route || $input.department || \"sales\", confidence: d.confidence ?? $input.confidence ?? 1, reply: a.response || $input.reply || \"\", department: d.route || $input.department || \"sales\", processedAt: $now };"
+      }
+    },
+    {
+      "id": "d1a2b3c4-0009-4000-8000-000000000009",
+      "name": "NeedsEscalation",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        340
+      ],
+      "parameters": {
+        "condition": "={{ ($json.confidence ?? 1) < 0.55 || $json.priority === \"urgent\" }}"
+      }
+    },
+    {
+      "id": "d1a2b3c4-0010-4000-8000-000000000010",
+      "name": "Escalate",
+      "type": "synapsedx.queue",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        220
+      ],
+      "parameters": {
+        "operation": "publish",
+        "input": {
+          "queue": "support-escalations",
+          "payload": "={{ $json }}",
+          "priority": 5
+        }
+      }
+    },
+    {
+      "id": "d1a2b3c4-0011-4000-8000-000000000011",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        460
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d1a2b3c4-0012-4000-8000-000000000012",
+      "name": "KBLookup",
+      "type": "synapsedx.base",
+      "typeVersion": 1,
+      "position": [
+        620,
+        980
+      ],
+      "parameters": {
+        "operation": "query-documents",
+        "input": {
+          "collection": "support_kb",
+          "where": {},
+          "limit": 5
+        }
+      }
+    },
+    {
+      "id": "d1a2b3c4-0013-4000-8000-000000000013",
+      "name": "CustomerCache",
+      "type": "synapsedx.faststore",
+      "typeVersion": 1,
+      "position": [
+        620,
+        1120
+      ],
+      "parameters": {
+        "operation": "get",
+        "input": {
+          "key": "customer:={{ $json.customerId }}"
+        }
+      }
+    },
+    {
+      "id": "d1a2b3c4-0014-4000-8000-000000000014",
+      "name": "PermissionCheck",
+      "type": "synapsedx.iam",
+      "typeVersion": 1,
+      "position": [
+        620,
+        1260
+      ],
+      "parameters": {
+        "operation": "authorize.check",
+        "input": {
+          "userId": "={{ $json.userId }}",
+          "action": "read",
+          "resource": "support_ticket"
+        }
+      }
+    },
+    {
+      "id": "d1a2b3c4-0015-4000-8000-000000000015",
+      "name": "StatusAPI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        620,
+        1400
+      ],
+      "parameters": {
+        "url": "https://api.example.com/health",
+        "method": "GET"
+      }
+    },
+    {
+      "id": "d1a2b3c4-0016-4000-8000-000000000016",
+      "name": "ModelCore",
+      "type": "synapseflow.model",
+      "typeVersion": 1,
+      "position": [
+        620,
+        1540
+      ],
+      "parameters": {
+        "core": "synapse-inference",
+        "model": "liquid/lfm-2.5-2.6b:free"
+      }
+    }
+  ],
+  "connections": {
+    "Intake": {
+      "main": [
+        [
+          {
+            "node": "Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize": {
+      "main": [
+        [
+          {
+            "node": "Triage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Triage": {
+      "main": [
+        [
+          {
+            "node": "BillingAgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TechAgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AccountAgent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SalesReply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BillingAgent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TechAgent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AccountAgent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SalesReply": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "NeedsEscalation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NeedsEscalation": {
+      "main": [
+        [
+          {
+            "node": "Escalate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KBLookup": {
+      "main": [
+        [
+          {
+            "node": "BillingAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ],
+        [
+          {
+            "node": "TechAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ]
+      ]
+    },
+    "CustomerCache": {
+      "main": [
+        [
+          {
+            "node": "BillingAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ],
+        [
+          {
+            "node": "AccountAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ]
+      ]
+    },
+    "PermissionCheck": {
+      "main": [
+        [
+          {
+            "node": "AccountAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ]
+      ]
+    },
+    "StatusAPI": {
+      "main": [
+        [
+          {
+            "node": "TechAgent",
+            "type": "tools",
+            "index": 0,
+            "targetPort": "tools"
+          }
+        ]
+      ]
+    },
+    "ModelCore": {
+      "main": [
+        [
+          {
+            "node": "BillingAgent",
+            "type": "model",
+            "index": 0,
+            "targetPort": "model"
+          }
+        ]
+      ]
+    }
+  }
+}

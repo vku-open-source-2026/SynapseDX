@@ -266,3 +266,104 @@ describe('github sample input', () => {
     assert.equal(plain.hello, 'world');
   });
 });
+
+describe('agent tool/model sockets', () => {
+  const agent = (name) => ({ id: `id-${name}`, name, type: 'synapseflow.aiAgent', position: [0, 0], parameters: {} });
+  const model = (name) => ({ id: `id-${name}`, name, type: 'synapseflow.model', position: [0, 0], parameters: {} });
+
+  it('tool and model edges are auxiliary and never create execution cycles', async () => {
+    const { connect: c, detectCycle, validateGraph: vg, toolEdgesForAgent, modelEdgeForAgent } = await import('./workflow-graph.js');
+    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapsedx.base' }), model('Model'), N('Done')];
+    let conns = c({}, 'Hook', 'Agent');
+    conns = c(conns, 'KB', 'Agent', { targetPort: 'tools' });
+    conns = c(conns, 'Model', 'Agent', { targetPort: 'model' });
+    conns = c(conns, 'Agent', 'Done');
+    assert.deepEqual(toolEdgesForAgent(conns, 'Agent'), [{ from: 'KB', to: 'Agent' }]);
+    assert.deepEqual(modelEdgeForAgent(conns, 'Agent'), { from: 'Model', to: 'Agent' });
+    assert.equal(vg(nodes, conns), null);
+    // A flow edge back to the tool source plus an aux edge back to the agent
+    // must still be a DAG: sockets are configuration, not execution.
+    const auxCycle = { Agent: { main: [[{ node: 'KB', type: 'main', index: 0 }]] }, KB: { main: [[{ node: 'Agent', type: 'tools', index: 0, targetPort: 'tools' }]] } };
+    assert.equal(detectCycle([agent('Agent'), N('KB')], auxCycle), null);
+  });
+
+  it('validates aux targets and only one model source', async () => {
+    const { validateGraph: vg } = await import('./workflow-graph.js');
+    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapsedx.base' }), model('M1'), model('M2')];
+    const badTarget = { Hook: { main: [[{ node: 'Agent' }]] }, KB: { main: [[{ node: 'Hook', type: 'tools', targetPort: 'tools' }]] } };
+    assert.match(vg(nodes, badTarget), /can only target an AI Agent/);
+    const twoModels = {
+      Hook: { main: [[{ node: 'Agent' }]] },
+      M1: { main: [[{ node: 'Agent', type: 'model', targetPort: 'model' }]] },
+      M2: { main: [[{ node: 'Agent', type: 'model', targetPort: 'model' }]] },
+    };
+    assert.match(vg(nodes, twoModels), /more than one model source/);
+    const badModelSource = {
+      Hook: { main: [[{ node: 'Agent' }]] },
+      KB: { main: [[{ node: 'Agent', type: 'model', targetPort: 'model' }]] },
+    };
+    assert.match(vg(nodes, badModelSource), /Model Core source/);
+  });
+
+  it('normal flow fan-out stays in the single main slot', async () => {
+    const { connect: c, listEdgesWithBranches } = await import('./workflow-graph.js');
+    let conns = c({}, 'A', 'B');
+    conns = c(conns, 'A', 'C');
+    assert.equal(conns.A.main.length, 1);
+    assert.deepEqual(listEdgesWithBranches(conns).map((e) => e.branch), [0, 0]);
+  });
+});
+
+describe('decision routes', () => {
+  const decision = (name, choices = { billing: 'billing issues', technical: 'technical issues' }) => ({
+    id: `id-${name}`, name, type: 'synapseflow.decision', position: [0, 0], parameters: { choices },
+  });
+
+  it('reads object and array choices and keeps branch order', async () => {
+    const { decisionRoutes, validateGraph: vg, connect: c } = await import('./workflow-graph.js');
+    assert.deepEqual(decisionRoutes({ choices: { billing: 'money', technical: 'bugs' } }).map((r) => r.name), ['billing', 'technical']);
+    assert.deepEqual(decisionRoutes({ choices: [{ name: 'a', description: 'A' }, 'b'] }).map((r) => r.name), ['a', 'b']);
+    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), decision('D'), N('B'), N('T')];
+    let conns = c({}, 'Hook', 'D');
+    conns = c(conns, 'D', 'B', { branch: 0 });
+    conns = c(conns, 'D', 'T', { branch: 1 });
+    assert.equal(vg(nodes, conns), null);
+    assert.match(vg(nodes, c(conns, 'D', 'B', { branch: 2 })), /has 2 route/);
+  });
+
+  it('warns when a decision route is unwired', async () => {
+    const { decisionWarnings, graphWarnings } = await import('./workflow-graph.js');
+    const nodes = [decision('D'), N('B')];
+    const conns = { D: { main: [[{ node: 'B' }]] } };
+    assert.match(decisionWarnings(nodes, conns)[0], /technical/);
+    assert.ok(graphWarnings(nodes, conns).length >= 1);
+  });
+});
+
+describe('first-party integration palette', () => {
+  it('ships every split service as a draggable node with example params', async () => {
+    const { INTEGRATION_SERVICES, NODE_TYPES: types, EXAMPLE_PARAMS: examples, makeNode: mk, isIntegrationType } = await import('./workflow-graph.js');
+    const byType = new Set(types.map((t) => t.type));
+    for (const type of Object.keys(INTEGRATION_SERVICES)) {
+      assert.ok(byType.has(type), `${type} missing from palette`);
+      assert.ok(isIntegrationType(type));
+      assert.ok(examples[type], `${type} missing example params`);
+      assert.ok(mk(type).typeVersion >= 1);
+    }
+  });
+});
+
+describe('edge identity on shared source/target pairs', () => {
+  it('disconnect without targetPort removes only the flow edge', async () => {
+    const { connect: c, disconnect: d, listEdgesWithBranches } = await import('./workflow-graph.js');
+    let conns = c({}, 'KB', 'Agent');
+    conns = c(conns, 'KB', 'Agent', { targetPort: 'tools' });
+    assert.equal(listEdgesWithBranches(conns).length, 2);
+    conns = d(conns, 'KB', 'Agent');
+    const left = listEdgesWithBranches(conns);
+    assert.equal(left.length, 1);
+    assert.equal(left[0].targetPort, 'tools');
+    conns = d(conns, 'KB', 'Agent', { targetPort: 'tools' });
+    assert.equal(listEdgesWithBranches(conns).length, 0);
+  });
+});

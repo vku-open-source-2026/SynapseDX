@@ -1,17 +1,21 @@
-import json
-import time
 import asyncio
-from typing import List, Optional, Dict, Any, AsyncGenerator
+import json
+from typing import Any, AsyncGenerator, Dict, List, Optional
+
 import httpx
 from pydantic import BaseModel, Field
 
-from .config import settings, Settings
+from .config import Settings, settings
 
 
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    # Assistant tool-call turns have no content; tool results are also allowed
+    # to be structured. Keep this permissive and forward exactly what came in.
+    content: Optional[Any] = None
     name: Optional[str] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_call_id: Optional[str] = None
 
 
 class ChatCompletionRequest(BaseModel):
@@ -21,6 +25,12 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = Field(default=1024, ge=1, le=32768)
     stream: Optional[bool] = False
     top_p: Optional[float] = Field(default=1.0, ge=0.0, le=1.0)
+    # OpenAI-compatible tool calling: the workflow AI Agent depends on these
+    # fields surviving the inference hop.
+    tools: Optional[List[Dict[str, Any]]] = None
+    tool_choice: Optional[Any] = None
+    parallel_tool_calls: Optional[bool] = None
+    response_format: Optional[Dict[str, Any]] = None
 
 
 class ChatCompletionChoice(BaseModel):
@@ -49,6 +59,20 @@ def _is_retryable(status_code: int) -> bool:
     return status_code >= 500 or status_code in (429, 408)
 
 
+def _tool_fields(req: ChatCompletionRequest) -> Dict[str, Any]:
+    """Only forward optional fields the caller actually supplied."""
+    out: Dict[str, Any] = {}
+    if req.tools is not None:
+        out["tools"] = req.tools
+    if req.tool_choice is not None:
+        out["tool_choice"] = req.tool_choice
+    if req.parallel_tool_calls is not None:
+        out["parallel_tool_calls"] = req.parallel_tool_calls
+    if req.response_format is not None:
+        out["response_format"] = req.response_format
+    return out
+
+
 async def call_chat_completion(
     req: ChatCompletionRequest,
     cfg: Optional[Settings] = None,
@@ -73,6 +97,7 @@ async def call_chat_completion(
         "temperature": req.temperature,
         "max_tokens": req.max_tokens,
         "stream": False,
+        **_tool_fields(req),
     }
 
     timeout_seconds = config.OPENROUTER_TIMEOUT_MS / 1000.0
@@ -138,13 +163,16 @@ async def stream_chat_completion(
         "temperature": req.temperature,
         "max_tokens": req.max_tokens,
         "stream": True,
+        **_tool_fields(req),
     }
 
     timeout_seconds = config.OPENROUTER_TIMEOUT_MS / 1000.0
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         try:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
+            async with client.stream(
+                "POST", url, headers=headers, json=payload
+            ) as response:
                 if response.status_code != 200:
                     err_body = await response.aread()
                     err_msg = err_body.decode("utf-8", errors="replace")[:1000]
@@ -166,6 +194,8 @@ async def stream_chat_completion(
                     else:
                         yield f"data: {line}\n\n"
         except Exception as e:
-            err_payload = {"error": {"message": f"Streaming failed: {str(e)}", "code": 500}}
+            err_payload = {
+                "error": {"message": f"Streaming failed: {str(e)}", "code": 500}
+            }
             yield f"data: {json.dumps(err_payload)}\n\n"
             yield "data: [DONE]\n\n"

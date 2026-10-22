@@ -11,6 +11,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
 import { timingSafeEqual, randomUUID } from 'crypto';
+import { AsyncLocalStorage } from 'async_hooks';
 import {
   createWorkflowRec, getWorkflowRec, listWorkflowRecs, updateWorkflowRec, deleteWorkflowRec,
   createExecutionRec, getExecutionRec, listExecutionRecs, findActiveWebhookWorkflow,
@@ -19,8 +20,8 @@ import {
   toPublicCredential, decryptSecret,
 } from './store';
 import type { Principal } from './store';
-import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType } from './engine';
-import type { CredentialResolver, RunPrincipal, SynapseDXCall } from './engine';
+import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, validateIntegrationParams, validateAgentToolIds, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType, isAiAgentType, isDecisionType, isModelType, isIntegrationType, edgeTargetPort, auxiliaryEdges } from './engine';
+import type { CredentialResolver, RunPrincipal, SynapseDXCall, EngineNode, Connections } from './engine';
 
 /** May this credential be resolved for this run principal? (P0-4/#5)
  *  - org-bound credentials: only inside their org, or by their owning account;
@@ -82,6 +83,12 @@ function canAccessExecution(e: { principal?: Principal | null }, p: Principal | 
   return false;
 }
 
+/** Nested workflow executions (agent `workflow_run` / SynapseFlow node).
+ *  AsyncLocalStorage keeps the depth per async chain, so concurrent runs
+ *  cannot corrupt each other's counters. */
+const workflowRunContext = new AsyncLocalStorage<{ depth: number }>();
+const MAX_WORKFLOW_NESTING = 3;
+
 /** First-party SynapseDX caller for synapsedx.api nodes: IAM resources go to
  *  IAM over the service network with the run principal stamped (IAM enforces
  *  its own canActFor tenant checks on it); workflow-local resources are read
@@ -101,8 +108,50 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       return all.filter((w) => canAccessWorkflow(w, principal)).map(toApiWorkflow);
     }
     const w = await getWorkflowRec(cleanId(a.id, 'id', 128));
-    if (!w || !canAccessWorkflow(w, principal)) throw new Error('synapsedx.api: workflows.get -> 404 (not found)');
-    return toApiWorkflow(w);
+    if (!w || !canAccessWorkflow(w, principal)) throw new Error(`synapsedx.api: workflows.${operation} -> 404 (not found)`);
+    if (operation === 'get') return toApiWorkflow(w);
+    if (operation === 'execute') {
+      const depth = workflowRunContext.getStore()?.depth || 0;
+      if (depth >= MAX_WORKFLOW_NESTING) {
+        throw new Error(`synapsedx.api: workflows.execute nesting limit (${MAX_WORKFLOW_NESTING}) reached`);
+      }
+      const input = a.input && typeof a.input === 'object' && !Array.isArray(a.input) ? a.input : {};
+      if (JSON.stringify(input).length > 200 * 1024) throw new Error('synapsedx.api: workflows.execute input exceeds 200KB');
+      const runPrincipal = principal || workflowRunPrincipal(w);
+      const startedAt = new Date().toISOString();
+      const r = await workflowRunContext.run({ depth: depth + 1 }, () =>
+        runWorkflow(
+          { nodes: w.nodes as any, connections: w.connections as any, name: w.name, settings: w.settings as any },
+          input,
+          {
+            triggeredBy: 'workflow',
+            principal: runPrincipal,
+            credentialResolver: makeCredentialResolver(runPrincipal),
+            synapsedxCall,
+          },
+        ),
+      );
+      const finishedAt = new Date().toISOString();
+      const exec = await createExecutionRec({
+        workflow_id: w.id,
+        workflow_name: w.name,
+        status: r.status,
+        input,
+        output: r.output,
+        node_runs: r.nodeRuns as any,
+        error: (r as any).error ?? null,
+        triggered_by: 'workflow',
+        principal: runPrincipal,
+        actor: actorFor(w.id, runPrincipal),
+        startedAt,
+        finishedAt,
+      });
+      if (r.status !== 'success') {
+        throw new Error(`synapsedx.api: workflows.execute '${w.name}' failed: ${String((r as any).error || 'unknown error').slice(0, 300)}`);
+      }
+      return { ok: true, executionId: exec.id, workflow: { id: w.id, name: w.name }, output: r.output };
+    }
+    throw new Error(`synapsedx.api: unsupported call 'workflows.${operation}'`);
   }
   if (resource === 'executions') {
     if (operation === 'list') {
@@ -215,7 +264,14 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       } else if (operation === 'query-documents') {
         method = 'POST';
         path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/query`;
-        body = { filter: a.filter, sort: a.sort, limit: a.limit, offset: a.offset };
+        // base-service expects `where` + `orderBy`; older workflows and the
+        // AI tool use `filter`/`sort`, so accept both spellings.
+        body = {
+          where: a.where !== undefined ? a.where : a.filter,
+          orderBy: a.orderBy !== undefined ? a.orderBy : a.sort,
+          limit: a.limit,
+          offset: a.offset,
+        };
       } else if (operation === 'delete-document') {
         method = 'DELETE';
         path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/documents/${encodeURIComponent(cleanId(a.id, 'id', 256))}`;
@@ -292,6 +348,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       const text = await r.text();
       let parsed: any = text;
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
+      // Cache miss is a normal result for agents/if nodes, not a workflow
+      // failure: return null instead of throwing on 404 for reads.
+      if (r.status === 404 && (operation === 'get' || operation === 'hash-get')) {
+        return operation === 'get' ? { key: a.key, value: null, hit: false } : { key: a.key, values: null, hit: false };
+      }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
         throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
@@ -339,7 +400,13 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       } else if (operation === 'consume') {
         method = 'POST';
         path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/consume`;
-        body = { count: a.count !== undefined ? Number(a.count) : 1, visibilityTimeoutSeconds: a.visibilityTimeoutSeconds };
+        // queue-service uses maxMessages + consumer; keep `count` as a
+        // backward-compatible alias for older workflows.
+        body = {
+          maxMessages: a.maxMessages !== undefined ? Number(a.maxMessages) : a.count !== undefined ? Number(a.count) : 1,
+          consumer: a.consumer || 'workflow',
+          visibilityTimeoutSeconds: a.visibilityTimeoutSeconds,
+        };
       } else if (operation === 'ack') {
         method = 'POST';
         path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/ack`;
@@ -387,7 +454,18 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       let body: any;
       if (operation === 'chat') {
         path = '/v1/inference/chat/completions';
-        body = { messages: a.messages, model: a.model, temperature: a.temperature, max_tokens: a.max_tokens };
+        body = {
+          messages: a.messages,
+          model: a.model,
+          temperature: a.temperature,
+          max_tokens: a.max_tokens,
+          // Native tool calling must survive the workflow-service hop;
+          // previously these fields were silently dropped.
+          ...(a.tools !== undefined ? { tools: a.tools } : {}),
+          ...(a.tool_choice !== undefined ? { tool_choice: a.tool_choice } : {}),
+          ...(a.response_format !== undefined ? { response_format: a.response_format } : {}),
+          ...(a.top_p !== undefined ? { top_p: a.top_p } : {}),
+        };
       } else if (operation === 'embeddings') {
         path = '/v1/inference/embeddings';
         body = { input: a.input, model: a.model };
@@ -674,6 +752,46 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
         const perr = validateSynapseDXParams(params);
         if (perr) return `definition.nodes['${nm}']: ${perr}`;
       }
+      // Split per-service integration nodes (IAM/Base/Faststore/Queue/LDS/
+      // Inference/Flow) — validate their operation + required input fields.
+      if (isIntegrationType((n as any).type) && (n as any).type !== 'synapsedx.api' && params && typeof params === 'object') {
+        const perr = validateIntegrationParams((n as any).type, params);
+        if (perr) return `definition.nodes['${nm}']: ${perr}`;
+      }
+      // AI Agent: enabled tools + model parameters.
+      if (isAiAgentType((n as any).type) && params && typeof params === 'object') {
+        const terr = validateAgentToolIds((params as any).tools);
+        if (terr) return `definition.nodes['${nm}']: ${terr}`;
+        const maxSteps = Number((params as any).maxSteps);
+        if ((params as any).maxSteps !== undefined && (!Number.isFinite(maxSteps) || maxSteps < 1 || maxSteps > 12)) {
+          return `definition.nodes['${nm}']: maxSteps must be 1..12`;
+        }
+        const temp = Number((params as any).temperature);
+        if ((params as any).temperature !== undefined && (!Number.isFinite(temp) || temp < 0 || temp > 2)) {
+          return `definition.nodes['${nm}']: temperature must be 0..2`;
+        }
+      }
+      // Decision Engine: at least one route, bounded fallback/threshold.
+      if (isDecisionType((n as any).type) && params && typeof params === 'object') {
+        const raw = (params as any).choices !== undefined ? (params as any).choices : (params as any).routes;
+        let routes: string[] = [];
+        if (Array.isArray(raw)) {
+          routes = raw.map((r: any) => (r && typeof r === 'object' ? String(r.name ?? r.route ?? r.value ?? '') : String(r ?? ''))).filter(Boolean);
+        } else if (raw && typeof raw === 'object') {
+          routes = Object.keys(raw);
+        }
+        if (!routes.length) return `definition.nodes['${nm}']: decision needs at least one route (choices)`;
+        if (routes.length > 20) return `definition.nodes['${nm}']: decision supports at most 20 routes`;
+        if (new Set(routes).size !== routes.length) return `definition.nodes['${nm}']: decision route names must be unique`;
+        const fb = Number((params as any).fallbackBranch);
+        if ((params as any).fallbackBranch !== undefined && (!Number.isFinite(fb) || fb < 0 || fb >= routes.length)) {
+          return `definition.nodes['${nm}']: fallbackBranch must be 0..${routes.length - 1}`;
+        }
+        const mc = Number((params as any).minConfidence);
+        if ((params as any).minConfidence !== undefined && (!Number.isFinite(mc) || mc < 0 || mc > 1)) {
+          return `definition.nodes['${nm}']: minConfidence must be 0..1`;
+        }
+      }
       // M8: reject schedules that would silently never fire.
       if (isCronType((n as any).type)) {
         const ce = validateCronParams(params || {});
@@ -696,36 +814,69 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
   try {
     const nodesArr: any[] = Array.isArray((definition as any).nodes) ? (definition as any).nodes : [];
     const names = new Set(nodesArr.map((n: any) => (n as any)?.name).filter((x: any) => typeof x === 'string' && x));
+    const byName = new Map(nodesArr.map((n: any) => [n?.name, n]));
+    const routesOf = (p: any): string[] => {
+      const raw = p?.choices !== undefined ? p.choices : p?.routes;
+      if (Array.isArray(raw)) {
+        return raw.map((r: any) => (r && typeof r === 'object' ? String(r.name ?? r.route ?? r.value ?? '') : String(r ?? ''))).filter(Boolean);
+      }
+      if (raw && typeof raw === 'object') return Object.keys(raw);
+      return [];
+    };
     const conns: any = (definition as any).connections || {};
+    const touched = new Set<string>();
+    const auxSources = new Set<string>();
+    const modelTargets = new Map<string, number>();
     for (const [from, groups] of Object.entries(conns)) {
       if (!names.has(from)) return `connection from unknown node '${from}'`;
       const mains: any = (groups as any)?.main;
       if (mains !== undefined && !Array.isArray(mains)) return `connections['${from}'].main must be an array`;
-      for (const branch of mains || []) {
+      for (let bi = 0; bi < (mains || []).length; bi++) {
+        const branch = mains[bi];
         for (const e of Array.isArray(branch) ? branch : []) {
           if (!e || typeof e !== 'object' || !names.has((e as any).node)) {
             return `connection from '${from}' points at unknown node '${(e as any)?.node}'`;
           }
           if ((e as any).node === from) return `self-loop on '${from}' is not allowed`;
+          const port = edgeTargetPort(e as any);
+          if (port) {
+            const target = byName.get((e as any).node);
+            if (!isAiAgentType((target as any)?.type)) {
+              return `connection '${from}' -> '${(e as any).node}': ${port} socket can only target an AI Agent`;
+            }
+            auxSources.add(from);
+            if (port === 'model') {
+              if (!isModelType((byName.get(from) as any)?.type)) {
+                return `connection '${from}' -> '${(e as any).node}': Model socket needs a Model Core source`;
+              }
+              modelTargets.set((e as any).node, (modelTargets.get((e as any).node) || 0) + 1);
+            }
+          } else {
+            touched.add(from);
+            touched.add((e as any).node);
+            const src = byName.get(from);
+            if (isIfType((src as any)?.type) && bi > 1) {
+              return `if node '${from}' has only true/false outputs (branch ${bi} is invalid)`;
+            }
+            if (isDecisionType((src as any)?.type)) {
+              const nRoutes = routesOf((src as any)?.parameters || {}).length;
+              if (nRoutes && bi >= nRoutes) {
+                return `decision node '${from}' has ${nRoutes} route(s) but an edge is on branch ${bi}`;
+              }
+            }
+          }
         }
       }
     }
+    for (const [agent, count] of modelTargets) {
+      if (count > 1) return `AI Agent '${agent}' has more than one model source connected`;
+    }
     if (nodesArr.length > 1) {
-      const touched = new Set<string>();
-      for (const [from, groups] of Object.entries(conns)) {
-        const mains: any = (groups as any)?.main;
-        if (!Array.isArray(mains)) continue;
-        let has = false;
-        for (const branch of mains) {
-          for (const e of Array.isArray(branch) ? branch : []) {
-            if (e?.node && names.has(e.node)) { touched.add(e.node); has = true; }
-          }
-        }
-        if (has) touched.add(from);
-      }
       for (const n of nodesArr) {
         const nm = (n as any)?.name;
-        if (typeof nm === 'string' && nm && !touched.has(nm)) return `dangling node '${nm}' has no connections`;
+        if (typeof nm === 'string' && nm && !touched.has(nm) && !auxSources.has(nm)) {
+          return `dangling node '${nm}' has no connections`;
+        }
       }
     }
   } catch { /* ignore */ }
@@ -1678,6 +1829,7 @@ export function listTemplates() {
     { name: 'synapsedx-self-check', description: 'Manual -> SynapseDX API (list orgs) -> count -> summary (first-party integration demo)' },
     { name: 'webhook-to-lds', description: 'Webhook -> SynapseLDS: publish the payload as an NGSI-LD record (payload carries datasourceId)' },
     { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
+    { name: 'ai-triage-ops', description: 'AI triage showcase: webhook -> Decision (4 routes) -> 3 AI Agents with canvas Tools/Model sockets + Base/Faststore/IAM/HTTP tools -> aggregate -> escalation queue' },
   ];
 }
 
@@ -1818,6 +1970,132 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       connections: {
         GitHubPush: { main: [[{ node: 'Normalize', type: 'main', index: 0 }]] },
         Normalize: { main: [[{ node: 'Summary', type: 'main', index: 0 }]] },
+      },
+    };
+  }
+  if (name === 'ai-triage-ops') {
+    const node = (n: string, type: string, x: number, y: number, parameters: any = {}) => ({
+      id: wid(), name: n, type, typeVersion: 1, position: [x, y], parameters,
+    });
+    const edge = (target: string) => ({ node: target, type: 'main', index: 0 });
+    const tool = (target: string) => ({ node: target, type: 'tools', index: 0, targetPort: 'tools' });
+    const model = (target: string) => ({ node: target, type: 'model', index: 0, targetPort: 'model' });
+    return {
+      name: wname,
+      settings: { onError: 'continue' },
+      nodes: [
+        node('Intake', 'n8n-nodes-base.webhook', 80, 340, { path: 'ai-triage-demo', httpMethod: 'POST' }),
+        node('Normalize', 'n8n-nodes-base.code', 330, 340, {
+          code:
+            'const p = $input || {};' +
+            'const query = String(p.query || p.message || p.text || p.description || "").trim();' +
+            'const urgent = /(urgent|asap|down|outage|production)/i.test(query);' +
+            'return { ...p, query, ticketId: p.ticketId || ("T-" + Date.now()), priority: p.priority || (urgent ? "urgent" : "normal"), receivedAt: $now };',
+        }),
+        node('Triage', 'synapseflow.decision', 600, 340, {
+          input: '={{ $json.query }}',
+          choices: {
+            billing: 'billing, invoices, refunds, payments, subscription charges',
+            technical: 'bugs, errors, API failures, outages, technical problems',
+            account: 'login, password, profile, permissions, account access',
+            sales: 'pricing, plans, purchase, upgrade, partnership',
+          },
+          instruction: 'Route this support ticket to the team best equipped to handle it.',
+          fallbackBranch: 3,
+          minConfidence: 0.3,
+        }),
+        node('BillingAgent', 'synapseflow.aiAgent', 900, 80, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+          systemPrompt: 'You are the Billing specialist in SynapseFlow. Use SynapseBase and Faststore tools to ground every answer in real data. Be concise, cite amounts and invoice ids, and never invent a payment.',
+          userPrompt: 'Handle this billing ticket. Customer says: "{{ $json.query }}". Ticket: {{ $json.ticketId }}. Look up the knowledge base/cache when useful, then produce the customer reply.',
+          tools: ['synapsebase_query', 'faststore_cache', 'decision_eval', 'http_request', 'workflow_run'],
+          maxSteps: 7,
+          temperature: 0.2,
+        }),
+        node('TechAgent', 'synapseflow.aiAgent', 900, 320, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+          systemPrompt: 'You are the Technical support specialist in SynapseFlow. Diagnose the issue, use the code sandbox for calculations/transforms, and call the HTTP tool only for public status endpoints. Give concrete next steps.',
+          userPrompt: 'Diagnose and answer this technical ticket: "{{ $json.query }}". Priority: {{ $json.priority }}. Use the KB/status tools, then produce the customer reply.',
+          tools: ['synapsebase_query', 'code_sandbox', 'logic_calculator', 'decision_eval', 'queue_publish', 'http_request'],
+          maxSteps: 8,
+          temperature: 0.2,
+        }),
+        node('AccountAgent', 'synapseflow.aiAgent', 900, 560, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+          systemPrompt: 'You are the Account & Access specialist in SynapseFlow. Use the IAM permission check and cache tools before making claims about access. Never disclose secrets or other tenants\' data.',
+          userPrompt: 'Resolve this account/access ticket: "{{ $json.query }}". Customer id: {{ $json.customerId || "unknown" }}. Check permissions with tools, then produce the customer reply.',
+          tools: ['iam_check_permission', 'faststore_cache', 'workflow_list', 'workflow_run'],
+          maxSteps: 6,
+          temperature: 0.2,
+        }),
+        node('SalesReply', 'n8n-nodes-base.set', 900, 800, {
+          values: {
+            department: 'sales',
+            reply: 'Thanks for your interest in SynapseDX! Our sales team will reach out shortly with pricing and the right plan for your team.',
+          },
+        }),
+        node('Aggregate', 'n8n-nodes-base.code', 1240, 340, {
+          code:
+            'const d = $input.decision || {};' +
+            'const a = $input.agent || {};' +
+            'return { ...$input, route: d.route || $input.department || "sales", confidence: d.confidence ?? $input.confidence ?? 1, reply: a.response || $input.reply || "", department: d.route || $input.department || "sales", processedAt: $now };',
+        }),
+        node('NeedsEscalation', 'n8n-nodes-base.if', 1500, 340, {
+          condition: '={{ ($json.confidence ?? 1) < 0.55 || $json.priority === "urgent" }}',
+        }),
+        node('Escalate', 'synapsedx.queue', 1780, 220, {
+          operation: 'publish',
+          input: { queue: 'support-escalations', payload: '={{ $json }}', priority: 5 },
+        }),
+        node('Done', 'n8n-nodes-base.noOp', 1780, 460, {}),
+        // ---- Canvas tools (connect to agents' Tools sockets) ----
+        node('KBLookup', 'synapsedx.base', 620, 980, {
+          operation: 'query-documents',
+          input: { collection: 'support_kb', where: {}, limit: 5 },
+        }),
+        node('CustomerCache', 'synapsedx.faststore', 620, 1120, {
+          operation: 'get',
+          input: { key: 'customer:={{ $json.customerId }}' },
+        }),
+        node('PermissionCheck', 'synapsedx.iam', 620, 1260, {
+          operation: 'authorize.check',
+          input: { userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket' },
+        }),
+        node('StatusAPI', 'n8n-nodes-base.httpRequest', 620, 1400, {
+          url: 'https://api.example.com/health',
+          method: 'GET',
+        }),
+        node('ModelCore', 'synapseflow.model', 620, 1540, {
+          core: 'synapse-inference',
+          model: 'liquid/lfm-2.5-2.6b:free',
+        }),
+      ],
+      connections: {
+        Intake: { main: [[edge('Normalize')]] },
+        Normalize: { main: [[edge('Triage')]] },
+        Triage: {
+          main: [
+            [edge('BillingAgent')],
+            [edge('TechAgent')],
+            [edge('AccountAgent')],
+            [edge('SalesReply')],
+          ],
+        },
+        BillingAgent: { main: [[edge('Aggregate')]] },
+        TechAgent: { main: [[edge('Aggregate')]] },
+        AccountAgent: { main: [[edge('Aggregate')]] },
+        SalesReply: { main: [[edge('Aggregate')]] },
+        Aggregate: { main: [[edge('NeedsEscalation')]] },
+        NeedsEscalation: { main: [[edge('Escalate')], [edge('Done')]] },
+        // tool/model sockets (not execution flow)
+        KBLookup: { main: [[tool('BillingAgent')], [tool('TechAgent')]] },
+        CustomerCache: { main: [[tool('BillingAgent')], [tool('AccountAgent')]] },
+        PermissionCheck: { main: [[tool('AccountAgent')]] },
+        StatusAPI: { main: [[tool('TechAgent')]] },
+        ModelCore: { main: [[model('BillingAgent')]] },
       },
     };
   }

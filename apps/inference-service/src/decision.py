@@ -1,21 +1,27 @@
-import time
 import math
-from typing import Dict, Any, Optional, List
+import time
+from typing import Any, Dict, Optional
+
 from pydantic import BaseModel, Field
 
-from .config import settings, Settings
+from .config import Settings, settings
 
 
 class DecisionQuestion(BaseModel):
-    type: str = Field(description="Question type: 'choice', 'noul' (yes/no), or 'score'")
+    type: str = Field(
+        description="Question type: 'choice', 'noul' (yes/no), or 'score'"
+    )
     instructions: str = Field(description="Instructions or criteria for the question")
     criteria: Optional[Dict[str, str]] = Field(
-        default=None, description="Mapping of choice key -> choice description (required for type='choice')"
+        default=None,
+        description="Mapping of choice key -> choice description (required for type='choice')",
     )
 
 
 class DecisionRequest(BaseModel):
-    state: str = Field(description="Context, user query, or request payload to evaluate")
+    state: str = Field(
+        description="Context, user query, or request payload to evaluate"
+    )
     questions: Dict[str, DecisionQuestion] = Field(
         description="Dictionary of question ID -> DecisionQuestion specification"
     )
@@ -62,6 +68,7 @@ class DecisionEngine:
             return dev
         try:
             import torch
+
             return "cuda" if torch.cuda.is_available() else "cpu"
         except ImportError:
             return "cpu"
@@ -96,7 +103,9 @@ class DecisionEngine:
             self._is_loaded = False
             return False
 
-    def _fallback_system_one(self, state: str, questions: Dict[str, DecisionQuestion]) -> Dict[str, Any]:
+    def _fallback_system_one(
+        self, state: str, questions: Dict[str, DecisionQuestion]
+    ) -> Dict[str, Any]:
         """Deterministic semantic fallback for Decision-2.0-Eos when model weights are not loaded."""
         import re
 
@@ -111,19 +120,26 @@ class DecisionEngine:
                 for choice_key, choice_desc in q_spec.criteria.items():
                     desc_tokens = set(re.findall(r"\w+", choice_desc.lower()))
                     # Direct token overlap
-                    direct_overlap = len(state_tokens.intersection(desc_tokens) - {"and", "or", "the", "a", "an", "is", "of", "to", "in"})
+                    direct_overlap = len(
+                        state_tokens.intersection(desc_tokens)
+                        - {"and", "or", "the", "a", "an", "is", "of", "to", "in"}
+                    )
 
                     # Stem/prefix overlap (e.g. trigger vs triggering, workflow vs workflows)
                     stem_overlap = 0
                     for st in state_tokens:
                         if len(st) >= 4:
                             for dt in desc_tokens:
-                                if len(dt) >= 4 and (st.startswith(dt[:4]) or dt.startswith(st[:4])):
+                                if len(dt) >= 4 and (
+                                    st.startswith(dt[:4]) or dt.startswith(st[:4])
+                                ):
                                     stem_overlap += 1
 
                     # Check substring presence
                     substr_bonus = 2.5 if choice_key.lower() in state_lower else 0.0
-                    raw_scores[choice_key] = 1.0 + direct_overlap * 2.0 + stem_overlap * 1.5 + substr_bonus
+                    raw_scores[choice_key] = (
+                        1.0 + direct_overlap * 2.0 + stem_overlap * 1.5 + substr_bonus
+                    )
 
                 # Softmax normalization
                 max_s = max(raw_scores.values()) if raw_scores else 1.0
@@ -140,8 +156,23 @@ class DecisionEngine:
                 }
 
             elif q_type in ("noul", "yes_no", "bool"):
-                positive_indicators = {"yes", "true", "has", "confirmed", "verified", "include", "with"}
-                negative_indicators = {"no", "false", "none", "without", "missing", "never"}
+                positive_indicators = {
+                    "yes",
+                    "true",
+                    "has",
+                    "confirmed",
+                    "verified",
+                    "include",
+                    "with",
+                }
+                negative_indicators = {
+                    "no",
+                    "false",
+                    "none",
+                    "without",
+                    "missing",
+                    "never",
+                }
                 pos_hits = sum(1 for w in positive_indicators if w in state_tokens)
                 neg_hits = sum(1 for w in negative_indicators if w in state_tokens)
 
@@ -154,11 +185,17 @@ class DecisionEngine:
                 }
             else:
                 # Default score or unsupported question type
-                results[q_id] = {"type": q_type, "score": 0.5, "note": "fallback evaluation"}
+                results[q_id] = {
+                    "type": q_type,
+                    "score": 0.5,
+                    "note": "fallback evaluation",
+                }
 
         return results
 
-    def evaluate(self, state: str, questions: Dict[str, DecisionQuestion]) -> DecisionResponse:
+    def evaluate(
+        self, state: str, questions: Dict[str, DecisionQuestion]
+    ) -> DecisionResponse:
         t0 = time.time()
 
         if not self._is_loaded and not self.cfg.INFERENCE_MOCK_MODELS:
@@ -175,7 +212,9 @@ class DecisionEngine:
                 duration = round((time.time() - t0) * 1000.0, 2)
                 return DecisionResponse(
                     model=self.model_name,
-                    results=raw_out if isinstance(raw_out, dict) else {"output": raw_out},
+                    results=raw_out
+                    if isinstance(raw_out, dict)
+                    else {"output": raw_out},
                     duration_ms=duration,
                 )
             except Exception as e:
@@ -192,12 +231,15 @@ class DecisionEngine:
             duration_ms=duration,
         )
 
-    def route(self, input_text: str, choices: Dict[str, str], instruction: str = "") -> RouteResponse:
+    def route(
+        self, input_text: str, choices: Dict[str, str], instruction: str = ""
+    ) -> RouteResponse:
         """Helper to route an input text between candidate choices."""
         t0 = time.time()
         q_spec = DecisionQuestion(
             type="choice",
-            instructions=instruction or "Select the most suitable category for the input.",
+            instructions=instruction
+            or "Select the most suitable category for the input.",
             criteria=choices,
         )
         resp = self.evaluate(state=input_text, questions={"route": q_spec})
@@ -209,7 +251,9 @@ class DecisionEngine:
             n = len(choices)
             probs = {k: round(1.0 / n, 4) for k in choices}
 
-        best = route_res.get("best_choice") or (max(probs, key=probs.get) if probs else "")
+        best = route_res.get("best_choice") or (
+            max(probs, key=probs.get) if probs else ""
+        )
         conf = probs.get(best, 0.0)
 
         duration = round((time.time() - t0) * 1000.0, 2)

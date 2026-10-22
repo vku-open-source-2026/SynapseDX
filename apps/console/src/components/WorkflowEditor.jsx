@@ -23,6 +23,13 @@ import {
   faRobot,
   faBrain,
   faCircleDot,
+  faMicrochip,
+  faDatabase,
+  faShieldHalved,
+  faInbox,
+  faDiagramProject,
+  faGears,
+  faArrowsUpDownLeftRight,
 } from '@fortawesome/free-solid-svg-icons';
 import { api } from '../lib/api.js';
 import { Badge, Btn, Err } from './ui.jsx';
@@ -39,9 +46,10 @@ import {
   makeNode,
   uniqueName,
   nodesByCategory,
+  NODE_TYPES,
   sampleInputFor,
   describeCron,
-  ifWarnings,
+  graphWarnings,
   isKnownType,
   wouldCycle,
   IF_TYPE,
@@ -49,11 +57,35 @@ import {
   isDecisionType,
   isIfType,
   isAiAgentType,
+  isModelType,
+  isIntegrationType,
+  decisionRoutes,
+  edgeTargetPort,
+  toolEdgesForAgent,
+  modelEdgeForAgent,
+  AGENT_TOOLS,
+  DEFAULT_AGENT_TOOLS,
   EXAMPLE_PARAMS,
 } from '../lib/workflow-graph.js';
 
-const NODE_W = 196;
-const NODE_H = 68;
+const NODE_W = 204;
+const NODE_H = 72;
+const AGENT_W = 260;
+const AGENT_H = 154;
+const MODEL_W = 212;
+const MODEL_H = 70;
+
+/** Node geometry. Decision cards grow so every route has a real output port. */
+function nodeDims(n) {
+  const t = n?.type;
+  if (isAiAgentType(t)) return { w: AGENT_W, h: AGENT_H };
+  if (isModelType(t)) return { w: MODEL_W, h: MODEL_H };
+  if (isDecisionType(t)) {
+    const routes = decisionRoutes(n?.parameters || {}).length;
+    return { w: 238, h: 46 + routes * 26 + 8 };
+  }
+  return { w: NODE_W, h: NODE_H };
+}
 
 const NODE_ICONS = {
   'n8n-nodes-base.webhook': { icon: faBolt, color: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-200' },
@@ -66,6 +98,15 @@ const NODE_ICONS = {
   'ai.agent': { icon: faRobot, color: 'text-purple-600', bg: 'bg-purple-50 border-purple-200' },
   'synapseflow.decision': { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
   decision: { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  'synapseflow.model': { icon: faMicrochip, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  'synapsedx.model': { icon: faMicrochip, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  'synapsedx.iam': { icon: faShieldHalved, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
+  'synapsedx.base': { icon: faDatabase, color: 'text-cyan-700', bg: 'bg-cyan-50 border-cyan-200' },
+  'synapsedx.faststore': { icon: faBolt, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+  'synapsedx.queue': { icon: faInbox, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200' },
+  'synapsedx.lds': { icon: faDiagramProject, color: 'text-teal-700', bg: 'bg-teal-50 border-teal-200' },
+  'synapsedx.inference': { icon: faMicrochip, color: 'text-fuchsia-600', bg: 'bg-fuchsia-50 border-fuchsia-200' },
+  'synapsedx.flow': { icon: faGears, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
   'n8n-nodes-base.httpRequest': { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
   httpRequest: { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
   'n8n-nodes-base.code': { icon: faCode, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
@@ -92,7 +133,8 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const [pendingFrom, setPendingFrom] = useState(null);
   const [pendingBranch, setPendingBranch] = useState(null); // null | 0 (true) | 1 (false) for If sources
   const [palQuery, setPalQuery] = useState('');
-  const clearPending = () => { setPendingFrom(null); setPendingBranch(null); };
+  const [quickToolNode, setQuickToolNode] = useState(null);
+  const clearPending = () => { setPendingFrom(null); setPendingBranch(null); setQuickToolNode(null); setWireCursor(null); wireRef.current = null; };
   const [view, setView] = useState({ x: 40, y: 40, k: 1 });
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -114,6 +156,11 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const [expandedRuns, setExpandedRuns] = useState({});
   const boxRef = useRef(null);
   const dragRef = useRef(null);
+  const wireRef = useRef(null);
+  const suppressClickRef = useRef(false);
+  const [wireCursor, setWireCursor] = useState(null);
+  const [dropActive, setDropActive] = useState(false);
+  const [paletteDrag, setPaletteDrag] = useState(null);
   const draftKey = `synapsedx.editor.${workflowId}`;
   // Autosave drafts: a session expiry mid-edit must never eat work.
   // Draft restores explicitly via banner (never silently).
@@ -166,12 +213,12 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const dirty = visualDirty || (tab === 'json' && jsonText !== jsonSynced);
 
   const selNode = typeof sel === 'string' ? nodes.find((n) => n.name === sel) || null : null;
-  const selEdge = sel && typeof sel === 'object' ? sel.edge : null;
+  const selEdge = sel && typeof sel === 'object' ? (sel.edge || sel) : null;
   const [paramsRev, setParamsRev] = useState(0);
 
   // Live structural validation — blocks Save with a tooltip (synced with
   // workflow-service validateDefinition: duplicate / self-loop / dangling / cycle).
-  const graphErr = useMemo(() => validateGraph(nodes, connections), [nodes, connections]);
+  const graphErr = useMemo(() => validateGraph(nodes, connections, { requireTrigger: true }), [nodes, connections]);
   const saveBlocked = graphErr || paramsErr ? (graphErr || paramsErr) : null;
 
   const syncJsonTab = (ns, conns) => {
@@ -241,7 +288,9 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
         return;
       }
       if (e.key === 'Escape' && !typing) {
-        if (pendingFrom) clearPending();
+        if (quickToolNode) setQuickToolNode(null);
+        else if (pendingFrom) clearPending();
+        else if (sel) setSel(null);
         else close();
       }
       if ((e.key === 'Delete' || e.key === 'Backspace') && sel) {
@@ -257,10 +306,14 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
             setConnections(r.connections);
             setSel(null);
           }
-        } else if (sel.edge) {
+        } else if (selEdge) {
           checkpoint();
-          const srcIsIf = nodes.some((n) => n.name === sel.edge.from && n.type === IF_TYPE);
-          setConnections((c) => disconnect(c, sel.edge.from, sel.edge.to, srcIsIf ? { preserveSlots: true } : undefined));
+          const src = nodes.find((n) => n.name === selEdge.from);
+          setConnections((c) => disconnect(c, selEdge.from, selEdge.to, {
+            ...(typeof selEdge.branch === 'number' ? { branch: selEdge.branch } : {}),
+            ...(selEdge.targetPort ? { targetPort: selEdge.targetPort } : {}),
+            preserveSlots: isIfType(src?.type) || isDecisionType(src?.type),
+          }));
           setSel(null);
         }
       }
@@ -283,6 +336,8 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
 
   const onBoxPointerDown = (e) => {
     if (e.button !== 0) return;
+    // Only the canvas background starts a pan. Nodes and wires stop propagation.
+    if (e.target !== e.currentTarget) return;
     dragRef.current = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: view.x, oy: view.y, moved: false };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -313,6 +368,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
     if (d.kind === 'pan' && !d.moved) {
       setSel(null);
       clearPending();
+      setQuickToolNode(null);
     }
   };
 
@@ -326,15 +382,22 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const onNodePointerUp = (e, node) => {
     const d = dragRef.current;
     if (d && d.kind === 'node' && !d.moved) {
-      setSel(node.name);
-      clearPending();
+      // Click a node body while a wire is pending = connect to its main input.
+      if (pendingFrom && pendingFrom !== node.name) completeConnection(pendingFrom, node.name, 'in', pendingBranch);
+      else {
+        setSel(node.name);
+        clearPending();
+      }
     }
   };
 
   const onWheelZoom = (e) => {
     e.preventDefault();
     // Trackpad horizontal scroll / swipe is panning, not zooming (pinch sends ctrlKey).
-    if (!e.ctrlKey && Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+    if (!e.ctrlKey && Math.abs(e.deltaX) >= Math.abs(e.deltaY)) {
+      setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
+      return;
+    }
     const r = boxRef.current.getBoundingClientRect();
     const mx = e.clientX - r.left;
     const my = e.clientY - r.top;
@@ -354,43 +417,281 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   }, []);
 
   // ----- graph edits -----
-  const addNode = (type) => {
-    if (!boxRef.current) return;
+  const addNodeAt = (type, wx, wy) => {
     checkpoint();
-    const r = boxRef.current.getBoundingClientRect();
-    const [wx, wy] = toWorld(r.left + r.width / 2 - (NODE_W / 2) * view.k, r.top + r.height / 2 - (NODE_H / 2) * view.k);
-    const n = makeNode(type, wx + (nodes.length % 5) * 24, wy + (nodes.length % 5) * 24);
+    const n = makeNode(type, wx, wy);
     n.name = uniqueName(nodes, n.name);
     setNodes((ns) => [...ns, n]);
     setSel(n.name);
+    setErr(null);
+    return n;
   };
 
-  const onPortClick = (e, node, side) => {
-    e.stopPropagation();
-    if (side === 'out') {
-      // Clicking the same output again cancels the pending wire (m1).
-      if (pendingFrom === node.name) { clearPending(); return; }
-      setPendingFrom(node.name);
-      setPendingBranch(null);
-      setSel(null);
-    } else if (pendingFrom && pendingFrom !== node.name) {
-      const src = nodes.find((n) => n.name === pendingFrom);
-      if (src && src.type === IF_TYPE && pendingBranch !== 0 && pendingBranch !== 1) {
-        setErr(new Error(`Pick a branch for '${pendingFrom}': true (output 0) or false (output 1) — see the banner.`));
-        return;
-      }
-      if (wouldCycle(nodes, connections, pendingFrom, node.name)) {
-        setErr(new Error(`Connecting '${pendingFrom}' → '${node.name}' would close a cycle — refused.`));
-        return;
-      }
-      checkpoint();
-      const branch = src && src.type === IF_TYPE ? pendingBranch : undefined;
-      setConnections((c) => connect(c, pendingFrom, node.name, branch === undefined ? undefined : { branch }));
-      clearPending();
-      setErr(null);
-    } else if (pendingFrom === node.name) {
-      clearPending();
+  const addNode = (type) => {
+    if (!boxRef.current) return;
+    const el = boxRef.current;
+    const r = el.getBoundingClientRect();
+    const dims = nodeDims({ type });
+    // Cascade near the visible centre so repeated clicks never stack exactly.
+    const offset = (nodes.length % 6) * 26;
+    const wx = (r.width / 2 - (dims.w * view.k) / 2 - view.x) / view.k + offset;
+    const wy = (r.height / 2 - (dims.h * view.k) / 2 - view.y) / view.k + offset;
+    addNodeAt(type, wx, wy);
+  };
+
+  const onPaletteDragStart = (e, type) => {
+    setPaletteDrag(type);
+    try {
+      e.dataTransfer.setData('application/x-synapseflow-node', type);
+      e.dataTransfer.setData('text/plain', type);
+      e.dataTransfer.effectAllowed = 'copy';
+    } catch {
+      /* older browsers: click still works */
     }
+  };
+
+  const onCanvasDragOver = (e) => {
+    const types = e.dataTransfer?.types || [];
+    const carriesNode = paletteDrag || Array.from(types).includes('application/x-synapseflow-node');
+    if (!carriesNode) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!dropActive) setDropActive(true);
+  };
+
+  const onCanvasDrop = (e) => {
+    e.preventDefault();
+    setDropActive(false);
+    const type = e.dataTransfer.getData('application/x-synapseflow-node') || paletteDrag;
+    setPaletteDrag(null);
+    if (!type) return;
+    const dims = nodeDims({ type });
+    const [wx, wy] = toWorld(e.clientX, e.clientY);
+    addNodeAt(type, Math.round(wx - dims.w / 2), Math.round(wy - dims.h / 2));
+  };
+
+  const beginWire = (e, node, side, branch) => {
+    e.stopPropagation();
+    if (e.button !== 0) return;
+    wireRef.current = {
+      from: node.name,
+      side,
+      branch: typeof branch === 'number' ? branch : undefined,
+      sx: e.clientX,
+      sy: e.clientY,
+      moved: false,
+    };
+    suppressClickRef.current = false;
+  };
+
+  const completeConnection = (fromName, targetName, targetKind, branch, selectEdge = true) => {
+    const src = nodes.find((n) => n.name === fromName);
+    const target = nodes.find((n) => n.name === targetName);
+    if (!src || !target) return;
+    if (fromName === targetName) {
+      setErr(new Error('A node cannot connect to itself.'));
+      return;
+    }
+    const targetPort = targetKind === 'tools' || targetKind === 'model' ? targetKind : undefined;
+    if (targetPort && !isAiAgentType(target.type)) {
+      setErr(new Error(`${targetPort === 'tools' ? 'Tools' : 'Model'} sockets only exist on AI Agents.`));
+      return;
+    }
+    if (targetPort === 'model' && !isModelType(src.type)) {
+      setErr(new Error('The Model socket needs a Model Core node as its source (synapseflow.model).'));
+      return;
+    }
+    let branchToUse = branch;
+    if (!targetPort && isIfType(src.type) && branchToUse !== 0 && branchToUse !== 1) {
+      setErr(new Error(`Pick the true or false output port on '${fromName}' before wiring.`));
+      return;
+    }
+    if (!targetPort && isDecisionType(src.type)) {
+      const routes = decisionRoutes(src.parameters || {});
+      if (typeof branchToUse !== 'number' || branchToUse < 0 || branchToUse >= routes.length) {
+        setErr(new Error(`Pick one of the ${routes.length} route ports on '${fromName}' before wiring.`));
+        return;
+      }
+    }
+    if (wouldCycle(nodes, connections, fromName, targetName, { targetPort })) {
+      setErr(new Error(`Connecting '${fromName}' → '${targetName}' would close a cycle — refused.`));
+      return;
+    }
+    checkpoint();
+    let next = connections;
+    if (targetPort === 'model') {
+      // A model socket accepts exactly one source; wiring a new one replaces it.
+      const existing = modelEdgeForAgent(next, targetName);
+      if (existing) {
+        next = disconnect(next, existing.from, targetName, { targetPort: 'model' });
+      }
+    }
+    next = connect(next, fromName, targetName, {
+      ...(typeof branchToUse === 'number' ? { branch: branchToUse } : {}),
+      ...(targetPort ? { targetPort } : {}),
+    });
+    setConnections(next);
+    clearPending();
+    setErr(null);
+    // Wiring from inside the inspector should keep editing that agent; direct
+    // canvas wiring selects the new edge so Delete/Remove acts on it.
+    if (selectEdge) {
+      setSel({ edge: { from: fromName, to: targetName, branch: branchToUse, ...(targetPort ? { targetPort } : {}) } });
+    }
+  };
+
+  const onPortClick = (e, node, side, branch) => {
+    e.stopPropagation();
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
+    if (side === 'out') {
+      if (pendingFrom === node.name && pendingBranch === (typeof branch === 'number' ? branch : null)) {
+        clearPending();
+        return;
+      }
+      setPendingFrom(node.name);
+      setPendingBranch(typeof branch === 'number' ? branch : null);
+      setWireCursor(null);
+      setSel(null);
+      return;
+    }
+    if (pendingFrom && pendingFrom !== node.name) {
+      completeConnection(pendingFrom, node.name, side, pendingBranch);
+    } else if (!pendingFrom) {
+      setSel(node.name);
+    }
+  };
+
+  // Global pointer tracking powers drag-to-connect without stealing pointer
+  // capture from ports. A short click still works as click-source → click-target.
+  useEffect(() => {
+    const onMove = (e) => {
+      const w = wireRef.current;
+      if (!w) return;
+      if (!w.moved && Math.abs(e.clientX - w.sx) + Math.abs(e.clientY - w.sy) > 5) {
+        w.moved = true;
+        setPendingFrom(w.from);
+        setPendingBranch(typeof w.branch === 'number' ? w.branch : null);
+      }
+      if (w.moved) {
+        setWireCursor(toWorld(e.clientX, e.clientY));
+      }
+    };
+    const onUp = (e) => {
+      const w = wireRef.current;
+      wireRef.current = null;
+      if (!w || !w.moved) return;
+      const hit = document.elementFromPoint(e.clientX, e.clientY);
+      const portEl = hit && hit.closest ? hit.closest('[data-wire-target]') : null;
+      const nodeEl = !portEl && hit && hit.closest ? hit.closest('[data-node]') : null;
+      if (portEl) {
+        const targetName = portEl.getAttribute('data-wire-target');
+        const targetKind = portEl.getAttribute('data-wire-kind') || 'in';
+        completeConnection(w.from, targetName, targetKind, w.branch);
+      } else if (nodeEl) {
+        // Dropping anywhere on a card is a forgiving hit target for the main
+        // flow input. Sockets still require an explicit drop on the socket.
+        const targetName = nodeEl.getAttribute('data-node');
+        if (targetName && targetName !== w.from) completeConnection(w.from, targetName, 'in', w.branch);
+        else clearPending();
+      } else {
+        clearPending();
+      }
+      setWireCursor(null);
+      suppressClickRef.current = true;
+      window.setTimeout(() => { suppressClickRef.current = false; }, 0);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, [nodes, connections, view.x, view.y, view.k]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removeAuxEdge = (fromName, agentName, targetPort) => {
+    checkpoint();
+    const src = nodes.find((n) => n.name === fromName);
+    const preserveSlots = isIfType(src?.type) || isDecisionType(src?.type);
+    setConnections((c) => disconnect(c, fromName, agentName, { targetPort, preserveSlots }));
+    // Keep the agent inspector open after unlinking a tool/model.
+    setSel(agentName);
+  };
+
+  const removeDecisionRoute = (nodeName, index) => {
+    const node = nodes.find((n) => n.name === nodeName);
+    if (!node) return;
+    const routes = decisionRoutes(node.parameters || {});
+    if (routes.length <= 1) {
+      setErr(new Error('A Decision Engine needs at least one route.'));
+      return;
+    }
+    const oldFb = Number.isFinite(Number(node.parameters?.fallbackBranch)) ? Number(node.parameters.fallbackBranch) : 0;
+    const nextRoutes = routes.filter((_, i) => i !== index);
+    const nextFb = Math.min(nextRoutes.length - 1, Math.max(0, oldFb > index ? oldFb - 1 : oldFb));
+    checkpoint();
+    const mains = connections?.[nodeName]?.main;
+    let nextConnections = connections;
+    if (Array.isArray(mains)) {
+      const branches = mains.map((b) => (Array.isArray(b) ? b.slice() : []));
+      const removedEdges = branches[index] || [];
+      branches.splice(index, 1);
+      if (removedEdges.length) {
+        while (branches.length <= nextFb) branches.push([]);
+        const seen = new Set(branches[nextFb].map((e) => `${e?.node}:${e?.targetPort || e?.type || 'main'}`));
+        for (const e of removedEdges) {
+          const k = `${e?.node}:${e?.targetPort || e?.type || 'main'}`;
+          if (e?.node && !seen.has(k)) { branches[nextFb].push(e); seen.add(k); }
+        }
+      }
+      const groups = { ...(connections?.[nodeName] || {}), main: branches };
+      nextConnections = { ...connections, [nodeName]: groups };
+    }
+    setConnections(nextConnections);
+    const choices = Object.fromEntries(nextRoutes.map((r) => [r.name, r.description || r.name]));
+    setNodes((ns) => ns.map((n) => (n.name === nodeName ? { ...n, parameters: { ...(n.parameters || {}), choices, routes: undefined, fallbackBranch: nextFb } } : n)));
+    setSel(nodeName);
+  };
+
+  const moveDecisionRoute = (nodeName, index, direction) => {
+    const node = nodes.find((n) => n.name === nodeName);
+    if (!node) return;
+    const routes = decisionRoutes(node.parameters || {});
+    const j = index + direction;
+    if (j < 0 || j >= routes.length) return;
+    checkpoint();
+    const nextRoutes = routes.slice();
+    [nextRoutes[index], nextRoutes[j]] = [nextRoutes[j], nextRoutes[index]];
+    let nextFb = Number.isFinite(Number(node.parameters?.fallbackBranch)) ? Number(node.parameters.fallbackBranch) : 0;
+    if (nextFb === index) nextFb = j;
+    else if (nextFb === j) nextFb = index;
+    const mains = connections?.[nodeName]?.main;
+    let nextConnections = connections;
+    if (Array.isArray(mains)) {
+      const branches = mains.map((b) => (Array.isArray(b) ? b.slice() : []));
+      while (branches.length < nextRoutes.length) branches.push([]);
+      [branches[index], branches[j]] = [branches[j], branches[index]];
+      nextConnections = { ...connections, [nodeName]: { ...(connections?.[nodeName] || {}), main: branches } };
+    }
+    setConnections(nextConnections);
+    const choices = Object.fromEntries(nextRoutes.map((r) => [r.name, r.description || r.name]));
+    setNodes((ns) => ns.map((n) => (n.name === nodeName ? { ...n, parameters: { ...(n.parameters || {}), choices, routes: undefined, fallbackBranch: nextFb } } : n)));
+  };
+
+  const updateDecisionRoutes = (nodeName, nextRoutes) => {
+    // Used for add/rename/description edits. Branch positions stay stable.
+    checkpoint();
+    const choices = Object.fromEntries(nextRoutes.map((r, i) => [r.name || `route_${i}`, r.description || r.name || `route_${i}`]));
+    setNodes((ns) => ns.map((n) => {
+      if (n.name !== nodeName) return n;
+      const routes = decisionRoutes(n.parameters || {});
+      const fb = Number.isFinite(Number(n.parameters?.fallbackBranch)) ? Math.min(routes.length - 1, Math.max(0, Number(n.parameters.fallbackBranch))) : 0;
+      return { ...n, parameters: { ...(n.parameters || {}), choices, routes: undefined, fallbackBranch: Math.min(fb, nextRoutes.length - 1) } };
+    }));
   };
 
   const applyRename = (to) => {
@@ -472,7 +773,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
       setErr(ex);
       return;
     }
-    const vErr = validateGraph(w.nodes, w.connections);
+    const vErr = validateGraph(w.nodes, w.connections, { requireTrigger: true });
     if (vErr) {
       setErr(new Error(vErr));
       return;
@@ -544,7 +845,15 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
       setExpandedRuns({});
       pushHist({ at: new Date().toISOString(), input, ok: !!r?.ok, status: r?.ok ? 'success' : 'error' });
     } catch (ex) {
-      setTestOut(null);
+      // A failed run still returns nodeRuns/output (HTTP 500). Keep them so
+      // the inspector can show which node failed instead of only a red toast.
+      const body = ex && typeof ex === 'object' ? ex.body : null;
+      if (body && typeof body === 'object' && (Array.isArray(body.nodeRuns) || body.output !== undefined)) {
+        setTestOut({ ...body, ok: false });
+        setExpandedRuns({});
+      } else {
+        setTestOut(null);
+      }
       setErr(ex);
       pushHist({ at: new Date().toISOString(), input, ok: false, status: 'error' });
     } finally {
@@ -553,13 +862,33 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   };
 
   const edges = listEdgesWithBranches(connections);
-  const warnings = useMemo(() => ifWarnings(nodes, connections), [nodes, connections]);
-  const port = (n, side) => {
+  const warnings = useMemo(() => graphWarnings(nodes, connections), [nodes, connections]);
+  const port = (n, side, branch) => {
     const [x, y] = n.position;
-    return side === 'out' ? { x: x + NODE_W, y: y + NODE_H / 2 } : { x, y: y + NODE_H / 2 };
+    const dims = nodeDims(n);
+    if (side === 'tools') return { x: x + 46, y: y + dims.h };
+    if (side === 'model') return { x: x + dims.w - 46, y: y + dims.h };
+    if (side === 'in') return { x, y: y + dims.h / 2 };
+    if (isIfType(n.type)) {
+      return { x: x + dims.w, y: y + (branch === 1 ? dims.h * 0.68 : dims.h * 0.32) };
+    }
+    if (isDecisionType(n.type)) {
+      const routes = decisionRoutes(n.parameters || {});
+      const i = typeof branch === 'number' ? Math.min(Math.max(0, branch), routes.length - 1) : 0;
+      return { x: x + dims.w, y: y + 46 + i * 26 + 13 };
+    }
+    return { x: x + dims.w, y: y + dims.h / 2 };
   };
-  const edgePath = (a, b) => {
-    const dx = Math.max(40, Math.abs(b.x - a.x) / 2);
+  const edgePath = (a, b, targetPort) => {
+    if (targetPort === 'tools' || targetPort === 'model') {
+      const x1 = a.x;
+      const y1 = a.y;
+      const x2 = b.x;
+      const y2 = b.y;
+      const bend = Math.max(44, Math.abs(y2 - y1) * 0.35);
+      return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2} ${y2 - bend}, ${x2} ${y2}`;
+    }
+    const dx = Math.max(44, Math.abs(b.x - a.x) / 2);
     return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
   };
   // Switching back to visual stages the JSON (parsed + validated) into the
@@ -622,8 +951,10 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
     const ys = nodes.map((n) => n.position[1]);
     const minX = Math.min(...xs) - 60;
     const minY = Math.min(...ys) - 60;
-    const w = Math.max(...xs) + NODE_W + 60 - minX;
-    const h = Math.max(...ys) + NODE_H + 60 - minY;
+    const maxX = Math.max(...nodes.map((n) => n.position[0] + nodeDims(n).w));
+    const maxY = Math.max(...nodes.map((n) => n.position[1] + nodeDims(n).h));
+    const w = maxX + 60 - minX;
+    const h = maxY + 60 - minY;
     const k = Math.min(1.5, Math.max(0.25, Math.min(r.width / w, r.height / h)));
     setView({ k, x: (r.width - w * k) / 2 - minX * k, y: (r.height - h * k) / 2 - minY * k });
   };
@@ -707,6 +1038,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
           {tab === 'visual' ? (
           <div className="w-48 shrink-0 border-r border-slate-100 p-2 overflow-y-auto">
             <p className="text-[11px] font-medium text-normal-text px-1 mb-1">ADD NODE</p>
+            <p className="text-[10px] leading-snug text-normal-text/80 px-1 mb-1.5">Drag onto the canvas, or click to place it in view.</p>
             <input
               value={palQuery}
               onChange={(e) => setPalQuery(e.target.value)}
@@ -729,14 +1061,18 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                   return (
                     <button
                       key={t.type}
+                      draggable
+                      onDragStart={(e) => onPaletteDragStart(e, t.type)}
+                      onDragEnd={() => { setPaletteDrag(null); setDropActive(false); }}
                       onClick={() => addNode(t.type)}
-                      title={`${t.hint}\n${t.placeholder || ''}`}
-                      className="w-full text-left px-2 py-1.5 rounded-xl hover:bg-background text-xs text-main-text flex items-center gap-2 group transition-colors"
+                      title={`${t.hint}\n${t.placeholder || ''}\n\nDrag onto the canvas or click to add`}
+                      className="w-full text-left px-2 py-1.5 rounded-xl hover:bg-background active:bg-main-blue/5 text-xs text-main-text flex items-center gap-2 group transition-colors cursor-grab active:cursor-grabbing"
                     >
                       <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border ${meta.bg} ${meta.color} group-hover:scale-105 transition-transform`}>
                         <FontAwesomeIcon icon={meta.icon} size="xs" />
                       </span>
                       <span className="truncate font-medium">{t.label}</span>
+                      <FontAwesomeIcon icon={faArrowsUpDownLeftRight} className="ml-auto text-[8px] text-slate-300 group-hover:text-main-blue" />
                     </button>
                   );
                 })}
@@ -758,8 +1094,11 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
               onPointerDown={onBoxPointerDown}
               onPointerMove={onBoxPointerMove}
               onPointerUp={onBoxPointerUp}
-              className="flex-1 relative overflow-hidden touch-none select-none min-w-[320px]"
-              style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: `${24 * view.k}px ${24 * view.k}px`, backgroundPosition: `${view.x}px ${view.y}px`, cursor: pendingFrom ? 'crosshair' : 'default' }}
+              onDragOver={onCanvasDragOver}
+              onDragLeave={(e) => { if (e.target === e.currentTarget) setDropActive(false); }}
+              onDrop={onCanvasDrop}
+              className={`flex-1 relative overflow-hidden touch-none select-none min-w-[320px] transition-shadow ${dropActive ? 'ring-2 ring-inset ring-main-blue/60' : ''}`}
+              style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: `${24 * view.k}px ${24 * view.k}px`, backgroundPosition: `${view.x}px ${view.y}px`, cursor: pendingFrom ? 'crosshair' : dropActive ? 'copy' : 'default' }}
             >
               <svg className="absolute inset-0 w-full h-full pointer-events-none">
                 <g transform={`translate(${view.x},${view.y}) scale(${view.k})`}>
@@ -767,31 +1106,56 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                     const a = byName[e.from];
                     const b = byName[e.to];
                     if (!a || !b) return null;
-                    const active = selEdge && selEdge.from === e.from && selEdge.to === e.to;
-                    const pa = port(a, 'out');
-                    const pb = port(b, 'in');
+                    const targetPort = e.targetPort || edgeTargetPort(e) || (b && isAiAgentType(b.type) && e.type !== 'main' ? e.type : undefined);
+                    const active = selEdge && selEdge.from === e.from && selEdge.to === e.to &&
+                      (selEdge.branch ?? null) === (e.branch ?? null) &&
+                      (selEdge.targetPort || null) === (targetPort || null);
+                    const pa = port(a, 'out', e.branch);
+                    const pb = port(b, targetPort === 'tools' ? 'tools' : targetPort === 'model' ? 'model' : 'in');
                     const isIf = isIfType(a.type);
                     const isDec = isDecisionType(a.type);
+                    const isToolEdge = targetPort === 'tools';
+                    const isModelEdge = targetPort === 'model';
                     let branchLabel = '';
                     let branchColor = '#4FACFE';
-                    if (isIf && (e.branch === 0 || e.branch === 1)) {
+                    if (isToolEdge) {
+                      branchLabel = '🛠 Tool';
+                      branchColor = '#9333ea';
+                    } else if (isModelEdge) {
+                      branchLabel = '🧠 Model';
+                      branchColor = '#4f46e5';
+                    } else if (isIf && (e.branch === 0 || e.branch === 1)) {
                       branchLabel = ifBranchLabel(e.branch);
                       branchColor = e.branch === 0 ? '#059669' : '#dc2626';
                     } else if (isDec && typeof e.branch === 'number') {
-                      const p = a.parameters || {};
-                      const choices = Array.isArray(p.choices) ? p.choices : (Array.isArray(p.routes) ? p.routes : (p.choices && typeof p.choices === 'object' ? Object.keys(p.choices) : []));
-                      branchLabel = choices[e.branch] ? `${choices[e.branch]} (${e.branch})` : `route ${e.branch}`;
+                      const routes = decisionRoutes(a.parameters || {});
+                      branchLabel = routes[e.branch] ? `${routes[e.branch].name} (${e.branch})` : `route ${e.branch}`;
                       branchColor = '#6366f1';
                     }
+                    let strokeColor = '#94a3b8';
+                    let strokeDash = undefined;
+                    if (active) {
+                      strokeColor = '#ef4444';
+                    } else if (pendingFrom === e.from && (pendingBranch ?? null) === (e.branch ?? null)) {
+                      strokeColor = '#4FACFE';
+                    } else if (isToolEdge) {
+                      strokeColor = '#a855f7';
+                      strokeDash = `${4 / view.k} ${3 / view.k}`;
+                    } else if (isModelEdge) {
+                      strokeColor = '#6366f1';
+                      strokeDash = `${4 / view.k} ${3 / view.k}`;
+                    }
+                    const d = edgePath(pa, pb, targetPort);
                     return (
-                      <g key={`${e.from}→${e.to}:${e.branch}:${i}`}>
+                      <g key={`${e.from}→${e.to}:${e.branch}:${targetPort || ''}:${i}`}>
+                        <path d={d} fill="none" stroke="transparent" strokeWidth={16 / view.k} className="pointer-events-auto cursor-pointer" onClick={(ev) => { ev.stopPropagation(); setSel({ edge: e }); }} />
                         <path
-                          d={edgePath(pa, pb)}
+                          d={d}
                           fill="none"
-                          stroke={active ? '#ef4444' : pendingFrom === e.from ? '#4FACFE' : '#94a3b8'}
+                          stroke={strokeColor}
                           strokeWidth={active ? 3 / view.k : 2 / view.k}
-                          className="pointer-events-auto cursor-pointer"
-                          onClick={(ev) => { ev.stopPropagation(); setSel({ edge: e }); }}
+                          strokeDasharray={strokeDash}
+                          className="pointer-events-none"
                         />
                         {branchLabel && (
                           <text
@@ -801,6 +1165,9 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                             fontSize={10 / view.k}
                             fontWeight="700"
                             fill={branchColor}
+                            stroke="white"
+                            strokeWidth={3 / view.k}
+                            paintOrder="stroke"
                             className="pointer-events-none"
                           >
                             {branchLabel}
@@ -809,20 +1176,58 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                       </g>
                     );
                   })}
-                  {pendingFrom && byName[pendingFrom] && (
-                    <circle cx={port(byName[pendingFrom], 'out').x} cy={port(byName[pendingFrom], 'out').y} r={7 / view.k} fill="none" stroke="#4FACFE" strokeWidth={2 / view.k} />
-                  )}
+                  {pendingFrom && byName[pendingFrom] && (() => {
+                    const pa = port(byName[pendingFrom], 'out', pendingBranch);
+                    const pb = wireCursor || { x: pa.x + 54, y: pa.y + 18 };
+                    const d = edgePath(pa, pb, undefined);
+                    return (
+                      <>
+                        <path d={d} fill="none" stroke="#4FACFE" strokeWidth={2.5 / view.k} strokeDasharray={`${6 / view.k} ${4 / view.k}`} className="pointer-events-none" />
+                        <circle cx={pa.x} cy={pa.y} r={7 / view.k} fill="#4FACFE" stroke="white" strokeWidth={2 / view.k} className="pointer-events-none" />
+                        {wireCursor && <circle cx={wireCursor.x} cy={wireCursor.y} r={4 / view.k} fill="#4FACFE" className="pointer-events-none" />}
+                      </>
+                    );
+                  })()}
                 </g>
               </svg>
               {nodes.map((n) => {
                 const st = runStatusByNode[n.name];
                 const known = isKnownType(n.type);
                 const disabled = n.disabled === true;
-                const border = sel === n.name ? 'border-main-blue ring-2 ring-main-blue/20' : st === 'success' ? 'border-emerald-400' : st === 'error' ? 'border-red-400' : 'border-slate-200';
+                const isAgent = isAiAgentType(n.type);
+                const isDecision = isDecisionType(n.type);
+                const isIf = isIfType(n.type);
+                const dims = nodeDims(n);
+                const border = sel === n.name
+                  ? 'border-main-blue ring-2 ring-main-blue/20'
+                  : isAgent
+                  ? 'border-purple-300 ring-1 ring-purple-100 hover:border-purple-400'
+                  : isDecision
+                  ? 'border-indigo-300 ring-1 ring-indigo-100 hover:border-indigo-400'
+                  : st === 'success'
+                  ? 'border-emerald-400'
+                  : st === 'error'
+                  ? 'border-red-400'
+                  : 'border-slate-200';
                 const iconMeta = NODE_ICONS[n.type] || { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' };
-                // Constant screen-size hit targets (m2): usable even when zoomed out.
                 const ps = 14;
                 const off = -ps / 2;
+                const routes = isDecision ? decisionRoutes(n.parameters || {}) : [];
+                const agentToolsList = Array.isArray(n.parameters?.tools) ? n.parameters.tools : DEFAULT_AGENT_TOOLS;
+                const canvasTools = isAgent ? toolEdgesForAgent(connections, n.name).map((e) => e.from) : [];
+                const modelSource = isAgent ? modelEdgeForAgent(connections, n.name) : null;
+                const modelSourceNode = modelSource ? nodes.find((x) => x.name === modelSource.from) : null;
+                const subtitle = isModelType(n.type)
+                  ? (n.parameters?.model || n.parameters?.core || 'model core')
+                  : isIntegrationType(n.type)
+                  ? (n.parameters?.operation || 'choose an operation')
+                  : isDecision
+                  ? `${routes.length} route${routes.length === 1 ? '' : 's'}`
+                  : isIf
+                  ? 'true / false branch'
+                  : String(n.type).split('.').pop();
+                const totalTools = agentToolsList.length + canvasTools.length;
+
                 return (
                 <div
                   key={n.id}
@@ -831,41 +1236,257 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                   onPointerUp={(e) => onNodePointerUp(e, n)}
                   title={disabled ? `${n.name} (disabled — skipped at run time)` : n.name}
                   className={`absolute rounded-2xl border-2 bg-white shadow-sm ${border} ${disabled ? 'opacity-50 border-dashed' : ''} hover:shadow-md transition-shadow`}
-                  style={{ left: n.position[0] * view.k + view.x, top: n.position[1] * view.k + view.y, width: NODE_W * view.k, height: NODE_H * view.k, fontSize: 12 * view.k }}
+                  style={{ left: n.position[0] * view.k + view.x, top: n.position[1] * view.k + view.y, width: dims.w * view.k, height: dims.h * view.k, fontSize: 12 * view.k }}
                 >
-                  <div className="flex items-center gap-2 p-2 h-full">
-                    <span className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 border ${iconMeta.bg} ${iconMeta.color}`} style={{ width: 26 * view.k, height: 26 * view.k, fontSize: 12 * view.k }}>
-                      <FontAwesomeIcon icon={iconMeta.icon} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-main-text truncate leading-tight" style={{ fontSize: 12 * view.k }}>
-                        {disabled ? '⏸ ' : ''}{n.name}{st === 'success' ? ' ✓' : st === 'error' ? ' ✗' : ''}
+                  {isAgent ? (
+                    <div className="flex flex-col h-full p-2.5 justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded-xl flex items-center justify-center shrink-0 border bg-purple-50 border-purple-200 text-purple-600" style={{ width: 24 * view.k, height: 24 * view.k, fontSize: 11 * view.k }}>
+                            <FontAwesomeIcon icon={faRobot} />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-bold text-main-text truncate leading-tight flex items-center gap-1" style={{ fontSize: 12 * view.k }}>
+                              <span>{disabled ? '⏸ ' : ''}{n.name}</span>
+                              {st === 'success' && <span className="text-emerald-500 font-bold">✓</span>}
+                              {st === 'error' && <span className="text-red-500 font-bold">✗</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                              <span className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-purple-100 text-purple-700 truncate" style={{ fontSize: 9 * view.k }}>
+                                {(modelSourceNode?.parameters?.core || n.parameters?.core || 'synapse-inference') === 'synapse-inference' ? 'Synapse Engine' : 'External API'}
+                              </span>
+                              <span className="text-normal-text truncate font-mono text-[9px]" style={{ fontSize: 9 * view.k }} title={modelSource ? `Model source: ${modelSource.from}` : 'No Model socket wired — uses this agent\'s inline model config'}>
+                                {modelSourceNode?.parameters?.model || n.parameters?.model || 'lfm-2.5-2.6b'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                      <div
-                        className={`text-normal-text truncate leading-tight mt-0.5 ${known ? '' : 'underline decoration-wavy decoration-amber-500'}`}
-                        style={{ fontSize: 10 * view.k }}
-                        title={known ? String(n.type) : `${n.type} — unknown type: the engine passes it through as skipped`}
-                      >
-                        {String(n.type).split('.').pop()}{known ? '' : ' ⚠'}
+
+                      <div className="my-1 border-t border-b border-purple-100 py-1 bg-purple-50/40 rounded-xl px-1.5">
+                        <div className="flex items-center justify-between mb-1 gap-1">
+                          <span className="font-semibold text-purple-900 tracking-tight truncate" style={{ fontSize: 10 * view.k }}>
+                            🛠 Tools &amp; data ({totalTools})
+                          </span>
+                          <button
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setQuickToolNode(quickToolNode === n.name ? null : n.name);
+                            }}
+                            onPointerDown={(ev) => ev.stopPropagation()}
+                            className="px-1.5 py-0.5 rounded-md bg-purple-600 text-white font-medium hover:bg-purple-700 shadow-xs shrink-0"
+                            style={{ fontSize: 9 * view.k }}
+                            title="Toggle built-in tools. To expose a canvas node as a tool, wire it into the purple Tools socket at the bottom."
+                          >
+                            + Tools
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1 max-h-[42px] overflow-hidden">
+                          {agentToolsList.slice(0, 3).map((tId) => {
+                            const tMeta = AGENT_TOOLS.find((x) => x.id === tId);
+                            return (
+                              <span key={tId} className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md bg-white border border-purple-200 text-purple-800 font-medium truncate" style={{ fontSize: 9 * view.k }} title={tMeta?.desc || tId}>
+                                <span>{tMeta?.icon || '⚙️'}</span>
+                                <span className="truncate max-w-[66px]">{tMeta?.label?.split(' ')[0] || tId}</span>
+                              </span>
+                            );
+                          })}
+                          {canvasTools.slice(0, 3).map((name) => (
+                            <span key={`node:${name}`} className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-md bg-purple-600/10 border border-purple-300 text-purple-900 font-semibold truncate" style={{ fontSize: 9 * view.k }} title={`Canvas node "${name}" is exposed to the agent as a callable tool`}>
+                              <span>🧩</span><span className="truncate max-w-[66px]">{name}</span>
+                            </span>
+                          ))}
+                          {totalTools > 6 && <span className="px-1 py-0.2 rounded-md bg-purple-200/60 text-purple-900 font-semibold" style={{ fontSize: 9 * view.k }}>+{totalTools - 6}</span>}
+                          {totalTools === 0 && <span className="text-slate-400 italic" style={{ fontSize: 9 * view.k }}>No tools — wire one below</span>}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-normal-text px-1 gap-1" style={{ fontSize: 9 * view.k }}>
+                        <span
+                          data-wire-target={n.name}
+                          data-wire-kind="tools"
+                          onClick={(e) => onPortClick(e, n, 'tools')}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 font-medium text-purple-700 truncate cursor-pointer hover:underline"
+                          title="Tools socket — drop any canvas node here (or click after picking an output) to expose it as a callable tool"
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-500 inline-block" /> Tools socket
+                        </span>
+                        <span
+                          data-wire-target={n.name}
+                          data-wire-kind="model"
+                          onClick={(e) => onPortClick(e, n, 'model')}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 font-medium text-indigo-700 truncate cursor-pointer hover:underline"
+                          title={modelSource ? `Model from ${modelSource.from}` : 'Model socket — drop a Model Core node here to override the inline model'}
+                        >
+                          <span className={`w-1.5 h-1.5 rounded-full inline-block ${modelSource ? 'bg-indigo-500' : 'bg-slate-300'}`} /> {modelSource ? modelSource.from : 'Model socket'}
+                        </span>
+                      </div>
+
+                      {quickToolNode === n.name && (
+                        <div
+                          onPointerDown={(e) => e.stopPropagation()}
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute z-30 bg-white rounded-2xl shadow-2xl border border-purple-200 p-3 w-72 text-left"
+                          style={{ left: 0, top: dims.h * view.k + 8 }}
+                        >
+                          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 mb-2">
+                            <span className="font-bold text-xs text-purple-900 flex items-center gap-1">🛠 Built-in tools</span>
+                            <button onClick={() => setQuickToolNode(null)} className="w-5 h-5 rounded-full hover:bg-slate-100 text-slate-500 text-xs flex items-center justify-center font-bold">×</button>
+                          </div>
+                          <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                            {AGENT_TOOLS.map((t) => {
+                              const isPlugged = agentToolsList.includes(t.id);
+                              return (
+                                <label
+                                  key={t.id}
+                                  onClick={() => {
+                                    checkpoint();
+                                    const next = isPlugged ? agentToolsList.filter((x) => x !== t.id) : [...agentToolsList, t.id];
+                                    setNodes((ns) => ns.map((x) => (x.name === n.name ? { ...x, parameters: { ...(x.parameters || {}), tools: next } } : x)));
+                                  }}
+                                  className={`flex items-start gap-1.5 p-1.5 rounded-xl border text-[11px] cursor-pointer transition-colors ${isPlugged ? 'bg-purple-50 border-purple-300 text-purple-900' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                                >
+                                  <input type="checkbox" checked={isPlugged} onChange={() => {}} className="mt-0.5 rounded text-purple-600" />
+                                  <div className="min-w-0 flex-1 leading-tight">
+                                    <div className="font-semibold flex items-center gap-1"><span>{t.icon}</span><span className="truncate">{t.label}</span></div>
+                                    <div className="text-[9px] text-slate-500 mt-0.5 leading-snug">{t.desc}</div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                          <p className="text-[9px] text-normal-text mt-2 leading-snug">For a node on the canvas: drag from its output dot into this agent&apos;s purple <b>Tools</b> socket below.</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : isDecision ? (
+                    <div className="flex flex-col h-full min-w-0">
+                      <div className="flex items-center gap-2 min-w-0" style={{ height: 46 * view.k, padding: `${6 * view.k}px ${8 * view.k}px` }}>
+                        <span className={`rounded-lg flex items-center justify-center shrink-0 border ${iconMeta.bg} ${iconMeta.color}`} style={{ width: 22 * view.k, height: 22 * view.k, fontSize: 10 * view.k }}>
+                          <FontAwesomeIcon icon={iconMeta.icon} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-main-text truncate leading-tight" style={{ fontSize: 12 * view.k }}>{disabled ? '⏸ ' : ''}{n.name}{st === 'success' ? ' ✓' : st === 'error' ? ' ✗' : ''}</div>
+                          <div className="text-normal-text truncate" style={{ fontSize: 9 * view.k }}>Decision Engine · {routes.length} routes</div>
+                        </div>
+                      </div>
+                      <div className="flex-1 min-h-0">
+                        {routes.map((r, idx) => (
+                          <div key={`${r.name}:${idx}`} title={r.description || r.name} className="flex items-center gap-1.5 px-2 pr-5 min-w-0" style={{ height: 26 * view.k }}>
+                            <span className="rounded-md bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center shrink-0" style={{ fontSize: 8 * view.k, width: 15 * view.k, height: 15 * view.k }}>{idx}</span>
+                            <span className="font-medium text-main-text truncate" style={{ fontSize: 10 * view.k }}>{r.name}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                  <button
-                    onClick={(e) => onPortClick(e, n, 'in')}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title="Input — click after picking an output to connect"
-                    aria-label={`Connect input of ${n.name}`}
-                    className="absolute rounded-full bg-white border-2 border-slate-300 hover:border-main-blue hover:scale-110 transition-transform"
-                    style={{ left: off, top: '50%', marginTop: off, width: ps, height: ps }}
-                  />
-                  <button
-                    onClick={(e) => onPortClick(e, n, 'out')}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    title="Output — click, then click a target input"
-                    aria-label={`Connect output of ${n.name}`}
-                    className={`absolute rounded-full border-2 ${pendingFrom === n.name ? 'bg-main-blue border-main-blue ring-2 ring-main-blue/30' : 'bg-white border-slate-300 hover:border-main-blue'} hover:scale-110 transition-transform`}
-                    style={{ right: off, top: '50%', marginTop: off, width: ps, height: ps }}
-                  />
+                  ) : (
+                    <div className="flex items-center gap-2 p-2 h-full min-w-0">
+                      <span className={`rounded-xl flex items-center justify-center shrink-0 border ${iconMeta.bg} ${iconMeta.color}`} style={{ width: 27 * view.k, height: 27 * view.k, fontSize: 12 * view.k }}>
+                        <FontAwesomeIcon icon={iconMeta.icon} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-main-text truncate leading-tight" style={{ fontSize: 12 * view.k }}>
+                          {disabled ? '⏸ ' : ''}{n.name}{st === 'success' ? ' ✓' : st === 'error' ? ' ✗' : ''}
+                        </div>
+                        <div className={`text-normal-text truncate leading-tight mt-0.5 ${known ? '' : 'underline decoration-wavy decoration-amber-500'}`} style={{ fontSize: 9.5 * view.k }} title={known ? String(n.type) : `${n.type} — unknown type: the engine passes it through as skipped`}>
+                          {subtitle}{known ? '' : ' ⚠'}
+                        </div>
+                        {isIf && (
+                          <div className="flex gap-2 mt-0.5" style={{ fontSize: 8.5 * view.k }}>
+                            <span className="text-emerald-600 font-bold">true ↑</span><span className="text-red-500 font-bold">false ↓</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {isAgent ? (
+                    <>
+                      <button
+                        onClick={(e) => onPortClick(e, n, 'in')}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        data-wire-target={n.name}
+                        data-wire-kind="in"
+                        title="Flow input — receive data from the previous node"
+                        aria-label={`Flow input of ${n.name}`}
+                        className="absolute rounded-full bg-white border-2 border-slate-300 hover:border-main-blue hover:scale-110 transition-transform shadow-sm z-10"
+                        style={{ left: off, top: '50%', marginTop: off, width: ps, height: ps }}
+                      />
+                      <button
+                        onClick={(e) => onPortClick(e, n, 'out')}
+                        onPointerDown={(e) => beginWire(e, n, 'out', undefined)}
+                        title="Flow output — click, then click a target input"
+                        aria-label={`Flow output of ${n.name}`}
+                        className={`absolute rounded-full border-2 hover:scale-110 transition-transform shadow-sm z-10 ${pendingFrom === n.name && pendingBranch === null ? 'bg-main-blue border-main-blue ring-2 ring-main-blue/30' : 'bg-white border-slate-300 hover:border-main-blue'}`}
+                        style={{ right: off, top: '50%', marginTop: off, width: ps, height: ps }}
+                      />
+                      <button
+                        onClick={(e) => onPortClick(e, n, 'tools')}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        data-wire-target={n.name}
+                        data-wire-kind="tools"
+                        title="Tools socket — wire any canvas node here to expose it as a callable agent tool"
+                        aria-label={`Tools socket of ${n.name}`}
+                        className="absolute rounded-full bg-purple-500 border-2 border-white hover:border-purple-300 hover:scale-125 transition-transform shadow-md ring-2 ring-purple-400/50 z-10"
+                        style={{ left: 46 * view.k + off, bottom: off, width: ps + 2, height: ps + 2 }}
+                      />
+                      <button
+                        onClick={(e) => onPortClick(e, n, 'model')}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        data-wire-target={n.name}
+                        data-wire-kind="model"
+                        title="Model socket — wire a Model Core node here to override the inline model"
+                        aria-label={`Model socket of ${n.name}`}
+                        className="absolute rounded-full bg-indigo-500 border-2 border-white hover:border-indigo-300 hover:scale-125 transition-transform shadow-md ring-2 ring-indigo-400/50 z-10"
+                        style={{ right: 46 * view.k + off, bottom: off, width: ps + 2, height: ps + 2 }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={(e) => onPortClick(e, n, 'in')}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        data-wire-target={n.name}
+                        data-wire-kind="in"
+                        title="Flow input — click after picking an output to connect"
+                        aria-label={`Flow input of ${n.name}`}
+                        className="absolute rounded-full bg-white border-2 border-slate-300 hover:border-main-blue hover:scale-110 transition-transform z-10"
+                        style={{ left: off, top: '50%', marginTop: off, width: ps, height: ps }}
+                      />
+                      {isDecision ? routes.map((r, idx) => (
+                        <button
+                          key={`${r.name}:${idx}`}
+                          onClick={(e) => onPortClick(e, n, 'out', idx)}
+                          onPointerDown={(e) => beginWire(e, n, 'out', idx)}
+                          title={`Route ${idx}: ${r.name} — click, then click a target input`}
+                          aria-label={`Route ${idx} ${r.name} output of ${n.name}`}
+                          className={`absolute rounded-full border-2 hover:scale-125 transition-transform shadow-sm z-10 ${pendingFrom === n.name && pendingBranch === idx ? 'bg-indigo-600 border-indigo-600 ring-2 ring-indigo-300' : 'bg-white border-indigo-400 hover:border-indigo-600'}`}
+                          style={{ right: off, top: 46 * view.k + idx * 26 * view.k + 13 * view.k - ps / 2, width: ps, height: ps }}
+                        />
+                      )) : isIf ? [0, 1].map((idx) => (
+                        <button
+                          key={idx}
+                          onClick={(e) => onPortClick(e, n, 'out', idx)}
+                          onPointerDown={(e) => beginWire(e, n, 'out', idx)}
+                          title={`${idx === 0 ? 'True' : 'False'} output — click, then click a target input`}
+                          aria-label={`${idx === 0 ? 'True' : 'False'} output of ${n.name}`}
+                          className={`absolute rounded-full border-2 hover:scale-125 transition-transform shadow-sm z-10 ${pendingFrom === n.name && pendingBranch === idx ? 'ring-2 ring-main-blue/30' : ''} ${idx === 0 ? 'bg-white border-emerald-500' : 'bg-white border-red-500'}`}
+                          style={{ right: off, top: dims.h * (idx === 0 ? 0.32 : 0.68) * view.k - ps / 2, width: ps, height: ps }}
+                        />
+                      )) : (
+                        <button
+                          onClick={(e) => onPortClick(e, n, 'out')}
+                          onPointerDown={(e) => beginWire(e, n, 'out', undefined)}
+                          title="Flow output — click, then click a target input (or drag)"
+                          aria-label={`Flow output of ${n.name}`}
+                          className={`absolute rounded-full border-2 hover:scale-110 transition-transform shadow-sm z-10 ${pendingFrom === n.name && pendingBranch === null ? 'bg-main-blue border-main-blue ring-2 ring-main-blue/30' : 'bg-white border-slate-300 hover:border-main-blue'}`}
+                          style={{ right: off, top: '50%', marginTop: off, width: ps, height: ps }}
+                        />
+                      )}
+                    </>
+                  )}
                 </div>
                 );
               })}
@@ -878,49 +1499,31 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none px-6">
                   <div className="max-w-sm text-center rounded-3xl bg-white/90 shadow-md px-5 py-4">
                     <p className="text-sm font-semibold text-main-text">Empty canvas</p>
-                    <p className="text-xs text-normal-text mt-1">Add a trigger on the left (Webhook, Schedule or Manual), then wire it to an action, AI Agent, or Decision Engine. Every node ships with a runnable example — use Fill example, then Test-run before Save.</p>
+                    <p className="text-xs text-normal-text mt-1">Drag a node here from the palette — start with a trigger (Webhook, Schedule or Manual), then wire it to an action, AI Agent, or Decision Engine. Every node ships with a runnable example.</p>
                   </div>
                 </div>
               )}
+              {dropActive && (
+                <div className="absolute inset-3 rounded-3xl border-2 border-dashed border-main-blue/60 bg-main-blue/5 pointer-events-none flex items-center justify-center">
+                  <span className="px-4 py-2 rounded-2xl bg-white shadow text-main-blue text-sm font-semibold">Drop to add “{NODE_TYPES.find((t) => t.type === paletteDrag)?.label || 'node'}”</span>
+                </div>
+              )}
+              <div className="absolute bottom-3 left-3 flex items-center gap-2 pointer-events-none">
+                <span className="px-2 py-1 rounded-xl bg-white/90 shadow-sm text-[10px] text-normal-text">{nodes.length} nodes · {edges.length} wires</span>
+                <span className="px-2 py-1 rounded-xl bg-white/90 shadow-sm text-[10px] text-normal-text hidden sm:inline">Drag palette → canvas · drag ports to wire · scroll to zoom</span>
+              </div>
               {pendingFrom && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-2xl bg-main-blue text-white text-xs shadow-md flex items-center gap-2 max-w-[90%] flex-wrap">
-                  <span>Connecting from “{pendingFrom}” — click a target input (Esc to cancel)</span>
-                  {isIfType(byName[pendingFrom]?.type) && (
-                    <span className="flex gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setPendingBranch(0); }}
-                        className={`px-2 py-0.5 rounded-xl font-bold ${pendingBranch === 0 ? 'bg-white text-main-blue' : 'bg-white/20 text-white'}`}
-                        title="Wire into the true branch (output 0)"
-                      >
-                        true
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setPendingBranch(1); }}
-                        className={`px-2 py-0.5 rounded-xl font-bold ${pendingBranch === 1 ? 'bg-white text-main-blue' : 'bg-white/20 text-white'}`}
-                        title="Wire into the false branch (output 1)"
-                      >
-                        false
-                      </button>
-                    </span>
-                  )}
-                  {isDecisionType(byName[pendingFrom]?.type) && (() => {
-                    const p = byName[pendingFrom]?.parameters || {};
-                    const choices = Array.isArray(p.choices) ? p.choices : (Array.isArray(p.routes) ? p.routes : (p.choices && typeof p.choices === 'object' ? Object.keys(p.choices) : ['route_0', 'route_1']));
-                    return (
-                      <span className="flex gap-1 flex-wrap">
-                        {choices.map((r, idx) => (
-                          <button
-                            key={r + idx}
-                            onClick={(e) => { e.stopPropagation(); setPendingBranch(idx); }}
-                            className={`px-2 py-0.5 rounded-xl font-bold ${pendingBranch === idx ? 'bg-white text-main-blue' : 'bg-white/20 text-white'}`}
-                            title={`Wire into ${r} (branch ${idx})`}
-                          >
-                            {r} ({idx})
-                          </button>
-                        ))}
-                      </span>
-                    );
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-2xl bg-main-blue text-white text-xs shadow-md flex items-center gap-2 max-w-[92%] flex-wrap">
+                  {(() => {
+                    const src = byName[pendingFrom];
+                    const branchText = isIfType(src?.type)
+                      ? (pendingBranch === 0 ? ' (true branch)' : pendingBranch === 1 ? ' (false branch)' : '')
+                      : isDecisionType(src?.type) && typeof pendingBranch === 'number'
+                      ? ` (route ${pendingBranch}: ${decisionRoutes(src.parameters || {})[pendingBranch]?.name || ''})`
+                      : '';
+                    return <span>Connecting “{pendingFrom}”{branchText} — click a target input/socket, or drag onto it. Esc cancels.</span>;
                   })()}
+                  <button onClick={(e) => { e.stopPropagation(); clearPending(); }} className="px-2 py-0.5 rounded-xl bg-white/20 font-semibold hover:bg-white/30">Cancel</button>
                 </div>
               )}
             </div>
@@ -958,7 +1561,20 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                   />
                   Disabled (skip at run time)
                 </label>
-                <NodeForm node={selNode} onPatch={patchParams} workflowId={workflowId} headers={headers} />
+                <NodeForm
+                  node={selNode}
+                  onPatch={patchParams}
+                  workflowId={workflowId}
+                  headers={headers}
+                  nodes={nodes}
+                  connections={connections}
+                  onDecisionRoutes={updateDecisionRoutes}
+                  onRemoveDecisionRoute={removeDecisionRoute}
+                  onMoveDecisionRoute={moveDecisionRoute}
+                  onRemoveAuxEdge={removeAuxEdge}
+                  onConnectTool={(from, agent) => completeConnection(from, agent, 'tools', undefined, false)}
+                  onConnectModel={(from, agent) => completeConnection(from, agent, 'model', undefined, false)}
+                />
                 <details className="mt-2">
                   <summary className="text-[11px] text-normal-text cursor-pointer hover:text-main-blue">Advanced JSON</summary>
                   {selNode && EXAMPLE_PARAMS[selNode.type] && (
@@ -986,9 +1602,21 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
             ) : selEdge ? (
               <>
                 <p className="text-[11px] font-medium text-normal-text mb-2">CONNECTION</p>
-                <p className="text-xs font-mono text-main-text mb-3 break-all">{selEdge.from} → {selEdge.to}</p>
+                <p className="text-xs font-mono text-main-text mb-1 break-all">{selEdge.from} → {selEdge.to}</p>
+                <p className="text-[11px] text-normal-text mb-3">
+                  {selEdge.targetPort === 'tools' ? 'Tools socket (node becomes an agent tool)' : selEdge.targetPort === 'model' ? 'Model socket (provides model/core config)' : typeof selEdge.branch === 'number' ? (isIfType(nodes.find((n) => n.name === selEdge.from)?.type) ? `Branch: ${ifBranchLabel(selEdge.branch)}` : `Route branch ${selEdge.branch}`) : 'Main flow'}
+                </p>
                 <button
-                  onClick={() => { checkpoint(); const srcIsIf = nodes.some((n) => n.name === selEdge.from && n.type === IF_TYPE); setConnections((c) => disconnect(c, selEdge.from, selEdge.to, srcIsIf ? { preserveSlots: true } : undefined)); setSel(null); }}
+                  onClick={() => {
+                    checkpoint();
+                    const src = nodes.find((n) => n.name === selEdge.from);
+                    setConnections((c) => disconnect(c, selEdge.from, selEdge.to, {
+                      ...(typeof selEdge.branch === 'number' ? { branch: selEdge.branch } : {}),
+                      ...(selEdge.targetPort ? { targetPort: selEdge.targetPort } : {}),
+                      preserveSlots: isIfType(src?.type) || isDecisionType(src?.type),
+                    }));
+                    setSel(null);
+                  }}
                   className="px-3 py-1.5 rounded-2xl text-xs font-medium bg-red-500/10 text-red-500"
                 >
                   <FontAwesomeIcon icon={faTrash} size="xs" /> Remove connection
@@ -1043,13 +1671,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
                             <span className="text-normal-text ml-auto">{r.durationMs}ms</span>
                           </button>
                           {expandedRuns[`${r.node}:${i}`] && (
-                            <div className="px-2 pb-2">
-                              {r.error && <p className="text-[11px] text-red-500 break-words">{r.error}</p>}
-                              <p className="text-[10px] text-normal-text mt-1">input</p>
-                              <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background rounded-lg p-1.5">{JSON.stringify(r.input, null, 2)?.slice(0, 1200)}</pre>
-                              <p className="text-[10px] text-normal-text mt-1">output</p>
-                              <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background rounded-lg p-1.5">{JSON.stringify(r.output, null, 2)?.slice(0, 1200)}</pre>
-                            </div>
+                            <NodeRunDetailView r={r} />
                           )}
                         </div>
                       ))}
@@ -1081,11 +1703,144 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   );
 }
 
+function NodeRunDetailView({ r }) {
+  const agent = r.output?.agent;
+  const isAgent = Boolean(agent);
+  const isDecision = Boolean(r.output?.decision || r.output?.route);
+
+  return (
+    <div className="px-2 pb-2 space-y-2 text-left">
+      {r.error && <p className="text-[11px] text-red-500 break-words">{r.error}</p>}
+
+      {isAgent && (
+        <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-2.5 space-y-2">
+          {/* AI Agent badge & metadata */}
+          <div className="flex items-center justify-between flex-wrap gap-1">
+            <span className="text-xs font-bold text-purple-900 flex items-center gap-1.5">
+              <span>🤖</span>
+              <span>AI Agent Execution</span>
+            </span>
+            <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 font-mono font-medium">
+              {agent.core} · {agent.steps_count ?? agent.steps ?? 0} {(agent.steps_count ?? agent.steps ?? 0) === 1 ? 'step' : 'steps'}
+            </span>
+          </div>
+
+          <div className="text-[10px] text-purple-700 font-mono flex items-center gap-1">
+            <span className="text-slate-400">Model:</span>
+            <span className="font-semibold">{agent.model}</span>
+          </div>
+
+          {/* Synthesized Agent Response */}
+          {agent.response && (
+            <div className="bg-white rounded-xl p-2 border border-purple-200 shadow-2xs">
+              <p className="text-[10px] font-bold text-purple-900 mb-1 flex items-center gap-1">
+                💬 Agent Response / Trả lời:
+              </p>
+              <div className="text-[11px] text-slate-800 whitespace-pre-wrap font-sans leading-relaxed">
+                {agent.response}
+              </div>
+            </div>
+          )}
+
+          {/* Tool Execution Steps */}
+          {Array.isArray(agent.actions_taken) && agent.actions_taken.length > 0 ? (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold text-purple-900 uppercase tracking-wide">
+                🛠️ Pluggable Tools Executed ({agent.actions_taken.length}):
+              </p>
+              {agent.actions_taken.map((act, actIdx) => {
+                const tMeta = AGENT_TOOLS.find((x) => x.id === act.tool);
+                return (
+                  <div key={actIdx} className="bg-white rounded-xl p-2 border border-slate-200 text-[10px]">
+                    <div className="flex items-center justify-between mb-1 pb-1 border-b border-slate-100">
+                      <span className="font-bold text-purple-800 flex items-center gap-1">
+                        <span>{tMeta?.icon || '⚙️'}</span>
+                        <span>Step {act.step || actIdx + 1}: {tMeta?.label || act.tool}</span>
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono">tool: {act.tool}</span>
+                    </div>
+                    {(act.args !== undefined || act.action_input !== undefined) && (
+                      <div className="mt-1">
+                        <span className="text-slate-500 font-medium text-[9px]">Input arguments:</span>
+                        <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-slate-50 p-1.5 rounded-lg mt-0.5 max-h-28 overflow-auto border border-slate-100">
+                          {JSON.stringify(act.args ?? act.action_input, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {act.result !== undefined && (
+                      <div className="mt-1.5">
+                        <span className="text-emerald-600 font-medium text-[9px]">Tool output result:</span>
+                        <pre className="text-[9px] font-mono whitespace-pre-wrap break-all bg-emerald-50/60 p-1.5 rounded-lg mt-0.5 max-h-28 overflow-auto border border-emerald-100">
+                          {JSON.stringify(act.result, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-[10px] text-slate-500 italic bg-white p-1.5 rounded-lg border border-purple-100">
+              Agent answered directly without needing external tools in this run.
+            </div>
+          )}
+        </div>
+      )}
+
+      {isDecision && (
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-2 space-y-1">
+          <p className="text-[11px] font-bold text-indigo-900 flex items-center gap-1">
+            🧠 Decision Engine Classification
+          </p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-indigo-700">Selected Route:</span>
+            <span className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold text-[10px]">
+              {r.output?.route || r.output?.decision?.route || 'route'}
+            </span>
+            {r.output?.decision?.branch !== undefined && (
+              <span className="text-[9px] text-indigo-600 font-mono">branch {r.output.decision.branch}</span>
+            )}
+            {Number.isFinite(Number(r.output?.decision?.confidence)) && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white border border-indigo-200 text-indigo-700 font-mono">
+                confidence {Math.round(Number(r.output.decision.confidence) * 100)}%
+              </span>
+            )}
+            {r.output?.decision?.fallback === true && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold">fallback</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Raw JSON Details (always accessible) */}
+      <details className="mt-1">
+        <summary className="text-[10px] text-normal-text cursor-pointer hover:text-main-blue font-medium">
+          {isAgent ? 'Raw JSON (input & output protocol)' : 'Data details'}
+        </summary>
+        <div className="mt-1 space-y-1">
+          <p className="text-[10px] text-normal-text">input</p>
+          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background rounded-lg p-1.5 max-h-32 overflow-auto">
+            {JSON.stringify(r.input, null, 2)?.slice(0, 1500)}
+          </pre>
+          <p className="text-[10px] text-normal-text">output</p>
+          <pre className="text-[10px] font-mono whitespace-pre-wrap break-all bg-background rounded-lg p-1.5 max-h-32 overflow-auto">
+            {JSON.stringify(r.output, null, 2)?.slice(0, 1500)}
+          </pre>
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function rowInputCls() {
   return 'w-full px-2 py-1.5 rounded-xl border border-slate-200 text-xs outline-none';
 }
 
-function NodeForm({ node, onPatch, workflowId, headers }) {
+function NodeForm({
+  node, onPatch, workflowId, headers, nodes, connections,
+  onDecisionRoutes, onRemoveDecisionRoute, onMoveDecisionRoute, onRemoveAuxEdge,
+  onConnectTool, onConnectModel,
+}) {
   const p = node.parameters || {};
   switch (node.type) {
     case 'code':
@@ -1105,13 +1860,46 @@ function NodeForm({ node, onPatch, workflowId, headers }) {
     case 'synapseflow.decision':
     case 'synapsedx.decision':
     case 'n8n-nodes-base.decision':
-      return <DecisionForm params={p} onPatch={onPatch} />;
+      return (
+        <DecisionForm
+          params={p}
+          onPatch={onPatch}
+          nodeName={node.name}
+          connections={connections}
+          onRoutesChange={(routes) => onDecisionRoutes?.(node.name, routes)}
+          onRemoveRoute={(index) => onRemoveDecisionRoute?.(node.name, index)}
+          onMoveRoute={(index, dir) => onMoveDecisionRoute?.(node.name, index, dir)}
+        />
+      );
     case 'ai.agent':
     case 'synapseflow.aiAgent':
     case 'synapsedx.aiAgent':
     case 'agent':
     case 'n8n-nodes-base.aiAgent':
-      return <AiAgentForm params={p} onPatch={onPatch} headers={headers} />;
+      return (
+        <AiAgentForm
+          params={p}
+          onPatch={onPatch}
+          headers={headers}
+          nodeName={node.name}
+          nodes={nodes}
+          connections={connections}
+          onRemoveAuxEdge={onRemoveAuxEdge}
+          onConnectTool={(from) => onConnectTool?.(from, node.name)}
+          onConnectModel={(from) => onConnectModel?.(from, node.name)}
+        />
+      );
+    case 'synapseflow.model':
+    case 'synapsedx.model':
+      return <ModelForm params={p} onPatch={onPatch} />;
+    case 'synapsedx.iam':
+    case 'synapsedx.base':
+    case 'synapsedx.faststore':
+    case 'synapsedx.queue':
+    case 'synapsedx.lds':
+    case 'synapsedx.inference':
+    case 'synapsedx.flow':
+      return <IntegrationForm type={node.type} params={p} onPatch={onPatch} />;
     case 'synapsedx.api':
       return <SynapseDXApiForm params={p} onPatch={onPatch} />;
     case 'webhook':
@@ -1461,22 +2249,16 @@ const SYNAPSEDX_API = {
   },
 };
 
-const AGENT_TOOLS = [
-  { id: 'synapsebase_query', label: 'SynapseBase Query', group: 'Data', desc: 'Query collections in SynapseBase document store' },
-  { id: 'faststore_cache', label: 'Faststore Cache', group: 'Data', desc: 'Read and write cache values with TTL' },
-  { id: 'code_sandbox', label: 'Isolated JS Sandbox', group: 'Logic', desc: 'Safely execute dynamic JavaScript calculations' },
-  { id: 'logic_calculator', label: 'Fast Math Calculator', group: 'Logic', desc: 'Evaluate arithmetic expressions' },
-  { id: 'decision_eval', label: 'Decision Model (Decision-2.0-Eos-0.8B)', group: 'AI', desc: 'Classify intent or evaluate choices' },
-  { id: 'queue_publish', label: 'SynapseQueue Publisher', group: 'Services', desc: 'Publish messages to SynapseQueue' },
-  { id: 'iam_check_permission', label: 'IAM Authorization Check', group: 'Services', desc: 'Verify caller permissions with SynapseIAM' },
-  { id: 'http_request', label: 'HTTP Request', group: 'Network', desc: 'Call external REST endpoints' },
-];
-
-function AiAgentForm({ params, onPatch, headers }) {
+function AiAgentForm({ params, onPatch, nodeName, nodes, connections, onRemoveAuxEdge, onConnectTool, onConnectModel }) {
   const core = params.core || 'synapse-inference';
   const model = params.model || (core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini');
-  const tools = Array.isArray(params.tools) ? params.tools : ['synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator', 'decision_eval', 'http_request'];
-  const maxSteps = Number(params.maxSteps) || 5;
+  const tools = Array.isArray(params.tools) ? params.tools : DEFAULT_AGENT_TOOLS;
+  const maxSteps = Number(params.maxSteps) || 6;
+  const canvasTools = nodeName ? toolEdgesForAgent(connections || {}, nodeName).map((e) => e.from) : [];
+  const modelSource = nodeName ? modelEdgeForAgent(connections || {}, nodeName) : null;
+  const modelNode = modelSource ? (nodes || []).find((n) => n.name === modelSource.from) : null;
+  const toolCandidates = (nodes || []).filter((n) => n.name !== nodeName && !canvasTools.includes(n.name) && !isAiAgentType(n.type) && !isModelType(n.type));
+  const modelCandidates = (nodes || []).filter((n) => isModelType(n.type));
 
   const toggleTool = (toolId) => {
     const next = tools.includes(toolId) ? tools.filter((t) => t !== toolId) : [...tools, toolId];
@@ -1485,6 +2267,11 @@ function AiAgentForm({ params, onPatch, headers }) {
 
   return (
     <div className="space-y-3">
+      <div className="p-2.5 rounded-xl bg-purple-50 border border-purple-200 text-[11px] text-purple-900 leading-snug">
+        <p className="font-bold mb-1">🤖 Autonomous AI Agent</p>
+        <p className="text-purple-800 text-[10px]">Native tool calling is enabled. Wire any canvas node — SynapseBase, Faststore, IAM, HTTP, Code, Decision — into the <b>Tools</b> socket and the model can call it. A <b>Model Core</b> wired into the Model socket overrides the inline model below.</p>
+      </div>
+
       <div>
         <label className="block text-xs font-semibold text-main-text mb-1">Core AI Engine</label>
         <select
@@ -1499,96 +2286,60 @@ function AiAgentForm({ params, onPatch, headers }) {
           }}
           className={rowInputCls()}
         >
-          <option value="synapse-inference">Synapse Inference Engine (Default - OpenRouter / Local SLMs)</option>
-          <option value="openai-compatible">OpenAI-compatible API (Custom Provider)</option>
+          <option value="synapse-inference">Synapse Inference Engine (default)</option>
+          <option value="openai-compatible">OpenAI-compatible API (custom provider)</option>
         </select>
-        <p className="text-[10px] text-normal-text mt-0.5">
-          {core === 'synapse-inference'
-            ? 'Routes automatically through the self-hosted Synapse Inference Engine cluster.'
-            : 'Connects to any OpenAI-compatible API endpoint with your own API key.'}
-        </p>
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">Model</label>
-        <input
-          value={model}
-          onChange={(e) => onPatch({ model: e.target.value })}
-          placeholder={core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini'}
-          className={`${rowInputCls()} font-mono`}
-        />
+        <label className="block text-xs text-normal-text mb-1">Model {modelNode && <span className="text-indigo-600">— overridden by “{modelNode.name}”</span>}</label>
+        <input value={model} onChange={(e) => onPatch({ model: e.target.value })} placeholder={core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini'} className={`${rowInputCls()} font-mono`} />
+        {modelNode && <p className="text-[10px] text-indigo-600 mt-0.5 font-mono">socket: {modelNode.parameters?.core || 'synapse-inference'} · {modelNode.parameters?.model || 'default'}</p>}
       </div>
 
       {core === 'openai-compatible' && (
         <>
           <div>
             <label className="block text-xs text-normal-text mb-1">Base URL</label>
-            <input
-              value={params.baseUrl || 'https://api.openai.com/v1'}
-              onChange={(e) => onPatch({ baseUrl: e.target.value })}
-              placeholder="https://api.openai.com/v1"
-              className={`${rowInputCls()} font-mono`}
-            />
+            <input value={params.baseUrl || 'https://api.openai.com/v1'} onChange={(e) => onPatch({ baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" className={`${rowInputCls()} font-mono`} />
           </div>
           <div>
             <label className="block text-xs text-normal-text mb-1">API Key</label>
-            <input
-              type="password"
-              value={params.apiKey || ''}
-              onChange={(e) => onPatch({ apiKey: e.target.value })}
-              placeholder="sk-..."
-              className={`${rowInputCls()} font-mono`}
-            />
+            <input type="password" value={params.apiKey || ''} onChange={(e) => onPatch({ apiKey: e.target.value })} placeholder="sk-..." className={`${rowInputCls()} font-mono`} />
           </div>
         </>
       )}
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">User Prompt / Task</label>
-        <textarea
-          value={params.userPrompt || params.prompt || ''}
-          onChange={(e) => onPatch({ userPrompt: e.target.value, prompt: undefined })}
-          placeholder="={{ $json.message || 'Summarize data and save result to faststore' }}"
-          rows={3}
-          className={`${rowInputCls()} font-mono`}
-        />
-        <p className="text-[10px] text-normal-text mt-0.5">Supports ={'{{'} $json.field {'}}'} expressions.</p>
+        <label className="block text-xs text-normal-text mb-1">User prompt / task</label>
+        <textarea value={params.userPrompt || params.prompt || ''} onChange={(e) => onPatch({ userPrompt: e.target.value, prompt: undefined })} placeholder="={{ $json.message || 'Analyze the input and take the next step' }}" rows={3} className={`${rowInputCls()} font-mono`} />
+        <p className="text-[10px] text-normal-text mt-0.5">Supports ={'{{'} $json.field {'}}'} expressions and workflow data.</p>
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">System Prompt / Instructions</label>
-        <textarea
-          value={params.systemPrompt || ''}
-          onChange={(e) => onPatch({ systemPrompt: e.target.value })}
-          placeholder="You are an intelligent autonomous AI Agent in SynapseFlow. Use tools to take actions."
-          rows={3}
-          className={rowInputCls()}
-        />
+        <label className="block text-xs text-normal-text mb-1">System prompt / instructions</label>
+        <textarea value={params.systemPrompt || ''} onChange={(e) => onPatch({ systemPrompt: e.target.value })} placeholder="You are an autonomous agent. Use tools to retrieve real data before answering." rows={3} className={rowInputCls()} />
       </div>
 
       <div>
-        <label className="block text-xs font-semibold text-main-text mb-1">Pluggable Tools ({tools.length} active)</label>
-        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-xs font-semibold text-main-text">Built-in tools ({tools.length}/{AGENT_TOOLS.length})</label>
+          <div className="flex gap-1.5 text-[10px]">
+            <button onClick={() => onPatch({ tools: AGENT_TOOLS.map((t) => t.id) })} className="text-purple-600 hover:underline font-medium">Select all</button>
+            <span className="text-slate-300">·</span>
+            <button onClick={() => onPatch({ tools: [] })} className="text-slate-500 hover:underline">Clear</button>
+          </div>
+        </div>
+        <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
           {AGENT_TOOLS.map((tool) => {
             const active = tools.includes(tool.id);
             return (
-              <label
-                key={tool.id}
-                onClick={() => toggleTool(tool.id)}
-                className={`flex items-start gap-2 p-1.5 rounded-xl border text-xs cursor-pointer transition-colors ${
-                  active ? 'bg-purple-50/50 border-purple-200 text-main-text' : 'bg-white border-slate-200 text-normal-text opacity-70 hover:opacity-100'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={() => {}}
-                  className="mt-0.5 rounded text-purple-600 focus:ring-purple-500"
-                />
+              <label key={tool.id} onClick={() => toggleTool(tool.id)} className={`flex items-start gap-2 p-1.5 rounded-xl border text-xs cursor-pointer transition-colors ${active ? 'bg-purple-50/50 border-purple-200 text-main-text shadow-2xs' : 'bg-white border-slate-200 text-normal-text opacity-70 hover:opacity-100'}`}>
+                <input type="checkbox" checked={active} onChange={() => {}} className="mt-0.5 rounded text-purple-600 focus:ring-purple-500" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-[11px] leading-tight flex items-center gap-1.5">
-                    <span>{tool.label}</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600">{tool.group}</span>
+                    <span>{tool.icon}</span><span className="font-semibold">{tool.label}</span>
+                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 ml-auto">{tool.group}</span>
                   </div>
                   <div className="text-[10px] text-normal-text leading-tight mt-0.5">{tool.desc}</div>
                 </div>
@@ -1598,92 +2349,439 @@ function AiAgentForm({ params, onPatch, headers }) {
         </div>
       </div>
 
+      <div className="rounded-xl border border-purple-200 bg-purple-50/40 p-2">
+        <div className="flex items-center justify-between gap-1 mb-1">
+          <label className="text-xs font-semibold text-purple-900">Canvas tools ({canvasTools.length})</label>
+          {toolCandidates.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => { if (e.target.value) onConnectTool?.(e.target.value); }}
+              className="px-1.5 py-1 rounded-lg border border-purple-200 text-[10px] bg-white max-w-[130px]"
+              title="Expose another canvas node as a tool"
+            >
+              <option value="">+ wire node…</option>
+              {toolCandidates.map((n) => <option key={n.name} value={n.name}>{n.name}</option>)}
+            </select>
+          )}
+        </div>
+        {canvasTools.length === 0 ? (
+          <p className="text-[10px] text-purple-800/80 leading-snug">Drag a node&apos;s output into the purple <b>Tools</b> socket under this card, or pick a node above. Node tools receive the model&apos;s arguments as <code>$json</code>.</p>
+        ) : (
+          <div className="space-y-1">
+            {canvasTools.map((from) => (
+              <div key={from} className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg bg-white border border-purple-200 text-[11px]">
+                <span>🧩</span><span className="font-medium truncate">{from}</span>
+                <button onClick={() => onRemoveAuxEdge?.(from, nodeName, 'tools')} className="ml-auto text-red-500 px-1" title="Disconnect this tool">×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-2">
+        <div className="flex items-center justify-between gap-1 mb-1">
+          <label className="text-xs font-semibold text-indigo-900">Model socket</label>
+          {modelCandidates.length > 0 && (
+            <select value="" onChange={(e) => { if (e.target.value) onConnectModel?.(e.target.value); }} className="px-1.5 py-1 rounded-lg border border-indigo-200 text-[10px] bg-white max-w-[150px]" title="Wire a model source">
+              <option value="">+ wire model…</option>
+              {modelCandidates.map((n) => <option key={n.name} value={n.name}>{n.name}</option>)}
+            </select>
+          )}
+        </div>
+        {modelNode ? (
+          <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg bg-white border border-indigo-200 text-[11px]">
+            <span>🧠</span><span className="font-medium truncate">{modelNode.name}</span>
+            <span className="text-[9px] text-normal-text truncate">{modelNode.parameters?.model || ''}</span>
+            <button onClick={() => onRemoveAuxEdge?.(modelNode.name, nodeName, 'model')} className="ml-auto text-red-500 px-1" title="Disconnect model source">×</button>
+          </div>
+        ) : (
+          <p className="text-[10px] text-indigo-800/80 leading-snug">Optional. Wire a <b>Model Core</b> into the indigo <b>Model</b> socket to centralize model/provider configuration.</p>
+        )}
+      </div>
+
       <div>
-        <label className="block text-xs text-normal-text mb-1">Max Iterations (Turns)</label>
-        <input
-          type="number"
-          min={1}
-          max={10}
-          value={maxSteps}
-          onChange={(e) => onPatch({ maxSteps: Math.min(10, Math.max(1, parseInt(e.target.value, 10) || 5)) })}
-          className={rowInputCls()}
-        />
+        <label className="block text-xs text-normal-text mb-1">Max tool iterations</label>
+        <input type="number" min={1} max={12} value={maxSteps} onChange={(e) => onPatch({ maxSteps: Math.min(12, Math.max(1, parseInt(e.target.value, 10) || 6)) })} className={rowInputCls()} />
+      </div>
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Temperature</label>
+        <input type="number" min={0} max={2} step={0.1} value={params.temperature ?? 0.2} onChange={(e) => onPatch({ temperature: Math.min(2, Math.max(0, Number(e.target.value))) })} className={rowInputCls()} />
       </div>
     </div>
   );
 }
 
-function DecisionForm({ params, onPatch }) {
-  const choices = Array.isArray(params.choices)
-    ? params.choices
-    : (Array.isArray(params.routes)
-      ? params.routes
-      : (params.choices && typeof params.choices === 'object' ? Object.keys(params.choices) : ['route_0', 'route_1']));
-  const choicesText = choices.join(', ');
+function DecisionForm({ params, onPatch, nodeName, connections, onRoutesChange, onRemoveRoute, onMoveRoute }) {
+  const routes = decisionRoutes(params);
+  const [draft, setDraft] = useState(() => routes.map((r) => ({ ...r })));
+  const sig = JSON.stringify(routes);
+  useEffect(() => {
+    setDraft(routes.map((r) => ({ ...r })));
+  }, [nodeName, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const wiredBranches = Array.isArray(connections?.[nodeName]?.main)
+    ? connections[nodeName].main.map((b) => (Array.isArray(b) ? b.filter((e) => !edgeTargetPort(e)).length : 0))
+    : [];
 
-  const setChoicesText = (txt) => {
-    const list = txt.split(',').map((s) => s.trim()).filter(Boolean);
-    onPatch({ choices: list.length > 0 ? list : ['route_0', 'route_1'] });
+  const commitRows = (rows) => {
+    const clean = rows.map((r, i) => ({ name: String(r.name || `route_${i}`).trim(), description: String(r.description || '') }));
+    setDraft(clean);
+    onRoutesChange?.(clean);
   };
+  const rename = (i, value) => {
+    const name = value.trim();
+    if (!name) { setDraft(routes.map((r) => ({ ...r }))); return; }
+    if (draft.some((r, idx) => idx !== i && r.name === name)) {
+      setDraft(routes.map((r) => ({ ...r })));
+      return;
+    }
+    commitRows(draft.map((r, idx) => (idx === i ? { ...r, name } : r)));
+  };
+  const describe = (i, value) => commitRows(draft.map((r, idx) => (idx === i ? { ...r, description: value } : r)));
+  const add = () => {
+    if (draft.length >= 20) return;
+    let i = draft.length;
+    let name = `route_${i}`;
+    const used = new Set(draft.map((r) => r.name));
+    while (used.has(name)) name = `route_${++i}`;
+    const next = [...draft, { name, description: '' }];
+    setDraft(next);
+    onRoutesChange?.(next);
+  };
+  const remove = (i) => {
+    if (draft.length <= 1) return;
+    setDraft(draft.filter((_, idx) => idx !== i));
+    onRemoveRoute?.(i);
+  };
+  const move = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= draft.length) return;
+    const next = draft.slice();
+    [next[i], next[j]] = [next[j], next[i]];
+    setDraft(next);
+    onMoveRoute?.(i, dir);
+  };
+  const fb = Number.isFinite(Number(params.fallbackBranch)) ? Math.min(routes.length - 1, Math.max(0, Number(params.fallbackBranch))) : 0;
 
   return (
     <div className="space-y-3">
       <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-[11px] text-indigo-900 leading-tight">
-        Powered by <b>Decision-2.0-Eos-0.8B</b>. Classifies input text into multiple semantic routes, branching the workflow similar to an intelligent multi-way condition.
+        Powered by <b>Decision-2.0-Eos-0.8B</b>. Each route has its own output port on the canvas. Edges stay attached to a route when you rename it; adding/removing/reordering remaps branches safely.
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">Input Text / Message to Evaluate</label>
-        <input
-          value={params.input || ''}
-          onChange={(e) => onPatch({ input: e.target.value })}
-          placeholder="={{ $json.query || $json.text || $json.message }}"
-          className={`${rowInputCls()} font-mono`}
-        />
-        <p className="text-[10px] text-normal-text mt-0.5">Supports ={'{{'} $json.field {'}}'} templates.</p>
+        <label className="block text-xs text-normal-text mb-1">Input text to evaluate</label>
+        <input value={params.input || ''} onChange={(e) => onPatch({ input: e.target.value })} placeholder="={{ $json.query || $json.text || $json.message }}" className={`${rowInputCls()} font-mono`} />
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">Instruction / Context</label>
-        <input
-          value={params.instruction || ''}
-          onChange={(e) => onPatch({ instruction: e.target.value })}
-          placeholder="Classify user query into department route"
-          className={rowInputCls()}
-        />
+        <label className="block text-xs text-normal-text mb-1">Instruction / context</label>
+        <input value={params.instruction || ''} onChange={(e) => onPatch({ instruction: e.target.value })} placeholder="Route this request to the most suitable team" className={rowInputCls()} />
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">Routes / Branches (comma-separated)</label>
-        <input
-          value={choicesText}
-          onChange={(e) => setChoicesText(e.target.value)}
-          placeholder="billing, support, technical, sales"
-          className={`${rowInputCls()} font-mono`}
-        />
-        <div className="mt-1 flex flex-wrap gap-1">
-          {choices.map((c, i) => (
-            <span key={c + i} className="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-indigo-100 text-indigo-800">
-              Branch {i}: {c}
-            </span>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="block text-xs font-semibold text-main-text">Routes ({draft.length})</label>
+          <button onClick={add} disabled={draft.length >= 20} title={draft.length >= 20 ? 'Decision Engine supports at most 20 routes' : 'Add another route'} className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40">+ Add route</button>
+        </div>
+        <div className="space-y-1.5">
+          {draft.map((r, i) => (
+            <div key={i} className={`rounded-xl border p-1.5 ${wiredBranches[i] ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200 bg-white'}`}>
+              <div className="flex items-center gap-1">
+                <span className="w-5 h-5 rounded-md bg-indigo-100 text-indigo-700 text-[9px] font-bold flex items-center justify-center shrink-0">{i}</span>
+                <input
+                  defaultValue={r.name}
+                  key={`${nodeName}:${i}:${r.name}`}
+                  onBlur={(e) => rename(i, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                  className="flex-1 min-w-0 px-1.5 py-1 rounded-lg border border-slate-200 text-[11px] font-medium outline-none focus:border-indigo-400"
+                  placeholder="route name"
+                />
+                <button onClick={() => move(i, -1)} disabled={i === 0} title="Move up" className="w-5 h-5 rounded text-[10px] text-slate-500 hover:bg-slate-100 disabled:opacity-25">↑</button>
+                <button onClick={() => move(i, 1)} disabled={i === draft.length - 1} title="Move down" className="w-5 h-5 rounded text-[10px] text-slate-500 hover:bg-slate-100 disabled:opacity-25">↓</button>
+                <button onClick={() => remove(i)} disabled={draft.length <= 1} title="Remove route (its wires move to the fallback route)" className="w-5 h-5 rounded text-[10px] text-red-500 hover:bg-red-50 disabled:opacity-25">×</button>
+              </div>
+              <input
+                defaultValue={r.description}
+                key={`${nodeName}:${i}:desc:${r.description}`}
+                onBlur={(e) => describe(i, e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                className="w-full mt-1 px-1.5 py-1 rounded-lg border border-slate-100 text-[10px] text-normal-text outline-none focus:border-indigo-300"
+                placeholder="What belongs in this route? (used by the SLM)"
+              />
+              <p className="text-[9px] mt-0.5 text-right">
+                <span className={wiredBranches[i] ? 'text-emerald-600' : 'text-amber-600'}>{wiredBranches[i] ? `output ${i}: wired` : `output ${i}: not wired yet`}</span>
+              </p>
+            </div>
           ))}
         </div>
       </div>
 
       <div>
-        <label className="block text-xs text-normal-text mb-1">Fallback Branch Index</label>
-        <input
-          type="number"
-          min={0}
-          max={Math.max(0, choices.length - 1)}
-          value={params.fallbackBranch !== undefined ? params.fallbackBranch : 0}
-          onChange={(e) => onPatch({ fallbackBranch: parseInt(e.target.value, 10) || 0 })}
-          className={rowInputCls()}
-        />
-        <p className="text-[10px] text-normal-text mt-0.5">Index used when confidence is below threshold or classification fails.</p>
+        <label className="block text-xs text-normal-text mb-1">Fallback route</label>
+        <select value={fb} onChange={(e) => onPatch({ fallbackBranch: Number(e.target.value) })} className={rowInputCls()}>
+          {routes.map((r, i) => <option key={`${r.name}:${i}`} value={i}>{i} — {r.name}</option>)}
+        </select>
+        <p className="text-[10px] text-normal-text mt-0.5">Used when the model is uncertain or returns an unknown route.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Minimum confidence: {Math.round((Number(params.minConfidence) || 0) * 100)}%</label>
+        <input type="range" min={0} max={1} step={0.05} value={params.minConfidence ?? 0} onChange={(e) => onPatch({ minConfidence: Number(e.target.value) })} className="w-full accent-indigo-600" />
+        <p className="text-[10px] text-normal-text mt-0.5">Below this threshold the route falls back automatically. 0 accepts every prediction.</p>
       </div>
     </div>
   );
+}
+
+function ModelForm({ params, onPatch }) {
+  const core = params.core || 'synapse-inference';
+  const model = params.model || (core === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini');
+  return (
+    <div className="space-y-3">
+      <div className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-[11px] text-indigo-900">
+        Wire this <b>Model Core</b> into an AI Agent&apos;s <b>Model</b> socket to provide its model/provider settings.
+      </div>
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Engine</label>
+        <select value={core} onChange={(e) => onPatch({ core: e.target.value, model: e.target.value === 'synapse-inference' ? 'liquid/lfm-2.5-2.6b:free' : 'gpt-4o-mini' })} className={rowInputCls()}>
+          <option value="synapse-inference">Synapse Inference Engine</option>
+          <option value="openai-compatible">OpenAI-compatible API</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Model</label>
+        <input value={model} onChange={(e) => onPatch({ model: e.target.value })} className={`${rowInputCls()} font-mono`} />
+      </div>
+      {core === 'openai-compatible' && (
+        <>
+          <div>
+            <label className="block text-xs text-normal-text mb-1">Base URL</label>
+            <input value={params.baseUrl || ''} onChange={(e) => onPatch({ baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" className={`${rowInputCls()} font-mono`} />
+          </div>
+          <div>
+            <label className="block text-xs text-normal-text mb-1">API key</label>
+            <input type="password" value={params.apiKey || ''} onChange={(e) => onPatch({ apiKey: e.target.value })} className={`${rowInputCls()} font-mono`} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const INTEGRATION_UI = {
+  'synapsedx.iam': {
+    label: 'Synapse IAM', hint: 'Identity & authorization. Operation names are prefixed with the resource.',
+    operations: [
+      { op: 'orgs.list', required: [], optional: [] },
+      { op: 'users.list', required: ['orgId'], optional: [] },
+      { op: 'roles.list', required: ['accountId'], optional: [] },
+      { op: 'policies.list', required: ['accountId'], optional: [] },
+      { op: 'authorize.check', required: ['userId', 'action', 'resource'], optional: [] },
+      { op: 'audit.query', required: [], optional: ['limit'] },
+      { op: 'keys.list', required: ['accountId'], optional: [] },
+      { op: 'service-accounts.list', required: ['accountId'], optional: [] },
+    ],
+  },
+  'synapsedx.base': {
+    label: 'SynapseBase', hint: 'JSON document store.',
+    operations: [
+      { op: 'list-collections', required: [], optional: [] },
+      { op: 'query-documents', required: ['collection'], optional: ['where', 'limit', 'orderBy'] },
+      { op: 'get-document', required: ['collection', 'id'], optional: [] },
+      { op: 'create-document', required: ['collection'], optional: ['id', 'data'] },
+      { op: 'delete-document', required: ['collection', 'id'], optional: [] },
+    ],
+  },
+  'synapsedx.faststore': {
+    label: 'Faststore', hint: 'Low-latency cache and key/value store.',
+    operations: [
+      { op: 'get', required: ['key'], optional: [] },
+      { op: 'set', required: ['key', 'value'], optional: ['ttlSeconds'] },
+      { op: 'incr', required: ['key'], optional: ['by'] },
+      { op: 'delete', required: ['key'], optional: [] },
+      { op: 'hash-get', required: ['key'], optional: [] },
+      { op: 'hash-set', required: ['key', 'values'], optional: [] },
+    ],
+  },
+  'synapsedx.queue': {
+    label: 'SynapseQueue', hint: 'Reliable message queue.',
+    operations: [
+      { op: 'list', required: [], optional: ['queue'] },
+      { op: 'publish', required: ['queue', 'payload'], optional: ['priority', 'delaySeconds'] },
+      { op: 'consume', required: ['queue'], optional: ['maxMessages', 'consumer'] },
+      { op: 'ack', required: ['queue', 'receipt'], optional: [] },
+    ],
+  },
+  'synapsedx.lds': {
+    label: 'SynapseLDS', hint: 'Linked Data Store (NGSI-LD).',
+    operations: [
+      { op: 'list-datasources', required: [], optional: [] },
+      { op: 'publish-record', required: ['datasourceId'], optional: ['record'] },
+      { op: 'get-entity', required: ['datasourceId', 'entityId'], optional: [] },
+    ],
+  },
+  'synapsedx.inference': {
+    label: 'Synapse Inference', hint: 'LLM chat, embeddings and semantic routing.',
+    operations: [
+      { op: 'chat', required: ['messages'], optional: ['model', 'temperature', 'max_tokens', 'tools'] },
+      { op: 'embeddings', required: ['input'], optional: ['model'] },
+      { op: 'decision', required: ['state', 'questions'], optional: [] },
+      { op: 'route', required: ['input', 'choices'], optional: ['instruction'] },
+    ],
+  },
+  'synapsedx.flow': {
+    label: 'SynapseFlow', hint: 'Workflows and execution history. Operation names are prefixed with the resource.',
+    operations: [
+      { op: 'workflows.list', required: [], optional: [] },
+      { op: 'workflows.get', required: ['id'], optional: [] },
+      { op: 'workflows.execute', required: ['id'], optional: ['input'] },
+      { op: 'executions.list', required: [], optional: ['workflowId', 'limit'] },
+      { op: 'executions.get', required: ['id'], optional: [] },
+      { op: 'templates.list', required: [], optional: [] },
+      { op: 'templates.get', required: ['name'], optional: [] },
+    ],
+  },
+};
+
+const JSON_INPUT_FIELDS = new Set(['where', 'orderBy', 'data', 'values', 'payload', 'record', 'messages', 'choices', 'state', 'questions', 'input', 'tools', 'value', 'questions', 'by']);
+
+function defaultIntegrationInput(type, op) {
+  const defaults = {
+    'synapsedx.base': { collection: 'documents', id: '={{ $json.id }}', data: '={{ $json }}', where: {}, limit: 10 },
+    'synapsedx.faststore': { key: '={{ $json.key }}', value: '={{ $json.value }}', ttlSeconds: 3600, by: 1 },
+    'synapsedx.queue': { queue: 'demo-queue', payload: '={{ $json }}', maxMessages: 10, consumer: 'workflow', receipt: '={{ $json.receipt }}' },
+    'synapsedx.iam': { orgId: '={{ $json.orgId }}', accountId: '={{ $json.accountId }}', userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket', limit: 50 },
+    'synapsedx.lds': { datasourceId: '={{ $json.datasourceId }}', entityId: '={{ $json.entityId }}', record: '={{ $json }}' },
+    'synapsedx.inference': { messages: [{ role: 'user', content: '={{ $json.query }}' }], input: '={{ $json.query }}', model: 'liquid/lfm-2.5-2.6b:free', choices: { support: 'support request', billing: 'billing question' }, state: {}, questions: [], instruction: 'Choose the best route' },
+    'synapsedx.flow': { id: '={{ $json.id }}', name: '{{ $json.name }}', workflowId: '={{ $json.workflowId }}', input: '={{ $json }}', limit: 20 },
+  };
+  const d = defaults[type] || {};
+  const spec = INTEGRATION_UI[type];
+  const operation = spec?.operations.find((o) => o.op === op);
+  const out = {};
+  // Prefill required fields plus any optional field we know a safe default
+  // for. This keeps common config (query limits, TTLs, record payloads) out
+  // of the way while still leaving every optional field editable.
+  for (const f of operation?.required || []) out[f] = d[f] !== undefined ? d[f] : `={{ $json.${f} }}`;
+  for (const f of operation?.optional || []) if (d[f] !== undefined && out[f] === undefined) out[f] = d[f];
+  return out;
+}
+
+function IntegrationForm({ type, params, onPatch }) {
+  const spec = INTEGRATION_UI[type] || { label: type, hint: '', operations: [] };
+  const operation = spec.operations.find((o) => o.op === params.operation) || spec.operations[0];
+  const input = params.input && typeof params.input === 'object' && !Array.isArray(params.input) ? params.input : {};
+  const fields = operation ? [...operation.required, ...operation.optional] : [];
+  const [extraKey, setExtraKey] = useState('');
+  const [extraVal, setExtraVal] = useState('');
+  const [advText, setAdvText] = useState(() => JSON.stringify(input, null, 2));
+  const [advErr, setAdvErr] = useState(null);
+  const inputSig = JSON.stringify(input);
+  useEffect(() => { setAdvText(JSON.stringify(input, null, 2)); setAdvErr(null); }, [params.operation, inputSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setField = (name, value) => {
+    const next = { ...input, [name]: value };
+    if (value === undefined) delete next[name];
+    onPatch({ input: next });
+  };
+  const commitField = (name, text, json) => {
+    if (!text.trim()) { const next = { ...input }; delete next[name]; onPatch({ input: next }); return; }
+    if (!json) { setField(name, text); return; }
+    try {
+      setField(name, JSON.parse(text));
+    } catch {
+      // Primitive values (e.g. Faststore value="hello") are valid too.
+      if (/^[\[{]/.test(text.trim())) { setField(name, text); return; }
+      setField(name, text);
+    }
+  };
+  const chooseOperation = (op) => {
+    onPatch({ operation: op, input: defaultIntegrationInput(type, op) });
+  };
+  const extraFields = Object.keys(input).filter((k) => !fields.includes(k));
+  return (
+    <div className="space-y-3">
+      <div className="p-2 rounded-xl bg-sky-50 border border-sky-100 text-[11px] text-sky-900 leading-tight">
+        <b>{spec.label}</b> — {spec.hint} Runs as the current user through the gateway; no secrets needed.
+      </div>
+      <div>
+        <label className="block text-xs text-normal-text mb-1">Operation</label>
+        <select value={operation?.op || ''} onChange={(e) => chooseOperation(e.target.value)} className={rowInputCls()}>
+          {spec.operations.map((o) => <option key={o.op} value={o.op}>{o.op}</option>)}
+        </select>
+      </div>
+      {operation && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-normal-text">Input</p>
+          {fields.map((f) => {
+            const json = JSON_INPUT_FIELDS.has(f);
+            return (
+              <label key={f} className="block text-[11px] text-normal-text">
+                <span className="flex items-center gap-1 mb-0.5"><span className="font-mono">{f}</span>{operation.required.includes(f) && <span className="text-red-500">*</span>}{json && <span className="text-[9px] text-slate-400">JSON</span>}</span>
+                <IntegrationField name={f} value={input[f]} json={json} onCommit={(text) => commitField(f, text, json)} />
+              </label>
+            );
+          })}
+          {!fields.length && <p className="text-[11px] text-normal-text">This operation needs no input.</p>}
+          {extraFields.length > 0 && (
+            <div>
+              <p className="text-[10px] text-normal-text mt-2 mb-1">Extra fields</p>
+              {extraFields.map((f) => (
+                <div key={f} className="flex items-center gap-1 mb-1">
+                  <span className="flex-1 text-[10px] font-mono truncate">{f}</span>
+                  <button onClick={() => setField(f, undefined)} className="text-red-500 px-1 text-[11px]" title="Remove field">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-1">
+            <input value={extraKey} onChange={(e) => setExtraKey(e.target.value)} placeholder="extra field" className={`${rowInputCls()} font-mono`} />
+            <input value={extraVal} onChange={(e) => setExtraVal(e.target.value)} placeholder="value / JSON" className={`${rowInputCls()} font-mono`} />
+            <button
+              onClick={() => { if (extraKey.trim()) { let v = extraVal; try { v = JSON.parse(extraVal); } catch { /* string */ } setField(extraKey.trim(), v); setExtraKey(''); setExtraVal(''); } }}
+              className="px-2 py-1 rounded-xl text-[11px] bg-slate-100 shrink-0"
+            >Add</button>
+          </div>
+        </div>
+      )}
+      <details>
+        <summary className="text-[11px] text-normal-text cursor-pointer hover:text-main-blue">Advanced input JSON</summary>
+        <textarea
+          value={advText}
+          onChange={(e) => { setAdvText(e.target.value); setAdvErr(null); }}
+          onBlur={() => {
+            try {
+              const v = advText.trim() ? JSON.parse(advText) : {};
+              if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('Input must be a JSON object');
+              onPatch({ input: v });
+              setAdvErr(null);
+            } catch (ex) { setAdvErr(ex.message || 'Invalid JSON'); }
+          }}
+          rows={6}
+          spellCheck={false}
+          className="w-full mt-1 px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-mono outline-none"
+        />
+        {advErr && <p className="text-[11px] text-red-500">{advErr}</p>}
+      </details>
+      <p className="text-[10px] text-normal-text leading-snug">Values support <code>={'{{ $json.field }}'}</code>. When this node is wired as an agent tool, <code>$json</code> is the model&apos;s tool arguments.</p>
+    </div>
+  );
+}
+
+function IntegrationField({ name, value, json, onCommit }) {
+  const textOf = (v) => v === undefined || v === null ? '' : typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+  const [draft, setDraft] = useState(() => textOf(value));
+  const sig = textOf(value);
+  useEffect(() => { setDraft(sig); }, [name, sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const common = {
+    value: draft,
+    onChange: (e) => setDraft(e.target.value),
+    onBlur: () => { if (draft !== sig) onCommit(draft); },
+    onKeyDown: (e) => { if (e.key === 'Enter' && !json) e.currentTarget.blur(); },
+    className: 'w-full px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-mono outline-none focus:border-main-blue',
+    spellCheck: false,
+    placeholder: json ? (name === 'choices' ? '{"route":"description"}' : '{}') : `={{ $json.${name} }}`,
+  };
+  return json ? <textarea rows={name === 'messages' || name === 'payload' || name === 'where' ? 3 : 2} {...common} /> : <input {...common} />;
 }
 
 function SynapseDXApiForm({ params, onPatch }) {

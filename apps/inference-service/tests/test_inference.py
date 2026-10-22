@@ -1,15 +1,16 @@
+import math
 import os
 import sys
-import math
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
 # Ensure src is on python path for direct imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.main import app
 from src.config import settings
+from src.main import app
 
 client = TestClient(app)
 
@@ -63,7 +64,9 @@ def test_internal_secret_auth():
 
 def test_embeddings_single_and_batch():
     # 1. Single text
-    res = client.post("/v1/embeddings", json={"input": "Test embedding"}, headers=auth_headers())
+    res = client.post(
+        "/v1/embeddings", json={"input": "Test embedding"}, headers=auth_headers()
+    )
     assert res.status_code == 200
     body = res.json()
     assert body["object"] == "list"
@@ -177,7 +180,9 @@ async def test_chat_completions_mocked():
     }
 
     with patch.object(settings, "OPENROUTER_API_KEY", "mock_key"):
-        with patch("src.main.call_chat_completion", new=AsyncMock(return_value=mock_resp)):
+        with patch(
+            "src.main.call_chat_completion", new=AsyncMock(return_value=mock_resp)
+        ):
             res = client.post(
                 "/v1/chat/completions",
                 json={

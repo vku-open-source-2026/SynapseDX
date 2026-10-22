@@ -209,7 +209,14 @@ export interface EngineNode {
   [k: string]: any;
 }
 
-export type Connections = Record<string, { main?: Array<Array<{ node: string; type?: string; index?: number }>> }>;
+export interface ConnectionEdge {
+  node: string;
+  type?: string;
+  index?: number;
+  /** Auxiliary socket: "tools" or "model" (not part of the execution DAG). */
+  targetPort?: 'tools' | 'model';
+}
+export type Connections = Record<string, { main?: Array<Array<ConnectionEdge>> }>;
 
 export interface NodeRun {
   node: string;
@@ -309,11 +316,40 @@ export function isAiAgentType(type: unknown): boolean {
     type === 'n8n-nodes-base.aiAgent'
   );
 }
+export function isModelType(type: unknown): boolean {
+  return type === 'synapseflow.model' || type === 'synapsedx.model';
+}
 export function isBranchingType(type: unknown): boolean {
   return isIfType(type) || isDecisionType(type);
 }
 export function isNoOpType(type: unknown): boolean {
   return type === 'noOp' || type === 'n8n-nodes-base.noOp' || type === 'synapsedx.noOp';
+}
+
+/** First-party service node types (split per service in the editor). */
+export const INTEGRATION_NODE_TYPES: Record<string, { resource: string; label: string }> = {
+  'synapsedx.iam': { resource: 'iam', label: 'Synapse IAM' },
+  'synapsedx.base': { resource: 'base', label: 'SynapseBase' },
+  'synapsedx.faststore': { resource: 'faststore', label: 'Faststore' },
+  'synapsedx.queue': { resource: 'queue', label: 'SynapseQueue' },
+  'synapsedx.lds': { resource: 'lds', label: 'SynapseLDS' },
+  'synapsedx.inference': { resource: 'inference', label: 'Synapse Inference' },
+  'synapsedx.flow': { resource: 'flow', label: 'SynapseFlow' },
+};
+export function isIntegrationType(type: unknown): boolean {
+  return type === 'synapsedx.api' || (typeof type === 'string' && INTEGRATION_NODE_TYPES[type] !== undefined);
+}
+
+/** Auxiliary sockets never participate in execution. */
+export function isAuxEdge(e: ConnectionEdge | null | undefined): boolean {
+  if (!e) return false;
+  return e.targetPort === 'tools' || e.targetPort === 'model' || e.type === 'tools' || e.type === 'model';
+}
+export function edgeTargetPort(e: ConnectionEdge | null | undefined): 'tools' | 'model' | null {
+  if (!e) return null;
+  if (e.targetPort === 'tools' || e.targetPort === 'model') return e.targetPort;
+  if (e.type === 'tools' || e.type === 'model') return e.type;
+  return null;
 }
 
 const TRIGGER_TYPES = new Set([
@@ -364,11 +400,14 @@ function clone<T>(v: T): T {
   }
 }
 
-export function outgoingBranches(from: string, connections: Connections): Array<Array<{ node: string }>> {
+/** Execution branches only — tool/model socket edges are configuration, not flow. */
+export function outgoingBranches(from: string, connections: Connections): Array<Array<ConnectionEdge>> {
   const g = connections?.[from];
   const main = g?.main;
   if (!Array.isArray(main)) return [];
-  return main.map((branch) => (Array.isArray(branch) ? branch.filter((e) => e && typeof e.node === 'string') : []));
+  return main.map((branch) =>
+    Array.isArray(branch) ? branch.filter((e) => e && typeof e.node === 'string' && !isAuxEdge(e)) : [],
+  );
 }
 
 export function outgoingFlat(from: string, connections: Connections): string[] {
@@ -379,13 +418,52 @@ export function outgoingFlat(from: string, connections: Connections): string[] {
   return out;
 }
 
+/** All auxiliary edges (tools/model) keyed by source. */
+export function auxiliaryEdges(connections: Connections): Array<{ from: string; to: string; port: 'tools' | 'model' }> {
+  const out: Array<{ from: string; to: string; port: 'tools' | 'model' }> = [];
+  for (const [from, g] of Object.entries(connections || {})) {
+    for (const branch of (g as any)?.main || []) {
+      for (const e of Array.isArray(branch) ? branch : []) {
+        const port = edgeTargetPort(e);
+        if (e?.node && port) out.push({ from, to: e.node, port });
+      }
+    }
+  }
+  return out;
+}
+
+/** Sources wired into tools/model sockets. These nodes are configuration-only:
+ *  they are not entry points and do not need a flow path. */
+export function auxiliarySourceNames(connections: Connections): Set<string> {
+  const out = new Set<string>();
+  for (const e of auxiliaryEdges(connections)) out.add(e.from);
+  return out;
+}
+
+/** Node names wired into an agent's Tools socket (node-as-tool). */
+export function toolSourceNames(connections: Connections, agentName: string): string[] {
+  const out: string[] = [];
+  for (const e of auxiliaryEdges(connections)) {
+    if (e.port === 'tools' && e.to === agentName && !out.includes(e.from)) out.push(e.from);
+  }
+  return out;
+}
+
+/** Source node wired into an agent's Model socket, if any. */
+export function modelSourceName(connections: Connections, agentName: string): string | null {
+  for (const e of auxiliaryEdges(connections)) {
+    if (e.port === 'model' && e.to === agentName) return e.from;
+  }
+  return null;
+}
+
 function incomingMap(nodes: EngineNode[], connections: Connections): Map<string, Set<string>> {
   const m = new Map<string, Set<string>>();
   for (const n of nodes) m.set(n.name, new Set());
   for (const [from, g] of Object.entries(connections || {})) {
     for (const branch of (g as any)?.main || []) {
       for (const e of Array.isArray(branch) ? branch : []) {
-        if (e?.node && m.has(e.node)) m.get(e.node)!.add(from);
+        if (e?.node && !isAuxEdge(e) && m.has(e.node)) m.get(e.node)!.add(from);
       }
     }
   }
@@ -429,9 +507,13 @@ export function entryNodes(nodes: EngineNode[], connections: Connections): strin
   const triggers = nodes.filter((n) => TRIGGER_TYPES.has(n.type)).map((n) => n.name);
   if (triggers.length) return triggers;
   const incoming = incomingMap(nodes, connections);
-  const orphans = nodes.filter((n) => (incoming.get(n.name)?.size || 0) === 0).map((n) => n.name);
+  const aux = auxiliarySourceNames(connections);
+  const orphans = nodes
+    .filter((n) => (incoming.get(n.name)?.size || 0) === 0 && !aux.has(n.name))
+    .map((n) => n.name);
   if (orphans.length) return orphans;
-  return nodes.length ? [nodes[0].name] : [];
+  const fallback = nodes.filter((n) => !aux.has(n.name));
+  return fallback.length ? [fallback[0].name] : [];
 }
 
 // ---------- param helpers ----------
@@ -515,6 +597,16 @@ function toValue(v: any, input: any): any {
   const t = v.trim();
   if (/^=\{\{[\s\S]*\}\}$/.test(t) || /^\{\{[\s\S]*\}\}$/.test(t)) {
     return resolveExpression(stripBraces(t), input);
+  }
+  // Inline interpolation: "Hello {{ $json.name }}" / "customer:={{ $json.id }}".
+  // The editor writes this form into prompts, URLs, cache keys and messages.
+  if (/\{\{[\s\S]*?\}\}/.test(t)) {
+    const template = t.startsWith('=') ? t.slice(1) : t;
+    return template.replace(/\{\{\s*([\s\S]*?)\s*\}\}/g, (_m, expr) => {
+      const r = resolveExpression(String(expr), input);
+      if (r === undefined || r === null) return '';
+      return typeof r === 'object' ? JSON.stringify(r) : String(r);
+    });
   }
   if (t.startsWith('=') && t.length > 1) {
     const r = resolveExpression(stripBraces(t), input);
@@ -667,22 +759,37 @@ export async function execDecisionNode(
   let routesList: string[] = [];
   let choicesMap: Record<string, string> = {};
 
-  if (Array.isArray(p.choices)) {
-    routesList = p.choices.map((c: any) => String(c));
-    for (const r of routesList) choicesMap[r] = r;
-  } else if (p.choices && typeof p.choices === 'object') {
-    routesList = Object.keys(p.choices);
-    choicesMap = { ...p.choices };
-  } else if (Array.isArray(p.routes)) {
-    routesList = p.routes.map((c: any) => String(c));
-    for (const r of routesList) choicesMap[r] = r;
-  } else if (p.routes && typeof p.routes === 'object') {
-    routesList = Object.keys(p.routes);
-    choicesMap = { ...p.routes };
-  } else {
-    routesList = ['route_0', 'route_1'];
-    choicesMap = { route_0: 'Option 0', route_1: 'Option 1' };
+  const addRoute = (name: any, description: any) => {
+    const n = String(name ?? '').trim();
+    if (!n || routesList.includes(n)) return;
+    routesList.push(n);
+    choicesMap[n] = String(description ?? n) || n;
+  };
+  const readRoutes = (value: any) => {
+    if (Array.isArray(value)) {
+      for (const c of value) {
+        if (c && typeof c === 'object') addRoute(c.name ?? c.route ?? c.value, c.description ?? c.desc);
+        else addRoute(c, c);
+      }
+      return true;
+    }
+    if (value && typeof value === 'object') {
+      for (const [name, description] of Object.entries(value)) addRoute(name, description);
+      return true;
+    }
+    return false;
+  };
+
+  if (!readRoutes(p.choices) && !readRoutes(p.routes)) {
+    addRoute('route_0', 'Option 0');
+    addRoute('route_1', 'Option 1');
   }
+
+  const fallbackRaw = Number(p.fallbackBranch);
+  const fallbackBranch = Number.isFinite(fallbackRaw) && fallbackRaw >= 0 && fallbackRaw < routesList.length
+    ? Math.floor(fallbackRaw)
+    : 0;
+  const minConfidence = Math.min(Math.max(Number(p.minConfidence) || 0, 0), 1);
 
   let bestChoice = routesList[0] || 'default';
   let confidence = 0.95;
@@ -698,7 +805,8 @@ export async function execDecisionNode(
       );
       if (res && res.best_choice) {
         bestChoice = String(res.best_choice);
-        confidence = Number(res.confidence) || 0.95;
+        const c = Number(res.confidence);
+        confidence = Number.isFinite(c) ? c : 0.95;
         probabilities = res.probabilities || {};
       }
     } else {
@@ -715,7 +823,8 @@ export async function execDecisionNode(
         if (resp.ok) {
           const res: any = await resp.json();
           bestChoice = String(res.best_choice || routesList[0]);
-          confidence = Number(res.confidence) || 0.95;
+          const c = Number(res.confidence);
+          confidence = Number.isFinite(c) ? c : 0.95;
           probabilities = res.probabilities || {};
         }
       } finally {
@@ -733,10 +842,15 @@ export async function execDecisionNode(
     }
   }
 
-  let branchIndex = routesList.indexOf(bestChoice);
-  if (branchIndex < 0) {
-    branchIndex = Number(p.fallbackBranch) || 0;
+  // The SLM can return an unknown route or a low-confidence answer: fail over
+  // to the configured fallback route instead of silently picking branch 0.
+  let usedFallback = false;
+  if (!routesList.includes(bestChoice) || confidence < minConfidence) {
+    usedFallback = true;
+    bestChoice = routesList[fallbackBranch] || routesList[0] || 'default';
   }
+  let branchIndex = routesList.indexOf(bestChoice);
+  if (branchIndex < 0) branchIndex = fallbackBranch;
 
   const output = {
     ...(input && typeof input === 'object' ? clone(input) : { value: input }),
@@ -747,6 +861,10 @@ export async function execDecisionNode(
       probabilities,
       branch: branchIndex,
       branchIndex,
+      fallback: usedFallback,
+      fallbackBranch,
+      minConfidence,
+      routes: routesList,
       input: text.slice(0, 500),
     },
   };
@@ -915,7 +1033,7 @@ export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
   audit: ['query'],
   keys: ['list'],
   'service-accounts': ['list'],
-  workflows: ['list', 'get'],
+  workflows: ['list', 'get', 'execute'],
   executions: ['list', 'get'],
   templates: ['list', 'get'],
   lds: ['list-datasources', 'publish-record', 'get-entity'],
@@ -934,6 +1052,7 @@ const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
   'keys.list': ['accountId'],
   'service-accounts.list': ['accountId'],
   'workflows.get': ['id'],
+  'workflows.execute': ['id'],
   'executions.get': ['id'],
   'templates.get': ['name'],
   'lds.publish-record': ['datasourceId'],
@@ -979,6 +1098,55 @@ export function validateSynapseDXParams(params: any): string | null {
   return null;
 }
 
+/** Resolve a split service node (synapsedx.base, synapsedx.iam, …) to the
+ *  canonical resource/operation pair understood by synapsedxCall.
+ *  IAM and Flow operations are prefixed (`orgs.list`, `workflows.execute`)
+ *  because they span several API resources; the other services are 1:1. */
+export function resolveIntegrationCall(
+  type: string,
+  params: any,
+): { resource: string; operation: string; input: Record<string, any> } | null {
+  const service = INTEGRATION_NODE_TYPES[type];
+  if (!service) return null;
+  const p = params && typeof params === 'object' ? params : {};
+  let operation = String(p.operation || '').trim();
+  if (!operation) return null;
+  let resource = service.resource;
+  if (service.resource === 'iam' || service.resource === 'flow') {
+    const dot = operation.indexOf('.');
+    if (dot > 0) {
+      resource = operation.slice(0, dot);
+      operation = operation.slice(dot + 1);
+    } else {
+      resource = service.resource === 'iam' ? 'authorize' : 'workflows';
+    }
+  }
+  const input = p.input && typeof p.input === 'object' && !Array.isArray(p.input) ? p.input : {};
+  return { resource, operation, input };
+}
+
+/** Save-time validation for the split service nodes. */
+export function validateIntegrationParams(type: string, params: any): string | null {
+  const service = INTEGRATION_NODE_TYPES[type];
+  if (!service) return null;
+  const p = params && typeof params === 'object' ? params : {};
+  const resolved = resolveIntegrationCall(type, p);
+  if (!resolved) return `${type}: 'operation' is required`;
+  const { resource, operation, input } = resolved;
+  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  if (!ops) return `${type}: unknown operation '${p.operation}'`;
+  if (!ops.includes(operation)) {
+    return `${type}: unknown operation '${p.operation}' (${resource}: ${ops.join(', ')})`;
+  }
+  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    const v = (input as any)[f];
+    if (v === undefined || v === null || String(v).trim() === '') {
+      return `${type}: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
+    }
+  }
+  return null;
+}
+
 function deepResolve(v: any, input: any, depth = 0): any {
   if (depth > 5) return v;
   if (typeof v === 'string') return toValue(v, input);
@@ -1012,21 +1180,276 @@ async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: R
   return clone(out);
 }
 
+async function execIntegrationNode(
+  node: EngineNode,
+  input: any,
+  ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall },
+): Promise<any> {
+  const resolved = resolveIntegrationCall(node.type, node.parameters || {});
+  if (!resolved) throw new Error(`${node.type}: invalid operation configuration`);
+  const paramErr = validateIntegrationParams(node.type, node.parameters || {});
+  if (paramErr) throw new Error(paramErr);
+  const { resource, operation } = resolved;
+  const args = deepResolve(resolved.input, input) as Record<string, any>;
+  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    const v = (args as any)[f];
+    if (v === undefined || v === null || String(v).trim() === '') {
+      throw new Error(`${node.type}: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
+    }
+  }
+  if (!ctx?.synapsedxCall) throw new Error(`${node.type}: server does not expose a SynapseDX caller (server wiring)`);
+  const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
+  if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error(`${node.type}: response exceeds 500KB`);
+  return clone(out);
+}
+
+// ---------- AI Agent tool registry ----------
+// One canonical schema per tool the editor offers. Keeping definitions and
+// execution in the same registry prevents the old "checkbox enabled but the
+// LLM was never told about the tool" class of bugs.
+
+export type AgentToolSpec = {
+  id: string;
+  description: string;
+  parameters: Record<string, any>;
+};
+
+const objectSchema = (properties: Record<string, any>, required: string[] = []) => ({
+  type: 'object',
+  properties,
+  ...(required.length ? { required } : {}),
+  additionalProperties: true,
+});
+
+export const AGENT_TOOL_SPECS: Record<string, AgentToolSpec> = {
+  synapsebase_query: {
+    id: 'synapsebase_query',
+    description: 'Read or write SynapseBase JSON documents. action=query|get|create|delete.',
+    parameters: objectSchema({
+      action: { type: 'string', enum: ['query', 'get', 'create', 'delete'], description: 'Operation (default query)' },
+      collection: { type: 'string', description: 'Collection name' },
+      where: { type: 'object', description: 'Query filter object (query action)' },
+      limit: { type: 'number', description: 'Max documents (query action)' },
+      id: { type: 'string', description: 'Document id (get/delete)' },
+      data: { type: 'object', description: 'Document body (create)' },
+    }, ['collection']),
+  },
+  faststore_cache: {
+    id: 'faststore_cache',
+    description: 'Fast key-value cache. action=get|set|incr|delete|hash-get|hash-set.',
+    parameters: objectSchema({
+      action: { type: 'string', enum: ['get', 'set', 'incr', 'delete', 'hash-get', 'hash-set'], description: 'Operation (default get)' },
+      key: { type: 'string', description: 'Cache key' },
+      value: { description: 'Value for set' },
+      ttlSeconds: { type: 'number', description: 'TTL for set (seconds)' },
+      by: { type: 'number', description: 'Increment amount (incr)' },
+      field: { type: 'string', description: 'Hash field (hash-get)' },
+      values: { type: 'object', description: 'Hash values (hash-set)' },
+    }, ['key']),
+  },
+  code_sandbox: {
+    id: 'code_sandbox',
+    description: 'Execute JavaScript in an isolated sandbox to transform or compute data.',
+    parameters: objectSchema({
+      code: { type: 'string', description: 'JavaScript body. Use $input for the current value and return a result.' },
+    }, ['code']),
+  },
+  logic_calculator: {
+    id: 'logic_calculator',
+    description: 'Evaluate an arithmetic expression (numbers, parentheses, + - * / % **).',
+    parameters: objectSchema({ expression: { type: 'string', description: 'Arithmetic expression' } }, ['expression']),
+  },
+  decision_eval: {
+    id: 'decision_eval',
+    description: 'Classify text into one of the supplied routes with the Decision-2.0-Eos-0.8B model.',
+    parameters: objectSchema({
+      input: { type: 'string', description: 'Text to classify' },
+      choices: {
+        oneOf: [
+          { type: 'array', items: { type: 'string' } },
+          { type: 'object', additionalProperties: { type: 'string' } },
+        ],
+        description: 'Route names (array) or route→description map',
+      },
+      instruction: { type: 'string', description: 'Optional routing instruction' },
+    }, ['input', 'choices']),
+  },
+  inference_chat: {
+    id: 'inference_chat',
+    description: 'Ask the Synapse inference LLM a focused question and return its answer.',
+    parameters: objectSchema({
+      prompt: { type: 'string', description: 'Question / instruction' },
+      system: { type: 'string', description: 'Optional system prompt' },
+      model: { type: 'string', description: 'Optional model id' },
+      messages: { type: 'array', description: 'Optional full OpenAI-style messages array' },
+    }),
+  },
+  queue_publish: {
+    id: 'queue_publish',
+    description: 'SynapseQueue messaging. action=publish|list|consume|ack.',
+    parameters: objectSchema({
+      action: { type: 'string', enum: ['publish', 'list', 'consume', 'ack'], description: 'Operation (default publish)' },
+      queue: { type: 'string', description: 'Queue name' },
+      payload: { description: 'Message payload (publish)' },
+      priority: { type: 'number', description: 'Optional priority' },
+      delaySeconds: { type: 'number', description: 'Optional delivery delay' },
+      maxMessages: { type: 'number', description: 'Batch size (consume)' },
+      receipt: { type: 'string', description: 'Receipt handle (ack)' },
+    }, ['queue']),
+  },
+  iam_check_permission: {
+    id: 'iam_check_permission',
+    description: 'Check whether a user is allowed to perform an action on a resource.',
+    parameters: objectSchema({
+      userId: { type: 'string' },
+      action: { type: 'string' },
+      resource: { type: 'string' },
+      scope: { type: 'string', description: 'Optional org/account scope' },
+    }, ['userId', 'action', 'resource']),
+  },
+  workflow_run: {
+    id: 'workflow_run',
+    description: 'Execute another SynapseFlow workflow by id (or exact name) and return its output.',
+    parameters: objectSchema({
+      id: { type: 'string', description: 'Workflow id (preferred)' },
+      name: { type: 'string', description: 'Workflow name when id is unknown' },
+      input: { type: 'object', description: 'Input JSON for the workflow' },
+    }),
+  },
+  workflow_list: {
+    id: 'workflow_list',
+    description: 'List SynapseFlow workflows visible to this run.',
+    parameters: objectSchema({}),
+  },
+  lds_publish: {
+    id: 'lds_publish',
+    description: 'SynapseLDS (NGSI-LD). action=list-datasources|publish-record|get-entity.',
+    parameters: objectSchema({
+      action: { type: 'string', enum: ['list-datasources', 'publish-record', 'get-entity'], description: 'Operation' },
+      datasourceId: { type: 'string' },
+      record: { type: 'object', description: 'NGSI-LD record to publish' },
+      entityId: { type: 'string', description: 'Entity id (get-entity)' },
+    }),
+  },
+  http_request: {
+    id: 'http_request',
+    description: 'Call an allowlisted public HTTP(S) endpoint. SSRF-guarded with DNS checks and redirect validation.',
+    parameters: objectSchema({
+      url: { type: 'string' },
+      method: { type: 'string', enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD'], description: 'HTTP method' },
+      headers: { type: 'object', description: 'Optional headers' },
+      body: { description: 'Optional JSON body' },
+      timeoutMs: { type: 'number', description: 'Optional timeout (max 30000)' },
+    }, ['url']),
+  },
+};
+
+/** Legacy tool ids kept working for workflows saved by older versions. */
+export const AGENT_TOOL_ALIASES: Record<string, string[]> = {
+  data_sources: ['synapsebase_query', 'faststore_cache'],
+  logic_code: ['code_sandbox'],
+  code_runner: ['code_sandbox'],
+  decision_model: ['decision_eval'],
+  faststore_get: ['faststore_cache'],
+  faststore_set: ['faststore_cache'],
+  synapsedx_api: ['queue_publish', 'iam_check_permission', 'workflow_run', 'workflow_list', 'lds_publish', 'inference_chat'],
+};
+
+export const DEFAULT_AGENT_TOOL_IDS = [
+  'synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator',
+  'decision_eval', 'queue_publish', 'iam_check_permission', 'http_request',
+];
+
+/** Expand legacy ids + dedupe, preserving order. Unknown ids are ignored
+ *  (they are reported by save-time validation). */
+export function expandAgentToolIds(ids: unknown): string[] {
+  const list = Array.isArray(ids) ? ids.map(String) : DEFAULT_AGENT_TOOL_IDS;
+  const out: string[] = [];
+  for (const id of list) {
+    const mapped = AGENT_TOOL_ALIASES[id] || (AGENT_TOOL_SPECS[id] ? [id] : []);
+    for (const tool of mapped) if (!out.includes(tool)) out.push(tool);
+  }
+  return out;
+}
+
+export function validateAgentToolIds(ids: unknown): string | null {
+  if (ids === undefined) return null;
+  if (!Array.isArray(ids)) return 'aiAgent: tools must be an array of tool ids';
+  if (ids.length > 30) return 'aiAgent: at most 30 tools';
+  for (const id of ids) {
+    if (typeof id !== 'string') return 'aiAgent: tool ids must be strings';
+    if (!AGENT_TOOL_SPECS[id] && !AGENT_TOOL_ALIASES[id]) return `aiAgent: unknown tool '${String(id).slice(0, 64)}'`;
+  }
+  return null;
+}
+
+function sanitizeToolName(name: string, used: Set<string>): string {
+  let base = String(name || 'node')
+    .normalize('NFKD')
+    .replace(/[^A-Za-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'node';
+  if (!/^[A-Za-z_]/.test(base)) base = `node_${base}`;
+  let candidate = base;
+  let i = 2;
+  while (used.has(candidate)) candidate = `${base}_${i++}`;
+  used.add(candidate);
+  return candidate;
+}
+
+function describeNodeAsTool(node: EngineNode): string {
+  const p = node.parameters || {};
+  const bits: string[] = [];
+  if (p.operation) bits.push(`operation=${String(p.operation)}`);
+  if (p.resource && p.operation) bits.unshift(`resource=${String(p.resource)}`);
+  if (p.url) bits.push(`url=${String(p.url).slice(0, 120)}`);
+  if (p.collection) bits.push(`collection=${String(p.collection)}`);
+  if (p.queue) bits.push(`queue=${String(p.queue)}`);
+  if (p.key) bits.push(`key=${String(p.key)}`);
+  const detail = bits.length ? ` (${bits.join(', ')})` : '';
+  return `Execute the workflow node "${node.name}" [${node.type}]${detail}. ` +
+    'Pass an "input" object containing the data this node should process. ' +
+    'The node runs with its saved configuration and returns its output (Decision/If nodes also report the chosen branch).';
+}
+
 export async function execAiAgentNode(
   node: EngineNode,
   data: any,
-  ctx?: { principal?: RunPrincipal | null; credentialResolver?: CredentialResolver; synapsedxCall?: SynapseDXCall }
+  ctx?: {
+    principal?: RunPrincipal | null;
+    credentialResolver?: CredentialResolver;
+    synapsedxCall?: SynapseDXCall;
+    /** Nodes wired into the agent's Tools socket — callable as tools. */
+    toolNodes?: EngineNode[];
+    /** Node wired into the agent's Model socket — overrides core/model. */
+    modelNode?: EngineNode | null;
+    /** Executes a canvas tool node by name with the model-supplied input. */
+    runToolNode?: (name: string, input: any) => Promise<any>;
+  },
 ): Promise<any> {
   const p = node.parameters || {};
-  const core = String(p.core || 'synapse-inference');
-  const model = String(p.model || (core === 'synapse-inference' ? (process.env.AI_DEFAULT_MODEL || 'liquid/lfm-2.5-2.6b:free') : 'gpt-4o-mini'));
-  const baseUrl = String(p.baseUrl || (core === 'synapse-inference' ? (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008') : 'https://api.openai.com/v1')).replace(/\/$/, '');
-  let apiKey = String(p.apiKey || '');
-  if (!apiKey && p.credentialId && ctx?.credentialResolver) {
+  const mp = ctx?.modelNode?.parameters || {};
+  const modelNodeIsInference = ctx?.modelNode?.type === 'synapsedx.inference';
+  const core = String(mp.core || p.core || (modelNodeIsInference ? 'synapse-inference' : 'synapse-inference'));
+  const model = String(
+    mp.model ||
+      p.model ||
+      (core === 'synapse-inference' ? (process.env.AI_DEFAULT_MODEL || 'liquid/lfm-2.5-2.6b:free') : 'gpt-4o-mini'),
+  );
+  const baseUrl = String(
+    mp.baseUrl ||
+      p.baseUrl ||
+      (core === 'synapse-inference' ? (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008') : 'https://api.openai.com/v1'),
+  ).replace(/\/$/, '');
+  let apiKey = String(mp.apiKey || p.apiKey || '');
+  const credentialId = mp.credentialId || p.credentialId;
+  if (!apiKey && credentialId && ctx?.credentialResolver) {
     try {
-      const cred = await ctx.credentialResolver(p.credentialId);
+      const cred = await ctx.credentialResolver(credentialId);
       if (cred) apiKey = cred.secret || (cred as any).apiKey || (cred as any).token || '';
-    } catch { /* use apiKey */ }
+    } catch {
+      /* fall back to env key below */
+    }
   }
   if (!apiKey && core === 'synapse-inference') {
     apiKey = process.env.OPENROUTER_API_KEY || '';
@@ -1034,15 +1457,15 @@ export async function execAiAgentNode(
 
   const systemPrompt = String(
     p.systemPrompt ||
-    'You are an intelligent autonomous AI Agent in SynapseFlow. Analyze the input, use the available tools to retrieve data or take actions, and provide a helpful, accurate result.'
+      'You are an intelligent autonomous AI Agent in SynapseFlow. Analyze the input, use the available tools to retrieve data or take actions, and provide a helpful, accurate result.',
   );
 
+  // p.userPrompt is the field the editor writes. The old implementation only
+  // looked at p.prompt/p.message, silently ignoring what the user typed.
+  const promptRaw = p.userPrompt !== undefined ? p.userPrompt : p.prompt !== undefined ? p.prompt : p.message;
   let userPrompt = '';
-  if (p.prompt) {
-    const resolved = toValue(p.prompt, data);
-    userPrompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved ?? '');
-  } else if (p.message) {
-    const resolved = toValue(p.message, data);
+  if (promptRaw !== undefined) {
+    const resolved = toValue(promptRaw, data);
     userPrompt = typeof resolved === 'string' ? resolved : JSON.stringify(resolved ?? '');
   } else if (data && typeof data === 'object') {
     userPrompt = data.prompt || data.message || data.text || data.query || JSON.stringify(data);
@@ -1050,242 +1473,274 @@ export async function execAiAgentNode(
     userPrompt = String(data ?? '');
   }
 
-  const enabledTools: string[] = Array.isArray(p.tools) ? p.tools.map(String) : [
-    'data_sources', 'logic_code', 'synapsedx_api', 'decision_model', 'http_request'
-  ];
-
+  const enabledTools = expandAgentToolIds(p.tools);
   const toolDefs: any[] = [];
-  if (enabledTools.some(t => t === 'data_sources' || t === 'synapsebase_query')) {
+  for (const id of enabledTools) {
+    const spec = AGENT_TOOL_SPECS[id];
+    if (!spec) continue;
+    toolDefs.push({
+      type: 'function',
+      function: { name: spec.id, description: spec.description, parameters: spec.parameters },
+    });
+  }
+
+  // Canvas tool nodes: any node connected to the purple Tools socket becomes
+  // a real callable function. This is the "AI agent can use any workflow
+  // logic/tool" path (Base, HTTP, Decision, Code, Queue, another workflow…).
+  const nodeToolMap = new Map<string, EngineNode>();
+  const usedToolNames = new Set<string>([...Object.keys(AGENT_TOOL_SPECS), ...enabledTools]);
+  for (const candidate of ctx?.toolNodes || []) {
+    if (!candidate || candidate.name === node.name) continue;
+    const toolName = sanitizeToolName(candidate.name, usedToolNames);
+    nodeToolMap.set(toolName, candidate);
     toolDefs.push({
       type: 'function',
       function: {
-        name: 'synapsebase_query',
-        description: 'Query documents in SynapseBase collection',
-        parameters: {
-          type: 'object',
-          properties: {
-            collection: { type: 'string', description: 'Collection name' },
-            where: { type: 'object', description: 'Filter object' },
-            limit: { type: 'number', description: 'Max items' },
+        name: toolName,
+        description: describeNodeAsTool(candidate),
+        parameters: objectSchema(
+          {
+            input: {
+              type: 'object',
+              description: 'Input JSON for the node. It is merged into the workflow data for this node execution.',
+            },
           },
-          required: ['collection'],
-        },
+          [],
+        ),
       },
     });
   }
-  if (enabledTools.some(t => t === 'data_sources' || t === 'faststore_get')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'faststore_get',
-        description: 'Read cached key from Synapse Faststore',
-        parameters: {
-          type: 'object',
-          properties: {
-            key: { type: 'string', description: 'Key name' },
-          },
-          required: ['key'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'data_sources' || t === 'faststore_set')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'faststore_set',
-        description: 'Set cached key-value in Synapse Faststore',
-        parameters: {
-          type: 'object',
-          properties: {
-            key: { type: 'string' },
-            value: { description: 'Value to cache' },
-            ttlSeconds: { type: 'number' },
-          },
-          required: ['key', 'value'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'logic_code' || t === 'code_runner')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'code_runner',
-        description: 'Execute JavaScript code in a secure sandbox to calculate, transform, or parse data',
-        parameters: {
-          type: 'object',
-          properties: {
-            code: { type: 'string', description: 'JavaScript code snippet' },
-          },
-          required: ['code'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'decision_model' || t === 'decision_eval')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'decision_eval',
-        description: 'Evaluate options or classify intent using Decision-2.0-Eos-0.8B SLM',
-        parameters: {
-          type: 'object',
-          properties: {
-            input: { type: 'string', description: 'Text to classify' },
-            choices: { type: 'array', items: { type: 'string' }, description: 'Target choices' },
-            instruction: { type: 'string', description: 'Optional instruction' },
-          },
-          required: ['input', 'choices'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'synapsedx_api' || t === 'queue_publish')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'queue_publish',
-        description: 'Publish a message into SynapseQueue',
-        parameters: {
-          type: 'object',
-          properties: {
-            queue: { type: 'string' },
-            payload: { type: 'object' },
-          },
-          required: ['queue', 'payload'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'synapsedx_api' || t === 'iam_check_permission')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'iam_check_permission',
-        description: 'Check whether a user has permission for an action on a resource',
-        parameters: {
-          type: 'object',
-          properties: {
-            userId: { type: 'string' },
-            action: { type: 'string' },
-            resource: { type: 'string' },
-          },
-          required: ['userId', 'action', 'resource'],
-        },
-      },
-    });
-  }
-  if (enabledTools.some(t => t === 'http_request')) {
-    toolDefs.push({
-      type: 'function',
-      function: {
-        name: 'http_request',
-        description: 'Perform an HTTP GET or POST request to an external service',
-        parameters: {
-          type: 'object',
-          properties: {
-            url: { type: 'string' },
-            method: { type: 'string', enum: ['GET', 'POST'], default: 'GET' },
-            body: { description: 'Body for POST' },
-          },
-          required: ['url'],
-        },
-      },
-    });
+
+  let effectiveSystemPrompt = systemPrompt;
+  if (toolDefs.length > 0) {
+    effectiveSystemPrompt +=
+      '\n\nYou have tools available. Prefer native tool calls. If native tool calling is not supported, ' +
+      'reply exactly with <tool_call>{"name":"tool_name","arguments":{...}}</tool_call> and wait for the tool result. ' +
+      'Never invent tool results. When you have enough information, answer normally without a tool call.';
   }
 
   const messages: any[] = [
-    { role: 'system', content: systemPrompt },
+    { role: 'system', content: effectiveSystemPrompt },
     { role: 'user', content: userPrompt },
   ];
 
-  const maxSteps = Math.min(Math.max(Number(p.maxSteps) || 5, 1), 10);
-  const actionsTaken: Array<{ tool: string; args: any; result: any }> = [];
+  const maxSteps = Math.min(Math.max(Number(p.maxSteps) || 6, 1), 12);
+  const actionsTaken: Array<{ tool: string; args: any; result: any; step: number }> = [];
   let finalAnswer = '';
   const t0 = Date.now();
 
-  async function runTool(toolName: string, toolArgs: any): Promise<any> {
+  async function callTool(toolName: string, toolArgs: any): Promise<any> {
+    if (!toolName) throw new Error('missing tool name');
+    const nodeTool = nodeToolMap.get(toolName);
+    if (nodeTool) {
+      if (!ctx?.runToolNode) throw new Error('canvas tool execution is not wired');
+      return await ctx.runToolNode(nodeTool.name, toolArgs?.input !== undefined ? toolArgs.input : toolArgs);
+    }
+    if (!enabledTools.includes(toolName)) {
+      throw new Error(`tool '${toolName}' is not enabled for this agent`);
+    }
     switch (toolName) {
       case 'logic_calculator': {
-        const expr = String(toolArgs.expression || toolArgs.calc || toolArgs.code || '0');
+        const expr = String(toolArgs.expression || toolArgs.calc || toolArgs.code || '0').trim();
+        if (expr.length > 200 || !/^[0-9+\-*/().% ]+$/.test(expr)) {
+          return { expression: expr, error: 'only arithmetic expressions are allowed (max 200 chars)' };
+        }
         try {
-          const sanitized = expr.replace(/[^0-9+\-*/().% ]/g, '');
+          // Sanitized arithmetic only (no identifiers/access), length-capped.
           // eslint-disable-next-line no-new-func
-          const result = Function(`'use strict'; return (${sanitized})`)();
+          const result = Function(`'use strict'; return (${expr})`)();
           return { expression: expr, result };
         } catch {
           return { expression: expr, error: 'calculation error' };
         }
       }
-      case 'code_runner':
       case 'code_sandbox': {
-        const fakeNode: EngineNode = { name: 'agent_code', type: 'code', parameters: { code: toolArgs.code || toolArgs.script } };
-        return await execCodeSandbox(fakeNode, data);
+        const fakeNode: EngineNode = {
+          name: 'agent_code',
+          type: 'code',
+          parameters: { code: String(toolArgs.code || toolArgs.script || 'return $input;') },
+        };
+        const input = toolArgs.input !== undefined ? toolArgs.input : data;
+        return await execCodeSandbox(fakeNode, input);
       }
-      case 'decision_model':
       case 'decision_eval': {
         const choicesMap: Record<string, string> = {};
-        for (const c of (toolArgs.choices || [])) choicesMap[c] = c;
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('inference', 'route', { input: toolArgs.input, choices: choicesMap, instruction: toolArgs.instruction }, ctx.principal);
+        if (Array.isArray(toolArgs.choices)) {
+          for (const c of toolArgs.choices) choicesMap[String(c)] = String(c);
+        } else if (toolArgs.choices && typeof toolArgs.choices === 'object') {
+          for (const [k, v] of Object.entries(toolArgs.choices)) choicesMap[k] = String(v);
         }
-        return { choice: toolArgs.choices?.[0] || 'default', confidence: 0.9 };
+        if (!Object.keys(choicesMap).length) return { error: 'choices are required' };
+        if (ctx?.synapsedxCall) {
+          return await ctx.synapsedxCall(
+            'inference',
+            'route',
+            { input: String(toolArgs.input ?? ''), choices: choicesMap, instruction: toolArgs.instruction },
+            ctx.principal,
+          );
+        }
+        return { best_choice: Object.keys(choicesMap)[0], confidence: 0.9, probabilities: {} };
       }
       case 'synapsebase_query': {
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('base', 'query-documents', { collection: toolArgs.collection, where: toolArgs.where, limit: toolArgs.limit || 10 }, ctx.principal);
+        const action = String(toolArgs.action || 'query');
+        if (!ctx?.synapsedxCall) return action === 'query' ? { items: [], total: 0 } : { ok: true };
+        if (action === 'get') {
+          return await ctx.synapsedxCall('base', 'get-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
         }
-        return { items: [], total: 0 };
-      }
-      case 'faststore_get': {
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
+        if (action === 'create') {
+          return await ctx.synapsedxCall(
+            'base',
+            'create-document',
+            { collection: toolArgs.collection, id: toolArgs.id, data: toolArgs.data ?? toolArgs.value ?? {} },
+            ctx.principal,
+          );
         }
-        return { key: toolArgs.key, value: null };
-      }
-      case 'faststore_set': {
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('faststore', 'set', { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 }, ctx.principal);
+        if (action === 'delete') {
+          return await ctx.synapsedxCall('base', 'delete-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
         }
-        return { ok: true };
+        return await ctx.synapsedxCall(
+          'base',
+          'query-documents',
+          { collection: toolArgs.collection, where: toolArgs.where || {}, limit: toolArgs.limit || 10 },
+          ctx.principal,
+        );
       }
       case 'faststore_cache': {
-        const action = toolArgs.action || (toolArgs.value !== undefined ? 'set' : 'get');
+        const action = String(toolArgs.action || (toolArgs.value !== undefined ? 'set' : 'get'));
+        if (!ctx?.synapsedxCall) return action === 'get' ? { key: toolArgs.key, value: null } : { ok: true };
         if (action === 'set') {
-          if (ctx?.synapsedxCall) {
-            return await ctx.synapsedxCall('faststore', 'set', { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 }, ctx.principal);
-          }
-          return { ok: true };
-        } else {
-          if (ctx?.synapsedxCall) {
-            return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
-          }
-          return { key: toolArgs.key, value: null };
+          return await ctx.synapsedxCall(
+            'faststore',
+            'set',
+            { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 },
+            ctx.principal,
+          );
         }
+        if (action === 'incr') {
+          return await ctx.synapsedxCall('faststore', 'incr', { key: toolArgs.key, by: toolArgs.by || 1 }, ctx.principal);
+        }
+        if (action === 'delete') {
+          return await ctx.synapsedxCall('faststore', 'delete', { key: toolArgs.key }, ctx.principal);
+        }
+        if (action === 'hash-get') {
+          return await ctx.synapsedxCall('faststore', 'hash-get', { key: toolArgs.key, field: toolArgs.field }, ctx.principal);
+        }
+        if (action === 'hash-set') {
+          return await ctx.synapsedxCall('faststore', 'hash-set', { key: toolArgs.key, values: toolArgs.values || {} }, ctx.principal);
+        }
+        return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
       }
       case 'queue_publish': {
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('queue', 'publish', { queue: toolArgs.queue, payload: toolArgs.payload }, ctx.principal);
+        const action = String(toolArgs.action || 'publish');
+        if (!ctx?.synapsedxCall) return { ok: true, id: 'mock-msg' };
+        if (action === 'list') return await ctx.synapsedxCall('queue', 'list', {}, ctx.principal);
+        if (action === 'consume') {
+          return await ctx.synapsedxCall(
+            'queue',
+            'consume',
+            { queue: toolArgs.queue, maxMessages: toolArgs.maxMessages || 10, consumer: toolArgs.consumer || 'ai-agent' },
+            ctx.principal,
+          );
         }
-        return { ok: true, id: 'mock-msg' };
+        if (action === 'ack') {
+          return await ctx.synapsedxCall('queue', 'ack', { queue: toolArgs.queue, receipt: toolArgs.receipt }, ctx.principal);
+        }
+        return await ctx.synapsedxCall(
+          'queue',
+          'publish',
+          { queue: toolArgs.queue, payload: toolArgs.payload, priority: toolArgs.priority, delaySeconds: toolArgs.delaySeconds },
+          ctx.principal,
+        );
       }
       case 'iam_check_permission': {
         if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall('authorize', 'check', { userId: toolArgs.userId, action: toolArgs.action, resource: toolArgs.resource }, ctx.principal);
+          return await ctx.synapsedxCall(
+            'authorize',
+            'check',
+            { userId: toolArgs.userId, action: toolArgs.action, resource: toolArgs.resource, scope: toolArgs.scope },
+            ctx.principal,
+          );
         }
         return { allowed: true };
       }
+      case 'workflow_run': {
+        if (!ctx?.synapsedxCall) throw new Error('workflow execution is not wired');
+        let id = String(toolArgs.id || '');
+        if (!id && toolArgs.name) {
+          const listed: any = await ctx.synapsedxCall('workflows', 'list', {}, ctx.principal);
+          const arr = Array.isArray(listed) ? listed : listed?.workflows || listed?.items || [];
+          const hit = arr.find((w: any) => w && (w.name === toolArgs.name || w.id === toolArgs.name));
+          if (!hit) throw new Error(`workflow '${String(toolArgs.name).slice(0, 80)}' not found`);
+          id = String(hit.id);
+        }
+        if (!id) throw new Error('workflow_run needs id or name');
+        return await ctx.synapsedxCall(
+          'workflows',
+          'execute',
+          { id, input: toolArgs.input && typeof toolArgs.input === 'object' ? toolArgs.input : {} },
+          ctx.principal,
+        );
+      }
+      case 'workflow_list': {
+        if (!ctx?.synapsedxCall) return [];
+        return await ctx.synapsedxCall('workflows', 'list', {}, ctx.principal);
+      }
+      case 'lds_publish': {
+        const action = String(toolArgs.action || (toolArgs.record ? 'publish-record' : 'list-datasources'));
+        if (!ctx?.synapsedxCall) return action === 'list-datasources' ? [] : { ok: true };
+        if (action === 'publish-record') {
+          return await ctx.synapsedxCall(
+            'lds',
+            'publish-record',
+            { datasourceId: toolArgs.datasourceId, record: toolArgs.record ?? toolArgs.payload },
+            ctx.principal,
+          );
+        }
+        if (action === 'get-entity') {
+          return await ctx.synapsedxCall(
+            'lds',
+            'get-entity',
+            { datasourceId: toolArgs.datasourceId, entityId: toolArgs.entityId },
+            ctx.principal,
+          );
+        }
+        return await ctx.synapsedxCall('lds', 'list-datasources', {}, ctx.principal);
+      }
+      case 'inference_chat': {
+        if (!ctx?.synapsedxCall) throw new Error('inference is not wired');
+        const msgs = Array.isArray(toolArgs.messages)
+          ? toolArgs.messages
+          : [
+              ...(toolArgs.system ? [{ role: 'system', content: String(toolArgs.system) }] : []),
+              { role: 'user', content: String(toolArgs.prompt || toolArgs.input || userPrompt) },
+            ];
+        const raw: any = await ctx.synapsedxCall(
+          'inference',
+          'chat',
+          { messages: msgs, model: toolArgs.model || model, temperature: 0.2, max_tokens: 512 },
+          ctx.principal,
+        );
+        const content = raw?.choices?.[0]?.message?.content ?? raw?.content ?? raw;
+        return { content, raw };
+      }
       case 'http_request': {
-        assertUrlAllowed(toolArgs.url);
-        const method = (toolArgs.method || 'GET').toUpperCase();
-        const r = await fetch(toolArgs.url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: method === 'POST' && toolArgs.body ? JSON.stringify(toolArgs.body) : undefined,
+        // Reuse the workflow HTTP executor: SSRF guard, DNS/redirect checks,
+        // timeouts and response-size caps all stay in one place.
+        const fakeNode: EngineNode = {
+          name: 'agent_http',
+          type: 'httpRequest',
+          parameters: {
+            url: toolArgs.url,
+            method: toolArgs.method || 'GET',
+            headers: toolArgs.headers,
+            body: toolArgs.body,
+            timeoutMs: toolArgs.timeoutMs,
+          },
+        };
+        return await execHttp(fakeNode, data, {
+          principal: ctx?.principal,
+          credentialResolver: ctx?.credentialResolver,
         });
-        const text = await r.text();
-        try { return JSON.parse(text); } catch { return text; }
       }
       default:
         throw new Error(`Agent tool '${toolName}' not recognized`);
@@ -1294,17 +1749,21 @@ export async function execAiAgentNode(
 
   async function callLlm(msgs: any[]): Promise<any> {
     if (core === 'synapse-inference' && ctx?.synapsedxCall) {
-      return await ctx.synapsedxCall('inference', 'chat', {
-        messages: msgs,
-        model,
-        temperature: Number(p.temperature) || 0.2,
-        max_tokens: Number(p.maxTokens) || 512,
-        tools: toolDefs.length > 0 ? toolDefs : undefined,
-      }, ctx.principal);
+      return await ctx.synapsedxCall(
+        'inference',
+        'chat',
+        {
+          messages: msgs,
+          model,
+          temperature: Number(p.temperature) || 0.2,
+          max_tokens: Number(p.maxTokens) || 512,
+          tools: toolDefs.length > 0 ? toolDefs : undefined,
+          tool_choice: toolDefs.length > 0 ? 'auto' : undefined,
+        },
+        ctx.principal,
+      );
     }
-    const url = core === 'synapse-inference'
-      ? `${baseUrl}/v1/inference/chat/completions`
-      : `${baseUrl}/chat/completions`;
+    const url = core === 'synapse-inference' ? `${baseUrl}/v1/inference/chat/completions` : `${baseUrl}/chat/completions`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
     const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
@@ -1318,6 +1777,7 @@ export async function execAiAgentNode(
     };
     if (toolDefs.length > 0) {
       payload.tools = toolDefs;
+      payload.tool_choice = 'auto';
     }
 
     const ctl = new AbortController();
@@ -1344,8 +1804,7 @@ export async function execAiAgentNode(
     try {
       res = await callLlm(messages);
     } catch (e: any) {
-      finalAnswer = `Agent execution halted: ${e.message}`;
-      break;
+      throw new Error(`AI Agent '${node.name}': ${e?.message || e}`);
     }
 
     const choice = res?.choices?.[0];
@@ -1357,25 +1816,31 @@ export async function execAiAgentNode(
       for (const tc of toolCalls) {
         const fnName = tc.function?.name;
         let fnArgs: any = {};
-        try { fnArgs = JSON.parse(tc.function?.arguments || '{}'); } catch { /* ignore */ }
+        try {
+          fnArgs = JSON.parse(tc.function?.arguments || '{}');
+        } catch {
+          fnArgs = {};
+        }
         let result: any;
         try {
-          result = await runTool(fnName, fnArgs);
+          result = await callTool(fnName, fnArgs);
         } catch (err: any) {
-          result = { error: err.message };
+          result = { error: err?.message || String(err) };
         }
-        actionsTaken.push({ tool: fnName, args: fnArgs, result });
+        actionsTaken.push({ tool: fnName, args: fnArgs, result, step: step + 1 });
         messages.push({
           role: 'tool',
-          tool_call_id: tc.id || `call_${Date.now()}`,
+          tool_call_id: tc.id || `call_${step}_${actionsTaken.length}`,
           content: JSON.stringify(result),
         });
       }
       continue;
     }
 
-    const content = msg.content || '';
-    const match = content.match(/<tool_call>\s*({.*?})\s*<\/tool_call>/s) || content.match(/```json\s*({"tool":\s*"[^"]+".*?})\s*```/s);
+    const content = typeof msg.content === 'string' ? msg.content : '';
+    const match =
+      content.match(/<tool_call>\s*({[\s\S]*?})\s*<\/tool_call>/) ||
+      content.match(/```(?:json)?\s*({[\s\S]*?"(?:name|tool)"[\s\S]*?})\s*```/);
     if (match) {
       try {
         const parsed = JSON.parse(match[1]);
@@ -1383,19 +1848,29 @@ export async function execAiAgentNode(
         const toolArgs = parsed.arguments || parsed.args || parsed.input || {};
         let result: any;
         try {
-          result = await runTool(toolName, toolArgs);
+          result = await callTool(toolName, toolArgs);
         } catch (err: any) {
-          result = { error: err.message };
+          result = { error: err?.message || String(err) };
         }
-        actionsTaken.push({ tool: toolName, args: toolArgs, result });
+        actionsTaken.push({ tool: toolName, args: toolArgs, result, step: step + 1 });
         messages.push({ role: 'assistant', content });
-        messages.push({ role: 'user', content: `Tool ${toolName} output: ${JSON.stringify(result)}. Continue to final answer.` });
+        messages.push({ role: 'user', content: `Tool ${toolName} output: ${JSON.stringify(result)}. Continue to the final answer.` });
         continue;
-      } catch { /* proceed */ }
+      } catch {
+        /* not a valid tool call — treat as final content */
+      }
     }
 
     finalAnswer = content;
     break;
+  }
+
+  if (!finalAnswer) {
+    finalAnswer = actionsTaken.length
+      ? `Agent reached the maximum of ${maxSteps} steps after ${actionsTaken.length} tool call(s). Last result: ${JSON.stringify(
+          actionsTaken[actionsTaken.length - 1]?.result,
+        ).slice(0, 500)}`
+      : `Agent reached the maximum of ${maxSteps} steps without a final answer.`;
   }
 
   const durationMs = Date.now() - t0;
@@ -1404,11 +1879,13 @@ export async function execAiAgentNode(
     agent: {
       response: finalAnswer,
       actions_taken: actionsTaken,
-      tools_used: actionsTaken.map(a => a.tool),
+      tools_used: actionsTaken.map((a) => a.tool),
       steps_count: actionsTaken.length,
+      steps: actionsTaken.length,
       model,
       core,
       durationMs,
+      canvas_tools: [...nodeToolMap.keys()],
     },
     response: finalAnswer,
   };
@@ -1590,16 +2067,23 @@ export async function runWorkflow(
   const terminalOutputs = new Map<string, any>();
   let failed: string | null = null;
 
-  async function runNodeWithRetry(kind: 'http' | 'code' | 'synapsedx', node: EngineNode, data: any): Promise<{ output: any; attempts: number }> {
+  async function runNodeWithRetry(
+    kind: 'http' | 'code' | 'synapsedx' | 'integration',
+    node: EngineNode,
+    data: any,
+  ): Promise<{ output: any; attempts: number }> {
     const { attempts, delayMs } = retrySpec(node.parameters);
     let lastErr: any = null;
     for (let a = 1; a <= attempts; a++) {
       try {
-        const output = kind === 'http'
-          ? await execHttp(node, data, { principal: opts?.principal, credentialResolver: opts?.credentialResolver })
-          : kind === 'synapsedx'
-            ? await execSynapseDX(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
-            : await execCodeSandbox(node, data);
+        const output =
+          kind === 'http'
+            ? await execHttp(node, data, { principal: opts?.principal, credentialResolver: opts?.credentialResolver })
+            : kind === 'synapsedx'
+              ? await execSynapseDX(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
+              : kind === 'integration'
+                ? await execIntegrationNode(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
+                : await execCodeSandbox(node, data);
         return { output, attempts: a };
       } catch (e) {
         lastErr = e;
@@ -1609,133 +2093,179 @@ export async function runWorkflow(
     throw lastErr;
   }
 
+  // Canvas tools are nodes wired into an agent's Tools socket. They execute
+  // on demand with the model-supplied input, outside the normal DAG queue.
+  let toolDepth = 0;
+  async function execToolNode(name: string, toolInput: any): Promise<any> {
+    if (toolDepth >= 2) throw new Error(`tool recursion limit reached while calling '${name}'`);
+    const target = byName.get(name);
+    if (!target) throw new Error(`tool node '${name}' not found`);
+    toolDepth++;
+    try {
+      const r = await execNodeCore(target, toolInput);
+      return {
+        node: target.name,
+        type: target.type,
+        output: r.output,
+        ...(r.branch !== undefined ? { branch: r.branch } : {}),
+        ...(r.skipped ? { note: r.skipped } : {}),
+      };
+    } finally {
+      toolDepth--;
+    }
+  }
+
+  /** Execute one node body without recording a nodeRun. Used both by the DAG
+   *  runner and by node-as-agent-tool calls. */
+  async function execNodeCore(node: EngineNode, data: any): Promise<{ output: any; branch?: number; skipped?: string | null; attempts?: number }> {
+    // P2: disabled nodes are skipped but keep data flowing (branch nodes take
+    // their deterministic first branch so a run never gets stuck).
+    if ((node as any).disabled === true) {
+      return {
+        output: clone(data),
+        skipped: 'node disabled — passed through',
+        branch: isIfType(node.type) || isDecisionType(node.type) ? 0 : undefined,
+      };
+    }
+    let output: any;
+    let skipped: string | null = null;
+    let attempts = 1;
+    const toolNodes = toolSourceNames(connections, node.name)
+      .map((n) => byName.get(n))
+      .filter((n): n is EngineNode => !!n);
+    const modelNode = modelSourceName(connections, node.name);
+    const agentCtx = {
+      principal: opts?.principal,
+      credentialResolver: opts?.credentialResolver,
+      synapsedxCall: opts?.synapsedxCall,
+      toolNodes,
+      modelNode: modelNode ? byName.get(modelNode) || null : null,
+      runToolNode: execToolNode,
+    };
+    switch (node.type) {
+      case 'webhook':
+      case 'n8n-nodes-base.webhook':
+      case 'synapsedx.webhook':
+      case 'cron':
+      case 'n8n-nodes-base.cron':
+      case 'synapsedx.cron':
+      case 'manualTrigger':
+      case 'n8n-nodes-base.manualTrigger':
+      case 'synapsedx.manualTrigger':
+        output = await execTrigger(node, data);
+        break;
+      case 'noOp':
+      case 'n8n-nodes-base.noOp':
+      case 'synapsedx.noOp':
+        output = await execNoOp(node, data);
+        break;
+      case 'set':
+      case 'n8n-nodes-base.set':
+      case 'synapsedx.set':
+        output = execSet(node, data);
+        break;
+      case 'if':
+      case 'n8n-nodes-base.if':
+      case 'synapsedx.if': {
+        output = clone(data);
+        return { output, branch: execIfCondition(node, output) ? 0 : 1 };
+      }
+      case 'httpRequest':
+      case 'n8n-nodes-base.httpRequest':
+      case 'synapsedx.httpRequest': {
+        const r = await runNodeWithRetry('http', node, data);
+        output = r.output;
+        attempts = r.attempts;
+        break;
+      }
+      case 'code':
+      case 'n8n-nodes-base.code':
+      case 'synapsedx.code': {
+        const r = await runNodeWithRetry('code', node, data);
+        output = r.output;
+        attempts = r.attempts;
+        break;
+      }
+      case 'synapsedx.api': {
+        const r = await runNodeWithRetry('synapsedx', node, data);
+        output = r.output;
+        attempts = r.attempts;
+        break;
+      }
+      case 'decision':
+      case 'decision.route':
+      case 'synapseflow.decision':
+      case 'synapsedx.decision':
+      case 'n8n-nodes-base.decision': {
+        const dec = await execDecisionNode(node, data, {
+          principal: opts?.principal,
+          synapsedxCall: opts?.synapsedxCall,
+        });
+        return { output: dec.output, branch: dec.branch };
+      }
+      case 'ai.agent':
+      case 'synapseflow.aiAgent':
+      case 'synapsedx.aiAgent':
+      case 'agent':
+      case 'n8n-nodes-base.aiAgent': {
+        output = await execAiAgentNode(node, data, agentCtx);
+        break;
+      }
+      case 'synapseflow.model':
+      case 'synapsedx.model':
+        // Configuration-only node: pass through when it is also used in flow.
+        output = clone(data);
+        break;
+      default: {
+        if (isIntegrationType(node.type)) {
+          const r = await runNodeWithRetry('integration', node, data);
+          output = r.output;
+          attempts = r.attempts;
+          break;
+        }
+        // Unknown types pass data through but are marked skipped (B4) —
+        // silent success hid misconfigured nodes from execution history.
+        output = clone(data);
+        skipped = `unknown node type '${node.type}' — passed through`;
+        break;
+      }
+    }
+    return { output, skipped, attempts };
+  }
+
   async function execOne(node: EngineNode, data: any): Promise<{ output: any; branch?: number }> {
     const t0 = Date.now();
     const startedAt = new Date().toISOString();
     try {
       if (Date.now() - startedAll > timeoutMs) throw new Error(`workflow timed out after ${timeoutMs}ms`);
-      // P2: disabled nodes are skipped but keep the data flowing (an `if`
-      // takes its default true branch so the run stays deterministic).
-      if ((node as any).disabled === true) {
-        const output = clone(data);
-        const finishedAt = new Date().toISOString();
-        nodeRuns.push({
-          node: node.name, type: node.type, status: 'skipped',
-          input: clone(data), output: clone(output), error: 'node disabled — passed through',
-          durationMs: Date.now() - t0, startedAt, finishedAt,
-        });
-        return isIfType(node.type) ? { output, branch: 0 } : isDecisionType(node.type) ? { output, branch: 0 } : { output };
-      }
-      let output: any;
-      let skipped: string | null = null;
-      let attempts = 1;
-      switch (node.type) {
-        case 'webhook':
-        case 'n8n-nodes-base.webhook':
-        case 'synapsedx.webhook':
-        case 'cron':
-        case 'n8n-nodes-base.cron':
-        case 'synapsedx.cron':
-        case 'manualTrigger':
-        case 'n8n-nodes-base.manualTrigger':
-        case 'synapsedx.manualTrigger':
-          output = await execTrigger(node, data);
-          break;
-        case 'noOp':
-        case 'n8n-nodes-base.noOp':
-        case 'synapsedx.noOp':
-          output = await execNoOp(node, data);
-          break;
-        case 'set':
-        case 'n8n-nodes-base.set':
-        case 'synapsedx.set':
-          output = execSet(node, data);
-          break;
-        case 'if':
-        case 'n8n-nodes-base.if':
-        case 'synapsedx.if':
-          output = clone(data);
-          break;
-        case 'httpRequest':
-        case 'n8n-nodes-base.httpRequest':
-        case 'synapsedx.httpRequest': {
-          const r = await runNodeWithRetry('http', node, data);
-          output = r.output;
-          attempts = r.attempts;
-          break;
-        }
-        case 'code':
-        case 'n8n-nodes-base.code':
-        case 'synapsedx.code': {
-          const r = await runNodeWithRetry('code', node, data);
-          output = r.output;
-          attempts = r.attempts;
-          break;
-        }
-        case 'synapsedx.api': {
-          const r = await runNodeWithRetry('synapsedx', node, data);
-          output = r.output;
-          attempts = r.attempts;
-          break;
-        }
-        case 'decision':
-        case 'decision.route':
-        case 'synapseflow.decision':
-        case 'synapsedx.decision':
-        case 'n8n-nodes-base.decision': {
-          const dec = await execDecisionNode(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall });
-          output = dec.output;
-          const finishedAt = new Date().toISOString();
-          nodeRuns.push({
-            node: node.name, type: node.type, status: 'success',
-            input: clone(data), output: clone(output),
-            durationMs: Date.now() - t0, startedAt, finishedAt,
-          });
-          return { output, branch: dec.branch };
-        }
-        case 'ai.agent':
-        case 'synapseflow.aiAgent':
-        case 'synapsedx.aiAgent':
-        case 'agent':
-        case 'n8n-nodes-base.aiAgent': {
-          output = await execAiAgentNode(node, data, {
-            principal: opts?.principal,
-            credentialResolver: opts?.credentialResolver,
-            synapsedxCall: opts?.synapsedxCall,
-          });
-          break;
-        }
-        default:
-          // Unknown types pass data through but are marked skipped (B4) —
-          // silent success hid misconfigured nodes from execution history.
-          output = clone(data);
-          skipped = `unknown node type '${node.type}' — passed through`;
-          break;
-      }
+      const r = await execNodeCore(node, data);
       const finishedAt = new Date().toISOString();
       nodeRuns.push({
-        node: node.name, type: node.type, status: skipped ? 'skipped' : 'success',
-        input: clone(data), output: clone(output),
-        ...(skipped ? { error: skipped } : {}),
-        ...(attempts > 1 ? { attempts } : {}),
-        durationMs: Date.now() - t0, startedAt, finishedAt,
+        node: node.name,
+        type: node.type,
+        status: r.skipped ? 'skipped' : 'success',
+        input: clone(data),
+        output: clone(r.output),
+        ...(r.skipped ? { error: r.skipped } : {}),
+        ...(r.attempts && r.attempts > 1 ? { attempts: r.attempts } : {}),
+        durationMs: Date.now() - t0,
+        startedAt,
+        finishedAt,
       });
-      if (isIfType(node.type)) {
-        const cond = execIfCondition(node, output);
-        return { output, branch: cond ? 0 : 1 };
-      }
-      if (isDecisionType(node.type)) {
-        const dec = await execDecisionNode(node, output, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall });
-        return { output: dec.output, branch: dec.branch };
-      }
-      return { output };
+      return { output: r.output, ...(r.branch !== undefined ? { branch: r.branch } : {}) };
     } catch (e: any) {
       const finishedAt = new Date().toISOString();
       const msg = e?.message || String(e);
       nodeRuns.push({
-        node: node.name, type: node.type, status: 'error',
-        input: clone(data), output: null, error: String(msg).slice(0, 1000),
-        durationMs: Date.now() - t0, startedAt, finishedAt,
+        node: node.name,
+        type: node.type,
+        status: 'error',
+        input: clone(data),
+        output: null,
+        error: String(msg).slice(0, 1000),
+        durationMs: Date.now() - t0,
+        startedAt,
+        finishedAt,
       });
       throw e;
     }

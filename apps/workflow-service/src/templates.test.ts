@@ -8,7 +8,7 @@ import type { Server } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, workflowRunPrincipal, synapsedxCall, makeCredentialResolver } from './index';
-import { isBlockedUrl } from './engine';
+import { isBlockedUrl, runWorkflow } from './engine';
 import { __clearMem, createCredentialRec } from './store';
 
 describe('workflow templates', () => {
@@ -28,6 +28,91 @@ describe('workflow templates', () => {
   });
   it('unknown template returns null', () => {
     assert.equal(buildTemplate('nope'), null);
+  });
+  it('ai-triage-ops showcase round-trips and passes save validation', () => {
+    const def: any = buildTemplate('ai-triage-ops', 'demo');
+    assert.ok(def);
+    assert.ok(def.nodes.length >= 12);
+    assert.equal(validateDefinition(def), null);
+    const agents = def.nodes.filter((n: any) => n.type === 'synapseflow.aiAgent');
+    assert.equal(agents.length, 3);
+    const decision = def.nodes.find((n: any) => n.type === 'synapseflow.decision');
+    assert.equal(Object.keys(decision.parameters.choices).length, 4);
+    // Tool/model sockets are auxiliary: they must still be represented in the
+    // definition consumed by the visual editor.
+    const ports = Object.values(def.connections as any)
+      .flatMap((g: any) => (g.main || []).flat())
+      .map((e: any) => e.targetPort)
+      .filter(Boolean);
+    assert.ok(ports.includes('tools'));
+    assert.ok(ports.includes('model'));
+  });
+  it('ai-triage-ops runs a low-confidence ticket through fallback and escalation', async () => {
+    const def: any = buildTemplate('ai-triage-ops', 'demo');
+    const calls: string[] = [];
+    const r = await runWorkflow(def, {
+      query: 'I was charged twice and need this fixed',
+      customerId: 'c-42',
+      priority: 'normal',
+    }, {
+      synapsedxCall: async (resource, operation) => {
+        calls.push(`${resource}.${operation}`);
+        if (resource === 'inference' && operation === 'route') {
+          return { best_choice: 'billing', confidence: 0.1, probabilities: { billing: 0.1 } };
+        }
+        if (resource === 'queue' && operation === 'publish') return { ok: true, id: 'escalation-1' };
+        throw new Error(`unexpected call ${resource}.${operation}`);
+      },
+    });
+    const byNode = Object.fromEntries(r.nodeRuns.map((n) => [n.node, n]));
+    assert.equal(r.status, 'success');
+    assert.equal(byNode.Aggregate.output.route, 'sales');
+    assert.equal(byNode.Aggregate.output.department, 'sales');
+    // Low confidence falls back to branch 3 instead of running the billing agent.
+    assert.ok(!byNode.BillingAgent);
+    assert.equal(byNode.SalesReply?.status, 'success');
+    assert.equal(byNode.Escalate?.status, 'success');
+    assert.equal(byNode.Escalate.output.ok, true);
+    assert.ok(calls.includes('queue.publish'));
+  });
+  it('ai-triage-ops runs the technical agent with built-in + canvas tools', async () => {
+    const def: any = buildTemplate('ai-triage-ops', 'demo');
+    let seenTools: string[] = [];
+    let seenPrompt = '';
+    const r = await runWorkflow(def, {
+      query: 'Production API returns 502 for every request',
+      priority: 'normal',
+      customerId: 'c-7',
+      userId: 'u-7',
+    }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'route') {
+          return { best_choice: 'technical', confidence: 0.94, probabilities: { technical: 0.94 } };
+        }
+        if (resource === 'inference' && operation === 'chat') {
+          seenTools = (args.tools || []).map((t: any) => t.function?.name);
+          seenPrompt = args.messages?.[1]?.content || '';
+          return { choices: [{ message: { role: 'assistant', content: 'Restarting the edge pool now.' } }] };
+        }
+        if (resource === 'queue' && operation === 'publish') return { ok: true, id: 'escalation-2' };
+        throw new Error(`unexpected call ${resource}.${operation}`);
+      },
+    });
+    const byNode = Object.fromEntries(r.nodeRuns.map((n) => [n.node, n]));
+    assert.equal(r.status, 'success');
+    assert.equal(r.output.route, 'technical');
+    assert.equal(r.output.reply, 'Restarting the edge pool now.');
+    assert.match(seenPrompt, /Production API returns 502/);
+    assert.match(seenPrompt, /Priority: normal/);
+    assert.ok(seenTools.includes('synapsebase_query'));
+    assert.ok(seenTools.includes('code_sandbox'));
+    assert.ok(seenTools.includes('KBLookup'));
+    assert.ok(seenTools.includes('StatusAPI'));
+    assert.equal(byNode.TechAgent?.status, 'success');
+    assert.equal(byNode.TechAgent.output.agent.response, 'Restarting the edge pool now.');
+    // Confident, non-urgent tickets take the Done branch instead of paging.
+    assert.equal(byNode.Done?.status, 'success');
+    assert.ok(!byNode.Escalate);
   });
   it('automated (webhook/cron) runs act as the workflow tenant principal', () => {
     assert.deepEqual(workflowRunPrincipal({ org_id: 'tenant-a', owner_sub: 'u1', run_as: null }), { sub: 'u1', org: 'tenant-a', account: undefined, kind: 'workflow' });

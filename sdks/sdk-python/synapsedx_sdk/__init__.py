@@ -49,9 +49,9 @@ from .base import (
 )
 from .faststore import FaststoreService
 from .iam import IamService
+from .inference import InferenceService
 from .lds import LdsService
 from .queue import QueueService
-from .inference import InferenceService
 from .workflow import WorkflowService, trigger_webhook, unwrap_executions
 
 __all__ = [

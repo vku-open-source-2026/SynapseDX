@@ -1,21 +1,20 @@
-import time
 import secrets
+import time
 from datetime import datetime, timezone
-from typing import Optional
 
-from fastapi import FastAPI, Request, Response, HTTPException, status
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from .config import settings
+from .decision import DecisionRequest, RouteRequest, decision_engine
+from .embedding import EmbeddingRequest, embedding_engine
 from .llm import (
     ChatCompletionRequest,
+    LlmError,
     call_chat_completion,
     stream_chat_completion,
-    LlmError,
 )
-from .embedding import EmbeddingRequest, embedding_engine
-from .decision import DecisionRequest, RouteRequest, decision_engine
 
 VERSION = "0.6.0"
 
@@ -42,7 +41,7 @@ async def security_and_telemetry_middleware(request: Request, call_next):
     # 1. Propagate or generate X-Request-ID
     req_id = request.headers.get("x-request-id")
     if not req_id:
-        req_id = f"{int(time.time()*1000):x}-{secrets.token_hex(4)}"
+        req_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(4)}"
 
     # 2. Defense-in-depth: check SYNAPSEDX_INTERNAL_SECRET on /v1/*
     internal_secret = settings.SYNAPSEDX_INTERNAL_SECRET
@@ -52,13 +51,19 @@ async def security_and_telemetry_middleware(request: Request, call_next):
             if not secrets.compare_digest(incoming_secret, internal_secret):
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"error": "unauthorized", "message": "Missing or invalid internal credential"},
+                    content={
+                        "error": "unauthorized",
+                        "message": "Missing or invalid internal credential",
+                    },
                     headers={"x-request-id": req_id},
                 )
         elif settings.is_production:
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"error": "misconfigured", "message": "internal secret required in production"},
+                content={
+                    "error": "misconfigured",
+                    "message": "internal secret required in production",
+                },
                 headers={"x-request-id": req_id},
             )
 

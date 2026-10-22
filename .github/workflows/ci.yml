@@ -35,7 +35,7 @@ jobs:
         working-directory: sdks/sdk-go
       - run: pip install "./sdks/sdk-python[dev]" && pip install pip-licenses && pip-licenses --fail-on="GPL;AGPL;LGPL"
       - run: pytest sdks/sdk-python -q
-      - run: ruff check sdks/sdk-python && ruff format --check sdks/sdk-python
+      - run: ruff check sdks/sdk-python apps/inference-service && ruff format --check sdks/sdk-python apps/inference-service
       - run: docker compose config
   docker:
     runs-on: ubuntu-latest

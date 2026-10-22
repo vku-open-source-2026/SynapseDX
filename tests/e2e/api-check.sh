@@ -99,8 +99,18 @@ ANON404=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/v1/lds/datasources/e2e-n
 [ "$ANON404" = "404" ] && ok lds-anon-unknown-404 || bad lds-anon-unknown-404 "http=$ANON404"
 curl -s -XDELETE "$BASE/v1/lds/datasources/$LDS_ID" -H"$H" | grep -q '"ok":true' && ok lds-delete || bad lds-delete ""
 
-# templates (built-in, khong can n8n) + request-id echo
-[ "$(curl -s "$BASE/v1/templates" -H"$H" | jq 'length')" = "8" ] && ok templates || bad templates ""
+# templates (built-in, khong can n8n) + request-id echo.
+# Count is a baseline (>=) so adding a template does not break CI; the two
+# required names below guard against accidentally removing core/demo flows.
+TEMPLATES=$(curl -s "$BASE/v1/templates" -H"$H")
+TEMPLATE_NAMES=$(echo "$TEMPLATES" | jq -r 'map(.name) | join(",")' 2>/dev/null)
+TEMPLATE_COUNT=$(echo "$TEMPLATES" | jq 'length' 2>/dev/null)
+if [ "${TEMPLATE_COUNT:-0}" -ge 9 ] \
+  && echo "$TEMPLATES" | jq -e 'map(.name) | (index("webhook-to-log") != null and index("ai-triage-ops") != null)' >/dev/null 2>&1; then
+  ok templates
+else
+  bad templates "count=${TEMPLATE_COUNT:-?} names=${TEMPLATE_NAMES:-?}"
+fi
 [ -n "$(curl -s -D- -o /dev/null "$BASE/health" | grep -i '^x-request-id:')" ] && ok request-id || bad request-id ""
 
 # usage telemetry: after the traffic above the gateway must flush events to IAM

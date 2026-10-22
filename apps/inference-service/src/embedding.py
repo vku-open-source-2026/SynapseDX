@@ -1,9 +1,10 @@
 import hashlib
 import math
-from typing import List, Union, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional, Union
 
-from .config import settings, Settings
+from pydantic import BaseModel
+
+from .config import Settings, settings
 
 
 class EmbeddingRequest(BaseModel):
@@ -47,6 +48,7 @@ class EmbeddingEngine:
             return dev
         try:
             import torch
+
             return "cuda" if torch.cuda.is_available() else "cpu"
         except ImportError:
             return "cpu"
@@ -60,6 +62,7 @@ class EmbeddingEngine:
 
         try:
             from sentence_transformers import SentenceTransformer
+
             device = self._determine_device()
             self._model = SentenceTransformer(self.model_name, device=device)
             self._is_loaded = True
@@ -85,7 +88,9 @@ class EmbeddingEngine:
         norm = math.sqrt(sum(x * x for x in vec)) or 1.0
         return [round(x / norm, 6) for x in vec]
 
-    def embed(self, inputs: Union[str, List[str]], model_override: Optional[str] = None) -> EmbeddingResponse:
+    def embed(
+        self, inputs: Union[str, List[str]], model_override: Optional[str] = None
+    ) -> EmbeddingResponse:
         texts = [inputs] if isinstance(inputs, str) else inputs
         if not texts:
             texts = [""]
@@ -118,14 +123,15 @@ class EmbeddingEngine:
             prompt_tokens += max(1, len(t) // 4)
 
         data = [
-            EmbeddingItem(index=idx, embedding=vec)
-            for idx, vec in enumerate(vectors)
+            EmbeddingItem(index=idx, embedding=vec) for idx, vec in enumerate(vectors)
         ]
 
         return EmbeddingResponse(
             data=data,
             model=model_to_report,
-            usage=EmbeddingUsage(prompt_tokens=prompt_tokens, total_tokens=prompt_tokens),
+            usage=EmbeddingUsage(
+                prompt_tokens=prompt_tokens, total_tokens=prompt_tokens
+            ),
         )
 
     @property

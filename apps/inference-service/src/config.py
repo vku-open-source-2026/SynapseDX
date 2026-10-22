@@ -1,5 +1,5 @@
 import os
-from typing import Optional
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,7 +13,9 @@ def _get_env_str(keys: list[str], default: str) -> str:
     return default
 
 
-def _get_env_int(keys: list[str], default: int, min_val: int = 1, max_val: int = 300000) -> int:
+def _get_env_int(
+    keys: list[str], default: int, min_val: int = 1, max_val: int = 300000
+) -> int:
     for k in keys:
         v = os.getenv(k)
         if v is not None:
@@ -55,7 +57,9 @@ class Settings:
     OPENROUTER_TIMEOUT_MS: int = _get_env_int(
         ["OPENROUTER_TIMEOUT_MS", "AI_TIMEOUT_MS"], 30000, 1000, 300000
     )
-    OPENROUTER_RETRIES: int = _get_env_int(["OPENROUTER_RETRIES", "AI_RETRIES"], 2, 0, 5)
+    OPENROUTER_RETRIES: int = _get_env_int(
+        ["OPENROUTER_RETRIES", "AI_RETRIES"], 2, 0, 5
+    )
 
     # Embedding Model (Self-hosted Lightweight)
     EMBEDDING_MODEL_NAME: str = _get_env_str(

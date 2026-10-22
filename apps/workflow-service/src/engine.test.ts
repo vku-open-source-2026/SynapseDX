@@ -5,19 +5,29 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams, isBlockedUrl, assertUrlAllowed } from './engine';
+import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams, validateIntegrationParams, resolveIntegrationCall, validateAgentToolIds, isBlockedUrl, assertUrlAllowed } from './engine';
 
 const N = (name: string, type: string, parameters: any = {}) => ({ name, type, parameters });
 
 describe('engine: set / if / noOp passthrough', () => {
   it('set merges values with templating', async () => {
     const r = await runWorkflow({
-      nodes: [N('Start', 'n8n-nodes-base.manualTrigger'), N('S', 'n8n-nodes-base.set', { values: { tag: 'big', upper: '={{ $input.name }}' } })],
+      nodes: [N('Start', 'n8n-nodes-base.manualTrigger'), N('S', 'n8n-nodes-base.set', {
+        values: {
+          tag: 'big',
+          upper: '={{ $input.name }}',
+          embedded: 'Hello {{ $json.name }}',
+          embeddedEq: '=Hi {{ $json.name }}',
+        },
+      })],
       connections: { Start: { main: [[{ node: 'S' }]] } } as any,
     }, { name: 'etl' });
     assert.equal(r.status, 'success');
     assert.equal((r.output as any).tag, 'big');
     assert.equal((r.output as any).name, 'etl');
+    assert.equal((r.output as any).upper, 'etl');
+    assert.equal((r.output as any).embedded, 'Hello etl');
+    assert.equal((r.output as any).embeddedEq, 'Hi etl');
   });
   it('if routes true/false branches', async () => {
     const def = {
@@ -684,5 +694,239 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     assert.equal(res.output.agent.steps_count, 2);
     assert.equal(res.output.agent.tools_used[0], 'logic_calculator');
     assert.equal(res.output.agent.tools_used[1], 'faststore_cache');
+  });
+});
+
+describe('engine: decision fallback and agent sockets', () => {
+  const decisionDef = (fallbackBranch = 2, minConfidence = 0.5) => ({
+    nodes: [
+      N('Start', 'manualTrigger'),
+      N('Decider', 'synapseflow.decision', {
+        input: '={{ $json.query }}',
+        choices: { billing: 'billing', support: 'support', technical: 'technical' },
+        fallbackBranch,
+        minConfidence,
+      }),
+      N('Billing', 'set', { values: { department: 'billing' } }),
+      N('Support', 'set', { values: { department: 'support' } }),
+      N('Technical', 'set', { values: { department: 'technical' } }),
+    ],
+    connections: {
+      Start: { main: [[{ node: 'Decider' }]] },
+      Decider: { main: [[{ node: 'Billing' }], [{ node: 'Support' }], [{ node: 'Technical' }]] },
+    } as any,
+  });
+
+  it('falls back on an unknown route and on low confidence', async () => {
+    const unknown = await runWorkflow(decisionDef(2, 0.5), { query: 'hello' }, {
+      synapsedxCall: async () => ({ best_choice: 'not-a-route', confidence: 0.99, probabilities: {} }),
+    });
+    assert.equal(unknown.status, 'success');
+    assert.equal(unknown.output.department, 'technical');
+    assert.equal(unknown.output.decision.branch, 2);
+    assert.equal(unknown.output.decision.fallback, true);
+
+    const unsure = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
+      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0.2, probabilities: {} }),
+    });
+    assert.equal(unsure.status, 'success');
+    assert.equal(unsure.output.department, 'support');
+    assert.equal(unsure.output.decision.branch, 1);
+    assert.equal(unsure.output.decision.fallback, true);
+
+    const zero = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
+      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0, probabilities: {} }),
+    });
+    assert.equal(zero.output.department, 'support');
+    assert.equal(zero.output.decision.fallback, true);
+    assert.equal(zero.output.decision.confidence, 0);
+
+    const confident = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
+      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0.95, probabilities: {} }),
+    });
+    assert.equal(confident.output.department, 'billing');
+    assert.equal(confident.output.decision.fallback, false);
+  });
+
+  it('exposes a Tools-socket node as a callable tool and executes it with model input', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'Use the Lookup tool for {{ $json.name }}',
+          tools: [],
+          maxSteps: 3,
+        }),
+        N('Lookup', 'set', { values: { greeting: 'Hi {{ $json.name }}', source: 'canvas-tool' } }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+        Lookup: { main: [[{ node: 'Agent', type: 'tools', targetPort: 'tools', index: 0 }]] },
+      } as any,
+    };
+    let chat = 0;
+    let seenTools: any[] = [];
+    let seenUser = '';
+    const res = await runWorkflow(def, { name: 'Ada' }, {
+      synapsedxCall: async (resource, operation, args) => {
+        assert.equal(resource, 'inference');
+        assert.equal(operation, 'chat');
+        chat++;
+        seenTools = args.tools || [];
+        seenUser = args.messages?.[1]?.content || '';
+        if (chat === 1) {
+          return {
+            choices: [{
+              message: {
+                role: 'assistant',
+                tool_calls: [{
+                  id: 'lookup-1',
+                  type: 'function',
+                  function: { name: 'Lookup', arguments: JSON.stringify({ input: { name: 'Ada' } }) },
+                }],
+              },
+            }],
+          };
+        }
+        return { choices: [{ message: { role: 'assistant', content: 'The greeting is ready.' } }] };
+      },
+    });
+    assert.equal(res.status, 'success');
+    assert.equal(seenUser, 'Use the Lookup tool for Ada');
+    assert.deepEqual(seenTools.map((t) => t.function.name), ['Lookup']);
+    assert.match(seenTools[0].function.description, /Execute the workflow node "Lookup"/);
+    assert.equal(res.output.agent.tools_used[0], 'Lookup');
+    assert.equal(res.output.agent.actions_taken[0].result.output.greeting, 'Hi Ada');
+    assert.equal(res.output.agent.actions_taken[0].result.output.source, 'canvas-tool');
+  });
+
+  it('uses a Model-socket node to override the agent model', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', { core: 'synapse-inference', model: 'inline-model', userPrompt: 'hello' }),
+        N('ModelCore', 'synapseflow.model', { core: 'synapse-inference', model: 'override-model' }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+        ModelCore: { main: [[{ node: 'Agent', type: 'model', targetPort: 'model', index: 0 }]] },
+      } as any,
+    };
+    let seenModel = '';
+    const res = await runWorkflow(def, {}, {
+      synapsedxCall: async (_resource, _operation, args) => {
+        seenModel = args.model;
+        return { choices: [{ message: { role: 'assistant', content: 'ok' } }] };
+      },
+    });
+    assert.equal(res.status, 'success');
+    assert.equal(seenModel, 'override-model');
+    assert.equal(res.output.agent.model, 'override-model');
+  });
+
+  it('tells the model exactly which built-in tools are enabled and rejects disabled calls', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'calculate',
+          tools: ['http_request', 'synapsebase_query'],
+          maxSteps: 3,
+        }),
+      ],
+      connections: { Start: { main: [[{ node: 'Agent' }]] } } as any,
+    };
+    let chat = 0;
+    let schema: any[] = [];
+    const res = await runWorkflow(def, {}, {
+      synapsedxCall: async (_resource, _operation, args) => {
+        chat++;
+        if (chat === 1) {
+          schema = args.tools || [];
+          return {
+            choices: [{
+              message: {
+                role: 'assistant',
+                tool_calls: [{
+                  id: 'bad-1',
+                  type: 'function',
+                  function: { name: 'logic_calculator', arguments: '{"expression":"1+1"}' },
+                }],
+              },
+            }],
+          };
+        }
+        assert.equal(args.messages.at(-1)?.role, 'tool');
+        return { choices: [{ message: { role: 'assistant', content: 'final' } }] };
+      },
+    });
+    assert.deepEqual(schema.map((t) => t.function.name), ['http_request', 'synapsebase_query']);
+    assert.equal(res.status, 'success');
+    assert.match(res.output.agent.actions_taken[0].result.error, /not enabled/);
+    assert.equal(res.output.agent.tools_used[0], 'logic_calculator');
+  });
+});
+
+describe('engine: split SynapseDX service nodes', () => {
+  it('maps each service node to the canonical resource/operation', () => {
+    assert.deepEqual(resolveIntegrationCall('synapsedx.base', { operation: 'get-document', input: { collection: 'c', id: '1' } }), {
+      resource: 'base', operation: 'get-document', input: { collection: 'c', id: '1' },
+    });
+    assert.deepEqual(resolveIntegrationCall('synapsedx.iam', { operation: 'authorize.check', input: {} }), {
+      resource: 'authorize', operation: 'check', input: {},
+    });
+    assert.deepEqual(resolveIntegrationCall('synapsedx.flow', { operation: 'workflows.execute', input: { id: 'w1' } }), {
+      resource: 'workflows', operation: 'execute', input: { id: 'w1' },
+    });
+    assert.deepEqual(resolveIntegrationCall('synapsedx.queue', { operation: 'publish', input: { queue: 'q' } }), {
+      resource: 'queue', operation: 'publish', input: { queue: 'q' },
+    });
+  });
+
+  it('rejects missing/unknown operations and required input', () => {
+    assert.match(validateIntegrationParams('synapsedx.base', {}) || '', /operation.*required/);
+    assert.match(validateIntegrationParams('synapsedx.base', { operation: 'nope', input: {} }) || '', /unknown operation/);
+    assert.match(
+      validateIntegrationParams('synapsedx.base', { operation: 'get-document', input: { collection: 'c' } }) || '',
+      /needs 'id'/,
+    );
+    assert.equal(validateIntegrationParams('synapsedx.iam', { operation: 'authorize.check', input: { userId: 'u', action: 'read', resource: 'r' } }), null);
+  });
+
+  it('executes a split integration node with templated input as the run principal', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Check', 'synapsedx.iam', {
+          operation: 'authorize.check',
+          input: { userId: '={{ $json.user }}', action: 'read', resource: 'ticket' },
+        }),
+      ],
+      connections: { Start: { main: [[{ node: 'Check' }]] } } as any,
+    };
+    let seen: any = null;
+    const r = await runWorkflow(def, { user: 'u-9' }, {
+      principal: { sub: 'u-9', kind: 'user', org: 'acme' } as any,
+      synapsedxCall: async (resource, operation, args, principal) => {
+        seen = { resource, operation, args, principal };
+        return { allowed: true };
+      },
+    });
+    assert.equal(r.status, 'success');
+    assert.deepEqual(seen, {
+      resource: 'authorize',
+      operation: 'check',
+      args: { userId: 'u-9', action: 'read', resource: 'ticket' },
+      principal: { sub: 'u-9', kind: 'user', org: 'acme' },
+    });
+    assert.equal(r.output.allowed, true);
+  });
+
+  it('validates agent tool ids while keeping legacy aliases', () => {
+    assert.equal(validateAgentToolIds(['data_sources', 'decision_eval']), null);
+    assert.match(validateAgentToolIds(['does_not_exist']) || '', /unknown tool/);
+    assert.match(validateAgentToolIds('nope') || '', /must be an array/);
   });
 });
