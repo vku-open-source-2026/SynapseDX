@@ -17,6 +17,7 @@ const ORG = process.env.SHOWCASE_ORG || 'acme';
 const RUN_AI = process.env.SHOWCASE_RUN_AI === '1';
 const WORKFLOW_NAME = `showcase-customer-360-${Date.now()}`;
 const WEBHOOK_PATH = 'customer-360-demo';
+let currentWebhookPath = WEBHOOK_PATH;
 
 let TOKEN = '';
 
@@ -49,7 +50,7 @@ function byNode(exec) {
 }
 
 async function runCase(name, payload, expectedRoute, expectedNodes, expectedTerminal, minNodes) {
-  const res = await api(`/webhook/${WEBHOOK_PATH}`, {
+  const res = await api(`/webhook/${currentWebhookPath}`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -138,8 +139,10 @@ async function main() {
     body: JSON.stringify({ template: 'customer-360-orchestrator', name: WORKFLOW_NAME }),
   });
   assert.ok(wf.id, 'workflow id missing');
+  const hookNode = (wf.nodes || []).find((n) => n.type && n.type.includes('webhook'));
+  if (hookNode?.parameters?.path) currentWebhookPath = hookNode.parameters.path;
   await api(`/v1/workflows/${encodeURIComponent(wf.id)}/activate`, { method: 'POST', body: '{}' });
-  console.log(`workflow=${wf.id} name=${wf.name || WORKFLOW_NAME} nodes=${template.nodes.length}`);
+  console.log(`workflow=${wf.id} name=${wf.name || WORKFLOW_NAME} nodes=${template.nodes.length} webhook=${currentWebhookPath}`);
 
   const common = {
     customerId: 'cust-360',

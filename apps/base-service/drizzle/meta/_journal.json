@@ -15,6 +15,13 @@
       "when": 1792555762818,
       "tag": "0001_colossal_timeslip",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792556800000,
+      "tag": "0002_vector_store",
+      "breakpoints": true
     }
   ]
 }

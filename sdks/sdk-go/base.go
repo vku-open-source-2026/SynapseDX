@@ -16,9 +16,11 @@ import (
 
 // BaseMappingField maps one logical name onto a dot path inside stored data.
 type BaseMappingField struct {
-	Path     string `json:"path"`
-	Type     string `json:"type,omitempty"`     // string|number|boolean|date|array|object|any
-	Required bool   `json:"required,omitempty"` // required on full writes, not patches
+	Path      string `json:"path"`
+	Type      string `json:"type,omitempty"`      // string|number|boolean|date|array|object|vector|any
+	Required  bool   `json:"required,omitempty"`  // required on full writes, not patches
+	Dimension int    `json:"dimension,omitempty"` // vector dimension
+	Metric    string `json:"metric,omitempty"`    // cosine|l2|ip
 }
 
 // BaseMapping is the canonical server mapping. An empty mapping copies data 1:1.
@@ -182,6 +184,37 @@ type BaseQueryResult[T any] struct {
 	Limit      int    `json:"limit"`
 	Offset     int    `json:"offset"`
 	NextCursor string `json:"nextCursor"`
+}
+
+// BaseVectorSearchOptions configures a vector similarity query.
+type BaseVectorSearchOptions struct {
+	Vector []float64 `json:"vector"`
+	Limit  int       `json:"limit,omitempty"`
+	Field  string    `json:"field,omitempty"`
+	Metric string    `json:"metric,omitempty"`
+	Where  any       `json:"where,omitempty"`
+	Select []string  `json:"select,omitempty"`
+	As     string    `json:"as,omitempty"` // data|object
+}
+
+// BaseVectorSearchItem represents a single vector search match.
+type BaseVectorSearchItem[T any] struct {
+	ID         string  `json:"id"`
+	Similarity float64 `json:"similarity"`
+	Distance   float64 `json:"distance"`
+	Version    int     `json:"version"`
+	CreatedAt  string  `json:"createdAt"`
+	UpdatedAt  string  `json:"updatedAt"`
+	Data       T       `json:"data,omitempty"`
+	Object     T       `json:"object,omitempty"`
+}
+
+// BaseVectorSearchResult holds vector search matches.
+type BaseVectorSearchResult[T any] struct {
+	Items  []BaseVectorSearchItem[T] `json:"items"`
+	Total  int                       `json:"total"`
+	Limit  int                       `json:"limit"`
+	Metric string                    `json:"metric"`
 }
 
 type baseQueryEnvelope struct {
@@ -408,6 +441,22 @@ func (c *Client) QueryBaseDocuments(collection string, q BaseQuery) (BaseQueryRe
 		out.NextCursor = *env.NextCursor
 	}
 	return out, nil
+}
+
+// VectorSearchBaseDocuments runs a vector similarity query against collection documents.
+func (c *Client) VectorSearchBaseDocuments(collection string, opts BaseVectorSearchOptions) (BaseVectorSearchResult[map[string]any], error) {
+	if opts.As == "" {
+		opts.As = "data"
+	}
+	b, err := c.do("POST", "/v1/base/collections/"+pathEscape(collection)+"/vector-search", opts)
+	if err != nil {
+		return BaseVectorSearchResult[map[string]any]{}, err
+	}
+	var res BaseVectorSearchResult[map[string]any]
+	if err := unmarshal(b, &res); err != nil {
+		return BaseVectorSearchResult[map[string]any]{}, err
+	}
+	return res, nil
 }
 
 // IncrementBaseDocument atomically increments a numeric field (by=0 -> 1).
@@ -688,6 +737,37 @@ func (c *BaseCollection[T]) Query(q BaseQuery) (BaseQueryResult[T], error) {
 			return BaseQueryResult[T]{}, err
 		}
 		out.Items = append(out.Items, value)
+	}
+	return out, nil
+}
+
+// VectorSearch runs a vector similarity query and converts matching objects to type T.
+func (c *BaseCollection[T]) VectorSearch(opts BaseVectorSearchOptions) (BaseVectorSearchResult[T], error) {
+	opts.As = "object"
+	raw, err := c.Client.VectorSearchBaseDocuments(c.Name, opts)
+	if err != nil {
+		return BaseVectorSearchResult[T]{}, err
+	}
+	out := BaseVectorSearchResult[T]{
+		Items:  make([]BaseVectorSearchItem[T], 0, len(raw.Items)),
+		Total:  raw.Total,
+		Limit:  raw.Limit,
+		Metric: raw.Metric,
+	}
+	for _, item := range raw.Items {
+		value, err := c.FromObject(item.Object)
+		if err != nil {
+			return BaseVectorSearchResult[T]{}, err
+		}
+		out.Items = append(out.Items, BaseVectorSearchItem[T]{
+			ID:         item.ID,
+			Similarity: item.Similarity,
+			Distance:   item.Distance,
+			Version:    item.Version,
+			CreatedAt:  item.CreatedAt,
+			UpdatedAt:  item.UpdatedAt,
+			Object:     value,
+		})
 	}
 	return out, nil
 }

@@ -12,7 +12,8 @@
 
 import { HttpClient } from './_http';
 
-export type BaseMappingType = 'string' | 'number' | 'boolean' | 'date' | 'array' | 'object' | 'any';
+export type BaseMappingType = 'string' | 'number' | 'boolean' | 'date' | 'array' | 'object' | 'vector' | 'any';
+export type BaseVectorMetric = 'cosine' | 'l2' | 'ip';
 
 export interface BaseMappingField {
   /** Dot path inside the stored document. */
@@ -21,6 +22,10 @@ export interface BaseMappingField {
   type?: BaseMappingType;
   /** Required on full writes (create/replace), not on partial patches. */
   required?: boolean;
+  /** Vector dimension (optional, verified if provided). */
+  dimension?: number;
+  /** Distance metric for similarity queries (default: cosine). */
+  metric?: BaseVectorMetric;
 }
 
 export interface BaseMapping {
@@ -88,6 +93,36 @@ export interface BaseQueryResult<T = Record<string, unknown>> {
   limit: number;
   offset: number;
   nextCursor: string | null;
+}
+
+export interface BaseVectorSearchOptions {
+  vector: number[];
+  limit?: number;
+  k?: number;
+  field?: string;
+  metric?: BaseVectorMetric;
+  where?: BaseFilter | BaseFilter[] | Record<string, unknown>;
+  filter?: BaseFilter | BaseFilter[] | Record<string, unknown>;
+  select?: string[];
+  as?: 'data' | 'object';
+}
+
+export interface BaseVectorSearchItem<T = Record<string, unknown>> {
+  id: string;
+  similarity: number;
+  distance: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  data?: T;
+  object?: T;
+}
+
+export interface BaseVectorSearchResult<T = Record<string, unknown>> {
+  items: BaseVectorSearchItem<T>[];
+  total: number;
+  limit: number;
+  metric: string;
 }
 
 const _UNSET = Symbol('unset');
@@ -281,6 +316,27 @@ export class BaseService {
     });
   }
 
+  vectorSearch<T = Record<string, unknown>>(
+    collection: string,
+    options: BaseVectorSearchOptions,
+  ): Promise<BaseVectorSearchResult<T>> {
+    const body: Record<string, unknown> = {
+      vector: options.vector,
+      as: options.as ?? 'data',
+    };
+    if (options.limit !== undefined) body.limit = options.limit;
+    if (options.k !== undefined) body.k = options.k;
+    if (options.field !== undefined) body.field = options.field;
+    if (options.metric !== undefined) body.metric = options.metric;
+    if (options.where !== undefined) body.where = options.where;
+    if (options.filter !== undefined) body.filter = options.filter;
+    if (options.select !== undefined) body.select = options.select;
+    return this.http.req(`/v1/base/collections/${encodeURIComponent(collection)}/vector-search`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
   listDocuments<T = Record<string, unknown>>(
     collection: string,
     opts: { limit?: number; offset?: number } = {},
@@ -425,6 +481,18 @@ export class BaseCollection<T = Record<string, unknown>> {
       ...result,
       items: result.items.map((item) => this.fromObject(item.object)),
     }));
+  }
+
+  vectorSearch(options: Omit<BaseVectorSearchOptions, 'as'>): Promise<BaseVectorSearchResult<T>> {
+    return this.service
+      .vectorSearch<any>(this.name, { ...options, as: 'object' })
+      .then((result) => ({
+        ...result,
+        items: result.items.map((item) => ({
+          ...item,
+          object: this.fromObject(item.object),
+        })),
+      }));
   }
 
   changes(query: { since: string; limit?: number }) {

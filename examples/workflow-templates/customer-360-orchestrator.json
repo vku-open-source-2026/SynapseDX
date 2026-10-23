@@ -214,6 +214,7 @@
         "userPrompt": "Incident: \"{{ $json.query }}\". Event: {{ $json.eventId }}. Customer: {{ $json.customerId }}. Priority: {{ $json.priority }}. Route: {{ $json.decision.route }}. Use at most two tools, then return the remediation plan.",
         "tools": [
           "synapsebase_query",
+          "synapsebase_vector_search",
           "faststore_cache",
           "iam_check_permission",
           "workflow_list"

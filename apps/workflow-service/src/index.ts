@@ -20,7 +20,7 @@ import {
   toPublicCredential, decryptSecret,
 } from './store';
 import type { Principal } from './store';
-import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, validateIntegrationParams, validateAgentToolIds, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType, isAiAgentType, isDecisionType, isModelType, isIntegrationType, edgeTargetPort, auxiliaryEdges } from './engine';
+import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, validateIntegrationParams, validateAgentToolIds, extractEmbeddingVector, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType, isAiAgentType, isDecisionType, isModelType, isIntegrationType, edgeTargetPort, auxiliaryEdges } from './engine';
 import type { CredentialResolver, RunPrincipal, SynapseDXCall, EngineNode, Connections } from './engine';
 
 /** May this credential be resolved for this run principal? (P0-4/#5)
@@ -285,6 +285,30 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       } else if (operation === 'delete-document') {
         method = 'DELETE';
         path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/documents/${encodeURIComponent(cleanId(a.id, 'id', 256))}`;
+      } else if (operation === 'vector-search') {
+        let vector = a.vector ?? a.embedding;
+        const queryText = a.query ?? a.text ?? a.prompt ?? (typeof a.input === 'string' ? a.input : undefined);
+        if ((!Array.isArray(vector) || vector.length === 0) && queryText) {
+          try {
+            const embRes = await synapsedxCall('inference', 'embeddings', { input: String(queryText) }, principal);
+            const rawVec = extractEmbeddingVector(embRes);
+            if (rawVec && rawVec.length > 0) {
+              vector = rawVec;
+            }
+          } catch (e: any) {
+            throw new Error(`synapsedx.api: base.vector-search embedding failed: ${e?.message || e}`);
+          }
+        }
+        method = 'POST';
+        path = `/v1/base/collections/${encodeURIComponent(cleanId(a.collection, 'collection', 128))}/vector-search`;
+        body = {
+          vector,
+          limit: a.limit ?? a.k,
+          field: a.field,
+          metric: a.metric,
+          where: a.where !== undefined ? a.where : a.filter,
+          as: a.as,
+        };
       } else {
         throw new Error(`synapsedx.api: unsupported call 'base.${operation}'`);
       }
@@ -1845,6 +1869,7 @@ export function listTemplates() {
     { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
     { name: 'ai-triage-ops', description: 'AI triage showcase: webhook -> Decision (4 routes) -> 3 AI Agents with canvas Tools/Model sockets + Base/Faststore/IAM/HTTP tools -> aggregate -> escalation queue' },
     { name: 'customer-360-orchestrator', description: 'Customer 360 showcase: webhook -> Decision (4 routes) -> AI SRE agent + canvas Tools/Model sockets -> Base/Faststore/IAM/LDS/Queue/Flow integrations -> fan-out/fan-in -> risk gate' },
+    { name: 'vector-rag-orchestrator', description: 'Enterprise RAG triage: webhook -> Base vector search -> Decision (multi-route) -> AI Agent with vector tools -> Faststore cache -> Queue escalation' },
   ];
 }
 
@@ -2108,6 +2133,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
             'Use at most two tools, then return the remediation plan.',
           tools: [
             'synapsebase_query',
+            'synapsebase_vector_search',
             'faststore_cache',
             'iam_check_permission',
             'workflow_list',
@@ -2358,6 +2384,93 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         PermissionCheck: { main: [[tool('AccountAgent')]] },
         StatusAPI: { main: [[tool('TechAgent')]] },
         ModelCore: { main: [[model('BillingAgent')]] },
+      },
+    };
+  }
+  if (name === 'vector-rag-orchestrator') {
+    const node = (n: string, type: string, x: number, y: number, parameters: any = {}) => ({
+      id: wid(), name: n, type, typeVersion: 1, position: [x, y], parameters,
+    });
+    const edge = (target: string) => ({ node: target, type: 'main', index: 0 });
+    return {
+      name: wname,
+      settings: { onError: 'continue', timeoutMs: 300000 },
+      nodes: [
+        { ...node('Intake', 'n8n-nodes-base.webhook', 80, 360, { path: 'vector-rag-demo', httpMethod: 'POST' }), webhookId: wid() },
+        node('Normalize', 'n8n-nodes-base.code', 300, 360, {
+          code: 'const p = $input || {}; const query = String(p.query || p.message || p.question || "How to configure SSO").trim(); const incidentId = p.incidentId || ("inc-" + Date.now()); const category = p.category || "knowledge"; const urgency = /(urgent|critical|outage|down)/i.test(query) ? "high" : "normal"; return { ...p, query, incidentId, category, urgency, timestamp: $now };',
+        }),
+        node('KBVectorSearch', 'synapsedx.base', 540, 360, {
+          operation: 'vector-search',
+          input: {
+            collection: 'kb_articles',
+            query: '={{ $json.query }}',
+            limit: 3,
+            metric: 'cosine',
+            as: 'object',
+          },
+        }),
+        node('ScoreMatch', 'n8n-nodes-base.code', 780, 360, {
+          code: 'const prev = $input || {}; const items = prev.items || []; const total = prev.total || items.length; const topItem = items[0] || null; const similarity = topItem ? Number(topItem.similarity || 0) : 0; const doc = topItem ? (topItem.object || topItem.data || {}) : {}; let route = "escalate"; if (similarity >= 0.85) route = "auto_resolve"; else if (similarity >= 0.50) route = "agent_triage"; return { ...prev, topDocId: topItem ? topItem.id : null, topDocTitle: doc.title || "No matching article", topDocSolution: doc.solution || doc.content || "Standard triage runbook", similarity, matchCount: total, route };',
+        }),
+        node('RouteByScore', 'synapseflow.decision', 1020, 360, {
+          input: '={{ $json.route }}',
+          choices: [
+            { name: 'auto_resolve', description: 'High confidence semantic match above 0.85 similarity' },
+            { name: 'agent_triage', description: 'Medium confidence match between 0.50 and 0.85 similarity requiring AI Agent investigation' },
+            { name: 'escalate', description: 'Low confidence match below 0.50 or missing article' },
+          ],
+        }),
+        node('AutoResolve', 'n8n-nodes-base.code', 1300, 200, {
+          code: 'const p = $input || {}; return { status: "resolved", resolutionType: "automated_rag", incidentId: p.incidentId, query: p.query, matchedDocId: p.topDocId, matchedDocTitle: p.topDocTitle, similarity: p.similarity, solution: p.topDocSolution, actionTaken: "KB runbook automatically dispatched to customer", resolvedAt: $now };',
+        }),
+        node('AgentTriage', 'synapseflow.agent', 1300, 360, {
+          systemPrompt: 'You are an intelligent SRE & Support Specialist in SynapseFlow. Use vector search and tools to investigate tickets, verify knowledge base articles, and generate concise resolution reports.',
+          input: '={{ "Incident: " + $json.incidentId + ". Query: " + $json.query + ". Top KB match: " + $json.topDocTitle + " (similarity: " + $json.similarity + "). Please provide resolution recommendation." }}',
+          tools: ['synapsebase_vector_search', 'synapsebase_query', 'faststore_get'],
+        }),
+        node('AgentFormat', 'n8n-nodes-base.code', 1540, 360, {
+          code: 'const p = $input || {}; return { status: "resolved", resolutionType: "agent_assisted_rag", incidentId: p.incidentId, query: p.query, similarity: p.similarity, solution: p.output || p.result || "Agent verified resolution from KB context", resolvedAt: $now };',
+        }),
+        node('EscalateQueue', 'synapsedx.queue', 1300, 520, {
+          operation: 'publish',
+          input: {
+            queue: 'incident-escalations',
+            payload: '={{ $json }}',
+          },
+        }),
+        node('EscalateFormat', 'n8n-nodes-base.code', 1540, 520, {
+          code: 'const p = $input || {}; const incidentId = p.incidentId || p.message?.payload?.incidentId || p.payload?.incidentId; const query = p.query || p.message?.payload?.query || ""; const similarity = p.similarity ?? p.message?.payload?.similarity ?? 0; return { status: "escalated", resolutionType: "human_sre_queue", incidentId, query, similarity, queueId: p.id || p.messageId || "queued", actionTaken: "Dispatched to Tier-2 SRE queue", escalatedAt: $now };',
+        }),
+        node('CacheResult', 'synapsedx.faststore', 1800, 360, {
+          operation: 'set',
+          input: {
+            key: '={{ "rag:incident:" + $json.incidentId }}',
+            value: '={{ JSON.stringify($json) }}',
+            ttl: 3600,
+          },
+        }),
+        node('FinalSummary', 'n8n-nodes-base.code', 2040, 360, {
+          code: 'const p = $input || {}; return { ok: true, summary: "Pipeline completed for incident " + (p.incidentId || "unknown"), incidentId: p.incidentId, resolutionType: p.resolutionType, status: p.status, similarity: p.similarity, solution: p.solution, actionTaken: p.actionTaken, completedAt: $now };',
+        }),
+      ],
+      connections: {
+        Intake: { main: [[edge('Normalize')]] },
+        Normalize: { main: [[edge('KBVectorSearch')]] },
+        KBVectorSearch: { main: [[edge('ScoreMatch')]] },
+        ScoreMatch: { main: [[edge('RouteByScore')]] },
+        RouteByScore: {
+          main: [
+            [edge('AutoResolve')],
+            [edge('AgentTriage')],
+            [edge('EscalateQueue')],
+          ],
+        },
+        AutoResolve: { main: [[edge('CacheResult'), edge('FinalSummary')]] },
+        AgentTriage: { main: [[edge('AgentFormat')]] },
+        AgentFormat: { main: [[edge('CacheResult'), edge('FinalSummary')]] },
+        EscalateQueue: { main: [[edge('EscalateFormat')]] },
+        EscalateFormat: { main: [[edge('CacheResult'), edge('FinalSummary')]] },
       },
     };
   }

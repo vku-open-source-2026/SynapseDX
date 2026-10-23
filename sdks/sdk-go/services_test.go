@@ -51,6 +51,15 @@ func serviceServer(t *testing.T, seen map[string]string) *httptest.Server {
 			}
 		case strings.HasSuffix(p, "/changes"):
 			payload = map[string]any{"changes": []any{}, "nextSince": "2026-01-01T00:00:00.000Z", "hasMore": false}
+		case strings.HasSuffix(p, "/vector-search"):
+			payload = map[string]any{
+				"items": []any{map[string]any{
+					"id": "p1", "similarity": 0.99, "distance": 0.01, "version": 1,
+					"object": map[string]any{"name": "Central", "capacity": 10},
+					"data":   map[string]any{"profile": map[string]any{"name": "Central", "capacity": 10}},
+				}},
+				"total": 1, "limit": 10, "metric": "cosine",
+			}
 		case r.Method != "GET" && strings.HasPrefix(p, "/v1/base/collections/parks/documents") && !strings.HasSuffix(p, ":batch"):
 			payload = map[string]any{
 				"id": "p1", "data": map[string]any{"profile": map[string]any{"name": "Central", "capacity": 10}},
@@ -395,6 +404,30 @@ func TestBaseTypedCollection(t *testing.T) {
 	}
 	if incremented.Capacity != 10 {
 		t.Fatalf("increment out: %+v", incremented)
+	}
+
+	vsRes, err := c.VectorSearchBaseDocuments("parks", BaseVectorSearchOptions{
+		Vector: []float64{0.1, 0.2, 0.3},
+		Limit:  5,
+		Metric: "cosine",
+		Where:  map[string]any{"name": "Central"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vsRes.Items) != 1 || vsRes.Items[0].Similarity < 0.9 {
+		t.Fatalf("vector search out: %+v", vsRes)
+	}
+
+	colVs, err := parks.VectorSearch(BaseVectorSearchOptions{
+		Vector: []float64{0.1, 0.2, 0.3},
+		Limit:  5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(colVs.Items) != 1 || colVs.Items[0].Object.Name != "Central" {
+		t.Fatalf("col vector search out: %+v", colVs)
 	}
 }
 

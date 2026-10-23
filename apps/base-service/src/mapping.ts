@@ -20,7 +20,8 @@
  * required fields and declared types are enforced server-side.
  */
 
-export type MappingType = 'string' | 'number' | 'boolean' | 'date' | 'array' | 'object' | 'any';
+export type MappingType = 'string' | 'number' | 'boolean' | 'date' | 'array' | 'object' | 'vector' | 'any';
+export type VectorMetric = 'cosine' | 'l2' | 'ip';
 
 export interface MappingField {
   /** Dot path inside the stored document. */
@@ -29,6 +30,10 @@ export interface MappingField {
   type?: MappingType;
   /** Required on full writes (create/replace), not on partial patches. */
   required?: boolean;
+  /** Vector dimension (optional, verified if provided). */
+  dimension?: number;
+  /** Distance metric for similarity queries (default: cosine). */
+  metric?: VectorMetric;
 }
 
 export interface BaseMapping {
@@ -50,7 +55,8 @@ export class MappingError extends Error {
 const FIELD_NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,63}$/;
 const PATH_SEGMENT_RE = /^[A-Za-z0-9_$-]{1,64}$/;
 const BANNED_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
-const MAPPING_TYPES = new Set<string>(['string', 'number', 'boolean', 'date', 'array', 'object', 'any']);
+const MAPPING_TYPES = new Set<string>(['string', 'number', 'boolean', 'date', 'array', 'object', 'vector', 'any']);
+const VECTOR_METRICS = new Set<string>(['cosine', 'l2', 'ip']);
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date);
@@ -84,6 +90,20 @@ export function normalizeMapping(input: unknown): BaseMapping {
         }
         field.type = t as MappingType;
       }
+      if (spec.dimension !== undefined) {
+        const dim = Number(spec.dimension);
+        if (!Number.isInteger(dim) || dim < 1 || dim > 4096) {
+          throw new MappingError(`invalid dimension for mapping field '${name}' (want positive integer <= 4096)`);
+        }
+        field.dimension = dim;
+      }
+      if (spec.metric !== undefined) {
+        const m = String(spec.metric).toLowerCase() as VectorMetric;
+        if (!VECTOR_METRICS.has(m)) {
+          throw new MappingError(`invalid metric '${spec.metric}' for mapping field '${name}' (want cosine, l2, or ip)`);
+        }
+        field.metric = m;
+      }
       if (spec.required !== undefined) field.required = !!spec.required;
     } else {
       throw new MappingError(`mapping field '${name}' must be a path string or {path,type,required}`);
@@ -107,12 +127,23 @@ export function hasMapping(mapping: BaseMapping | null | undefined): boolean {
   return !!mapping && Object.keys(mapping.fields || {}).length > 0;
 }
 
+/** Find declared vector fields in mapping. */
+export function getVectorFields(mapping?: BaseMapping | null): Record<string, MappingField> {
+  if (!mapping?.fields) return {};
+  const out: Record<string, MappingField> = {};
+  for (const [name, field] of Object.entries(mapping.fields)) {
+    if (field.type === 'vector') out[name] = field;
+  }
+  return out;
+}
+
 function typeError(field: string, expected: MappingType, got: unknown): MappingError {
   const actual = got === null ? 'null' : Array.isArray(got) ? 'array' : typeof got;
   return new MappingError(`field '${field}' must be ${expected}, got ${actual}`);
 }
 
-function validateTyped(field: string, type: MappingType, value: unknown): void {
+function validateTyped(field: string, spec: MappingField | MappingType, value: unknown): void {
+  const type = typeof spec === 'string' ? spec : spec.type || 'any';
   if (type === 'any' || value === null) return;
   switch (type) {
     case 'string':
@@ -133,6 +164,22 @@ function validateTyped(field: string, type: MappingType, value: unknown): void {
     case 'object':
       if (!isPlainObject(value)) throw typeError(field, type, value);
       return;
+    case 'vector': {
+      if (!Array.isArray(value)) throw typeError(field, type, value);
+      if (value.length === 0) throw new MappingError(`field '${field}' vector cannot be empty`);
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i];
+        if (typeof item !== 'number' || !Number.isFinite(item)) {
+          throw new MappingError(`field '${field}' vector elements must be finite numbers`);
+        }
+      }
+      if (typeof spec === 'object' && spec.dimension !== undefined) {
+        if (value.length !== spec.dimension) {
+          throw new MappingError(`field '${field}' vector dimension mismatch: expected ${spec.dimension}, got ${value.length}`);
+        }
+      }
+      return;
+    }
   }
 }
 
@@ -244,7 +291,7 @@ export function objectToData(
       if (!opts.partial && field.required) throw new MappingError(`required field '${name}' is missing`);
       continue;
     }
-    validateTyped(name, field.type || 'any', value);
+    validateTyped(name, field, value);
     setPath(out, field.path, cloneJson(value));
   }
   if (map.additional === true) {
@@ -284,7 +331,7 @@ export function validateDataAgainstMapping(
       if (field.required && !opts.partial) throw new MappingError(`required field '${name}' is missing (path '${field.path}')`);
       continue;
     }
-    validateTyped(name, field.type || 'any', value);
+    validateTyped(name, field, value);
   }
 }
 

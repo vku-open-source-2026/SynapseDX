@@ -73,6 +73,24 @@ def _payload(method: str, path: str, body):
             "nextSince": "2026-01-01T00:00:00.000Z",
             "hasMore": False,
         }
+    if p.endswith("/vector-search"):
+        return {
+            "items": [
+                {
+                    "id": "p1",
+                    "similarity": 0.99,
+                    "distance": 0.01,
+                    "version": 1,
+                    "data": {"profile": {"name": "Central", "capacity": 10}},
+                    "object": {"name": "Central", "capacity": 10},
+                    "createdAt": "t",
+                    "updatedAt": "t",
+                }
+            ],
+            "total": 1,
+            "limit": 10,
+            "metric": "cosine",
+        }
     if (
         method in ("POST", "PUT", "PATCH")
         and p.startswith("/v1/base/collections/parks/documents")
@@ -448,6 +466,31 @@ def test_typed_collection_converts_models():
             "unset": ["profile.old"],
         }, _seen
         assert updated == Park("Central", 10), updated
+    finally:
+        srv.shutdown()
+
+
+def test_base_vector_search():
+    srv = _server()
+    try:
+        c = _client(srv)
+        res = c.base.vector_search(
+            "parks", [0.1, 0.2, 0.3], limit=5, where={"name": "Central"}
+        )
+        assert _seen["path"] == "/v1/base/collections/parks/vector-search"
+        assert _seen["method"] == "POST"
+        body = json.loads(_seen["body"])
+        assert body["vector"] == [0.1, 0.2, 0.3]
+        assert body["limit"] == 5
+        assert body["where"] == {"name": "Central"}
+        assert len(res) == 1
+        assert res.items[0]["id"] == "p1"
+        assert res.items[0]["similarity"] == 0.99
+
+        col = c.base.collection("parks")
+        col_res = col.vector_search([0.1, 0.2, 0.3], limit=5)
+        assert len(col_res) == 1
+        assert col_res.items[0]["object"] == {"name": "Central", "capacity": 10}
     finally:
         srv.shutdown()
 

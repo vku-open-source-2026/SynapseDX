@@ -220,6 +220,22 @@ function parse(argv) {
     else if (a === '--visibility') opts.visibility = argv[++i];
     else if (a.startsWith('--description=')) opts.description = a.slice(14);
     else if (a === '--description') opts.description = argv[++i];
+    else if (a === '--vector') opts.vector = argv[++i];
+    else if (a.startsWith('--vector=')) opts.vector = a.slice(9);
+    else if (a === '--query') opts.query = argv[++i];
+    else if (a.startsWith('--query=')) opts.query = a.slice(8);
+    else if (a === '--metric') opts.metric = argv[++i];
+    else if (a.startsWith('--metric=')) opts.metric = a.slice(9);
+    else if (a === '--field') opts.field = argv[++i];
+    else if (a.startsWith('--field=')) opts.field = a.slice(8);
+    else if (a === '--where') opts.where = argv[++i];
+    else if (a.startsWith('--where=')) opts.where = a.slice(8);
+    else if (a === '--mapping') opts.mapping = argv[++i];
+    else if (a.startsWith('--mapping=')) opts.mapping = a.slice(10);
+    else if (a === '--as') opts.as = argv[++i];
+    else if (a.startsWith('--as=')) opts.as = a.slice(5);
+    else if (a === '--id') opts.docId = argv[++i];
+    else if (a.startsWith('--id=')) opts.docId = a.slice(5);
     // Explicit aliases for NGSI-LD @context URLs (see contextOpt above).
     else if (a.startsWith('--context-url=')) (opts.contextUrls ??= []).push(a.slice(14));
     else if (a === '--context-url' || a === '--contexts') {
@@ -761,6 +777,127 @@ async function ldsStats(o, args) {
   return out(await GET(`${LDS}/datasources/${ldsId(args[0], 'datasource-id')}/stats`, o), o);
 }
 
+// ---------- SynapseBase ----------
+const BASE = '/v1/base';
+const BASE_COL_COLS = ['id', 'name', 'description', 'updatedAt'];
+const BASE_DOC_COLS = ['id', 'version', 'createdAt', 'updatedAt'];
+const BASE_VEC_COLS = ['id', 'similarity', 'distance'];
+
+async function cmdBase(o) {
+  const [sub, ...rest] = o._;
+  if (sub === 'collections') return baseCollections(o, rest);
+  if (sub === 'documents') return baseDocuments(o, rest);
+  if (sub === 'vector-search' || sub === 'vectorSearch') return baseVectorSearch(o, rest);
+  if (sub === 'query') return baseQuery(o, rest);
+  throw new Error(`usage: synapsedx base collections [list|create|get|delete] | base documents [list|insert|get|delete] <collection> | base vector-search <collection> | base query <collection>`);
+}
+
+async function baseCollections(o, args) {
+  const [sub, name] = args;
+  if (!sub || sub === 'list') {
+    const r = await GET(`${BASE}/collections`, o);
+    return out(Array.isArray(r) ? r : r.data || r, o, BASE_COL_COLS);
+  }
+  if (sub === 'create') {
+    const colName = name || o.name;
+    need(colName, 'collection name (arg or --name <name>)');
+    let mapping;
+    if (o.mapping) {
+      try { mapping = JSON.parse(o.mapping); } catch { mapping = readJson(o.mapping); }
+    } else if (o.file) {
+      mapping = readJson(o.file);
+    }
+    const body = { name: colName };
+    if (o.description) body.description = o.description;
+    if (mapping) body.mapping = mapping;
+    return out(await POST(`${BASE}/collections`, body, o), o);
+  }
+  if (sub === 'get') {
+    need(name, 'collection name');
+    return out(await GET(`${BASE}/collections/${encodeURIComponent(name)}`, o), o);
+  }
+  if (sub === 'delete' || sub === 'rm') {
+    need(name, 'collection name');
+    return out(await DEL(`${BASE}/collections/${encodeURIComponent(name)}`, o), o);
+  }
+  throw new Error(`unknown base collections subcommand '${sub}' (want list|create|get|delete)`);
+}
+
+async function baseDocuments(o, args) {
+  const [sub, col, id] = args;
+  if (sub === 'list') {
+    need(col, 'collection name');
+    const qs = new URLSearchParams();
+    if (o.limit) qs.set('limit', String(o.limit));
+    if (o.offset) qs.set('offset', String(o.offset));
+    if (o.as) qs.set('as', String(o.as));
+    const s = qs.toString();
+    const r = await GET(`${BASE}/collections/${encodeURIComponent(col)}/documents${s ? `?${s}` : ''}`, o);
+    return out(o.json ? r : r.items || (Array.isArray(r) ? r : r.data || r), o, BASE_DOC_COLS);
+  }
+  if (sub === 'insert' || sub === 'create') {
+    need(col, 'collection name');
+    const payload = readJsonArg(o, 'document JSON');
+    const docId = id || o.docId || (payload && payload.id);
+    const body = { ...payload };
+    if (docId) body.id = docId;
+    return out(await POST(`${BASE}/collections/${encodeURIComponent(col)}/documents`, body, o), o);
+  }
+  if (sub === 'get') {
+    need(col, 'collection name');
+    need(id, 'document id');
+    const qs = o.as ? `?as=${encodeURIComponent(o.as)}` : '';
+    return out(await GET(`${BASE}/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}${qs}`, o), o);
+  }
+  if (sub === 'delete' || sub === 'rm') {
+    need(col, 'collection name');
+    need(id, 'document id');
+    return out(await DEL(`${BASE}/collections/${encodeURIComponent(col)}/documents/${encodeURIComponent(id)}`, o), o);
+  }
+  throw new Error(`unknown base documents subcommand '${sub}' (want list|insert|get|delete)`);
+}
+
+async function baseVectorSearch(o, args) {
+  const [col] = args;
+  need(col, 'collection name');
+  let vector;
+  if (o.vector) {
+    try { vector = JSON.parse(o.vector); } catch { vector = readJson(o.vector); }
+  } else if (o.query) {
+    const emb = await POST('/v1/inference/embeddings', { input: o.query }, o);
+    vector = emb?.data?.[0]?.embedding || emb?.embedding;
+  }
+  if (!vector || !Array.isArray(vector)) {
+    throw new Error('base vector-search requires --vector <json-array> or --query <text>');
+  }
+  const body = { vector };
+  if (o.limit) body.limit = Number(o.limit);
+  if (o.metric) body.metric = o.metric;
+  if (o.field) body.field = o.field;
+  if (o.as) body.as = o.as;
+  if (o.where) {
+    try { body.where = JSON.parse(o.where); } catch { body.where = readJson(o.where); }
+  }
+  const r = await POST(`${BASE}/collections/${encodeURIComponent(col)}/vector-search`, body, o);
+  if (o.json) {
+    console.log(JSON.stringify(r, null, 2));
+    return;
+  }
+  return out(r.items || r, o, BASE_VEC_COLS);
+}
+
+async function baseQuery(o, args) {
+  const [col] = args;
+  need(col, 'collection name');
+  const payload = readJsonArg(o, 'query JSON');
+  const r = await POST(`${BASE}/collections/${encodeURIComponent(col)}/query`, payload, o);
+  if (o.json) {
+    console.log(JSON.stringify(r, null, 2));
+    return;
+  }
+  return out(r.items || r, o, ['id', 'similarity', 'version', 'createdAt']);
+}
+
 const COMMANDS = {
   login: { fn: cmdLogin, use: 'login --email E [--org ORG] [--base URL]', doc: 'Dev login, save token + refresh' },
   refresh: { fn: cmdRefresh, use: 'refresh [refresh-token]', doc: 'Rotate access token (atomic server-side)' },
@@ -791,6 +928,7 @@ const COMMANDS = {
   webhook: { fn: cmdWebhook, use: 'webhook <path> [--data \'{...}\'|payload.json] [--file payload.json] [--method POST] [--base http://localhost:4002]', doc: 'Fire a public inbound webhook (no auth; --base = workflow origin)' },
   templates: { fn: cmdTemplates, use: 'templates [list|<name>]', doc: 'Built-in templates' },
   lds: { fn: cmdLds, use: 'lds licenses | lds datasources [list] [--org <orgId>] [--account <accountId>] | lds datasources create --name N --entity-type T --license SPDX [--slug S] [--context URL]... [--visibility public|internal] [--description D] | lds datasources get|delete <id> | lds datasources update <id> [--name N] [--entity-type T] [--license SPDX] [--slug S] [--context URL]... [--visibility public|internal] [--description D] | lds attributes list <id> | lds attributes set <id> (--file attrs.json | --data \'[...]\') | lds ingest <id> (--file record.json | --data \'{...}\') | lds entities <id> [--limit N] [--offset N] [--visibility public|restricted] | lds entity <id> <entity-id> | lds stats <id>', doc: 'SynapseLDS: licenses, datasources, attribute registry, ingest, NGSI-LD entities' },
+  base: { fn: cmdBase, use: 'base collections [list|create|get|delete] | base documents [list|insert|get|delete] <col> | base vector-search <col> (--vector \'[...]\'|--query \'...\') [--limit N] [--metric cosine|l2|ip] [--where \'{...}\'] | base query <col>', doc: 'SynapseBase: collections, document CRUD, vector similarity search, and hybrid queries' },
 };
 
 function help() {
@@ -803,7 +941,7 @@ Auth defaults: --base > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));
   for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: synapsedx ${COMMANDS[n].use}`);
-  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002\n  synapsedx lds licenses\n  synapsedx lds datasources create --name buildings --entity-type Building --license CC-BY-4.0\n  synapsedx lds entities ds_123 --limit 20 --visibility public');
+  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002\n  synapsedx base collections create kb --mapping \'{"fields":{"vec":{"path":"embedding","type":"vector","dimension":384}}}\'\n  synapsedx base vector-search kb --query "authentication guide" --limit 5\n  synapsedx lds licenses\n  synapsedx lds datasources create --name buildings --entity-type Building --license CC-BY-4.0\n  synapsedx lds entities ds_123 --limit 20 --visibility public');
 }
 
 async function main() {

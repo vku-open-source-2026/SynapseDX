@@ -1037,7 +1037,7 @@ export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
   executions: ['list', 'get'],
   templates: ['list', 'get'],
   lds: ['list-datasources', 'publish-record', 'get-entity'],
-  base: ['list-collections', 'create-document', 'get-document', 'query-documents', 'delete-document'],
+  base: ['list-collections', 'create-document', 'get-document', 'query-documents', 'delete-document', 'vector-search'],
   faststore: ['get', 'set', 'incr', 'delete', 'hash-get', 'hash-set'],
   queue: ['list', 'publish', 'consume', 'ack'],
   inference: ['chat', 'embeddings', 'decision', 'route'],
@@ -1061,6 +1061,7 @@ const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
   'base.get-document': ['collection', 'id'],
   'base.query-documents': ['collection'],
   'base.delete-document': ['collection', 'id'],
+  'base.vector-search': ['collection', 'vector'],
   'faststore.get': ['key'],
   'faststore.set': ['key', 'value'],
   'faststore.incr': ['key'],
@@ -1076,6 +1077,15 @@ const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
   'inference.route': ['input', 'choices'],
 };
 
+/** Extract embedding vector from OpenAI-format, array, or object responses. */
+export function extractEmbeddingVector(emb: any): number[] | null {
+  if (Array.isArray(emb)) return emb;
+  if (Array.isArray(emb?.data?.[0]?.embedding)) return emb.data[0].embedding;
+  if (Array.isArray(emb?.embedding)) return emb.embedding;
+  if (Array.isArray(emb?.data?.[0])) return emb.data[0];
+  return null;
+}
+
 /** Save-time validation for synapsedx.api node params. Required args must be
  *  present here too (values may be `={{ }}` templates — emptiness is
  *  re-checked at run time after resolution). */
@@ -1090,6 +1100,16 @@ export function validateSynapseDXParams(params: any): string | null {
   if (!ops.includes(operation)) return `synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`;
   const input = p.input && typeof p.input === 'object' && !Array.isArray(p.input) ? p.input : {};
   for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
+      const v = (input as any).vector ?? (input as any).embedding;
+      const q = (input as any).query ?? (input as any).text ?? (input as any).prompt;
+      const hasV = v !== undefined && v !== null && String(v).trim() !== '';
+      const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
+      if (!hasV && !hasQ) {
+        return `synapsedx.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`;
+      }
+      continue;
+    }
     const v = (input as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
       return `synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
@@ -1139,6 +1159,16 @@ export function validateIntegrationParams(type: string, params: any): string | n
     return `${type}: unknown operation '${p.operation}' (${resource}: ${ops.join(', ')})`;
   }
   for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
+      const v = (input as any).vector ?? (input as any).embedding;
+      const q = (input as any).query ?? (input as any).text ?? (input as any).prompt;
+      const hasV = v !== undefined && v !== null && String(v).trim() !== '';
+      const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
+      if (!hasV && !hasQ) {
+        return `${type}: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`;
+      }
+      continue;
+    }
     const v = (input as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
       return `${type}: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
@@ -1161,22 +1191,61 @@ function deepResolve(v: any, input: any, depth = 0): any {
 
 async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall }): Promise<any> {
   const p = node.parameters || {};
-  const paramErr = validateSynapseDXParams(p);
-  if (paramErr) throw new Error(paramErr);
-  const resource = String(p.resource);
-  const operation = String(p.operation);
+  const resource = String(p.resource || '');
+  const operation = String(p.operation || '');
+  if (!resource) throw new Error("synapsedx.api: 'resource' is required (e.g. orgs, audit, workflows)");
+  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  if (!ops) throw new Error(`synapsedx.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapsedx-self-check)`);
+  if (!operation) throw new Error(`synapsedx.api: 'operation' is required for '${resource}' (${ops.join(', ')})`);
+  if (!ops.includes(operation)) throw new Error(`synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`);
   const rawArgs = p.input !== undefined ? p.input : {};
   const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? deepResolve(rawArgs, input) : {}) as Record<string, any>;
+  if (resource === 'base' && operation === 'vector-search') {
+    if (!args.query && !args.vector && input && typeof input === 'object') {
+      const fallbackQ = input.query ?? input.text ?? input.prompt;
+      if (fallbackQ) args.query = fallbackQ;
+      const fallbackV = input.vector ?? input.embedding;
+      if (fallbackV) args.vector = fallbackV;
+    }
+  }
   const required = SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || [];
   for (const f of required) {
+    if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
+      const v = (args as any).vector ?? (args as any).embedding;
+      const q = (args as any).query ?? (args as any).text ?? (args as any).prompt;
+      const hasV = v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
+      const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
+      if (!hasV && !hasQ) {
+        throw new Error(`synapsedx.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`);
+      }
+      continue;
+    }
     const v = (args as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
       throw new Error(`synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
     }
   }
+  if (resource === 'base' && operation === 'vector-search') {
+    let vec = args.vector ?? args.embedding;
+    const q = args.query ?? args.text ?? args.prompt;
+    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+      try {
+        const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+        const rawVec = extractEmbeddingVector(emb);
+        if (rawVec && rawVec.length > 0) {
+          args.vector = rawVec;
+        }
+      } catch (e: any) {
+        throw new Error(`synapsedx.api: failed to generate embedding for vector search: ${e?.message || e}`);
+      }
+    }
+  }
   if (!ctx?.synapsedxCall) throw new Error('synapsedx.api: server does not expose a SynapseDX caller (server wiring)');
   const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
   if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error('synapsedx.api: response exceeds 500KB');
+  if (resource === 'base' && operation === 'vector-search' && out && typeof out === 'object' && !Array.isArray(out) && input && typeof input === 'object' && !Array.isArray(input)) {
+    return { ...clone(input), ...clone(out) };
+  }
   return clone(out);
 }
 
@@ -1187,19 +1256,58 @@ async function execIntegrationNode(
 ): Promise<any> {
   const resolved = resolveIntegrationCall(node.type, node.parameters || {});
   if (!resolved) throw new Error(`${node.type}: invalid operation configuration`);
-  const paramErr = validateIntegrationParams(node.type, node.parameters || {});
-  if (paramErr) throw new Error(paramErr);
   const { resource, operation } = resolved;
+  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  if (!ops) throw new Error(`${node.type}: unknown operation '${(node.parameters || {}).operation}'`);
+  if (!ops.includes(operation)) {
+    throw new Error(`${node.type}: unknown operation '${(node.parameters || {}).operation}' (${resource}: ${ops.join(', ')})`);
+  }
   const args = deepResolve(resolved.input, input) as Record<string, any>;
+  if (resource === 'base' && operation === 'vector-search') {
+    if (!args.query && !args.vector && input && typeof input === 'object') {
+      const fallbackQ = input.query ?? input.text ?? input.prompt;
+      if (fallbackQ) args.query = fallbackQ;
+      const fallbackV = input.vector ?? input.embedding;
+      if (fallbackV) args.vector = fallbackV;
+    }
+  }
   for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+    if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
+      const v = (args as any).vector ?? (args as any).embedding;
+      const q = (args as any).query ?? (args as any).text ?? (args as any).prompt;
+      const hasV = v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
+      const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
+      if (!hasV && !hasQ) {
+        throw new Error(`${node.type}: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`);
+      }
+      continue;
+    }
     const v = (args as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
       throw new Error(`${node.type}: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
     }
   }
+  if (resource === 'base' && operation === 'vector-search') {
+    let vec = args.vector ?? args.embedding;
+    const q = args.query ?? args.text ?? args.prompt;
+    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+      try {
+        const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+        const rawVec = extractEmbeddingVector(emb);
+        if (rawVec && rawVec.length > 0) {
+          args.vector = rawVec;
+        }
+      } catch (e: any) {
+        throw new Error(`${node.type}: failed to generate embedding for vector search: ${e?.message || e}`);
+      }
+    }
+  }
   if (!ctx?.synapsedxCall) throw new Error(`${node.type}: server does not expose a SynapseDX caller (server wiring)`);
   const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
   if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error(`${node.type}: response exceeds 500KB`);
+  if (resource === 'base' && operation === 'vector-search' && out && typeof out === 'object' && !Array.isArray(out) && input && typeof input === 'object' && !Array.isArray(input)) {
+    return { ...clone(input), ...clone(out) };
+  }
   return clone(out);
 }
 
@@ -1224,14 +1332,31 @@ const objectSchema = (properties: Record<string, any>, required: string[] = []) 
 export const AGENT_TOOL_SPECS: Record<string, AgentToolSpec> = {
   synapsebase_query: {
     id: 'synapsebase_query',
-    description: 'Read or write SynapseBase JSON documents. action=query|get|create|delete.',
+    description: 'Read or write SynapseBase JSON documents. action=query|get|create|delete|vector_search.',
     parameters: objectSchema({
-      action: { type: 'string', enum: ['query', 'get', 'create', 'delete'], description: 'Operation (default query)' },
+      action: { type: 'string', enum: ['query', 'get', 'create', 'delete', 'vector_search'], description: 'Operation (default query)' },
       collection: { type: 'string', description: 'Collection name' },
       where: { type: 'object', description: 'Query filter object (query action)' },
       limit: { type: 'number', description: 'Max documents (query action)' },
       id: { type: 'string', description: 'Document id (get/delete)' },
       data: { type: 'object', description: 'Document body (create)' },
+      query: { type: 'string', description: 'Search text for vector_search (auto-embedded if vector is omitted)' },
+      vector: { type: 'array', items: { type: 'number' }, description: 'Vector array for vector_search' },
+      metric: { type: 'string', enum: ['cosine', 'l2', 'ip'], description: 'Distance metric' },
+      field: { type: 'string', description: 'Vector field path' },
+    }, ['collection']),
+  },
+  synapsebase_vector_search: {
+    id: 'synapsebase_vector_search',
+    description: 'Semantic vector similarity search on SynapseBase collections with optional metadata filter. Supports natural language query (auto-embedded) or pre-computed vector.',
+    parameters: objectSchema({
+      collection: { type: 'string', description: 'Collection name' },
+      query: { type: 'string', description: 'Natural language search query to be embedded and matched against document vectors' },
+      vector: { type: 'array', items: { type: 'number' }, description: 'Pre-computed query embedding vector (optional if query is provided)' },
+      limit: { type: 'number', description: 'Top K results (default 10)' },
+      field: { type: 'string', description: 'Vector field path/name (optional)' },
+      metric: { type: 'string', enum: ['cosine', 'l2', 'ip'], description: 'Distance metric' },
+      where: { type: 'object', description: 'Metadata filter object' },
     }, ['collection']),
   },
   faststore_cache: {
@@ -1346,7 +1471,7 @@ export const AGENT_TOOL_SPECS: Record<string, AgentToolSpec> = {
 
 /** Legacy tool ids kept working for workflows saved by older versions. */
 export const AGENT_TOOL_ALIASES: Record<string, string[]> = {
-  data_sources: ['synapsebase_query', 'faststore_cache'],
+  data_sources: ['synapsebase_query', 'synapsebase_vector_search', 'faststore_cache'],
   logic_code: ['code_sandbox'],
   code_runner: ['code_sandbox'],
   decision_model: ['decision_eval'],
@@ -1356,7 +1481,7 @@ export const AGENT_TOOL_ALIASES: Record<string, string[]> = {
 };
 
 export const DEFAULT_AGENT_TOOL_IDS = [
-  'synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator',
+  'synapsebase_query', 'synapsebase_vector_search', 'faststore_cache', 'code_sandbox', 'logic_calculator',
   'decision_eval', 'queue_publish', 'iam_check_permission', 'http_request',
 ];
 
@@ -1407,9 +1532,13 @@ function describeNodeAsTool(node: EngineNode): string {
   if (p.queue) bits.push(`queue=${String(p.queue)}`);
   if (p.key) bits.push(`key=${String(p.key)}`);
   const detail = bits.length ? ` (${bits.join(', ')})` : '';
+  const searchHint = p.operation === 'vector-search'
+    ? ' For vector search, pass "query" (search text string to auto-embed) or "vector" in the input object.'
+    : '';
   return `Execute the workflow node "${node.name}" [${node.type}]${detail}. ` +
     'Pass an "input" object containing the data this node should process. ' +
-    'The node runs with its saved configuration and returns its output (Decision/If nodes also report the chosen branch).';
+    'The node runs with its saved configuration and returns its output (Decision/If nodes also report the chosen branch).' +
+    searchHint;
 }
 
 export async function execAiAgentNode(
@@ -1598,6 +1727,35 @@ export async function execAiAgentNode(
         if (action === 'delete') {
           return await ctx.synapsedxCall('base', 'delete-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
         }
+        if (action === 'vector_search' || action === 'vectorSearch') {
+          let vec = toolArgs.vector ?? toolArgs.embedding;
+          const q = toolArgs.query ?? toolArgs.text ?? toolArgs.input ?? toolArgs.prompt;
+          if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+            try {
+              const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+              const rawVec = extractEmbeddingVector(emb);
+              if (rawVec && rawVec.length > 0) {
+                vec = rawVec;
+              }
+            } catch (e: any) {
+              return { error: `failed to generate embedding for vector search: ${e?.message || e}` };
+            }
+          }
+          return await ctx.synapsedxCall(
+            'base',
+            'vector-search',
+            {
+              collection: toolArgs.collection,
+              vector: vec,
+              query: q,
+              limit: toolArgs.limit || 10,
+              field: toolArgs.field,
+              metric: toolArgs.metric,
+              where: toolArgs.where !== undefined ? toolArgs.where : toolArgs.filter,
+            },
+            ctx.principal,
+          );
+        }
         return await ctx.synapsedxCall(
           'base',
           'query-documents',
@@ -1606,6 +1764,36 @@ export async function execAiAgentNode(
             where: toolArgs.where !== undefined ? toolArgs.where : toolArgs.filter,
             orderBy: toolArgs.orderBy !== undefined ? toolArgs.orderBy : toolArgs.sort,
             limit: toolArgs.limit || 10,
+          },
+          ctx.principal,
+        );
+      }
+      case 'synapsebase_vector_search': {
+        if (!ctx?.synapsedxCall) return { items: [], total: 0 };
+        let vec = toolArgs.vector ?? toolArgs.embedding;
+        const q = toolArgs.query ?? toolArgs.text ?? toolArgs.input ?? toolArgs.prompt;
+        if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+          try {
+            const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+            const rawVec = extractEmbeddingVector(emb);
+            if (rawVec && rawVec.length > 0) {
+              vec = rawVec;
+            }
+          } catch (e: any) {
+            return { error: `failed to generate embedding for vector search: ${e?.message || e}` };
+          }
+        }
+        return await ctx.synapsedxCall(
+          'base',
+          'vector-search',
+          {
+            collection: toolArgs.collection,
+            vector: vec,
+            query: q,
+            limit: toolArgs.limit || 10,
+            field: toolArgs.field,
+            metric: toolArgs.metric,
+            where: toolArgs.where !== undefined ? toolArgs.where : toolArgs.filter,
           },
           ctx.principal,
         );

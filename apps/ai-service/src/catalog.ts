@@ -111,6 +111,7 @@ export const CATALOG: CatalogEndpoint[] = [
   { method: 'PATCH', path: '/v1/base/collections/:collection/documents/:id', auth: 'either', desc: 'Partially update a document; unset/ifVersion supported' },
   { method: 'DELETE', path: '/v1/base/collections/:collection/documents/:id', auth: 'either', desc: 'Delete a document (?ifVersion)' },
   { method: 'POST', path: '/v1/base/collections/:collection/query', auth: 'either', desc: 'Filter, sort, project and page documents', body: { where: { capacity: { gte: 100 } }, orderBy: [{ field: 'name', direction: 'asc' }], limit: 50 } },
+  { method: 'POST', path: '/v1/base/collections/:collection/vector-search', auth: 'either', desc: 'Vector similarity search with optional metadata filter', body: { vector: [0.1, 0.2, 0.3], limit: 5, as: 'object' } },
   { method: 'POST', path: '/v1/base/collections/:collection/documents/:id/increment', auth: 'either', desc: 'Atomically increment a numeric field', body: { field: 'profile.capacity', by: 10 } },
   { method: 'POST', path: '/v1/base/collections/:collection/documents:batch', auth: 'either', desc: 'Batch create/set/update/delete documents', body: { operations: [{ op: 'create', object: { name: 'North', capacity: 80 } }] } },
   { method: 'GET', path: '/v1/base/collections/:collection/changes', auth: 'either', desc: 'Change feed of upserts since a timestamp' },

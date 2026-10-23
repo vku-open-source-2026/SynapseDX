@@ -27,6 +27,36 @@ export interface OrderBy {
   direction: 'asc' | 'desc';
 }
 
+export type VectorMetric = 'cosine' | 'l2' | 'ip';
+
+export interface VectorSearchSpec {
+  vector: number[];
+  field?: string;
+  limit: number;
+  metric: VectorMetric;
+  where?: FilterNode;
+  select?: string[];
+  as: 'data' | 'object';
+}
+
+export interface VectorSearchItem {
+  id: string;
+  similarity: number;
+  distance: number;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  data?: Record<string, unknown>;
+  object?: Record<string, unknown>;
+}
+
+export interface VectorSearchResult {
+  items: VectorSearchItem[];
+  total: number;
+  limit: number;
+  metric: VectorMetric;
+}
+
 export interface QuerySpec {
   where?: FilterNode;
   orderBy: OrderBy[];
@@ -34,6 +64,7 @@ export interface QuerySpec {
   offset: number;
   select?: string[];
   as: 'data' | 'object';
+  vectorSearch?: VectorSearchSpec;
 }
 
 export class QueryError extends Error {
@@ -169,7 +200,7 @@ export function parseQuerySpec(body: unknown, mapping?: BaseMapping | null): Que
     if (count > MAX_FILTERS) throw new QueryError(`at most ${MAX_FILTERS} filters per query`);
   }
   const orderBy = parseOrderBy(b.orderBy, mapping);
-  const rawLimit = b.limit === undefined ? 100 : Number(b.limit);
+  let rawLimit = b.limit === undefined ? 100 : Number(b.limit);
   if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 1000) {
     throw new QueryError('limit must be an integer 1..1000');
   }
@@ -183,6 +214,13 @@ export function parseQuerySpec(body: unknown, mapping?: BaseMapping | null): Que
   }
   const as = b.as === undefined ? 'data' : String(b.as);
   if (as !== 'data' && as !== 'object') throw new QueryError("as must be 'data' or 'object'");
+  let vectorSearch: VectorSearchSpec | undefined;
+  if (b.vectorSearch !== undefined) {
+    vectorSearch = parseVectorSearchSpec(b.vectorSearch, mapping);
+    if (b.limit === undefined && (b.vectorSearch as any)?.limit !== undefined) {
+      rawLimit = vectorSearch.limit;
+    }
+  }
   return {
     where,
     orderBy,
@@ -190,6 +228,180 @@ export function parseQuerySpec(body: unknown, mapping?: BaseMapping | null): Que
     offset: cursorOffset ?? rawOffset,
     select: parseSelect(b.select, mapping),
     as,
+    vectorSearch,
+  };
+}
+
+export function calculateVectorDistance(
+  a: number[],
+  b: number[],
+  metric: VectorMetric = 'cosine',
+): { distance: number; similarity: number } {
+  const len = Math.min(a.length, b.length);
+  if (len === 0) return { distance: 1, similarity: 0 };
+
+  if (metric === 'l2') {
+    let sumSq = 0;
+    for (let i = 0; i < len; i++) {
+      const d = a[i] - b[i];
+      sumSq += d * d;
+    }
+    const dist = Math.sqrt(sumSq);
+    return {
+      distance: Math.round(dist * 1e6) / 1e6,
+      similarity: Math.round((1 / (1 + dist)) * 1e6) / 1e6,
+    };
+  }
+
+  if (metric === 'ip') {
+    let dot = 0;
+    for (let i = 0; i < len; i++) {
+      dot += a[i] * b[i];
+    }
+    return {
+      distance: Math.round(-dot * 1e6) / 1e6,
+      similarity: Math.round(dot * 1e6) / 1e6,
+    };
+  }
+
+  // default: cosine
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < len; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  if (normA <= 0 || normB <= 0) return { distance: 1, similarity: 0 };
+  const cos = dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  const boundedCos = Math.max(-1, Math.min(1, cos));
+  const dist = 1 - boundedCos;
+  return {
+    distance: Math.round(dist * 1e6) / 1e6,
+    similarity: Math.round(boundedCos * 1e6) / 1e6,
+  };
+}
+
+export function parseVectorSearchSpec(body: unknown, mapping?: BaseMapping | null): VectorSearchSpec {
+  if (!isPlainObject(body)) throw new QueryError('vector search body must be an object');
+  const vec = (body as any).vector ?? (body as any).embedding;
+  if (!Array.isArray(vec) || !vec.length) {
+    throw new QueryError('vector must be a non-empty array of numbers');
+  }
+  for (let i = 0; i < vec.length; i++) {
+    if (typeof vec[i] !== 'number' || !Number.isFinite(vec[i])) {
+      throw new QueryError('vector elements must be finite numbers');
+    }
+  }
+  const rawLimit = body.limit !== undefined ? Number(body.limit) : (body.k !== undefined ? Number(body.k) : 10);
+  if (!Number.isInteger(rawLimit) || rawLimit < 1 || rawLimit > 1000) {
+    throw new QueryError('limit must be an integer 1..1000');
+  }
+  let metric: VectorMetric = 'cosine';
+  if (body.metric !== undefined) {
+    const m = String(body.metric).toLowerCase() as VectorMetric;
+    if (m !== 'cosine' && m !== 'l2' && m !== 'ip') {
+      throw new QueryError("metric must be 'cosine', 'l2' or 'ip'");
+    }
+    metric = m;
+  }
+  let field: string | undefined;
+  if (body.field !== undefined) {
+    field = resolveField(assertField(body.field), mapping);
+  }
+  const whereRaw = body.where !== undefined ? body.where : body.filter;
+  const where = whereRaw !== undefined && whereRaw !== null ? parseFilter(whereRaw, 0, mapping) : undefined;
+  const select = parseSelect(body.select, mapping);
+  const as = body.as === 'object' ? 'object' : 'data';
+
+  return {
+    vector: vec,
+    field,
+    limit: rawLimit,
+    metric,
+    where,
+    select,
+    as,
+  };
+}
+
+export function applyVectorSearch(
+  docs: StoredDocumentView[],
+  spec: VectorSearchSpec,
+  mapping: BaseMapping | null | undefined,
+): VectorSearchResult {
+  const filtered = spec.where ? docs.filter((d) => matches(spec.where!, d)) : docs.slice();
+
+  let targetPath = spec.field;
+  let defaultMetric: VectorMetric = spec.metric;
+  if (!targetPath && mapping?.fields) {
+    for (const [, f] of Object.entries(mapping.fields)) {
+      if (f.type === 'vector') {
+        targetPath = f.path;
+        if (spec.metric === 'cosine' && f.metric) {
+          defaultMetric = f.metric;
+        }
+        break;
+      }
+    }
+  }
+
+  const effectiveMetric = spec.metric || defaultMetric || 'cosine';
+
+  const scored: Array<{ doc: StoredDocumentView; similarity: number; distance: number }> = [];
+  for (const doc of filtered) {
+    let vec: unknown;
+    if (targetPath) {
+      vec = getPath(doc.data || {}, targetPath);
+    } else {
+      vec = getPath(doc.data || {}, 'embedding') ?? getPath(doc.data || {}, 'vector') ?? getPath(doc.data || {}, 'vec');
+      if (!Array.isArray(vec) && doc.data) {
+        for (const [, v] of Object.entries(doc.data)) {
+          if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'number') {
+            vec = v;
+            break;
+          }
+        }
+      }
+    }
+    if (!Array.isArray(vec) || !vec.length || typeof vec[0] !== 'number') {
+      continue;
+    }
+    const { distance, similarity } = calculateVectorDistance(spec.vector, vec as number[], effectiveMetric);
+    scored.push({ doc, similarity, distance });
+  }
+
+  scored.sort((a, b) => {
+    if (effectiveMetric === 'l2') {
+      if (a.distance !== b.distance) return a.distance - b.distance;
+    } else {
+      if (a.similarity !== b.similarity) return b.similarity - a.similarity;
+    }
+    return a.doc.id.localeCompare(b.doc.id);
+  });
+
+  const total = scored.length;
+  const page = scored.slice(0, spec.limit);
+
+  const items: VectorSearchItem[] = page.map(({ doc, similarity, distance }) => {
+    const data = project(doc.data || {}, spec.select);
+    return {
+      id: doc.id,
+      similarity,
+      distance,
+      version: doc.version,
+      createdAt: doc.created_at,
+      updatedAt: doc.updated_at,
+      ...(spec.as === 'object' ? { object: dataToObject(data, mapping) } : { data }),
+    };
+  });
+
+  return {
+    items,
+    total,
+    limit: spec.limit,
+    metric: effectiveMetric,
   };
 }
 
@@ -309,6 +521,27 @@ export function applyQuery(
   spec: QuerySpec,
   mapping: BaseMapping | null | undefined,
 ): QueryResult {
+  if (spec.vectorSearch) {
+    const effectiveLimit = spec.vectorSearch.limit ?? spec.limit;
+    const vsResult = applyVectorSearch(
+      docs,
+      {
+        ...spec.vectorSearch,
+        where: spec.where ?? spec.vectorSearch.where,
+        limit: effectiveLimit,
+        as: spec.as,
+        select: spec.select,
+      },
+      mapping,
+    );
+    return {
+      items: vsResult.items as any,
+      total: vsResult.total,
+      limit: effectiveLimit,
+      offset: spec.offset,
+      nextCursor: null,
+    };
+  }
   const filtered = spec.where ? docs.filter((d) => matches(spec.where!, d)) : docs.slice();
   if (spec.orderBy.length) {
     filtered.sort((a, b) => {

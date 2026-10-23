@@ -59,7 +59,8 @@ and are optional.
 | Path | dot-separated segments `[A-Za-z0-9_$-]{1,64}`, at most 16 segments |
 | Duplicate paths | rejected (`400 invalid_mapping`) |
 | Fields per mapping | ≤ 100 |
-| Types | `string`, `number`, `boolean`, `date`, `array`, `object`, `any` (default) |
+| Types | `string`, `number`, `boolean`, `date`, `array`, `object`, `vector`, `any` (default) |
+| `vector` | array of finite numbers, with optional `dimension` validation and `metric` (`cosine` (default), `l2`, `ip`) |
 | `required` | enforced on full writes (`POST`, `PUT`) and object writes; skipped on `PATCH` |
 | `additional` | `false` (default): object writes reject keys not declared in `fields`; `true`: undeclared keys are stored at their own path |
 | `null` | always allowed and preserved; `required` means the key must be present |
@@ -319,6 +320,140 @@ Response:
 
 `total` is the number of matching documents before pagination. `nextCursor` is
 `null` on the last page.
+
+## Vector Search (SynapseBase Vector)
+
+SynapseBase features native vector similarity search powered by **PostgreSQL `pgvector`** (with in-memory fallback for offline dev/tests). Collections can declare embedding vector fields and perform semantic similarity searches combined with standard metadata filters (Hybrid Search).
+
+### Declaring vector fields in a mapping
+
+```json
+{
+  "fields": {
+    "title": {"path": "title", "type": "string", "required": true},
+    "category": {"path": "meta.category", "type": "string"},
+    "embedding": {
+      "path": "vec",
+      "type": "vector",
+      "dimension": 384,
+      "metric": "cosine"
+    }
+  }
+}
+```
+
+- `type`: `"vector"`
+- `dimension` *(optional)*: enforces exact float array length (e.g. 384 for MiniLM, 1536 for OpenAI)
+- `metric` *(optional)*: `"cosine"` (default), `"l2"`, or `"ip"` (inner product)
+
+### Dedicated endpoint: `POST /v1/base/collections/:collection/vector-search`
+
+```json
+{
+  "vector": [0.12, 0.45, -0.23, ...],
+  "limit": 5,
+  "metric": "cosine",
+  "where": {"category": {"eq": "ai"}},
+  "as": "object"
+}
+```
+
+Response:
+```json
+{
+  "items": [
+    {
+      "id": "doc-1",
+      "similarity": 0.942,
+      "distance": 0.058,
+      "version": 1,
+      "createdAt": "2026-10-22T00:00:00Z",
+      "updatedAt": "2026-10-22T00:00:00Z",
+      "object": {
+        "title": "Intro to AI",
+        "category": "ai",
+        "embedding": [0.12, 0.45, -0.23, ...]
+      }
+    }
+  ],
+  "total": 1,
+  "limit": 5,
+  "metric": "cosine"
+}
+```
+
+### Hybrid search in `/query`
+
+You can also pass a `vectorSearch` block directly to `POST /v1/base/collections/:collection/query`:
+
+```json
+{
+  "vectorSearch": {
+    "vector": [0.12, 0.45, -0.23, ...],
+    "limit": 10
+  },
+  "where": {"category": {"eq": "ai"}},
+  "as": "object"
+}
+```
+
+### Workflow Service & AI Agent Integration
+
+1. **First-party Workflow block**:
+   - Resource: `base`
+   - Operation: `vector-search`
+   - Parameters: `{ "collection": "docs", "query": "={{ $json.query }}", "limit": 5, "where": { "tag": "prod" } }` (supports natural language `query` with automatic embedding generation or pre-computed `vector`)
+2. **AI Agent Tool in SynapseFlow**:
+   - `synapsebase_vector_search`: Built-in agent tool allowing autonomous AI agents to semantically query documents in SynapseBase. The agent can provide natural language `query` (which is automatically embedded via Synapse Inference) or pre-computed `vector` floats, along with optional metadata filter (`where`) and result limit (`limit`).
+   - `synapsebase_query`: Also supports `action: "vector_search"` with natural language `query` or `vector`.
+   - **Canvas Node-as-Tool**: A `synapsedx.base` node configured for `vector-search` can be wired into an AI Agent's purple `tools` port. The agent can invoke this canvas tool passing `{ input: { query: "..." } }` dynamically.
+
+### SDK Usage
+
+#### TypeScript / JavaScript
+```ts
+// Service level:
+const results = await client.base.vectorSearch('articles', {
+  vector: [0.1, 0.2, 0.3],
+  limit: 5,
+  where: { category: 'ai' },
+});
+
+// Typed collection level:
+const articles = client.base.collection('articles');
+const matches = await articles.vectorSearch({
+  vector: [0.1, 0.2, 0.3],
+  limit: 5,
+});
+console.log(matches.items[0].object);
+```
+
+#### Python
+```python
+# Service level:
+results = client.base.vector_search("articles", [0.1, 0.2, 0.3], limit=5, where={"category": "ai"})
+
+# Typed collection level:
+articles = client.base.collection("articles", model=Article)
+matches = articles.vector_search([0.1, 0.2, 0.3], limit=5)
+```
+
+#### Go
+```go
+// Service level:
+results, err := client.VectorSearchBaseDocuments("articles", synapsedx.BaseVectorSearchOptions{
+    Vector: []float64{0.1, 0.2, 0.3},
+    Limit:  5,
+    Where:  map[string]any{"category": "ai"},
+})
+
+// Typed collection level:
+articles := synapsedx.NewBaseCollection[Article](client, "articles", mapping)
+matches, err := articles.VectorSearch(synapsedx.BaseVectorSearchOptions{
+    Vector: []float64{0.1, 0.2, 0.3},
+    Limit:  5,
+})
+```
 
 ## Atomic increment
 

@@ -24,7 +24,7 @@ import {
   normalizeMapping, hasMapping, objectToData, dataToObject, normalizeDocumentData, validateDocumentData,
   validateDataAgainstMapping, deepMerge, unsetPath, cloneJson, MappingError, BaseMapping,
 } from './mapping';
-import { parseQuerySpec, applyQuery, QueryError } from './query';
+import { parseQuerySpec, applyQuery, parseVectorSearchSpec, applyVectorSearch, QueryError } from './query';
 
 dotenv.config();
 const PORT = Number(process.env.PORT || 4005);
@@ -589,6 +589,28 @@ export function createApp(): express.Express {
     }
     const views = docs.map((d) => ({ id: d.id, data: d.data, version: d.version, created_at: d.created_at, updated_at: d.updated_at }));
     res.json(applyQuery(views, spec, loaded.collection.mapping));
+  });
+
+  // ---- vector search (semantic / similarity search) ----
+  app.post('/v1/base/collections/:collection/vector-search', async (req, res) => {
+    const loaded = await loadCollection(req, res);
+    if (!loaded) return;
+    let spec;
+    try {
+      spec = parseVectorSearchSpec(req.body || {}, loaded.collection.mapping);
+    } catch (e: any) {
+      if (e instanceof QueryError) return res.status(400).json({ error: 'invalid_query', message: e.message });
+      throw e;
+    }
+    const docs = await listDocumentRecs(loaded.collection.id, { scanLimit: QUERY_SCAN_LIMIT + 1 });
+    if (docs.length > QUERY_SCAN_LIMIT) {
+      return res.status(413).json({
+        error: 'collection_too_large',
+        message: `query scan limit is ${QUERY_SCAN_LIMIT} documents; narrow the collection or raise BASE_QUERY_SCAN_LIMIT`,
+      });
+    }
+    const views = docs.map((d) => ({ id: d.id, data: d.data, version: d.version, created_at: d.created_at, updated_at: d.updated_at }));
+    res.json(applyVectorSearch(views, spec, loaded.collection.mapping));
   });
 
   // ---- atomic increment ----

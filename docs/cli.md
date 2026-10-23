@@ -703,6 +703,33 @@ open data**: without any login it serves the public projection — that is the
 endpoint open-data consumers use. `--visibility restricted` needs a same-tenant
 session (other tenants only get `404`; no token + restricted → `401`).
 
+### Document DB & Vector Search (SynapseBase)
+
+Manage collections, document JSON storage, vector similarity search, and hybrid queries.
+
+```bash
+# Collections CRUD
+synapsedx base collections list
+synapsedx base collections create <name> [--description <desc>] [--mapping '<json>'|--file <json>]
+synapsedx base collections get <name>
+synapsedx base collections delete <name>
+
+# Documents CRUD
+synapsedx base documents list <col> [--limit 20] [--offset 0] [--as data|object]
+synapsedx base documents insert <col> [--id <id>] (--file doc.json | --data '{"k":"v"}')
+synapsedx base documents get <col> <id> [--as data|object]
+synapsedx base documents delete <col> <id>
+
+# Vector Similarity & Hybrid Search
+# Search by raw float vector:
+synapsedx base vector-search <col> --vector '[0.1, 0.2, 0.3]' [--limit 10] [--metric cosine|l2|ip] [--where '{"category":"tech"}']
+# Search by natural language query (auto-embedded via inference service):
+synapsedx base vector-search <col> --query "authentication guide" [--limit 5] [--metric cosine]
+
+# Structured Queries
+synapsedx base query <col> (--file query.json | --data '{"where":{"type":{"eq":"guide"}},"limit":10}')
+```
+
 ### Webhooks (public, no auth)
 
 `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares

@@ -57,3 +57,22 @@ export const baseDocuments = pgTable(
     index('idx_base_documents_data').using('gin', t.data.op('jsonb_path_ops')),
   ],
 );
+
+export const baseVectors = pgTable(
+  'synapsedx_base_vectors',
+  {
+    collectionId: text('collection_id')
+      .notNull()
+      .references(() => baseCollections.id, { onDelete: 'cascade' }),
+    documentId: text('document_id').notNull(),
+    fieldName: text('field_name').notNull(),
+    embedding: text('embedding').notNull(),
+    dimension: integer('dimension').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.collectionId, t.documentId, t.fieldName] }),
+    index('idx_base_vectors_lookup').on(t.collectionId, t.fieldName),
+  ],
+);

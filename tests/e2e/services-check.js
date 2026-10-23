@@ -69,6 +69,56 @@ async function main() {
 
   await c.base.deleteDocument(collection, 'park-2');
   await c.base.deleteCollection(collection);
+
+  // ---- SynapseBase Vector Store ----
+  const vecCol = `vec${stamp}`;
+  await c.base.createCollection({
+    name: vecCol,
+    description: 'e2e vector-search check',
+    mapping: {
+      fields: {
+        title: { path: 'title', type: 'string', required: true },
+        category: { path: 'category', type: 'string' },
+        embedding: { path: 'embedding', type: 'vector', dimension: 3, metric: 'cosine' },
+      },
+    },
+  });
+
+  await c.base.createDocument(vecCol, {
+    id: 'doc-ai',
+    object: { title: 'Artificial Intelligence Guide', category: 'ai', embedding: [1, 0, 0] },
+  });
+  await c.base.createDocument(vecCol, {
+    id: 'doc-data',
+    object: { title: 'Database Internals', category: 'data', embedding: [0, 1, 0] },
+  });
+  await c.base.createDocument(vecCol, {
+    id: 'doc-both',
+    object: { title: 'Vector Databases in AI', category: 'ai', embedding: [0.7071, 0.7071, 0] },
+  });
+
+  const vResults = await c.base.vectorSearch(vecCol, {
+    field: 'embedding',
+    vector: [1, 0, 0],
+    limit: 2,
+    includeVector: true,
+  });
+  assert.equal(vResults.items.length, 2);
+  assert.equal(vResults.items[0].id, 'doc-ai');
+  assert.ok(vResults.items[0].similarity >= 0.99);
+  assert.equal(vResults.items[1].id, 'doc-both');
+
+  // Hybrid vector search (filter where category = 'data')
+  const vFiltered = await c.base.vectorSearch(vecCol, {
+    field: 'embedding',
+    vector: [1, 0, 0],
+    where: { category: { eq: 'data' } },
+    limit: 5,
+  });
+  assert.equal(vFiltered.items.length, 1);
+  assert.equal(vFiltered.items[0].id, 'doc-data');
+
+  await c.base.deleteCollection(vecCol);
   console.log('E2E_BASE_OK');
 
   // ---- Synapse Faststore: strings/TTL, counter, hash, list, set, zset, lock ----

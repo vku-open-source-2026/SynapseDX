@@ -12,7 +12,8 @@ import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { BaseMapping, cloneJson, deepMerge, getPath, setPath } from './mapping';
-import { baseCollections, baseDocuments } from './schema';
+import { baseCollections, baseDocuments, baseVectors } from './schema';
+import { VectorSearchSpec, VectorSearchResult, applyVectorSearch } from './query';
 
 export interface StoredCollection {
   id: string;
@@ -52,7 +53,7 @@ let db: NodePgDatabase<typeof import('./schema')> | null = null;
 if (DATABASE_URL) {
   pool = new Pool({ connectionString: DATABASE_URL });
   pool.on('error', (e) => console.error('[base][db] pool error', e.message));
-  db = drizzle(pool, { schema: { baseCollections, baseDocuments } });
+  db = drizzle(pool, { schema: { baseCollections, baseDocuments, baseVectors } });
 }
 
 let ensured = false;
@@ -64,7 +65,7 @@ export async function ensureTables(): Promise<void> {
     try {
       // Hold the advisory lock on the same dedicated session that runs the
       // migration (pool connections are not guaranteed to be reused).
-      const migrationDb = drizzle(client, { schema: { baseCollections, baseDocuments } });
+      const migrationDb = drizzle(client, { schema: { baseCollections, baseDocuments, baseVectors } });
       await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_base_migrations'))`);
       try {
         await migrate(migrationDb, {
@@ -554,6 +555,17 @@ export async function documentStatsRec(collectionId: string): Promise<{ document
     if (!last || d.updated_at > last) last = d.updated_at;
   }
   return { documents: docs.length, bytes, lastUpdatedAt: last };
+}
+
+/** Vector search over collection documents with metadata filtering. */
+export async function vectorSearchRec(
+  collectionId: string,
+  spec: VectorSearchSpec,
+  mapping?: BaseMapping | null,
+  scanLimit = 10000,
+): Promise<VectorSearchResult> {
+  const docs = await listDocumentRecs(collectionId, { scanLimit });
+  return applyVectorSearch(docs, spec, mapping);
 }
 
 /** Test helper: wipe in-memory state (no effect when Postgres is configured). */

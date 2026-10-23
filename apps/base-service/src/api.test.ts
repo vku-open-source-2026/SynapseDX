@@ -237,3 +237,97 @@ test('anonymous callers are rejected', async () => {
   const r = await call('GET', '/v1/base/collections', undefined, { 'x-synapsedx-anon': '1' } as any);
   assert.equal(r.status, 401);
 });
+
+test('synapsebase vector: mapping validation, vector search and hybrid metadata filter', async () => {
+  // 1. Create collection with vector mapping
+  const col = await createCollection({
+    name: 'kb_articles',
+    mapping: {
+      fields: {
+        title: { path: 'title', type: 'string', required: true },
+        category: { path: 'meta.category', type: 'string' },
+        embedding: { path: 'vec', type: 'vector', dimension: 3, metric: 'cosine' },
+      },
+    },
+  });
+  assert.equal(col.name, 'kb_articles');
+  assert.equal(col.mapping.fields.embedding.type, 'vector');
+  assert.equal(col.mapping.fields.embedding.dimension, 3);
+
+  // 2. Insert valid documents with vectors
+  const d1 = await call('POST', '/v1/base/collections/kb_articles/documents', {
+    id: 'doc1',
+    object: { title: 'Intro to AI', category: 'ai', embedding: [1, 0, 0] },
+  });
+  assert.equal(d1.status, 201, JSON.stringify(d1.json));
+
+  const d2 = await call('POST', '/v1/base/collections/kb_articles/documents', {
+    id: 'doc2',
+    object: { title: 'Database Indexing', category: 'db', embedding: [0, 1, 0] },
+  });
+  assert.equal(d2.status, 201);
+
+  const d3 = await call('POST', '/v1/base/collections/kb_articles/documents', {
+    id: 'doc3',
+    object: { title: 'AI in Databases', category: 'ai', embedding: [0.707106, 0.707106, 0] },
+  });
+  assert.equal(d3.status, 201);
+
+  // 3. Validation errors
+  const badDim = await call('POST', '/v1/base/collections/kb_articles/documents', {
+    id: 'bad1',
+    object: { title: 'Wrong Dim', embedding: [1, 0] },
+  });
+  assert.equal(badDim.status, 400);
+  assert.match(badDim.json.message, /dimension mismatch/);
+
+  const nonFinite = await call('POST', '/v1/base/collections/kb_articles/documents', {
+    id: 'bad2',
+    object: { title: 'NaN Dim', embedding: [1, null, 0] },
+  });
+  assert.equal(nonFinite.status, 400);
+
+  // 4. Vector search with cosine similarity
+  const search1 = await call('POST', '/v1/base/collections/kb_articles/vector-search', {
+    vector: [1, 0, 0],
+    limit: 2,
+  });
+  assert.equal(search1.status, 200, JSON.stringify(search1.json));
+  assert.equal(search1.json.items.length, 2);
+  assert.equal(search1.json.items[0].id, 'doc1');
+  assert.ok(search1.json.items[0].similarity > 0.99);
+  assert.equal(search1.json.items[1].id, 'doc3');
+  assert.ok(search1.json.items[1].similarity > 0.7);
+
+  // 5. Hybrid search: vector search + metadata filter (category == 'db')
+  const searchFiltered = await call('POST', '/v1/base/collections/kb_articles/vector-search', {
+    vector: [1, 0, 0],
+    where: { category: { eq: 'db' } },
+    as: 'object',
+  });
+  assert.equal(searchFiltered.status, 200);
+  assert.equal(searchFiltered.json.items.length, 1);
+  assert.equal(searchFiltered.json.items[0].id, 'doc2');
+  assert.equal(searchFiltered.json.items[0].object.title, 'Database Indexing');
+
+  // 6. Vector search via POST /query with vectorSearch block
+  const querySearch = await call('POST', '/v1/base/collections/kb_articles/query', {
+    vectorSearch: {
+      vector: [0, 1, 0],
+      limit: 1,
+    },
+    as: 'object',
+  });
+  assert.equal(querySearch.status, 200);
+  assert.equal(querySearch.json.items.length, 1);
+  assert.equal(querySearch.json.items[0].id, 'doc2');
+
+  // 7. Test distance metrics: L2
+  const searchL2 = await call('POST', '/v1/base/collections/kb_articles/vector-search', {
+    vector: [1, 0, 0],
+    metric: 'l2',
+  });
+  assert.equal(searchL2.status, 200);
+  assert.equal(searchL2.json.items[0].id, 'doc1');
+  assert.equal(searchL2.json.items[0].distance, 0);
+});

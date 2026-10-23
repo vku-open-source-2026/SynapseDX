@@ -727,6 +727,7 @@ const TYPE_VERSIONS = {
 /** Built-in AI Agent tools. Keep in sync with workflow-service TOOL ids. */
 export const AGENT_TOOLS = [
   { id: 'synapsebase_query', label: 'SynapseBase', group: 'Data', icon: '🗄️', desc: 'Query, get, create or delete documents in SynapseBase' },
+  { id: 'synapsebase_vector_search', label: 'Vector Search', group: 'Data', icon: '🔍', desc: 'Semantic vector similarity search on SynapseBase collections (natural language query or vector)' },
   { id: 'faststore_cache', label: 'Faststore Cache', group: 'Data', icon: '⚡', desc: 'Get/set/incr/delete cache values, hashes and TTLs' },
   { id: 'code_sandbox', label: 'JS Sandbox', group: 'Logic', icon: '💻', desc: 'Execute dynamic JavaScript calculations in an isolated sandbox' },
   { id: 'logic_calculator', label: 'Calculator', group: 'Logic', icon: '🔢', desc: 'Evaluate arithmetic expressions safely' },
@@ -740,7 +741,7 @@ export const AGENT_TOOLS = [
   { id: 'http_request', label: 'HTTP Request', group: 'Network', icon: '🔗', desc: 'Call an allowlisted public REST endpoint (SSRF guarded)' },
 ];
 export const DEFAULT_AGENT_TOOLS = [
-  'synapsebase_query', 'faststore_cache', 'code_sandbox', 'logic_calculator',
+  'synapsebase_query', 'synapsebase_vector_search', 'faststore_cache', 'code_sandbox', 'logic_calculator',
   'decision_eval', 'queue_publish', 'iam_check_permission', 'http_request',
 ];
 export const KNOWN_AGENT_TOOL_IDS = new Set(AGENT_TOOLS.map((t) => t.id));

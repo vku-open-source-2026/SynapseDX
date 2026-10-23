@@ -151,6 +151,22 @@ class QueryResult:
         return iter(self.items)
 
 
+@dataclass
+class VectorSearchResult:
+    """Result of :meth:`BaseService.vector_search` / :meth:`BaseCollection.vector_search`."""
+
+    items: list
+    total: int
+    limit: int
+    metric: str
+
+    def __len__(self) -> int:
+        return len(self.items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+
 class BaseService:
     """Typed methods for every ``/v1/base`` endpoint exposed by the gateway.
 
@@ -379,6 +395,46 @@ class BaseService:
             limit=int(raw.get("limit", 0)),
             offset=int(raw.get("offset", 0)),
             next_cursor=raw.get("nextCursor"),
+        )
+
+    def vector_search(
+        self,
+        collection: str,
+        vector: list[float],
+        *,
+        limit: int | None = None,
+        k: int | None = None,
+        field: str | None = None,
+        metric: str | None = None,
+        where: Any = None,
+        filter: Any = None,
+        select: list | None = None,
+        as_view: str = "data",
+    ) -> VectorSearchResult:
+        """Run vector similarity search with optional metadata filtering."""
+        body: dict = {"vector": vector, "as": as_view}
+        effective_limit = limit if limit is not None else k
+        if effective_limit is not None:
+            body["limit"] = effective_limit
+        if field is not None:
+            body["field"] = field
+        if metric is not None:
+            body["metric"] = metric
+        effective_where = where if where is not None else filter
+        if effective_where is not None:
+            body["where"] = effective_where
+        if select is not None:
+            body["select"] = select
+        raw = self._req(
+            "POST",
+            f"/v1/base/collections/{quote(collection, safe='')}/vector-search",
+            body,
+        )
+        return VectorSearchResult(
+            items=list(raw.get("items", [])),
+            total=int(raw.get("total", 0)),
+            limit=int(raw.get("limit", effective_limit or 10)),
+            metric=str(raw.get("metric", "cosine")),
         )
 
     def list_documents(
@@ -619,6 +675,44 @@ class BaseCollection:
         )
         result.items = [self.from_object(item.get("object")) for item in result.items]
         return result
+
+    def vector_search(
+        self,
+        vector: list[float],
+        *,
+        limit: int | None = None,
+        k: int | None = None,
+        field: str | None = None,
+        metric: str | None = None,
+        where: Any = None,
+        filter: Any = None,
+        select: list | None = None,
+    ) -> VectorSearchResult:
+        """Run vector similarity search; converts result object payloads to models."""
+        raw = self.service.vector_search(
+            self.name,
+            vector,
+            limit=limit,
+            k=k,
+            field=field,
+            metric=metric,
+            where=where,
+            filter=filter,
+            select=select,
+            as_view="object",
+        )
+        items = []
+        for item in raw.items:
+            it = dict(item)
+            if "object" in it:
+                it["object"] = self.from_object(it["object"])
+            items.append(it)
+        return VectorSearchResult(
+            items=items,
+            total=raw.total,
+            limit=raw.limit,
+            metric=raw.metric,
+        )
 
     def changes(self, since: str, limit: int | None = None) -> dict:
         """Poll the change feed and convert entries to model instances."""

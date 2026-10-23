@@ -290,6 +290,8 @@ writes and a change feed. Full guide: [synapsebase.md](synapsebase.md).
   `{"capacity":{"gte":100}}`, and metadata `$id/$version/$createdAt/$updatedAt`.
   Ops: `eq, ne, gt, gte, lt, lte, in, nin, contains, startsWith, endsWith, exists`.
   Returns `{items, total, limit, offset, nextCursor}`.
+- `POST /v1/base/collections/:collection/vector-search {vector, limit?, field?, metric?, where?, as?}`
+  — vector similarity search (`cosine`, `l2`, `ip`) with metadata filtering; returns `{items:[{id, similarity, distance, data|object}], total, limit, metric}`
 - `POST /v1/base/collections/:collection/documents/:id/increment {field, by?, ifVersion?}`
   — `field` is a **raw dot path**; missing document is created at version 1
   (`ifVersion: 0` is the explicit create form)

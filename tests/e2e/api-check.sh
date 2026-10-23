@@ -40,7 +40,8 @@ curl -sf "$BASE/metrics" | grep -q gateway_requests_total && ok metrics || bad m
 
 # orgs/accounts/users
 ORG=$(curl -s "$BASE/v1/orgs" -H"$H" | jq -r '.[0].id')
-ACC=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$H" -d'{"slug":"e2e","displayName":"E2E"}' | jq -r .id)
+ACC_SLUG="e2e-$$-$RANDOM"
+ACC=$(curl -s -XPOST "$BASE/v1/orgs/$ORG/accounts" -H'Content-Type: application/json' -H"$H" -d"{\"slug\":\"$ACC_SLUG\",\"displayName\":\"E2E\"}" | jq -r .id)
 [ -n "$ACC" ] && [ "$ACC" != "null" ] && ok account || bad account ""
 [ "$(curl -s "$BASE/v1/orgs/$ORG/users" -H"$H" | jq 'length')" -ge 1 ] && ok users-list || bad users-list ""
 

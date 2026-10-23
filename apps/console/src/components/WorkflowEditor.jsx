@@ -2196,12 +2196,13 @@ const SYNAPSEDX_API = {
   templates: { ops: ['list', 'get'], fields: { list: [], get: ['name'] }, hint: 'SynapseFlow: starters' },
   // Sub-services
   base: {
-    ops: ['list-collections', 'create-document', 'get-document', 'query-documents', 'delete-document'],
+    ops: ['list-collections', 'create-document', 'get-document', 'query-documents', 'vector-search', 'delete-document'],
     fields: {
       'list-collections': [],
       'create-document': ['collection'],
       'get-document': ['collection', 'id'],
       'query-documents': ['collection'],
+      'vector-search': ['collection'],
       'delete-document': ['collection', 'id'],
     },
     hint: 'SynapseBase: JSON document database',
@@ -2587,6 +2588,7 @@ const INTEGRATION_UI = {
     operations: [
       { op: 'list-collections', required: [], optional: [] },
       { op: 'query-documents', required: ['collection'], optional: ['where', 'limit', 'orderBy'] },
+      { op: 'vector-search', required: ['collection'], optional: ['query', 'vector', 'limit', 'where', 'field', 'metric'] },
       { op: 'get-document', required: ['collection', 'id'], optional: [] },
       { op: 'create-document', required: ['collection'], optional: ['id', 'data'] },
       { op: 'delete-document', required: ['collection', 'id'], optional: [] },
@@ -2643,11 +2645,11 @@ const INTEGRATION_UI = {
   },
 };
 
-const JSON_INPUT_FIELDS = new Set(['where', 'orderBy', 'data', 'values', 'payload', 'record', 'messages', 'choices', 'state', 'questions', 'input', 'tools', 'value', 'questions', 'by']);
+const JSON_INPUT_FIELDS = new Set(['where', 'orderBy', 'data', 'values', 'payload', 'record', 'messages', 'choices', 'state', 'questions', 'input', 'tools', 'value', 'questions', 'by', 'vector']);
 
 function defaultIntegrationInput(type, op) {
   const defaults = {
-    'synapsedx.base': { collection: 'documents', id: '={{ $json.id }}', data: '={{ $json }}', where: {}, limit: 10 },
+    'synapsedx.base': { collection: 'documents', id: '={{ $json.id }}', data: '={{ $json }}', where: {}, limit: 10, query: '={{ $json.query }}', vector: '={{ $json.embedding }}' },
     'synapsedx.faststore': { key: '={{ $json.key }}', value: '={{ $json.value }}', ttlSeconds: 3600, by: 1 },
     'synapsedx.queue': { queue: 'demo-queue', payload: '={{ $json }}', maxMessages: 10, consumer: 'workflow', receipt: '={{ $json.receipt }}' },
     'synapsedx.iam': { orgId: '={{ $json.orgId }}', accountId: '={{ $json.accountId }}', userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket', limit: 50 },

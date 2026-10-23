@@ -529,6 +529,14 @@ describe('engine: synapsedx.api first-party block', () => {
     );
     assert.equal(rBase.status, 'success');
 
+    // Base vector-search
+    const rBaseVec = await runWorkflow(
+      defOf({ resource: 'base', operation: 'vector-search', input: { collection: 'articles', vector: [0.1, 0.2, 0.3], limit: 5 } }),
+      {},
+      { synapsedxCall: mockCall }
+    );
+    assert.equal(rBaseVec.status, 'success');
+
     // Faststore set
     const rFs = await runWorkflow(
       defOf({ resource: 'faststore', operation: 'set', input: { key: 'user:123', value: 'active', ttlSeconds: 300 } }),
@@ -553,11 +561,14 @@ describe('engine: synapsedx.api first-party block', () => {
     );
     assert.equal(rInf.status, 'success');
 
-    assert.equal(calls.length, 4);
+    assert.equal(calls.length, 5);
     assert.equal(calls[0].resource, 'base');
-    assert.equal(calls[1].resource, 'faststore');
-    assert.equal(calls[2].resource, 'queue');
-    assert.equal(calls[3].resource, 'inference');
+    assert.equal(calls[0].operation, 'query-documents');
+    assert.equal(calls[1].resource, 'base');
+    assert.equal(calls[1].operation, 'vector-search');
+    assert.equal(calls[2].resource, 'faststore');
+    assert.equal(calls[3].resource, 'queue');
+    assert.equal(calls[4].resource, 'inference');
   });
 });
 
@@ -695,6 +706,190 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     assert.equal(res.output.agent.tools_used[0], 'logic_calculator');
     assert.equal(res.output.agent.tools_used[1], 'faststore_cache');
   });
+
+  it('runs synapseflow.aiAgent with synapsebase_vector_search tool using natural language query (auto-embedding)', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'Search the knowledge base for refund instructions',
+          tools: ['synapsebase_vector_search'],
+        }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+      } as any,
+    };
+
+    let chatCalls = 0;
+    let embCalledWith: any = null;
+    let baseCalledWith: any = null;
+
+    const res = await runWorkflow(def, { initial: true }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'chat') {
+          chatCalls++;
+          if (chatCalls === 1) {
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  tool_calls: [{
+                    id: 'vec_call_1',
+                    type: 'function',
+                    function: {
+                      name: 'synapsebase_vector_search',
+                      arguments: JSON.stringify({ collection: 'articles', query: 'refund instructions', limit: 2 }),
+                    },
+                  }],
+                },
+              }],
+            };
+          } else {
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  content: 'According to the knowledge base, refunds can be requested within 30 days.',
+                },
+              }],
+            };
+          }
+        }
+        if (resource === 'inference' && operation === 'embeddings') {
+          embCalledWith = args;
+          return { data: [{ embedding: [0.12, 0.34, 0.56] }] };
+        }
+        if (resource === 'base' && operation === 'vector-search') {
+          baseCalledWith = args;
+          return {
+            items: [{ id: 'doc-refund', similarity: 0.98, data: { title: 'Refund Policy', content: 'Refund within 30 days' } }],
+            total: 1,
+          };
+        }
+        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+      },
+    });
+
+    assert.equal(res.status, 'success');
+    assert.equal(chatCalls, 2);
+    assert.deepEqual(embCalledWith, { input: 'refund instructions' });
+    assert.deepEqual(baseCalledWith.vector, [0.12, 0.34, 0.56]);
+    assert.equal(baseCalledWith.collection, 'articles');
+    assert.equal(res.output.agent.tools_used[0], 'synapsebase_vector_search');
+    assert.equal(res.output.agent.actions_taken[0].result.items[0].id, 'doc-refund');
+    assert.match(res.output.agent.response, /refunds can be requested within 30 days/);
+  });
+
+  it('runs synapseflow.aiAgent with synapsebase_vector_search tool using pre-computed vector', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'Vector search with raw embedding',
+          tools: ['synapsebase_vector_search'],
+        }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+      } as any,
+    };
+
+    let embCalled = false;
+    let baseVector: any = null;
+
+    const res = await runWorkflow(def, {}, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'chat') {
+          return {
+            choices: [{
+              message: {
+                role: 'assistant',
+                tool_calls: [{
+                  id: 'call_vec',
+                  type: 'function',
+                  function: {
+                    name: 'synapsebase_vector_search',
+                    arguments: JSON.stringify({ collection: 'kb', vector: [0.7, 0.7] }),
+                  },
+                }],
+              },
+            }],
+          };
+        }
+        if (resource === 'inference' && operation === 'embeddings') {
+          embCalled = true;
+          return { data: [{ embedding: [0, 0] }] };
+        }
+        if (resource === 'base' && operation === 'vector-search') {
+          baseVector = args.vector;
+          return { items: [{ id: 'doc-vec-match', similarity: 0.99 }], total: 1 };
+        }
+        throw new Error(`Unexpected: ${resource}.${operation}`);
+      },
+    });
+
+    assert.equal(embCalled, false);
+    assert.deepEqual(baseVector, [0.7, 0.7]);
+    assert.equal(res.output.agent.actions_taken[0].result.items[0].id, 'doc-vec-match');
+  });
+
+  it('runs synapseflow.aiAgent with synapsebase_query tool action vector_search and query auto-embedding', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'Use synapsebase_query vector_search',
+          tools: ['synapsebase_query'],
+        }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+      } as any,
+    };
+
+    let embInput = '';
+    let baseVector: any = null;
+
+    const res = await runWorkflow(def, {}, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'chat') {
+          return {
+            choices: [{
+              message: {
+                role: 'assistant',
+                tool_calls: [{
+                  id: 'query_vec_call',
+                  type: 'function',
+                  function: {
+                    name: 'synapsebase_query',
+                    arguments: JSON.stringify({ action: 'vector_search', collection: 'kb', query: 'server crash' }),
+                  },
+                }],
+              },
+            }],
+          };
+        }
+        if (resource === 'inference' && operation === 'embeddings') {
+          embInput = args.input;
+          return { data: [{ embedding: [0.9, 0.1] }] };
+        }
+        if (resource === 'base' && operation === 'vector-search') {
+          baseVector = args.vector;
+          return { items: [{ id: 'doc-crash', similarity: 0.95 }], total: 1 };
+        }
+        throw new Error(`Unexpected: ${resource}.${operation}`);
+      },
+    });
+
+    assert.equal(embInput, 'server crash');
+    assert.deepEqual(baseVector, [0.9, 0.1]);
+    assert.equal(res.output.agent.tools_used[0], 'synapsebase_query');
+    assert.equal(res.output.agent.actions_taken[0].result.items[0].id, 'doc-crash');
+  });
 });
 
 describe('engine: decision fallback and agent sockets', () => {
@@ -799,6 +994,77 @@ describe('engine: decision fallback and agent sockets', () => {
     assert.equal(res.output.agent.tools_used[0], 'Lookup');
     assert.equal(res.output.agent.actions_taken[0].result.output.greeting, 'Hi Ada');
     assert.equal(res.output.agent.actions_taken[0].result.output.source, 'canvas-tool');
+  });
+
+  it('exposes a synapsedx.base vector-search node as a canvas tool to the agent and auto-embeds query', async () => {
+    const def = {
+      nodes: [
+        N('Start', 'manualTrigger'),
+        N('Agent', 'synapseflow.aiAgent', {
+          core: 'synapse-inference',
+          userPrompt: 'Search vector KB for {{ $json.query }}',
+          tools: [],
+          maxSteps: 3,
+        }),
+        N('KBSearch', 'synapsedx.base', {
+          operation: 'vector-search',
+          input: { collection: 'articles', limit: 3 },
+        }),
+      ],
+      connections: {
+        Start: { main: [[{ node: 'Agent' }]] },
+        KBSearch: { main: [[{ node: 'Agent', type: 'tools', targetPort: 'tools', index: 0 }]] },
+      } as any,
+    };
+
+    let chat = 0;
+    let seenTools: any[] = [];
+    let embInput = '';
+    let baseCalled: any = null;
+
+    const res = await runWorkflow(def, { query: 'transformer attention' }, {
+      synapsedxCall: async (resource, operation, args) => {
+        if (resource === 'inference' && operation === 'chat') {
+          chat++;
+          seenTools = args.tools || [];
+          if (chat === 1) {
+            return {
+              choices: [{
+                message: {
+                  role: 'assistant',
+                  tool_calls: [{
+                    id: 'canvas-vec-1',
+                    type: 'function',
+                    function: {
+                      name: 'KBSearch',
+                      arguments: JSON.stringify({ input: { query: 'transformer attention' } }),
+                    },
+                  }],
+                },
+              }],
+            };
+          }
+          return { choices: [{ message: { role: 'assistant', content: 'Attention is all you need.' } }] };
+        }
+        if (resource === 'inference' && operation === 'embeddings') {
+          embInput = args.input;
+          return { data: [{ embedding: [1, 0, 0] }] };
+        }
+        if (resource === 'base' && operation === 'vector-search') {
+          baseCalled = args;
+          return { items: [{ id: 'doc-attention', similarity: 0.99, data: { title: 'Transformers' } }], total: 1 };
+        }
+        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+      },
+    });
+
+    assert.equal(res.status, 'success');
+    assert.deepEqual(seenTools.map((t) => t.function.name), ['KBSearch']);
+    assert.match(seenTools[0].function.description, /For vector search, pass "query"/);
+    assert.equal(embInput, 'transformer attention');
+    assert.deepEqual(baseCalled.vector, [1, 0, 0]);
+    assert.equal(res.output.agent.tools_used[0], 'KBSearch');
+    assert.equal(res.output.agent.actions_taken[0].result.output.items[0].id, 'doc-attention');
   });
 
   it('uses a Model-socket node to override the agent model', async () => {
@@ -928,5 +1194,13 @@ describe('engine: split SynapseDX service nodes', () => {
     assert.equal(validateAgentToolIds(['data_sources', 'decision_eval']), null);
     assert.match(validateAgentToolIds(['does_not_exist']) || '', /unknown tool/);
     assert.match(validateAgentToolIds('nope') || '', /must be an array/);
+  });
+
+  it('validates vector-search params accepting either vector or query', () => {
+    assert.equal(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
+    assert.equal(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb', vector: [0.1, 0.2] } }), null);
+    assert.match(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
+    assert.equal(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
+    assert.match(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
   });
 });

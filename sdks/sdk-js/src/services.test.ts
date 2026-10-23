@@ -67,6 +67,23 @@ function payload(method: string, path: string, body: any): unknown {
   if (p.endsWith('/changes')) {
     return { changes: [], nextSince: '2026-01-01T00:00:00.000Z', hasMore: false };
   }
+  if (p.endsWith('/vector-search')) {
+    return {
+      items: [{
+        id: 'p1',
+        similarity: 0.99,
+        distance: 0.01,
+        version: 1,
+        data: { profile: { name: 'Central', capacity: 10 } },
+        object: { name: 'Central', capacity: 10 },
+        createdAt: 't',
+        updatedAt: 't',
+      }],
+      total: 1,
+      limit: 10,
+      metric: 'cosine',
+    };
+  }
   if (method !== 'GET' && p.startsWith('/v1/base/collections/parks/documents') && !p.endsWith(':batch')) {
     return {
       id: 'p1',
@@ -367,6 +384,29 @@ describe('SynapseBase', () => {
     const raw: BaseDocument = await col.getDocument('d1', 'data');
     assert.equal(lastPath, '/v1/base/collections/parks/documents/d1?as=data');
     assert.ok(raw.data);
+
+    const vsRes = await c.base.vectorSearch('parks', {
+      vector: [0.1, 0.2, 0.3],
+      limit: 5,
+      metric: 'cosine',
+      where: { name: 'Central' },
+    });
+    assert.equal(lastPath, '/v1/base/collections/parks/vector-search');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), {
+      vector: [0.1, 0.2, 0.3],
+      as: 'data',
+      limit: 5,
+      metric: 'cosine',
+      where: { name: 'Central' },
+    });
+    assert.equal(vsRes.items.length, 1);
+    assert.equal(vsRes.items[0].id, 'p1');
+    assert.equal(vsRes.items[0].similarity, 0.99);
+
+    const colVs = await col.vectorSearch({ vector: [0.1, 0.2, 0.3], limit: 5 });
+    assert.equal(colVs.items.length, 1);
+    assert.deepEqual(colVs.items[0].object, new Park('Central', 10));
   });
 });
 
