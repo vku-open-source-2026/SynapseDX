@@ -59,10 +59,24 @@ export function principalFromHeaders(req: express.Request): Principal | null {
     const v = req.headers[n];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
-  const sub = h('x-synapsedx-user');
-  if (!sub || sub.length > 128) return null;
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
-  return { sub, org: clean(h('x-synapsedx-org')), account: clean(h('x-synapsedx-account')), kind: clean(h('x-synapsedx-kind')) };
+  const user = h('x-synapsedx-user');
+  if (user) {
+    if (user.length > 128) return null;
+    return { sub: user, org: clean(h('x-synapsedx-org')), account: clean(h('x-synapsedx-account')), kind: clean(h('x-synapsedx-kind')) };
+  }
+  // API keys are machine identities: the gateway stamps kind=apikey + account
+  // but no user (keys carry no user claim). Without this fallback they would
+  // look unauthenticated and fall through to `platform` — a cross-tenant
+  // superuser. Any tenant marker means "authenticated principal", never
+  // internal/platform; synthesize a non-user subject so scoping applies.
+  const kind = clean(h('x-synapsedx-kind'));
+  const account = clean(h('x-synapsedx-account'));
+  const org = clean(h('x-synapsedx-org'));
+  if (kind || account || org) {
+    return { sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`, org, account, kind: kind || 'apikey' };
+  }
+  return null;
 }
 
 export function resolveCaller(req: express.Request): Caller {

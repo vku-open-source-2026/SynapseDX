@@ -268,6 +268,24 @@ test('distributed locks: acquire, release, extend and wait', async () => {
   await call('POST', '/v1/faststore/locks/job/release', { token: 't2' });
 });
 
+test('API-key headers without a user never fall back to platform (#17)', async () => {
+  const platformH = { 'content-type': 'application/json', 'x-synapsedx-tenant': 'admin' };
+  assert.equal((await call('PUT', '/v1/faststore/keys/shared', { value: 'platform-value' }, platformH)).status, 201);
+
+  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  // The key is confined to account:acc-9; ?tenant=admin must not select the
+  // platform/tenant namespace.
+  const hidden = await call('GET', '/v1/faststore/keys/shared?tenant=admin', undefined, keyH);
+  assert.equal(hidden.status, 404);
+
+  const own = await call('PUT', '/v1/faststore/keys/shared', { value: 'key-value' }, keyH);
+  assert.equal(own.status, 201);
+  assert.equal((await call('GET', '/v1/faststore/keys/shared', undefined, keyH)).json.value, 'key-value');
+  // org/user namespaces are disjoint from the account namespace
+  assert.equal((await call('GET', '/v1/faststore/keys/shared')).status, 404);
+  assert.equal((await call('GET', '/v1/faststore/keys/shared', undefined, platformH)).json.value, 'platform-value');
+});
+
 test('authentication and validation', async () => {
   const anon = await call('GET', '/v1/faststore/keys', undefined, { 'x-synapsedx-anon': '1' } as any);
   assert.equal(anon.status, 401);

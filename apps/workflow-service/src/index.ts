@@ -1006,15 +1006,34 @@ export function principalFromHeaders(req: express.Request): import('./store').Pr
     const v = req.headers[n];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
-  const sub = h('x-synapsedx-user');
-  if (!sub || sub.length > 128) return null;
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
-  return {
-    sub,
-    org: clean(h('x-synapsedx-org')),
-    account: clean(h('x-synapsedx-account')),
-    kind: clean(h('x-synapsedx-kind')),
-  };
+  const user = h('x-synapsedx-user');
+  if (user) {
+    if (user.length > 128) return null;
+    return {
+      sub: user,
+      org: clean(h('x-synapsedx-org')),
+      account: clean(h('x-synapsedx-account')),
+      kind: clean(h('x-synapsedx-kind')),
+    };
+  }
+  // API keys are machine identities: the gateway stamps kind=apikey + account
+  // but no user (keys carry no user claim). Without this fallback they would
+  // look like an internal/direct call — workflow scoping would treat them as
+  // tenant-free (global list, arbitrary tenant binding). Any tenant marker
+  // means "authenticated principal"; synthesize a non-user subject.
+  const kind = clean(h('x-synapsedx-kind'));
+  const account = clean(h('x-synapsedx-account'));
+  const org = clean(h('x-synapsedx-org'));
+  if (kind || account || org) {
+    return {
+      sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`,
+      org,
+      account,
+      kind: kind || 'apikey',
+    };
+  }
+  return null;
 }
 
 /** Principal for automated runs (webhook/cron): the workflow's stored run_as
@@ -1322,34 +1341,41 @@ function cleanTenantField(v: unknown): string | null {
 }
 
 /** Resolve tenant binding for create/update (P0-3). Explicit body values
- *  must stay inside the caller's own org (403 otherwise); anonymous
- *  callers (dev/tests/direct) may set them freely. */
+ *  must stay inside the caller's verified tenant (403 otherwise); anonymous
+ *  callers (dev/tests/direct) may set them freely. Account-scoped callers
+ *  (API keys) never carry a verified org, so an explicit `orgId` is refused
+ *  instead of being trusted. */
 function tenantBinding(
   req: any, body: any, cur?: StoredWorkflow,
 ): { ok: true; value: { org_id: string | null; account_id: string | null; run_as: string | null } } | { ok: false; status: number; error: string; message: string } {
   const p = principalFromHeaders(req);
-  const pick = (key: string, fallback?: string | null): string | null => {
+  const read = (key: string): { ok: true; value: string | null } | { ok: false } => {
     const raw = (body || {})[key];
-    if (raw !== undefined && raw !== null && String(raw) !== '') {
-      const c = cleanTenantField(raw);
-      if (c === null) throw { status: 400, error: 'invalid_tenant', message: `${key} must be 1..128 chars` };
-      return c;
-    }
-    if (fallback !== undefined) return fallback ?? null;
-    return null;
+    if (raw === undefined || raw === null || String(raw) === '') return { ok: true, value: null };
+    const c = cleanTenantField(raw);
+    return c === null ? { ok: false } : { ok: true, value: c };
   };
-  try {
-    const org_id = pick('orgId', p?.org ?? cur?.org_id ?? null);
-    const account_id = pick('accountId', p?.account ?? cur?.account_id ?? null);
-    const run_as = pick('runAs', cur?.run_as ?? null);
-    if (p?.org && org_id && org_id !== p.org) {
-      return { ok: false, status: 403, error: 'cross_tenant', message: 'cannot bind a workflow outside your own org' };
-    }
-    return { ok: true, value: { org_id, account_id, run_as } };
-  } catch (e: any) {
-    if (e?.status) return { ok: false, status: e.status, error: e.error, message: e.message };
-    throw e;
+  const orgBody = read('orgId');
+  if (!orgBody.ok) return { ok: false, status: 400, error: 'invalid_tenant', message: 'orgId must be 1..128 chars' };
+  const accBody = read('accountId');
+  if (!accBody.ok) return { ok: false, status: 400, error: 'invalid_tenant', message: 'accountId must be 1..128 chars' };
+  const runAsBody = read('runAs');
+  if (!runAsBody.ok) return { ok: false, status: 400, error: 'invalid_tenant', message: 'runAs must be 1..128 chars' };
+
+  if (p?.org && orgBody.value && orgBody.value !== p.org) {
+    return { ok: false, status: 403, error: 'cross_tenant', message: 'cannot bind a workflow outside your own org' };
   }
+  if (p && !p.org && orgBody.value) {
+    return { ok: false, status: 403, error: 'cross_tenant', message: 'account-scoped callers cannot bind an org' };
+  }
+  if (p?.account && accBody.value && accBody.value !== p.account) {
+    return { ok: false, status: 403, error: 'cross_tenant', message: 'cannot bind a workflow outside your own account' };
+  }
+
+  const org_id = orgBody.value ?? p?.org ?? cur?.org_id ?? null;
+  const account_id = accBody.value ?? p?.account ?? cur?.account_id ?? null;
+  const run_as = runAsBody.value ?? cur?.run_as ?? null;
+  return { ok: true, value: { org_id, account_id, run_as } };
 }
 
   // List workflows. Authenticated callers see only their own tenant slice

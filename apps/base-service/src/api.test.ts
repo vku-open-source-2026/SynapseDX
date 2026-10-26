@@ -80,6 +80,31 @@ test('collection CRUD + tenant isolation', async () => {
   assert.equal((await call('GET', '/v1/base/collections/users')).status, 404);
 });
 
+test('API-key headers without a user are account-scoped, never platform (#17)', async () => {
+  const orgCol = await createCollection({ name: 'orgdata' });
+  assert.equal(orgCol.orgId, 'tenant-a');
+
+  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  const mine = await call('POST', '/v1/base/collections', { name: 'keydata' }, keyH);
+  assert.equal(mine.status, 201, JSON.stringify(mine.json));
+  assert.equal(mine.json.orgId, undefined);
+  assert.equal(mine.json.accountId, 'acc-9');
+
+  // The key sees only its own account rows; filters cannot widen the scope.
+  const list = await call('GET', '/v1/base/collections', undefined, keyH);
+  assert.deepEqual(list.json.map((c: any) => c.name), ['keydata']);
+  const widened = await call('GET', '/v1/base/collections?orgId=tenant-a', undefined, keyH);
+  assert.deepEqual(widened.json, []);
+  assert.equal((await call('GET', '/v1/base/collections/orgdata', undefined, keyH)).status, 404);
+
+  // Nor can it create rows for another org/account.
+  assert.equal((await call('POST', '/v1/base/collections', { name: 'evil', orgId: 'tenant-a' }, keyH)).status, 403);
+  assert.equal((await call('POST', '/v1/base/collections', { name: 'evil2', accountId: 'acc-other' }, keyH)).status, 403);
+
+  // org principals still never see account-bound rows
+  assert.equal((await call('GET', '/v1/base/collections/keydata')).status, 404);
+});
+
 test('document CRUD, version conflict and atomic increment', async () => {
   await createCollection();
   const created = await call('POST', '/v1/base/collections/users/documents', { id: 'u1', data: { name: 'Alice', score: 10 } });
