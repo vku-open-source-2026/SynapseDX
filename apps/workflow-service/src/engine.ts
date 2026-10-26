@@ -1958,10 +1958,23 @@ export async function execAiAgentNode(
       );
     }
     const url = core === 'synapse-inference' ? `${baseUrl}/v1/inference/chat/completions` : `${baseUrl}/chat/completions`;
+    // SSRF: baseUrl is workflow-controlled. Save-time scanning only catches
+    // literal private hosts, so resolve + check at request time (this also
+    // catches DNS names like 127.0.0.1.nip.io and literals in redirects).
+    try {
+      await assertUrlAllowed(url);
+    } catch (e: any) {
+      throw new Error(`AI Agent LLM: ${e?.message || e}`);
+    }
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+    // The internal secret is a master service-to-service credential. Only
+    // send it to an explicitly allowlisted first-party origin — never to an
+    // arbitrary baseUrl saved in a workflow.
     const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
-    if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+    if (INTERNAL && core === 'synapse-inference' && isAllowedSelfUrl(new URL(url))) {
+      headers['x-synapsedx-internal'] = INTERNAL;
+    }
 
     const payload: any = {
       model,
@@ -1979,17 +1992,56 @@ export async function execAiAgentNode(
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), llmTimeoutMs);
     try {
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: ctl.signal,
-      });
-      if (!resp.ok) {
-        const errText = await resp.text();
-        throw new Error(`AI Agent LLM returned HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+      // Manual redirect chain: fetch's default follower would happily bounce
+      // an allowed URL onto an internal one, and would forward Authorization
+      // / the internal secret to another origin. Every hop is re-checked.
+      const MAX_HOPS = 5;
+      let curUrl = url;
+      let curMethod = 'POST';
+      let curBody: string | undefined = JSON.stringify(payload);
+      for (let hop = 0; ; hop++) {
+        if (hop > MAX_HOPS) throw new Error(`AI Agent LLM: too many redirects (>${MAX_HOPS})`);
+        try {
+          await assertUrlAllowed(curUrl);
+        } catch (e: any) {
+          throw new Error(`AI Agent LLM redirect: ${e?.message || e}`);
+        }
+        const resp = await fetch(curUrl, {
+          method: curMethod,
+          headers,
+          body: curBody,
+          signal: ctl.signal,
+          redirect: 'manual' as any,
+        });
+        if (resp.status >= 300 && resp.status < 400) {
+          const loc = resp.headers.get('location');
+          await resp.arrayBuffer().catch(() => undefined); // drain before hop
+          if (!loc) throw new Error(`AI Agent LLM: HTTP ${resp.status} redirect without location`);
+          let next: string;
+          try {
+            next = new URL(loc, curUrl).toString();
+          } catch {
+            throw new Error('AI Agent LLM: redirect has invalid location');
+          }
+          if (new URL(next).origin !== new URL(curUrl).origin) {
+            // Credentials never cross an origin boundary.
+            delete headers['Authorization'];
+            delete headers['x-synapsedx-internal'];
+          }
+          if (resp.status === 303 || ((resp.status === 301 || resp.status === 302) && curMethod === 'POST')) {
+            curMethod = 'GET';
+            curBody = undefined;
+            delete headers['Content-Type'];
+          }
+          curUrl = next;
+          continue;
+        }
+        if (!resp.ok) {
+          const errText = await resp.text();
+          throw new Error(`AI Agent LLM returned HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+        }
+        return await resp.json();
       }
-      return await resp.json();
     } finally {
       clearTimeout(to);
     }

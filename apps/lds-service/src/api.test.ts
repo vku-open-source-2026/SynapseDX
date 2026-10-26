@@ -282,6 +282,30 @@ test('list is principal-scoped: query params narrow, never widen', async () => {
   assert.deepEqual(platform.json.map((d: any) => d.name).sort(), ['A', 'B', 'Hue DS', 'Key DS']);
 });
 
+test('API-key headers without a user are account-scoped, never platform (#17)', async () => {
+  await call('POST', '/v1/lds/datasources', { name: 'Org DS', entityType: 'Museum', license: 'CC0-1.0' });
+  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+
+  // No x-synapsedx-user still means an authenticated account principal: it
+  // must not inherit the platform superuser view.
+  const list = await call('GET', '/v1/lds/datasources', undefined, keyH);
+  assert.deepEqual(list.json, []);
+  const cross = await call('GET', '/v1/lds/datasources?orgId=tenant-danang', undefined, keyH);
+  assert.deepEqual(cross.json, []);
+
+  // It can create inside its own account only.
+  const made = await call('POST', '/v1/lds/datasources', { name: 'Key DS', entityType: 'Thing', license: 'CC0-1.0' }, keyH);
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(made.json.orgId, undefined);
+  assert.equal(made.json.accountId, 'acc-9');
+  const intoOrg = await call('POST', '/v1/lds/datasources', { name: 'X', entityType: 'Thing', license: 'CC0-1.0', orgId: 'tenant-danang' }, keyH);
+  assert.equal(intoOrg.status, 403);
+
+  // Platform (internal, no markers) remains the superuser class.
+  const platform = await call('GET', '/v1/lds/datasources', undefined, { 'content-type': 'application/json' });
+  assert.deepEqual(platform.json.map((d: any) => d.name).sort(), ['Key DS', 'Org DS']);
+});
+
 test('entity id overrides must be IRIs; junk ids fall back to the derived urn', async () => {
   const ds = await createDatasource();
   const ingest = await call('POST', `/v1/lds/datasources/${ds.id}/records`, { id: 'x1', ngsiLdId: 'urn:ngsi-ld:Organization:custom-id', name: 'n' });

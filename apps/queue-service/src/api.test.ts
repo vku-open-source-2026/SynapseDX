@@ -230,6 +230,24 @@ test('batch publish and tenant isolation', async () => {
   assert.equal(foreignStats.status, 404);
 });
 
+test('API-key headers without a user are account-scoped, never platform (#17)', async () => {
+  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  // A queue owned by the org tenant stays invisible, and the key cannot
+  // hijack the platform `?tenant=` namespace.
+  await createQueue();
+  assert.equal((await call('GET', '/v1/queue/queues/jobs/stats', undefined, keyH)).status, 404);
+  assert.deepEqual((await call('GET', '/v1/queue/queues', undefined, keyH)).json, []);
+
+  const made = await call('PUT', '/v1/queue/queues/jobs', { maxAttempts: 3, visibilityTimeoutSeconds: 30 }, keyH);
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal((await call('POST', '/v1/queue/queues/jobs/messages?tenant=admin', { payload: 1 }, keyH)).status, 201);
+  assert.equal((await call('GET', '/v1/queue/queues/jobs/stats', undefined, keyH)).json.pending, 1);
+
+  // platform (tenant:admin) sees a different namespace
+  const platformH = { 'content-type': 'application/json', 'x-synapsedx-tenant': 'admin' };
+  assert.equal((await call('GET', '/v1/queue/queues/jobs/stats', undefined, platformH)).status, 404);
+});
+
 test('queue configuration, listing, purge and delete', async () => {
   const empty = await call('GET', '/v1/queue/queues');
   assert.deepEqual(empty.json, []);

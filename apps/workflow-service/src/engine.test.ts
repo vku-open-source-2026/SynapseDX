@@ -5,6 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams, validateIntegrationParams, resolveIntegrationCall, validateAgentToolIds, isBlockedUrl, assertUrlAllowed } from './engine';
 
 const N = (name: string, type: string, parameters: any = {}) => ({ name, type, parameters });
@@ -1202,5 +1203,123 @@ describe('engine: split SynapseDX service nodes', () => {
     assert.match(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
     assert.equal(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
     assert.match(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
+  });
+});
+
+describe('engine: AI agent LLM target hardening (#18)', () => {
+  const listen = (srv: any): Promise<number> =>
+    new Promise((resolve) => srv.listen(0, '127.0.0.1', () => resolve(srv.address().port)));
+  const close = (srv: any): Promise<void> => new Promise((resolve) => srv.close(() => resolve()));
+  const agentDef = (baseUrl: string, core = 'synapse-inference') => ({
+    nodes: [
+      N('Start', 'n8n-nodes-base.manualTrigger'),
+      N('Agent', 'synapseflow.aiAgent', { core, baseUrl, userPrompt: 'hello', maxSteps: 1 }),
+    ],
+    connections: { Start: { main: [[{ node: 'Agent' }]] } } as any,
+  });
+  const restoreEnv = (key: string, prev: string | undefined) => {
+    if (prev === undefined) delete process.env[key];
+    else process.env[key] = prev;
+  };
+
+  it('blocks a non-allowlisted internal baseUrl before any request and leaks no internal secret', async () => {
+    let hits = 0;
+    const srv = createServer((_req, res) => {
+      hits++;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }));
+    });
+    const port = await listen(srv);
+    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
+    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-should-not-leak';
+    delete process.env.SYNAPSEDX_SELF_BASE_URLS;
+    try {
+      const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}/v1`), {}, {});
+      assert.equal(r.status, 'error');
+      assert.match(String(r.error), /blocked internal URL/);
+      assert.equal(hits, 0);
+    } finally {
+      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      await close(srv);
+    }
+  });
+
+  it('sends the internal secret only to an allowlisted first-party inference origin', async () => {
+    let seen: any = null;
+    const srv = createServer((req, res) => {
+      seen = req.headers;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'hi' } }] }));
+    });
+    const port = await listen(srv);
+    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
+    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-ok';
+    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
+    try {
+      const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}`), {}, {});
+      assert.equal(r.status, 'success');
+      assert.equal(seen?.['x-synapsedx-internal'], 'master-secret-ok');
+    } finally {
+      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      await close(srv);
+    }
+  });
+
+  it('never forwards the internal secret to a non-inference target, even when allowlisted', async () => {
+    let seen: any = null;
+    const srv = createServer((req, res) => {
+      seen = req.headers;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'hi' } }] }));
+    });
+    const port = await listen(srv);
+    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
+    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-ok';
+    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
+    try {
+      const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}`, 'openai-compatible'), {}, {});
+      assert.equal(r.status, 'success');
+      assert.equal(seen?.['x-synapsedx-internal'], undefined);
+    } finally {
+      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      await close(srv);
+    }
+  });
+
+  it('re-checks redirect hops and refuses to bounce onto a non-allowlisted internal host', async () => {
+    let aHits = 0;
+    let bHits = 0;
+    const b = createServer((_req, res) => {
+      bHits++;
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'stolen' } }] }));
+    });
+    const bPort = await listen(b);
+    const a = createServer((_req, res) => {
+      aHits++;
+      res.statusCode = 302;
+      res.setHeader('location', `http://127.0.0.1:${bPort}/steal`);
+      res.end();
+    });
+    const aPort = await listen(a);
+    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
+    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${aPort}`;
+    try {
+      const r = await runWorkflow(agentDef(`http://127.0.0.1:${aPort}`, 'openai-compatible'), {}, {});
+      assert.equal(r.status, 'error');
+      assert.match(String(r.error), /redirect.*blocked internal URL/);
+      assert.equal(aHits, 1);
+      assert.equal(bHits, 0);
+    } finally {
+      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      await close(a);
+      await close(b);
+    }
   });
 });

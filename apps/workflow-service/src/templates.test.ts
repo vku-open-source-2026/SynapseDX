@@ -1074,6 +1074,51 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     assert.equal(legacy.status, 403);
   });
 
+  it('API-key principals (no user header) stay tenant-scoped (#17)', async () => {
+    const keyA = P({ 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-key-a' });
+    const keyB = P({ 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-key-b' });
+
+    const created = await fetch(`${base}/v1/workflows`, {
+      method: 'POST', headers: keyA,
+      body: JSON.stringify({ template: 'manual-starter', name: 'key-wf' }),
+    });
+    assert.equal(created.status, 201);
+    const wf: any = await created.json();
+    assert.equal(wf.orgId, undefined);
+    assert.equal(wf.accountId, 'acc-key-a');
+
+    // Another key's account cannot list or read it.
+    const listB: any = await (await fetch(`${base}/v1/workflows`, { headers: keyB })).json();
+    assert.deepEqual(listB, []);
+    assert.equal((await fetch(`${base}/v1/workflows/${wf.id}`, { headers: keyB })).status, 404);
+
+    // A key is account-only: it can never bind an org or a foreign account.
+    const orgBind = await fetch(`${base}/v1/workflows`, {
+      method: 'POST', headers: keyA,
+      body: JSON.stringify({ template: 'manual-starter', name: 'evil-org', orgId: 'org-victim' }),
+    });
+    assert.equal(orgBind.status, 403);
+    const accBind = await fetch(`${base}/v1/workflows`, {
+      method: 'POST', headers: keyA,
+      body: JSON.stringify({ template: 'manual-starter', name: 'evil-acc', accountId: 'acc-key-b' }),
+    });
+    assert.equal(accBind.status, 403);
+    assert.equal((await fetch(`${base}/v1/workflows?orgId=org-victim`, { headers: keyA })).status, 403);
+    assert.equal((await fetch(`${base}/v1/workflows?accountId=acc-key-b`, { headers: keyA })).status, 403);
+
+    // Executions inherit the account scope too.
+    const ex: any = await (await fetch(`${base}/v1/workflows/${wf.id}/execute`, {
+      method: 'POST', headers: keyA, body: JSON.stringify({ value: 1 }),
+    })).json();
+    assert.equal(ex.status, 'success');
+    const execsA: any = await (await fetch(`${base}/v1/executions`, { headers: keyA })).json();
+    assert.equal(execsA.data.length, 1);
+    assert.equal(execsA.data[0].principal?.account, 'acc-key-a');
+    const execsB: any = await (await fetch(`${base}/v1/executions`, { headers: keyB })).json();
+    assert.deepEqual(execsB.data, []);
+    assert.equal((await fetch(`${base}/v1/executions/${ex.executionId}`, { headers: keyB })).status, 404);
+  });
+
   it('execution payloads mask secret-looking keys (P0-4)', async () => {
     const c: any = await (await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'manual-starter', name: 'mask' }) })).json();
     const ex: any = await (await fetch(`${base}/v1/workflows/${c.id}/execute`, {
