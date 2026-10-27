@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/iam-service",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "Apache-2.0",
   "description": "synapsedx IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
   "main": "dist/index.js",

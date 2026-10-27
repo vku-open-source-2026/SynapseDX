@@ -565,6 +565,25 @@ export async function listCredentialRecs(accountId?: string, orgId?: string): Pr
   return arr;
 }
 
+/** Replace a credential's secret (rotation). Returns null when the id is unknown. */
+export async function rotateCredentialRec(id: string, secret: string): Promise<StoredCredential | null> {
+  const secret_enc = encryptSecret(secret);
+  const updated_at = nowIso();
+  if (db) {
+    await ensureCredentialTables();
+    const rows = await db.update(credentials)
+      .set({ secretEnc: secret_enc, updatedAt: new Date(updated_at) })
+      .where(eq(credentials.id, id))
+      .returning();
+    return rows[0] ? rowToCredential(rows[0]) : null;
+  }
+  const cur = memCredentials.get(id);
+  if (!cur) return null;
+  const next: StoredCredential = { ...cur, secret_enc, updated_at };
+  memCredentials.set(id, next);
+  return next;
+}
+
 export async function deleteCredentialRec(id: string): Promise<boolean> {
   if (db) {
     await ensureCredentialTables();

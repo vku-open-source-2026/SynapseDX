@@ -638,6 +638,43 @@ func (c *Client) ListCredentials(accountID string) ([]any, error) {
 	return out, nil
 }
 
+// CreateWorkflowCredential stores an account credential directly via POST /v1/credentials.
+func (c *Client) CreateWorkflowCredential(accountID, name, kind, secret string) (map[string]any, error) {
+	body := map[string]any{"accountId": accountID, "name": name, "kind": kind, "secret": secret}
+	b, err := c.do("POST", "/v1/credentials", body)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ListWorkflowCredentials lists credential metadata via GET /v1/credentials(?accountId=...).
+func (c *Client) ListWorkflowCredentials(accountID string) ([]any, error) {
+	path := "/v1/credentials"
+	if accountID != "" {
+		path += "?accountId=" + url.QueryEscape(accountID)
+	}
+	b, err := c.do("GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var env struct {
+		Data []any `json:"data"`
+	}
+	if err := unmarshal(b, &env); err == nil && env.Data != nil {
+		return env.Data, nil
+	}
+	var out []any
+	if err := unmarshal(b, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // GetCredential fetches one credential's metadata (never the secret).
 func (c *Client) GetCredential(id string) (map[string]any, error) {
 	b, err := c.do("GET", "/v1/credentials/"+pathEscape(id), nil)

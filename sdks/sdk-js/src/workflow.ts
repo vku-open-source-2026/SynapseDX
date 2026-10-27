@@ -7,6 +7,28 @@
 
 import { HttpClient } from './_http';
 
+/** Credential kinds accepted by the workflow engine (used by http/webhook nodes). */
+export type CredentialKind = 'bearer' | 'api-key' | 'basic' | 'hmac';
+
+export interface CredentialInput {
+  /** Owning account (credentials are account-scoped, org-bound for org callers). */
+  accountId: string;
+  name: string;
+  kind?: CredentialKind | string;
+  type?: CredentialKind | string;
+  /** Write-only: never returned by any endpoint. */
+  secret: string;
+}
+
+export interface CredentialMetadata {
+  id: string;
+  accountId: string;
+  name: string;
+  kind: CredentialKind | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export class WorkflowService {
   constructor(private readonly http: HttpClient) {}
 
@@ -60,6 +82,68 @@ export class WorkflowService {
   testRun(definition: any, input: Record<string, unknown> = {}, workflowId?: string) {
     return this.http.req('/v1/workflows/test-run', { method: 'POST', body: JSON.stringify({ definition, input, ...(workflowId ? { workflowId } : {}) }) });
   }
+
+  // ---- credentials (account-scoped secrets, encrypted at rest) ----
+  // Secrets are write-only: create/rotate accept `secret` once, every read
+  // returns metadata only. Kinds: bearer | api-key | basic | hmac.
+  createCredential(
+    inputOrAccountId: CredentialInput | string,
+    opts?: { name: string; kind?: CredentialKind | string; type?: CredentialKind | string; secret: string; expiresAt?: string }
+  ): Promise<CredentialMetadata> {
+    const body = typeof inputOrAccountId === 'string'
+      ? {
+          accountId: inputOrAccountId,
+          name: opts?.name,
+          kind: opts?.kind || opts?.type || 'bearer',
+          secret: opts?.secret,
+        }
+      : {
+          accountId: inputOrAccountId.accountId,
+          name: inputOrAccountId.name,
+          kind: inputOrAccountId.kind || inputOrAccountId.type || 'bearer',
+          secret: inputOrAccountId.secret,
+        };
+    return this.http.req('/v1/credentials', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+  listCredentials(accountId?: string): Promise<CredentialMetadata[]> {
+    const qs = accountId ? `?accountId=${encodeURIComponent(accountId)}` : '';
+    return this.http.req<any>(`/v1/credentials${qs}`).then(unwrapCredentialList);
+  }
+  getCredential(id: string): Promise<CredentialMetadata> {
+    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}`);
+  }
+  rotateCredential(id: string, secret: string): Promise<CredentialMetadata> {
+    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}/rotate`, {
+      method: 'POST',
+      body: JSON.stringify({ secret }),
+    });
+  }
+  deleteCredential(id: string) {
+    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
+
+  // ---- public inbound webhooks ----
+  /**
+   * Fire a public inbound webhook through the gateway: `ANY /webhook/:path`.
+   * No auth is required; per-workflow auth/rate-limit/idempotency still apply.
+   * `path` is the webhook node's `parameters.path`, not a workflow id.
+   */
+  triggerWebhook(path: string, payload?: unknown, init: { method?: string } = {}) {
+    const clean = String(path || '').replace(/^\/+|\/+$/g, '').split('?')[0];
+    if (!clean) throw new Error('synapsedx webhook: path required');
+    const method = (init.method || (payload === undefined ? 'GET' : 'POST')).toUpperCase();
+    return this.http.call(method, `/webhook/${clean}`, payload);
+  }
+}
+
+/** Normalize GET /v1/credentials: the API returns `{data: []}`. */
+export function unwrapCredentialList(payload: any): CredentialMetadata[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && Array.isArray(payload.data)) return payload.data;
+  return payload == null ? [] : payload as any;
 }
 
 /**
@@ -77,9 +161,10 @@ export function unwrapExecutions(payload: any): any[] {
  * Fire a public inbound webhook: `ANY /webhook/:path` (no auth) triggers the
  * ACTIVE workflow whose webhook node declares that `path`.
  *
- * NOTE: the gateway does not proxy `/webhook/*` — pass the workflow-service
- * origin (e.g. `http://localhost:4002`), not the gateway URL. `path` is the
- * webhook node's `parameters.path` (e.g. `synapsedx-event`), not a workflow id.
+ * The gateway proxies `/webhook/*` to the workflow service, so `webhookBaseUrl`
+ * is normally the gateway URL. Use `client.workflow.triggerWebhook()` for the
+ * gateway-bound convenience form. `path` is the webhook node's
+ * `parameters.path` (e.g. `synapsedx-event`), not a workflow id.
  */
 export async function triggerWebhook(
   webhookBaseUrl: string,

@@ -1,7 +1,7 @@
 #!/bin/sh
 # SynapseDX CLI one-line installer (POSIX sh, no dependencies besides Node 18+).
 #   curl -fsSL https://synapsedx.sbs/install.sh | sh
-#   # or pin a version: CLI_VERSION=0.6.0 curl -fsSL https://synapsedx.sbs/install.sh | sh
+#   # or pin a version: CLI_VERSION=0.6.1 curl -fsSL https://synapsedx.sbs/install.sh | sh
 # What it does: checks for node >= 18, then `npm install -g @synapsedx/cli[@version]`.
 # No shell profiles are modified. Uninstall: `npm uninstall -g @synapsedx/cli`.
 # Mirror: this file is the canonical source; apps/console/public/install.sh is a

@@ -36,10 +36,12 @@ The SDK is split per service, with matching subpath exports:
 | --- | --- | --- |
 | `c.iam` | Synapse IAM | `@synapsedx/sdk/iam` |
 | `c.workflow` | Workflow | `@synapsedx/sdk/workflow` |
+| `c.ai` | AI Assistant | `@synapsedx/sdk/ai` |
 | `c.lds` | SynapseLDS | `@synapsedx/sdk/lds` |
 | `c.base` | SynapseBase | `@synapsedx/sdk/base` |
 | `c.faststore` | Synapse Faststore | `@synapsedx/sdk/faststore` |
 | `c.queue` | SynapseQueue | `@synapsedx/sdk/queue` |
+| `c.inference` | Inference Engine | `@synapsedx/sdk/inference` |
 
 ```ts
 await c.base.createCollection({ name: 'parks', mapping: { name: 'profile.name' } });

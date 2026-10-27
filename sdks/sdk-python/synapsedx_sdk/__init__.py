@@ -39,6 +39,7 @@ import warnings
 from typing import Any
 
 from ._http import UNSET, HttpClient, SynapseDXError
+from .ai import AiService
 from .base import (
     BaseCollection,
     BaseService,
@@ -57,6 +58,7 @@ from .workflow import WorkflowService, trigger_webhook, unwrap_executions
 
 __all__ = [
     "UNSET",
+    "AiService",
     "BaseCollection",
     "BaseService",
     "FaststoreService",
@@ -78,7 +80,7 @@ __all__ = [
 
 
 class SynapseDXClient:
-    """One client, one HTTP layer, six service namespaces.
+    """One client, one HTTP layer, seven service namespaces.
 
     ``base_url`` points at the gateway (``http://localhost:8080``) or a single
     service origin. ``tenant`` is sent as ``x-synapsedx-tenant`` and is only
@@ -98,6 +100,7 @@ class SynapseDXClient:
         )
         self.iam = IamService(self._http)
         self.workflow = WorkflowService(self._http)
+        self.ai = AiService(self._http)
         self.lds = LdsService(self._http)
         self.base = BaseService(self._http)
         self.faststore = FaststoreService(self._http)
@@ -200,11 +203,6 @@ _IAM_METHODS = (
     "revoke_api_key",
     "list_api_keys",
     "verify_api_key",
-    "create_credential",
-    "list_credentials",
-    "get_credential",
-    "delete_credential",
-    "rotate_credential",
     "create_service_account",
     "list_service_accounts",
     "list_roles",
@@ -231,6 +229,11 @@ _WORKFLOW_METHODS = (
     "list_executions",
     "get_execution",
     "test_run",
+    "create_credential",
+    "list_credentials",
+    "get_credential",
+    "delete_credential",
+    "rotate_credential",
 )
 
 _LDS_METHODS = {
@@ -272,3 +275,4 @@ for _name in _WORKFLOW_METHODS:
     setattr(SynapseDXClient, _name, _deprecated("workflow", _name, _name))
 for _legacy, _target in _LDS_METHODS.items():
     setattr(SynapseDXClient, _legacy, _deprecated("lds", _legacy, _target))
+setattr(SynapseDXClient, "ai_agent", _deprecated("ai", "ai_agent", "agent"))

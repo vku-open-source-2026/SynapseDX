@@ -177,14 +177,14 @@ describe('SynapseDXClient', () => {
     assert.equal(lastMethod, 'GET');
   });
 
-  it('credentials CRUD hits the proposed contract paths', async () => {
+  it('credentials CRUD hits the workflow credentials paths', async () => {
     const c = new SynapseDXClient({ baseUrl: base });
     await c.createCredential('a1', { name: 'stripe-live', type: 'bearer', secret: 's3cr3t', expiresAt: '2027-01-01T00:00:00Z' });
-    assert.equal(lastPath, '/v1/accounts/a1/credentials');
+    assert.equal(lastPath, '/v1/credentials');
     assert.equal(lastMethod, 'POST');
-    assert.deepEqual(JSON.parse(lastBody), { name: 'stripe-live', type: 'bearer', secret: 's3cr3t', expiresAt: '2027-01-01T00:00:00Z' });
+    assert.deepEqual(JSON.parse(lastBody), { accountId: 'a1', name: 'stripe-live', kind: 'bearer', secret: 's3cr3t' });
     await c.listCredentials('a1');
-    assert.equal(lastPath, '/v1/accounts/a1/credentials');
+    assert.equal(lastPath, '/v1/credentials?accountId=a1');
     assert.equal(lastMethod, 'GET');
     await c.getCredential('c1');
     assert.equal(lastPath, '/v1/credentials/c1');
@@ -195,6 +195,17 @@ describe('SynapseDXClient', () => {
     await c.deleteCredential('c1');
     assert.equal(lastPath, '/v1/credentials/c1');
     assert.equal(lastMethod, 'DELETE');
+  });
+
+  it('ai agent posts question and history', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.ai.agent('how to create a workflow', [{ role: 'user', text: 'hi' }]);
+    assert.equal(lastPath, '/v1/ai/agent');
+    assert.equal(lastMethod, 'POST');
+    assert.deepEqual(JSON.parse(lastBody), {
+      question: 'how to create a workflow',
+      history: [{ role: 'user', text: 'hi' }],
+    });
   });
 
   it('ldsLicenses lists the license catalog', async () => {

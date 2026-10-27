@@ -156,6 +156,63 @@ class WorkflowService:
             body["workflowId"] = workflow_id
         return self._req("POST", "/v1/workflows/test-run", body)
 
+    # ---- credentials (account-scoped secrets, encrypted at rest) ----
+    def create_credential(
+        self,
+        account_id: str,
+        name: str,
+        kind: str = "bearer",
+        secret: str = "",
+        *,
+        type: str | None = None,
+        expires_at: str | None = None,
+    ) -> dict:
+        """Store an account credential (secret is write-only, encrypted at rest)."""
+        body: dict[str, Any] = {
+            "accountId": account_id,
+            "name": name,
+            "kind": kind or type or "bearer",
+            "secret": secret,
+        }
+        return self._req("POST", "/v1/credentials", body)
+
+    def list_credentials(self, account_id: str | None = None) -> list:
+        """List credential metadata (never secrets)."""
+        qs = f"?accountId={quote(account_id, safe='')}" if account_id else ""
+        raw = self._req("GET", f"/v1/credentials{qs}")
+        if isinstance(raw, dict) and isinstance(raw.get("data"), list):
+            return raw["data"]
+        return raw if isinstance(raw, list) else []
+
+    def get_credential(self, cred_id: str) -> dict:
+        """Fetch one credential's metadata (never the secret)."""
+        return self._req("GET", f"/v1/credentials/{quote(cred_id, safe='')}")
+
+    def rotate_credential(self, cred_id: str, secret: str) -> dict:
+        """Rotate a credential's secret in place (write-only)."""
+        return self._req(
+            "POST",
+            f"/v1/credentials/{quote(cred_id, safe='')}/rotate",
+            {"secret": secret},
+        )
+
+    def delete_credential(self, cred_id: str) -> dict:
+        """Delete a credential."""
+        return self._req("DELETE", f"/v1/credentials/{quote(cred_id, safe='')}")
+
+    def trigger_webhook(
+        self,
+        path: str,
+        payload: Any | None = None,
+        method: str | None = None,
+    ) -> Any:
+        """Fire a public inbound webhook through the gateway: ANY /webhook/:path."""
+        clean = str(path or "").strip("/").split("?")[0]
+        if not clean:
+            raise SynapseDXError("synapsedx webhook: path required")
+        verb = (method or ("GET" if payload is None else "POST")).upper()
+        return self._http.request(verb, f"/webhook/{clean}", payload)
+
 
 def trigger_webhook(
     webhook_base_url: str,

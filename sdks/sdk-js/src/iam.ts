@@ -2,7 +2,7 @@
  * Copyright 2026 SynapseDX Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Synapse IAM client: auth/OIDC, orgs/accounts/users, roles/policies,
- * API keys, credentials and service accounts.
+ * API keys, service accounts and usage analytics.
  *
  * Access it through `new SynapseDXClient(...).iam` or build it with an
  * HttpClient directly.
@@ -121,31 +121,6 @@ export class IamService {
       method: 'POST',
       body: JSON.stringify(scopes === undefined ? {} : { scopes }),
     });
-  }
-
-  // ---- credentials (account-scoped secrets) ----
-  // Secrets are encrypted at rest and NEVER returned — create/rotate accept a
-  // `secret` once; list/get return metadata only:
-  // {id, name, type, accountId, expiresAt, version}.
-  // `type` is one of: bearer|basic|apiKey|oauth2 (passed through, not validated
-  // client-side, so future types keep working).
-  createCredential(accountId: string, opts: { name: string; type: string; secret: string; expiresAt?: string }) {
-    return this.http.req(`/v1/accounts/${encodeURIComponent(accountId)}/credentials`, {
-      method: 'POST',
-      body: JSON.stringify({ name: opts.name, type: opts.type, secret: opts.secret, ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}) }),
-    });
-  }
-  listCredentials(accountId: string) {
-    return this.http.req(`/v1/accounts/${encodeURIComponent(accountId)}/credentials`);
-  }
-  getCredential(id: string) {
-    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}`);
-  }
-  deleteCredential(id: string) {
-    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  }
-  rotateCredential(id: string, secret: string) {
-    return this.http.req(`/v1/credentials/${encodeURIComponent(id)}/rotate`, { method: 'POST', body: JSON.stringify({ secret }) });
   }
 
   // ---- usage & telemetry ----

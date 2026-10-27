@@ -40,6 +40,7 @@ Data services & AI:
   sets, sorted sets, scans, batches and distributed locks.
 - **SynapseQueue** — `Client.*Queue*` for publish (delay/dedupe), consume,
   ack/nack/heartbeat, dead letters and replay.
+- **Synapse AI Assistant** — `Client.AIAgent` for natural language API endpoint guidance.
 - **Synapse Inference Engine** — `Client.Inference*` for LLM chat proxy,
   self-hosted embeddings, Decision-2.0-Eos-0.8B structured questions and semantic routing.
 

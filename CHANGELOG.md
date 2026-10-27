@@ -5,6 +5,21 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-27
+
+### Added — Full SDK API Coverage & Workflow Credentials
+- **Complete Multi-SDK Coverage for All Services**:
+  - **AI Assistant Client (`c.ai`)**: Added `agent()` query method for the natural language API guidance assistant (`POST /v1/ai/agent`) across JavaScript (`client.ai.agent()`), Python (`client.ai.agent()`), and Go (`client.AIAgent()`).
+  - **Workflow Credentials API (`c.workflow`)**: Full support for encrypted credentials (`createCredential`, `listCredentials`, `getCredential`, `rotateCredential`, `deleteCredential`) in JavaScript, Python, and Go SDKs.
+  - **Gateway Webhooks Convenience**: Added `triggerWebhook` / `trigger_webhook` helpers to dispatch public inbound webhooks through the gateway.
+- **Engine & Gateway Credential Route Aliases**:
+  - Added wildcard route `- path: /v1/accounts/*/credentials` in Gateway `routes.yaml`.
+  - Workflow service mounts `/v1/accounts/:accountId/credentials` as an alias alongside `/v1/credentials` with automatic parameter resolution (`name, kind/type, secret`).
+  - Added `rotateCredentialRec`, `GET /v1/credentials/:id`, and `POST /v1/credentials/:id/rotate` in Workflow Service.
+- **SynapseFlow AI Agent & Vector Search Integration**:
+  - Support for SynapseFlow Decision Engine multi-branching and canvas socket tools.
+  - SynapseBase vector store integration with natural-language auto-embedding.
+
 ## [0.6.0] - 2026-10-21
 
 ### Added — Synapse Inference Engine & Multi-SDK Ecosystem

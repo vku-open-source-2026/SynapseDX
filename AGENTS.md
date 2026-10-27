@@ -5,7 +5,7 @@ by concern to keep context small.
 
 ## What this is
 
-SynapseDX v0.6.0 — Apache-2.0 "Tier-1 PaaS": one API gateway, AWS-style IAM,
+SynapseDX v0.6.1 — Apache-2.0 "Tier-1 PaaS": one API gateway, AWS-style IAM,
 Postgres/Redis data plane (S3 is provisioned but not exposed yet), built-in
 workflow engine, NGSI-LD linked data (SynapseLDS), document DB (SynapseBase),
 Redis cache (Synapse Faststore), and at-least-once queue (SynapseQueue).
@@ -97,7 +97,7 @@ Postgres · Redis · S3 (provisioned)
    gate (`make license-check`) fails on GPL/AGPL/LGPL.
 9. **New public paths need a gateway route** in `apps/gateway/routes.yaml`,
    otherwise the gateway returns 404 before the upstream sees the request.
-10. **Keep versions in sync** at `0.6.0` across packages, Compose images, and SDKs.
+10. **Keep versions in sync** at `0.6.1` across packages, Compose images, and SDKs.
 
 ## Commands
 

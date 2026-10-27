@@ -473,6 +473,42 @@ func TestCredentials(t *testing.T) {
 	if seen["path"] != "/v1/credentials/c1" || seen["method"] != "DELETE" {
 		t.Fatalf("delete: %v", seen)
 	}
+
+	if _, err := c.CreateWorkflowCredential("a1", "stripe-live", "bearer", "s3cr3t"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/credentials" || seen["method"] != "POST" {
+		t.Fatalf("create workflow cred: %v", seen)
+	}
+	if _, err := c.ListWorkflowCredentials("a1"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/credentials?accountId=a1" || seen["method"] != "GET" {
+		t.Fatalf("list workflow cred: %v", seen)
+	}
+}
+
+func TestAIAgent(t *testing.T) {
+	seen := map[string]string{}
+	srv := echoServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	res, err := c.AIAgent("create a workflow", AiHistoryItem{Role: "user", Text: "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/ai/agent" || seen["method"] != "POST" {
+		t.Fatalf("ai agent path: %v", seen)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(seen["body"]), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["question"] != "create a workflow" {
+		t.Fatalf("question mismatch: %v", body)
+	}
+	_ = res
 }
 
 func TestLDSLicensesAndDatasources(t *testing.T) {

@@ -280,19 +280,17 @@ def test_credentials_crud_proposed_contract():
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
         c = SynapseDXClient(base)
-        c.create_credential(
-            "a1", "stripe-live", "bearer", "s3cr3t", "2027-01-01T00:00:00Z"
-        )
-        assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
+        c.create_credential("a1", "stripe-live", "bearer", "s3cr3t")
+        assert _seen["path"] == "/v1/credentials", _seen
         assert _seen["method"] == "POST", _seen
         assert json.loads(_seen["body"]) == {
+            "accountId": "a1",
             "name": "stripe-live",
-            "type": "bearer",
+            "kind": "bearer",
             "secret": "s3cr3t",
-            "expiresAt": "2027-01-01T00:00:00Z",
         }, _seen
         c.list_credentials("a1")
-        assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
+        assert _seen["path"] == "/v1/credentials?accountId=a1", _seen
         assert _seen["method"] == "GET", _seen
         c.get_credential("c1")
         assert _seen["path"] == "/v1/credentials/c1", _seen
@@ -303,6 +301,25 @@ def test_credentials_crud_proposed_contract():
         c.delete_credential("c1")
         assert _seen["path"] == "/v1/credentials/c1", _seen
         assert _seen["method"] == "DELETE", _seen
+    finally:
+        srv.shutdown()
+
+
+def test_ai_agent_post_question_and_history():
+    srv = _server()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        c = SynapseDXClient(base)
+        c.ai.agent(
+            "how to create a workflow",
+            [{"role": "user", "text": "hello"}],
+        )
+        assert _seen["path"] == "/v1/ai/agent", _seen
+        assert _seen["method"] == "POST", _seen
+        assert json.loads(_seen["body"]) == {
+            "question": "how to create a workflow",
+            "history": [{"role": "user", "text": "hello"}],
+        }, _seen
     finally:
         srv.shutdown()
 

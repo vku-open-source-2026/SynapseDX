@@ -31,11 +31,13 @@ The SDK is split per service. Use the namespace that matches the service:
 | Namespace | Service | Highlights |
 | --- | --- | --- |
 | `c.iam` | Synapse IAM | auth/OIDC, orgs, accounts, users, roles, policies, API keys, credentials, service accounts |
-| `c.workflow` | Workflow | templates, workflow CRUD + activate/deactivate, executions, `test_run`, `trigger_webhook` |
+| `c.workflow` | Workflow | templates, workflow CRUD + activate/deactivate, executions, credentials, `test_run`, `trigger_webhook` |
+| `c.ai` | AI Assistant | API documentation assistant (natural language -> endpoint guidance) |
 | `c.lds` | LDS | datasources, attributes, records ingestion, NGSI-LD entities, licenses |
 | `c.base` | SynapseBase | collections, documents, queries, batch, increment, change feed, typed object<->data mapping |
 | `c.faststore` | Synapse Faststore | KV with TTL/NX/XX, incr, hashes, lists, sets, sorted sets, scans, batches, distributed locks |
 | `c.queue` | SynapseQueue | queues, publish (delay/dedupe), consume leases, ack/nack/heartbeat, dead letters, replay |
+| `c.inference` | Inference Engine | LLM proxy, local embeddings, Decision-2.0-Eos-0.8B structured decision & routing |
 
 ### SynapseBase with typed objects
 

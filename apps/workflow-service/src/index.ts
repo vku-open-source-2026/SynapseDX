@@ -16,7 +16,7 @@ import {
   createWorkflowRec, getWorkflowRec, listWorkflowRecs, updateWorkflowRec, deleteWorkflowRec,
   createExecutionRec, getExecutionRec, listExecutionRecs, findActiveWebhookWorkflow,
   listActiveCronWorkflows, ensureTables, useDb, StoredWorkflow, StoredCredential,
-  createCredentialRec, getCredentialRec, listCredentialRecs, deleteCredentialRec,
+  createCredentialRec, getCredentialRec, listCredentialRecs, deleteCredentialRec, rotateCredentialRec,
   toPublicCredential, decryptSecret,
 } from './store';
 import type { Principal } from './store';
@@ -1726,13 +1726,46 @@ function tenantBinding(
     return { ok: true, orgId: p.org };
   }
 
-  app.get('/v1/credentials', async (req, res) => {
+  /** Shared create/rotate secret validation (never echoed back). */
+  function credentialSecretError(kind: string, secret: unknown): { error: string; message: string } | null {
+    if (typeof secret !== 'string' || !secret || Buffer.byteLength(secret, 'utf8') > 8 * 1024) {
+      return { error: 'invalid_secret', message: 'secret must be 1..8KB' };
+    }
+    if (kind === 'basic') {
+      try {
+        const parsed = JSON.parse(secret);
+        if (!parsed || typeof parsed !== 'object' || typeof (parsed as any).password !== 'string') {
+          return { error: 'invalid_secret', message: 'basic secret must be JSON {username, password}' };
+        }
+      } catch {
+        return { error: 'invalid_secret', message: 'basic secret must be JSON {username, password}' };
+      }
+    }
+    return null;
+  }
+
+  /** Tenant check shared by read/delete/rotate of an existing credential. */
+  function canAccessCredential(req: any, cur: StoredCredential): { ok: boolean; status?: number; error?: string; message?: string } {
+    const scope = credentialAccountScope(req, cur.account_id);
+    if (!scope.ok) return scope;
+    // Org-scoped callers may only touch credentials actually bound to their
+    // org — legacy/anonymous credentials of unknown tenancy are off-limits.
+    if (scope.orgId && (!cur.org_id || cur.org_id !== scope.orgId)) {
+      return { ok: false, status: 403, error: 'cross_tenant', message: 'credential is outside your own org' };
+    }
+    return { ok: true };
+  }
+
+  const listCredentialsHandler = async (req: express.Request, res: express.Response) => {
     const q = req.query as any;
     const p = principalFromHeaders(req);
-    if (typeof q.accountId === 'string' && q.accountId.length > 128) {
+    const paramAcc = (req.params as any)?.accountId;
+    const queryAcc = typeof q.accountId === 'string' ? q.accountId : undefined;
+    const rawAcc = paramAcc || queryAcc;
+    if (typeof rawAcc === 'string' && rawAcc.length > 128) {
       return res.status(400).json({ error: 'invalid_account', message: 'accountId must be 1..128 chars' });
     }
-    const accountId = typeof q.accountId === 'string' ? q.accountId : p?.account;
+    const accountId = rawAcc || p?.account;
     if (accountId) {
       const scope = credentialAccountScope(req, accountId);
       if (!scope.ok) return res.status(scope.status!).json({ error: scope.error, message: scope.message });
@@ -1745,10 +1778,17 @@ function tenantBinding(
     }
     const items = await listCredentialRecs();
     res.json({ data: items.map(toPublicCredential) });
-  });
+  };
+  app.get('/v1/credentials', listCredentialsHandler);
+  app.get('/v1/accounts/:accountId/credentials', listCredentialsHandler);
 
-  app.post('/v1/credentials', async (req, res) => {
-    const { accountId, name, kind, secret } = (req.body || {}) as any;
+  const createCredentialHandler = async (req: express.Request, res: express.Response) => {
+    const body = (req.body || {}) as any;
+    const accountId = (req.params as any)?.accountId || body.accountId;
+    const name = body.name;
+    const rawKind = body.kind || body.type;
+    const kind = rawKind === 'apiKey' ? 'api-key' : rawKind;
+    const secret = body.secret;
     if (typeof accountId !== 'string' || !accountId || accountId.length > 128 || /[\r\n]/.test(accountId)) {
       return res.status(400).json({ error: 'invalid_account', message: 'accountId must be 1..128 chars' });
     }
@@ -1760,19 +1800,8 @@ function tenantBinding(
     if (!['bearer', 'api-key', 'basic', 'hmac'].includes(kind)) {
       return res.status(400).json({ error: 'invalid_kind', message: 'kind must be bearer|api-key|basic|hmac' });
     }
-    if (typeof secret !== 'string' || !secret || Buffer.byteLength(secret, 'utf8') > 8 * 1024) {
-      return res.status(400).json({ error: 'invalid_secret', message: 'secret must be 1..8KB' });
-    }
-    if (kind === 'basic') {
-      try {
-        const parsed = JSON.parse(secret);
-        if (!parsed || typeof parsed !== 'object' || typeof (parsed as any).password !== 'string') {
-          return res.status(400).json({ error: 'invalid_secret', message: 'basic secret must be JSON {username, password}' });
-        }
-      } catch {
-        return res.status(400).json({ error: 'invalid_secret', message: 'basic secret must be JSON {username, password}' });
-      }
-    }
+    const secretErr = credentialSecretError(kind, secret);
+    if (secretErr) return res.status(400).json(secretErr);
     try {
       const c = await createCredentialRec({ account_id: accountId, org_id: scope.orgId ?? null, name, kind, secret });
       res.status(201).json(toPublicCredential(c));
@@ -1780,6 +1809,38 @@ function tenantBinding(
       if ((e as any)?.code === 'conflict') return res.status(409).json({ error: 'conflict', message: (e as any).message });
       throw e;
     }
+  };
+  app.post('/v1/credentials', createCredentialHandler);
+  app.post('/v1/accounts/:accountId/credentials', createCredentialHandler);
+
+  // Read one credential's metadata (never the secret). Same tenant rules as
+  // list/delete: account callers must own the account, org callers must own
+  // the credential's org binding.
+  app.get('/v1/credentials/:id', async (req, res) => {
+    const id = idGate(req, res);
+    if (id === null) return;
+    const cur = await getCredentialRec(id);
+    if (!cur) return res.status(404).json({ error: 'not_found', message: 'credential not found' });
+    const access = canAccessCredential(req, cur);
+    if (!access.ok) return res.status(access.status!).json({ error: access.error, message: access.message });
+    res.json(toPublicCredential(cur));
+  });
+
+  // Rotate a credential's secret in place (keeps the id, name and kind so
+  // workflows referencing credentialId keep working). The old secret stops
+  // working immediately; the new one is write-only.
+  app.post('/v1/credentials/:id/rotate', async (req, res) => {
+    const id = idGate(req, res);
+    if (id === null) return;
+    const cur = await getCredentialRec(id);
+    if (!cur) return res.status(404).json({ error: 'not_found', message: 'credential not found' });
+    const access = canAccessCredential(req, cur);
+    if (!access.ok) return res.status(access.status!).json({ error: access.error, message: access.message });
+    const secretErr = credentialSecretError(cur.kind, (req.body || {}).secret);
+    if (secretErr) return res.status(400).json(secretErr);
+    const next = await rotateCredentialRec(id, (req.body || {}).secret);
+    if (!next) return res.status(404).json({ error: 'not_found', message: 'credential not found' });
+    res.json(toPublicCredential(next));
   });
 
   app.delete('/v1/credentials/:id', async (req, res) => {
@@ -1787,15 +1848,8 @@ function tenantBinding(
     if (id === null) return;
     const cur = await getCredentialRec(id);
     if (!cur) return res.status(404).json({ error: 'not_found', message: 'credential not found' });
-    const scope = credentialAccountScope(req, cur.account_id);
-    if (!scope.ok) return res.status(scope.status!).json({ error: scope.error, message: scope.message });
-    // Org-scoped callers may only manage credentials actually bound to their
-    // org — legacy/anonymous credentials of unknown tenancy are off-limits.
-    if (scope.orgId) {
-      if (!cur.org_id || cur.org_id !== scope.orgId) {
-        return res.status(403).json({ error: 'cross_tenant', message: 'credential is outside your own org' });
-      }
-    }
+    const access = canAccessCredential(req, cur);
+    if (!access.ok) return res.status(access.status!).json({ error: access.error, message: access.message });
     await deleteCredentialRec(id);
     res.json({ ok: true, id });
   });

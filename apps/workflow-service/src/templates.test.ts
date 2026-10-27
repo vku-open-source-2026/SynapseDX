@@ -850,6 +850,65 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     assert.equal(del.status, 200);
   });
 
+  it('credentials get/rotate keep secrets write-only and enforce tenant scope', async () => {
+    const created = await fetch(`${base}/v1/credentials`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ accountId: 'acc-r', name: 'rotate-me', kind: 'bearer', secret: 'old-secret' }),
+    });
+    const cred: any = await created.json();
+    assert.equal(created.status, 201);
+
+    const got = await fetch(`${base}/v1/credentials/${cred.id}`, { headers: H });
+    assert.equal(got.status, 200);
+    const meta: any = await got.json();
+    assert.equal(meta.id, cred.id);
+    assert.equal(meta.kind, 'bearer');
+    assert.ok(!JSON.stringify(meta).includes('old-secret'));
+    assert.ok(!('secret' in meta) && !('secretEnc' in meta));
+
+    const rotated = await fetch(`${base}/v1/credentials/${cred.id}/rotate`, {
+      method: 'POST', headers: H, body: JSON.stringify({ secret: 'new-secret' }),
+    });
+    assert.equal(rotated.status, 200);
+    const next: any = await rotated.json();
+    assert.equal(next.id, cred.id);
+    assert.equal(next.name, 'rotate-me');
+    assert.ok(!JSON.stringify(next).includes('new-secret'));
+
+    const bad = await fetch(`${base}/v1/credentials/${cred.id}/rotate`, {
+      method: 'POST', headers: H, body: JSON.stringify({ secret: '' }),
+    });
+    assert.equal(bad.status, 400);
+
+    const foreign = P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-account': 'acc-other', 'x-synapsedx-org': 'o1' });
+    assert.equal((await fetch(`${base}/v1/credentials/${cred.id}`, { headers: foreign })).status, 403);
+    assert.equal((await fetch(`${base}/v1/credentials/${cred.id}/rotate`, {
+      method: 'POST', headers: foreign, body: JSON.stringify({ secret: 'x' }),
+    })).status, 403);
+
+    assert.equal((await fetch(`${base}/v1/credentials/missing`, { headers: H })).status, 404);
+    assert.equal((await fetch(`${base}/v1/credentials/missing/rotate`, {
+      method: 'POST', headers: H, body: JSON.stringify({ secret: 'x' }),
+    })).status, 404);
+
+    // Also verify the /v1/accounts/:accountId/credentials alias (proposed contract)
+    const aliasCreated = await fetch(`${base}/v1/accounts/acc-r/credentials`, {
+      method: 'POST', headers: H,
+      body: JSON.stringify({ name: 'alias-cred', type: 'bearer', secret: 'alias-sec' }),
+    });
+    assert.equal(aliasCreated.status, 201);
+    const aliasData: any = await aliasCreated.json();
+    assert.equal(aliasData.name, 'alias-cred');
+
+    const aliasList = await fetch(`${base}/v1/accounts/acc-r/credentials`, { headers: H });
+    assert.equal(aliasList.status, 200);
+    const listJson: any = await aliasList.json();
+    assert.ok(listJson.data.some((x: any) => x.id === aliasData.id));
+
+    await fetch(`${base}/v1/credentials/${aliasData.id}`, { method: 'DELETE', headers: H });
+    await fetch(`${base}/v1/credentials/${cred.id}`, { method: 'DELETE', headers: H });
+  });
+
   it('httpRequest auth.credentialId shape validated at save (P1-16)', async () => {
     const r = await fetch(`${base}/v1/workflows`, {
       method: 'POST', headers: H,

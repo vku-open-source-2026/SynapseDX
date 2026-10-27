@@ -16,7 +16,7 @@ from .llm import (
     stream_chat_completion,
 )
 
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 
 app = FastAPI(
     title="Synapse Inference Engine",
