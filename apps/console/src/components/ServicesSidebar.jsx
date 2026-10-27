@@ -15,6 +15,7 @@ import {
   faXmark,
   faCode,
   faBrain,
+  faStream,
 } from '@fortawesome/free-solid-svg-icons';
 
 export const PLATFORM_SERVICES = [
@@ -53,6 +54,18 @@ export const PLATFORM_SERVICES = [
     shadowColor: 'rgba(16, 185, 129, 0.28)',
     match: (p) => p.startsWith('/queue'),
     keywords: ['queue', 'message', 'broker', 'dlq', 'dead letter', 'visibility', 'lease', 'pubsub'],
+  },
+  {
+    to: '/stream',
+    label: 'SynapseStream',
+    category: 'Event Streaming',
+    desc: 'Distributed event stream log, consumer groups & time-series replay',
+    icon: faStream,
+    iconColor: 'from-amber-500 to-rose-500',
+    bgGradient: 'linear-gradient(135deg, #f59e0b 0%, #f43f5e 100%)',
+    shadowColor: 'rgba(244, 63, 94, 0.28)',
+    match: (p) => p.startsWith('/stream'),
+    keywords: ['stream', 'streaming', 'kafka', 'events', 'consumer group', 'replay', 'telemetry', 'topic', 'log'],
   },
   {
     to: '/faststore',

@@ -446,11 +446,13 @@ export function createApp(): express.Express {
     const baseUrl = process.env.BASE_SERVICE_URL || 'http://base:4005';
     const faststoreUrl = process.env.FASTSTORE_SERVICE_URL || 'http://faststore:4006';
     const queueUrl = process.env.QUEUE_SERVICE_URL || 'http://queue:4007';
-    const [iam, workflow, ai, lds, base, faststore, queue] = await Promise.all([
+    const streamUrl = process.env.STREAM_SERVICE_URL;
+    const probeList = [
       probe('iam', iamUrl), probe('workflow', wfUrl), probe('ai', aiUrl), probe('lds', ldsUrl),
       probe('base', baseUrl), probe('faststore', faststoreUrl), probe('queue', queueUrl),
-    ]);
-    const upstreams = [iam, workflow, ai, lds, base, faststore, queue];
+    ];
+    if (streamUrl) probeList.push(probe('stream', streamUrl));
+    const upstreams = await Promise.all(probeList);
     const allOk = upstreams.every((u) => u.ok);
     res.status(allOk ? 200 : 503).json({ status: allOk ? 'ready' : 'degraded', service: 'gateway', upstreams, time: new Date().toISOString() });
   });

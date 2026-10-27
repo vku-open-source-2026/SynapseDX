@@ -280,6 +280,31 @@ export const api = {
     post(`/v1/queue/queues/${encodeURIComponent(name)}/dead/${encodeURIComponent(id)}/replay`, body, a),
   queueDeleteDead: (name, id, a) =>
     del(`/v1/queue/queues/${encodeURIComponent(name)}/dead/${encodeURIComponent(id)}`, a),
+  // ---- SynapseStream (event streaming log) ----
+  streamTopicList: (a) => get('/v1/stream/topics', a),
+  streamTopicCreate: (name, body, a) => put(`/v1/stream/topics/${encodeURIComponent(name)}`, body, a),
+  streamTopicGet: (name, a) => get(`/v1/stream/topics/${encodeURIComponent(name)}`, a),
+  streamTopicDelete: (name, a) => del(`/v1/stream/topics/${encodeURIComponent(name)}`, a),
+  streamTopicStats: (name, a) => get(`/v1/stream/topics/${encodeURIComponent(name)}/stats`, a),
+  streamPublish: (name, body, a) => post(`/v1/stream/topics/${encodeURIComponent(name)}/events`, body, a),
+  streamPublishBatch: (name, body, a) => post(`/v1/stream/topics/${encodeURIComponent(name)}/events:batch`, body, a),
+  streamRead: (name, body, a) => post(`/v1/stream/topics/${encodeURIComponent(name)}/read`, body, a),
+  streamRange: (name, params, a) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && String(v) !== '') qs.set(k, String(v));
+    }
+    const s = qs.toString();
+    return get(`/v1/stream/topics/${encodeURIComponent(name)}/range${s ? `?${s}` : ''}`, a);
+  },
+  streamGroupCreate: (name, group, body, a) =>
+    put(`/v1/stream/topics/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}`, body, a),
+  streamGroupDelete: (name, group, a) =>
+    del(`/v1/stream/topics/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}`, a),
+  streamGroupRead: (name, group, body, a) =>
+    post(`/v1/stream/topics/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}/read`, body, a),
+  streamGroupAck: (name, group, body, a) =>
+    post(`/v1/stream/topics/${encodeURIComponent(name)}/groups/${encodeURIComponent(group)}/ack`, body, a),
   // ---- Synapse Faststore (cache / KV) ----
   faststoreStats: (a) => get('/v1/faststore/stats', a),
   faststoreKeys: (params, a) => {

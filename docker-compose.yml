@@ -117,7 +117,7 @@ services:
   iam:
     build:
       context: ./apps/iam-service
-    image: synapsedx/iam:0.6.1
+    image: synapsedx/iam:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4001
@@ -159,7 +159,7 @@ services:
   workflow:
     build:
       context: ./apps/workflow-service
-    image: synapsedx/workflow:0.6.1
+    image: synapsedx/workflow:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4002
@@ -189,7 +189,7 @@ services:
   ai:
     build:
       context: ./apps/ai-service
-    image: synapsedx/ai:0.6.1
+    image: synapsedx/ai:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4003
@@ -217,7 +217,7 @@ services:
   lds:
     build:
       context: ./apps/lds-service
-    image: synapsedx/lds:0.6.1
+    image: synapsedx/lds:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4004
@@ -241,7 +241,7 @@ services:
   base:
     build:
       context: ./apps/base-service
-    image: synapsedx/base:0.6.1
+    image: synapsedx/base:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4005
@@ -267,7 +267,7 @@ services:
   faststore:
     build:
       context: ./apps/faststore-service
-    image: synapsedx/faststore:0.6.1
+    image: synapsedx/faststore:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4006
@@ -291,7 +291,7 @@ services:
   queue:
     build:
       context: ./apps/queue-service
-    image: synapsedx/queue:0.6.1
+    image: synapsedx/queue:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4007
@@ -313,10 +313,35 @@ services:
         condition: service_healthy
     networks: [synapsedx-net]
 
+  stream:
+    build:
+      context: ./apps/stream-service
+    image: synapsedx/stream:0.6.2
+    restart: unless-stopped
+    environment:
+      PORT: 4009
+      STREAM_REDIS_URL: ${STREAM_REDIS_URL:-${REDIS_URL:-redis://redis:6379}}
+      STREAM_MAX_PAYLOAD_BYTES: ${STREAM_MAX_PAYLOAD_BYTES:-262144}
+      SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
+      HSTS_ENABLED: ${HSTS_ENABLED:-false}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+    ports:
+      - "${STREAM_SERVICE_HOST_PORT:-127.0.0.1:4009}:4009"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4009/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [synapsedx-net]
+
   inference:
     build:
       context: ./apps/inference-service
-    image: synapsedx/inference:0.6.1
+    image: synapsedx/inference:0.6.2
     restart: unless-stopped
     environment:
       PORT: 4008
@@ -343,7 +368,7 @@ services:
   gateway:
     build:
       context: ./apps/gateway
-    image: synapsedx/gateway:0.6.1
+    image: synapsedx/gateway:0.6.2
     restart: unless-stopped
     environment:
       PORT: 8080
@@ -355,6 +380,7 @@ services:
       BASE_SERVICE_URL: ${BASE_SERVICE_URL:-http://base:4005}
       FASTSTORE_SERVICE_URL: ${FASTSTORE_SERVICE_URL:-http://faststore:4006}
       QUEUE_SERVICE_URL: ${QUEUE_SERVICE_URL:-http://queue:4007}
+      STREAM_SERVICE_URL: ${STREAM_SERVICE_URL:-http://stream:4009}
       IAM_JWT_SECRET: ${IAM_JWT_SECRET:-change_me_super_secret_32chars_min}
       SYNAPSEDX_INTERNAL_SECRET: ${SYNAPSEDX_INTERNAL_SECRET:-}
       HSTS_ENABLED: ${HSTS_ENABLED:-false}
@@ -384,12 +410,14 @@ services:
         condition: service_healthy
       queue:
         condition: service_healthy
+      stream:
+        condition: service_healthy
     networks: [synapsedx-net]
 
   console:
     build:
       context: ./apps/console
-    image: synapsedx/console:0.6.1
+    image: synapsedx/console:0.6.2
     restart: unless-stopped
     environment:
       # URL gateway ma TRINH DUYET goi toi (khong phai ten service docker).

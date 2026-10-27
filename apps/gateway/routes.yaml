@@ -121,3 +121,9 @@ routes:
     target: ${QUEUE_SERVICE_URL:http://queue:4007}
     auth: either
 
+  # SynapseStream — distributed event streaming log (pluggable Redis Streams / Kafka).
+  - path: /v1/stream
+    target: ${STREAM_SERVICE_URL:http://stream:4009}
+    auth: either
+
+

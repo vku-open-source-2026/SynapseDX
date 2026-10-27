@@ -5,6 +5,27 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-27
+
+### Added — SynapseStream & Full Multi-SDK Coverage
+- **SynapseStream Service (`apps/stream-service`)**:
+  - Distributed event streaming log microservice on port 4009.
+  - Pluggable Engine Driver architecture (`StreamEngine` contract) supporting `MemoryStreamEngine` for dev/unit tests and `RedisStreamsEngine` (using Redis 7 native `XADD`, `XREAD`, `XRANGE`, `XREADGROUP`, `XACK`, `XTRIM`) for production.
+  - Pluggable Driver Registry (`registerStreamEngine`) ready for external Kafka/Redpanda integrations.
+  - Full tenant isolation (`synapsedx:stream:v1:<tenant>:...`) and `SYNAPSEDX_INTERNAL_SECRET` validation.
+- **Gateway & Console Integration**:
+  - Mounted `/v1/stream` in API Gateway (`apps/gateway/routes.yaml`) with readiness probe in `/ready`.
+  - Added dedicated **SynapseStream** dashboard (`/stream`) in React Console with 4 operational tabs: Live Stream Tail, Publish Event, Consumer Groups, and Time-Range Replay.
+  - Added SynapseStream entry in `PLATFORM_SERVICES` (`ServicesSidebar.jsx`).
+- **Complete SDK Support for Streaming (JS, Python, Go)**:
+  - **JavaScript / TypeScript SDK** (`@synapsedx/sdk`): Exposed under `client.stream.*` (`listTopics`, `createTopic`, `getTopic`, `deleteTopic`, `topicStats`, `publish`, `publishBatch`, `read`, `range`, `createGroup`, `destroyGroup`, `readGroup`, `ack`).
+  - **Python SDK** (`synapsedx-sdk`): Exposed under `client.stream.*` (`list_topics`, `create_topic`, `get_topic`, `delete_topic`, `topic_stats`, `publish`, `publish_batch`, `read`, `range`, `create_group`, `destroy_group`, `read_group`, `ack`).
+  - **Go SDK** (`synapsedx-sdk-go`): Added typed client methods on `*Client` (`ListStreamTopics`, `CreateStreamTopic`, `GetStreamTopic`, `DeleteStreamTopic`, `StreamTopicStats`, `PublishStreamEvent`, `PublishStreamBatch`, `ReadStreamEvents`, `QueryStreamRange`, `CreateStreamGroup`, `DestroyStreamGroup`, `ReadStreamGroup`, `AckStreamEvents`).
+- **Comprehensive Test Coverage**:
+  - Unit tests across all 3 SDKs for SynapseStream methods.
+  - CI catalog drift check maintained at 163/163 synchronized endpoints.
+
+
 ## [0.6.1] - 2026-10-27
 
 ### Added — Full SDK API Coverage & Workflow Credentials

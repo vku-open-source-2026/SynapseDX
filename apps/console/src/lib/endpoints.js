@@ -207,6 +207,24 @@ export const GROUPS = [
     ],
   },
   {
+    name: 'SynapseStream',
+    endpoints: [
+      { method: 'GET', path: '/v1/stream/topics', auth: 'either', desc: 'List stream topics for the tenant' },
+      { method: 'PUT', path: '/v1/stream/topics/:topic', auth: 'either', desc: 'Create or update a stream topic', body: { maxLen: 10000 } },
+      { method: 'GET', path: '/v1/stream/topics/:topic', auth: 'either', desc: 'Get stream topic configuration' },
+      { method: 'DELETE', path: '/v1/stream/topics/:topic', auth: 'either', desc: 'Delete stream topic and events' },
+      { method: 'GET', path: '/v1/stream/topics/:topic/stats', auth: 'either', desc: 'Topic statistics and consumer groups' },
+      { method: 'POST', path: '/v1/stream/topics/:topic/events', auth: 'either', desc: 'Publish an event to a stream topic', body: { payload: { sensor: 'temp-1', value: 25.4 }, key: 'sensor-1' } },
+      { method: 'POST', path: '/v1/stream/topics/:topic/events:batch', auth: 'either', desc: 'Batch publish events (up to 100)', body: { events: [{ payload: { a: 1 } }, { payload: { a: 2 } }] } },
+      { method: 'POST', path: '/v1/stream/topics/:topic/read', auth: 'either', desc: 'Raw stream read / tail (non-destructive)', body: { fromId: '0-0', count: 100 } },
+      { method: 'GET', path: '/v1/stream/topics/:topic/range', auth: 'either', desc: 'Historical time-range query / replay (?start&end&count)' },
+      { method: 'PUT', path: '/v1/stream/topics/:topic/groups/:group', auth: 'either', desc: 'Create a consumer group', body: { startId: '$' } },
+      { method: 'DELETE', path: '/v1/stream/topics/:topic/groups/:group', auth: 'either', desc: 'Destroy a consumer group' },
+      { method: 'POST', path: '/v1/stream/topics/:topic/groups/:group/read', auth: 'either', desc: 'Read events via consumer group', body: { consumer: 'worker-1', count: 10, autoAck: false } },
+      { method: 'POST', path: '/v1/stream/topics/:topic/groups/:group/ack', auth: 'either', desc: 'Acknowledge processed event IDs', body: { ids: ['1730000000000-0'] } },
+    ],
+  },
+  {
     name: 'Ops',
     endpoints: [
       { method: 'GET', path: '/health', auth: 'none', desc: 'Liveness per service + gateway' },

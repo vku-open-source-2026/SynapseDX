@@ -599,6 +599,59 @@ describe('SynapseQueue', () => {
   });
 });
 
+describe('SynapseStream', () => {
+  it('topics, publish, read, consumer groups and range', async () => {
+    const c = new SynapseDXClient({ baseUrl: base });
+    await c.stream.createTopic('telemetry', { maxLen: 5000 });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry');
+    assert.equal(lastMethod, 'PUT');
+    assert.deepEqual(JSON.parse(lastBody), { maxLen: 5000 });
+
+    await c.stream.listTopics();
+    assert.equal(lastPath, '/v1/stream/topics');
+
+    await c.stream.getTopic('telemetry');
+    assert.equal(lastPath, '/v1/stream/topics/telemetry');
+
+    await c.stream.topicStats('telemetry');
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/stats');
+
+    await c.stream.publish('telemetry', { temp: 24.5 }, { key: 's1' });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/events');
+    assert.deepEqual(JSON.parse(lastBody), { payload: { temp: 24.5 }, key: 's1' });
+
+    await c.stream.publishBatch('telemetry', [{ payload: { a: 1 } }, { payload: { a: 2 } }]);
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/events:batch');
+
+    await c.stream.read('telemetry', { fromId: '0-0', count: 10 });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/read');
+    assert.deepEqual(JSON.parse(lastBody), { fromId: '0-0', count: 10 });
+
+    await c.stream.range('telemetry', { start: '0-0', end: '+', count: 5 });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/range?start=0-0&end=%2B&count=5');
+
+    await c.stream.createGroup('telemetry', 'workers', { startId: '$' });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/groups/workers');
+    assert.equal(lastMethod, 'PUT');
+    assert.deepEqual(JSON.parse(lastBody), { startId: '$' });
+
+    await c.stream.readGroup('telemetry', 'workers', { consumer: 'w1', count: 5 });
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/groups/workers/read');
+
+    await c.stream.ack('telemetry', 'workers', ['id-1', 'id-2']);
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/groups/workers/ack');
+    assert.deepEqual(JSON.parse(lastBody), { ids: ['id-1', 'id-2'] });
+
+    await c.stream.destroyGroup('telemetry', 'workers');
+    assert.equal(lastPath, '/v1/stream/topics/telemetry/groups/workers');
+    assert.equal(lastMethod, 'DELETE');
+
+    await c.stream.deleteTopic('telemetry');
+    assert.equal(lastPath, '/v1/stream/topics/telemetry');
+    assert.equal(lastMethod, 'DELETE');
+  });
+});
+
 describe('Synapse Inference Engine', () => {
   it('covers health, chat, embeddings, decision and routing paths', async () => {
     const hits: Array<{ method: string; path: string; body: unknown }> = [];

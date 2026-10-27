@@ -412,6 +412,25 @@ Full guide: [queue.md](queue.md).
 - `POST /v1/queue/queues/:queue/dead/:id/replay {delaySeconds?, resetAttempts?}`
 - `DELETE /v1/queue/queues/:queue/dead/:id`
 
+## Stream — distributed event streaming (`stream-service:4009`, gateway `/v1/stream`)
+
+Tenant-scoped distributed event streaming log (pluggable Redis Streams / Kafka backend) with consumer groups, time-range replay and retention trimming.
+
+- `GET /v1/stream/topics` → list topics for tenant
+- `PUT /v1/stream/topics/:topic {maxLen?, minId?, retentionMs?}` — create or update stream topic
+- `GET /v1/stream/topics/:topic` → get topic configuration
+- `DELETE /v1/stream/topics/:topic` → delete topic and all events
+- `GET /v1/stream/topics/:topic/stats` → `{topic, length, firstId, lastId, groupsCount, groups}`
+- `POST /v1/stream/topics/:topic/events {payload, key?, headers?, id?}` — publish one event
+- `POST /v1/stream/topics/:topic/events:batch {events[]}` — batch publish up to 100 events
+- `POST /v1/stream/topics/:topic/read {fromId?, count?, blockMs?}` — raw stream read / non-destructive fanout
+- `GET /v1/stream/topics/:topic/range?start=&end=&count=` — historical time-range query / replay
+- `PUT /v1/stream/topics/:topic/groups/:group {startId?}` — create a consumer group
+- `DELETE /v1/stream/topics/:topic/groups/:group` — destroy a consumer group
+- `POST /v1/stream/topics/:topic/groups/:group/read {consumer, count?, blockMs?, autoAck?}` — read via consumer group
+- `POST /v1/stream/topics/:topic/groups/:group/ack {ids:[]}` — acknowledge processed event IDs
+
+
 Delivery semantics: consuming leases a message and increments `attempts`. Ack
 deletes it. Nack requeues it, or dead-letters it when `requeue:false` or
 `attempts >= maxAttempts`. Expired leases are reclaimed to pending regardless of

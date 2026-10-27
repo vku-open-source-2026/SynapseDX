@@ -747,3 +747,104 @@ func TestQueueInspectionAndDeadLetters(t *testing.T) {
 		t.Fatalf("delete dead: %v", seen)
 	}
 }
+
+func TestStreamTopicAndEvents(t *testing.T) {
+	seen := map[string]string{}
+	srv := serviceServer(t, seen)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	if _, err := c.CreateStreamTopic("telemetry", 5000, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if seen["method"] != "PUT" || seen["path"] != "/v1/stream/topics/telemetry" {
+		t.Fatalf("create topic: %v", seen)
+	}
+	if body := jsonBody(t, seen); body["maxLen"] != float64(5000) {
+		t.Fatalf("topic body: %v", body)
+	}
+
+	if _, err := c.ListStreamTopics(); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics" {
+		t.Fatalf("list topics: %v", seen)
+	}
+
+	if _, err := c.GetStreamTopic("telemetry"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry" {
+		t.Fatalf("get topic: %v", seen)
+	}
+
+	if _, err := c.StreamTopicStats("telemetry"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/stats" {
+		t.Fatalf("topic stats: %v", seen)
+	}
+
+	if _, err := c.PublishStreamEvent("telemetry", map[string]any{"temp": 24.5}, StreamPublishOptions{Key: "s1"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["method"] != "POST" || seen["path"] != "/v1/stream/topics/telemetry/events" {
+		t.Fatalf("publish event: %v", seen)
+	}
+
+	if _, err := c.PublishStreamBatch("telemetry", []map[string]any{{"payload": map[string]any{"a": 1}}}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/events:batch" {
+		t.Fatalf("publish batch: %v", seen)
+	}
+
+	if _, err := c.ReadStreamEvents("telemetry", StreamReadOptions{FromID: "0-0", Count: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/read" {
+		t.Fatalf("read stream: %v", seen)
+	}
+
+	if _, err := c.QueryStreamRange("telemetry", StreamRangeOptions{Start: "0-0", End: "+", Count: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/range?count=5&end=%2B&start=0-0" {
+		t.Fatalf("stream range: %v", seen)
+	}
+
+	if _, err := c.CreateStreamGroup("telemetry", "workers", "$"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["method"] != "PUT" || seen["path"] != "/v1/stream/topics/telemetry/groups/workers" {
+		t.Fatalf("create group: %v", seen)
+	}
+
+	if _, err := c.ReadStreamGroup("telemetry", "workers", StreamGroupReadOptions{Consumer: "w1", Count: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/groups/workers/read" {
+		t.Fatalf("read group: %v", seen)
+	}
+
+	if _, err := c.AckStreamEvents("telemetry", "workers", []string{"id-1", "id-2"}); err != nil {
+		t.Fatal(err)
+	}
+	if seen["path"] != "/v1/stream/topics/telemetry/groups/workers/ack" {
+		t.Fatalf("ack stream: %v", seen)
+	}
+
+	if err := c.DestroyStreamGroup("telemetry", "workers"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["method"] != "DELETE" || seen["path"] != "/v1/stream/topics/telemetry/groups/workers" {
+		t.Fatalf("destroy group: %v", seen)
+	}
+
+	if err := c.DeleteStreamTopic("telemetry"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["method"] != "DELETE" || seen["path"] != "/v1/stream/topics/telemetry" {
+		t.Fatalf("delete topic: %v", seen)
+	}
+}

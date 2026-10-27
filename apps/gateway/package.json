@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/gateway",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "license": "Apache-2.0",
   "description": "synapsedx API Gateway - reverse proxy with JWT/API-key auth, rate limiting, routing",
   "main": "dist/index.js",

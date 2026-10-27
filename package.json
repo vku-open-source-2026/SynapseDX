@@ -1,6 +1,6 @@
 {
   "name": "synapsedx",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -20,6 +20,7 @@
     "dev:base": "npm run dev --workspace=apps/base-service",
     "dev:faststore": "npm run dev --workspace=apps/faststore-service",
     "dev:queue": "npm run dev --workspace=apps/queue-service",
+    "dev:stream": "npm run dev --workspace=apps/stream-service",
     "dev:inference": "cd apps/inference-service && (.venv/bin/uvicorn src.main:app --port 4008 --reload || uvicorn src.main:app --port 4008 --reload)",
     "test:inference": "cd apps/inference-service && (.venv/bin/pytest tests || pytest tests)",
     "test:sdk-go": "docker run --rm -v $(pwd)/sdks/sdk-go:/sdk -w /sdk golang:1.22-alpine go test -v ./...",

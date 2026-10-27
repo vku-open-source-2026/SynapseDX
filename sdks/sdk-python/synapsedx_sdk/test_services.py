@@ -710,6 +710,71 @@ def test_queue_inspection_and_dead_letters():
 
 
 # ---------------------------------------------------------------------------
+# SynapseStream
+# ---------------------------------------------------------------------------
+
+
+def test_stream_methods():
+    srv = _server()
+    try:
+        c = _client(srv)
+        c.stream.create_topic("telemetry", max_len=5000)
+        assert _seen["path"] == "/v1/stream/topics/telemetry"
+        assert _seen["method"] == "PUT"
+        assert json.loads(_seen["body"]) == {"maxLen": 5000}, _seen
+
+        c.stream.list_topics()
+        assert _seen["path"] == "/v1/stream/topics"
+
+        c.stream.get_topic("telemetry")
+        assert _seen["path"] == "/v1/stream/topics/telemetry"
+
+        c.stream.topic_stats("telemetry")
+        assert _seen["path"] == "/v1/stream/topics/telemetry/stats"
+
+        c.stream.publish("telemetry", {"temp": 24.5}, key="s1")
+        assert _seen["path"] == "/v1/stream/topics/telemetry/events"
+        assert json.loads(_seen["body"]) == {"payload": {"temp": 24.5}, "key": "s1"}, (
+            _seen
+        )
+
+        c.stream.publish_batch("telemetry", [{"payload": {"a": 1}}])
+        assert _seen["path"] == "/v1/stream/topics/telemetry/events:batch"
+
+        c.stream.read("telemetry", from_id="0-0", count=10)
+        assert _seen["path"] == "/v1/stream/topics/telemetry/read"
+        assert json.loads(_seen["body"]) == {"fromId": "0-0", "count": 10}, _seen
+
+        c.stream.range("telemetry", start="0-0", end="+", count=5)
+        assert (
+            _seen["path"]
+            == "/v1/stream/topics/telemetry/range?start=0-0&end=%2B&count=5"
+        )
+
+        c.stream.create_group("telemetry", "workers", start_id="$")
+        assert _seen["path"] == "/v1/stream/topics/telemetry/groups/workers"
+        assert _seen["method"] == "PUT"
+        assert json.loads(_seen["body"]) == {"startId": "$"}, _seen
+
+        c.stream.read_group("telemetry", "workers", consumer="w1", count=5)
+        assert _seen["path"] == "/v1/stream/topics/telemetry/groups/workers/read"
+
+        c.stream.ack("telemetry", "workers", ["id-1", "id-2"])
+        assert _seen["path"] == "/v1/stream/topics/telemetry/groups/workers/ack"
+        assert json.loads(_seen["body"]) == {"ids": ["id-1", "id-2"]}, _seen
+
+        c.stream.destroy_group("telemetry", "workers")
+        assert _seen["path"] == "/v1/stream/topics/telemetry/groups/workers"
+        assert _seen["method"] == "DELETE"
+
+        c.stream.delete_topic("telemetry")
+        assert _seen["path"] == "/v1/stream/topics/telemetry"
+        assert _seen["method"] == "DELETE"
+    finally:
+        srv.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # error mapping + misc
 # ---------------------------------------------------------------------------
 

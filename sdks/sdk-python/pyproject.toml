@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "synapsedx-sdk"
-version = "0.6.1"
+version = "0.6.2"
 description = "synapsedx SDK for Python (Apache-2.0)"
 readme = "README.md"
 license = { text = "Apache-2.0" }
