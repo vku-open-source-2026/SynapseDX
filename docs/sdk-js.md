@@ -22,7 +22,7 @@ pnpm add @synapseone/sdk
 ```ts
 import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseOneClient(); // defaults to https://synapseone.space
 
 // Login (dev login or seed)
 const { accessToken, user } = await c.iam.login('demo@acme.local');
@@ -37,12 +37,12 @@ await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ## Constructor
 
 ```ts
-new SynapseOneClient(opts: SynapseOneClientOptions)
+new SynapseOneClient(opts?: SynapseOneClientOptions)
 ```
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `baseUrl` | `string` | — | Gateway URL, e.g. `http://localhost:8080` |
+| `baseUrl` | `string` | `'https://synapseone.space'` | Gateway URL, or `$SYNAPSEONE_BASE_URL` |
 | `token` | `string` | — | Bearer JWT (from login or service account) |
 | `apiKey` | `string` | — | API key sent as `X-API-Key` header |
 | `tenant` | `string` | — | `x-synapseone-tenant`; platform callers only (Faststore/Queue) |
@@ -770,7 +770,7 @@ descriptive message.
 import { SynapseOneClient } from '@synapseone/sdk';
 
 async function main() {
-  const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
+  const c = new SynapseOneClient();
 
   // 1. Login
   const { accessToken, user } = await c.login('demo@acme.local');

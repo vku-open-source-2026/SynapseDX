@@ -47,6 +47,17 @@ describe('SynapseOneClient', () => {
     assert.equal(SynapseDXError, SynapseOneError);
   });
 
+  it('defaults to https://synapseone.space', () => {
+    const orig = process.env.SYNAPSEONE_BASE_URL;
+    delete process.env.SYNAPSEONE_BASE_URL;
+    try {
+      const c = new SynapseOneClient();
+      assert.equal((c as any).baseUrl, 'https://synapseone.space');
+    } finally {
+      if (orig !== undefined) process.env.SYNAPSEONE_BASE_URL = orig;
+    }
+  });
+
   it('trims trailing slash', () => {
     const c = new SynapseOneClient({ baseUrl: 'http://x:8080/' });
     assert.equal((c as any).baseUrl, 'http://x:8080');

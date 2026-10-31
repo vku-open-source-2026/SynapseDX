@@ -70,7 +70,7 @@ export class SynapseOneClient {
   readonly stream: StreamService;
   readonly inference: InferenceService;
 
-  constructor(opts: SynapseOneClientOptions) {
+  constructor(opts: SynapseOneClientOptions = {}) {
     this.http = new HttpClient(opts);
     this.iam = new IamService(this.http);
     this.workflow = new WorkflowService(this.http);

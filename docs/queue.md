@@ -518,7 +518,7 @@ All errors use `{error, message}`.
 ```python
 from synapseone_sdk import SynapseOneClient
 
-c = SynapseOneClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient(token=jwt)
 
 c.queue.create_queue("emails", max_attempts=5, visibility_timeout_seconds=60)
 
@@ -558,7 +558,7 @@ for dead in c.queue.dead_letters("emails")["messages"]:
 ```ts
 import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ token: jwt });
 
 await c.queue.createQueue('emails', { maxAttempts: 5, visibilityTimeoutSeconds: 60 });
 
@@ -596,7 +596,7 @@ await c.queue.replayDead('emails', dead.messages[0].id, { resetAttempts: true })
 ### Go
 
 ```go
-c := synapseone.New("http://localhost:8080")
+c := synapseone.New("")
 c.SetToken(jwt)
 // Platform callers: c.SetTenant("acme") -> x-synapseone-tenant
 

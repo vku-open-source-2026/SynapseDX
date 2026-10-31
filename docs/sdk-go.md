@@ -34,7 +34,7 @@ import (
 )
 
 func main() {
-    c := synapseone.New("http://localhost:8080")
+    c := synapseone.New("") // defaults to https://synapseone.space
 
     // Login (dev login or seed)
     out, err := c.Login("demo@acme.local", "acme")
@@ -55,17 +55,17 @@ func main() {
 ## Client construction
 
 ### `New(baseURL string) *Client`
-Creates a client with a 15-second timeout.
+Creates a client with a 15-second timeout. If `baseURL` is empty (`""`), it resolves from `SYNAPSEONE_BASE_URL` or defaults to `https://synapseone.space`.
 
 ```go
-c := synapseone.New("http://localhost:8080")
+c := synapseone.New("") // or synapseone.NewDefault()
 ```
 
 ### `NewWithClient(baseURL string, httpClient *http.Client) *Client`
-Allows custom timeout / transport (tests, mTLS, tracing, etc.).
+Allows custom timeout / transport (tests, mTLS, tracing, etc.). If `baseURL` is empty, it uses the default gateway URL.
 
 ```go
-c := synapseone.NewWithClient("http://localhost:8080", &http.Client{
+c := synapseone.NewWithClient("", &http.Client{
     Timeout: 30 * time.Second,
 })
 ```
@@ -857,7 +857,7 @@ import (
 )
 
 func main() {
-    c := synapseone.New("http://localhost:8080")
+    c := synapseone.New("")
 
     // 1. Login
     login, err := c.Login("demo@acme.local", "acme")

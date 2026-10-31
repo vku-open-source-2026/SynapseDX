@@ -41,7 +41,7 @@ function saveConfig(cfg) {
   try { fs.chmodSync(CONF_FILE, 0o600); } catch { /* non-POSIX (win) */ }
 }
 function baseUrl(opts) {
-  return (opts.base || process.env.SYNAPSEONE_BASE_URL || process.env.SYNAPSEDX_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+  return (opts.base || process.env.SYNAPSEONE_BASE_URL || process.env.SYNAPSEDX_BASE_URL || loadConfig().baseUrl || 'https://synapseone.space').replace(/\/$/, '');
 }
 function authHeaders(opts) {
   const cfg = loadConfig();
@@ -942,7 +942,7 @@ function help() {
 
 Usage: synapseone [--base URL] [--token T | --apikey K] [--json] <command> [args]
 
-Auth defaults: --base > $SYNAPSEONE_BASE_URL > ~/.synapseone/config.json > http://localhost:8080
+Auth defaults: --base > $SYNAPSEONE_BASE_URL > ~/.synapseone/config.json > https://synapseone.space
 `);
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));

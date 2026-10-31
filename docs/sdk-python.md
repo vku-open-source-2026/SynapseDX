@@ -30,7 +30,7 @@ pip install -e .
 ```python
 from synapseone_sdk import SynapseOneClient
 
-c = SynapseOneClient("http://localhost:8080")
+c = SynapseOneClient()
 
 # Login (dev login or seed)
 login = c.iam.login("demo@acme.local")
@@ -45,12 +45,12 @@ c.workflow.create_workflow_from_template("webhook-to-log", "demo")
 ## Constructor
 
 ```python
-SynapseOneClient(base_url, token=None, api_key=None, timeout=15, tenant=None)
+SynapseOneClient(base_url=None, token=None, api_key=None, timeout=15, tenant=None)
 ```
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `base_url` | `str` | — | Gateway URL, e.g. `http://localhost:8080` |
+| `base_url` | `str \| None` | `'https://synapseone.space'` | Gateway URL, or `$SYNAPSEONE_BASE_URL` |
 | `token` | `str \| None` | `None` | Bearer JWT (from login or service account) |
 | `api_key` | `str \| None` | `None` | API key sent as `X-API-Key` header |
 | `timeout` | `int` | `15` | Per-request timeout in seconds |
@@ -773,7 +773,7 @@ The error message includes the HTTP status and path, e.g. `"synapseone 403 /v1/a
 from synapseone_sdk import SynapseOneClient
 
 def main():
-    c = SynapseOneClient("http://localhost:8080")
+    c = SynapseOneClient()
 
     # 1. Login
     login = c.login("demo@acme.local")

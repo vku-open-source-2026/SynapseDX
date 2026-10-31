@@ -351,7 +351,7 @@ All errors use `{error, message}`.
 ```python
 from synapseone_sdk import SynapseOneClient
 
-c = SynapseOneClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient(token=jwt)
 
 c.faststore.set("cache:park:1", {"name": "Central"}, ttl_seconds=300, if_not_exists=True)
 entry = c.faststore.get("cache:park:1")
@@ -384,7 +384,7 @@ page = c.faststore.list_keys(prefix="cache:", limit=100)
 ```ts
 import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ token: jwt });
 
 await c.faststore.set('cache:park:1', { name: 'Central' }, { ttlSeconds: 300, ifNotExists: true });
 const entry = await c.faststore.get('cache:park:1');
@@ -407,7 +407,7 @@ await c.faststore.batch([
 ### Go
 
 ```go
-c := synapseone.New("http://localhost:8080")
+c := synapseone.New("")
 c.SetToken(jwt)
 // Platform callers: c.SetTenant("acme") -> x-synapseone-tenant
 

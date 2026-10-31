@@ -27,7 +27,7 @@ Example::
 
     from synapseone_sdk import SynapseOneClient
 
-    client = SynapseOneClient("http://localhost:8080", token=jwt)
+    client = SynapseOneClient("https://synapseone.space", token=jwt)
     parks = client.base.collection("parks", model=Park, mapping={"name": "profile.name"})
     parks.create(Park(name="Central"))
     result = client.queue.publish("emails", {"to": "a@b.c"})
@@ -86,14 +86,14 @@ __all__ = [
 class SynapseOneClient:
     """One client, one HTTP layer, seven service namespaces.
 
-    ``base_url`` points at the gateway (``http://localhost:8080``) or a single
-    service origin. ``tenant`` is sent as ``x-synapseone-tenant`` and is only
-    required by platform callers of faststore/queue.
+    ``base_url`` points at the gateway (defaults to ``https://synapseone.space`` or
+    ``SYNAPSEONE_BASE_URL``) or a single service origin. ``tenant`` is sent as
+    ``x-synapseone-tenant`` and is only required by platform callers of faststore/queue.
     """
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str | None = None,
         token: str | None = None,
         api_key: str | None = None,
         timeout: int = 15,

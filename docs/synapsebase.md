@@ -595,7 +595,7 @@ class Park:
     name: str
     capacity: int | None = None
 
-c = SynapseOneClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient(token=jwt)
 
 # Unbound/dynamic API
 c.base.create_collection(
@@ -641,7 +641,7 @@ Python notes:
 ```ts
 import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ token: jwt });
 
 await c.base.createCollection({
   name: 'parks',
@@ -673,7 +673,7 @@ const changes = await parks.changes({ since: '2026-10-01T00:00:00Z' });
 ### Go
 
 ```go
-c := synapseone.New("http://localhost:8080")
+c := synapseone.New("")
 c.SetToken(jwt)
 
 _, err := c.CreateBaseCollection(map[string]any{

@@ -48,6 +48,10 @@ func TestNew(t *testing.T) {
 	if c.BaseURL != "http://localhost:8080" {
 		t.Fatalf("trim slash: %s", c.BaseURL)
 	}
+	defClient := New("")
+	if defClient.BaseURL != DefaultBaseURL {
+		t.Fatalf("expected default %s, got %s", DefaultBaseURL, defClient.BaseURL)
+	}
 	c.SetToken("t")
 	c.SetAPIKey("k")
 	if c.Token != "t" || c.APIKey != "k" {

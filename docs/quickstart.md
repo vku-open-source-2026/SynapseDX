@@ -42,7 +42,8 @@ Prefer SDKs/CLI over raw curl — same API:
 
 ```bash
 npm install @synapseone/sdk        # or: pip install synapseone-sdk
-npx -y @synapseone/cli@latest --base http://localhost:8080 login --email demo@acme.local
+npx -y @synapseone/cli@latest login --email demo@acme.local
+# (Defaults to https://synapseone.space; pass --base http://localhost:8080 when running against local compose)
 ```
 
 ## 4. Authentik (default IdP)

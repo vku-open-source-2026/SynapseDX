@@ -10,11 +10,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
 
-// Client talks to the SynapseOne gateway (e.g. http://localhost:8080).
+// DefaultBaseURL is the default public gateway URL (https://synapseone.space).
+const DefaultBaseURL = "https://synapseone.space"
+
+// Client talks to the SynapseOne gateway (defaults to https://synapseone.space).
 type Client struct {
 	BaseURL string
 	Token   string // Bearer JWT (user or service-account token)
@@ -23,15 +27,30 @@ type Client struct {
 	HTTP    *http.Client
 }
 
-// New creates a client with a 15s timeout. Use NewWithClient for custom transport.
+// New creates a client with a 15s timeout. If baseURL is empty, it resolves
+// from SYNAPSEONE_BASE_URL, SYNAPSEDX_BASE_URL, or defaults to DefaultBaseURL.
 func New(baseURL string) *Client {
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: &http.Client{Timeout: 15 * time.Second}}
+	return NewWithClient(baseURL, nil)
+}
+
+// NewDefault creates a client pointing to DefaultBaseURL with a 15s timeout.
+func NewDefault() *Client {
+	return New("")
 }
 
 // NewWithClient allows custom timeout / transport (tests, mTLS, tracing...).
 func NewWithClient(baseURL string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
+	if baseURL == "" {
+		baseURL = os.Getenv("SYNAPSEONE_BASE_URL")
+		if baseURL == "" {
+			baseURL = os.Getenv("SYNAPSEDX_BASE_URL")
+			if baseURL == "" {
+				baseURL = DefaultBaseURL
+			}
+		}
 	}
 	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTP: httpClient}
 }

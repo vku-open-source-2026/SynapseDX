@@ -5,7 +5,7 @@
 import { SynapseOneClient } from './index';
 
 async function main() {
-  const c = new SynapseOneClient({ baseUrl: process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080' });
+  const c = new SynapseOneClient(); // defaults to https://synapseone.space or $SYNAPSEONE_BASE_URL
   const login = await c.login('demo@acme.local');
   console.log('login ok:', login.user?.email);
   c.setToken(login.accessToken);

@@ -43,21 +43,29 @@ class SynapseOneError(Exception):
 class HttpClient:
     """Thin request layer shared by all SynapseOne services.
 
-    ``base_url`` points at the gateway (``http://localhost:8080``) or directly
-    at a service origin. ``tenant`` is only needed by platform callers of the
-    tenant-scoped services (faststore/queue) and is sent as
-    ``x-synapseone-tenant``.
+    ``base_url`` points at the gateway (defaults to ``https://synapseone.space`` or
+    ``SYNAPSEONE_BASE_URL``) or directly at a service origin. ``tenant`` is only
+    needed by platform callers of the tenant-scoped services (faststore/queue)
+    and is sent as ``x-synapseone-tenant``.
     """
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str | None = None,
         token: str | None = None,
         api_key: str | None = None,
         tenant: str | None = None,
         timeout: int = 15,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
+        import os
+
+        url = (
+            base_url
+            or os.environ.get("SYNAPSEONE_BASE_URL")
+            or os.environ.get("SYNAPSEDX_BASE_URL")
+            or "https://synapseone.space"
+        )
+        self.base_url = url.rstrip("/")
         self.token = token
         self.api_key = api_key
         self.tenant = tenant

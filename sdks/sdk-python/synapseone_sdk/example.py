@@ -9,8 +9,7 @@ import os
 
 from synapseone_sdk import SynapseOneClient
 
-base = os.environ.get("SYNAPSEONE_BASE_URL", "http://localhost:8080")
-c = SynapseOneClient(base)
+c = SynapseOneClient()  # defaults to https://synapseone.space or $SYNAPSEONE_BASE_URL
 login = c.iam.login("demo@acme.local")
 print("login:", login["user"]["email"])
 c.token = login["accessToken"]

@@ -20,7 +20,7 @@ go get github.com/synapseone/synapseone-sdk-go@latest
 ```go
 import synapseone "github.com/synapseone/synapseone-sdk-go"
 
-c := synapseone.New("http://localhost:8080")
+c := synapseone.New("") // defaults to https://synapseone.space (or $SYNAPSEONE_BASE_URL)
 out, err := c.Login("demo@acme.local", "acme")
 if err != nil { panic(err) }
 c.SetToken(out["accessToken"].(string))

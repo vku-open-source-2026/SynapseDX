@@ -15,7 +15,7 @@ npm install @synapseone/sdk
 ```ts
 import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseOneClient(); // defaults to https://synapseone.space (or $SYNAPSEONE_BASE_URL)
 const { accessToken, user } = await c.iam.login('demo@acme.local');
 c.setToken(accessToken);
 

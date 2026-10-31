@@ -5,7 +5,7 @@
  */
 
 export interface SynapseOneClientOptions {
-  baseUrl: string; // gateway, e.g. http://localhost:8080
+  baseUrl?: string; // gateway, defaults to https://synapseone.space or $SYNAPSEONE_BASE_URL
   token?: string; // Bearer JWT
   apiKey?: string; // X-API-Key
   tenant?: string; // x-synapseone-tenant (platform callers of faststore/queue)
@@ -53,8 +53,9 @@ export class HttpClient {
   tenant?: string;
   timeoutMs: number;
 
-  constructor(opts: SynapseOneClientOptions) {
-    this.baseUrl = opts.baseUrl.replace(/\/$/, '');
+  constructor(opts: SynapseOneClientOptions = {}) {
+    const raw = opts.baseUrl ?? (typeof process !== 'undefined' ? (process.env?.SYNAPSEONE_BASE_URL || process.env?.SYNAPSEDX_BASE_URL) : undefined) ?? 'https://synapseone.space';
+    this.baseUrl = raw.replace(/\/$/, '');
     this.token = opts.token;
     this.apiKey = opts.apiKey;
     this.tenant = opts.tenant;

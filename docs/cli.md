@@ -36,7 +36,7 @@ npm link ./tools/cli
 ## Quick start
 
 ```bash
-export SYNAPSEONE_BASE_URL=http://localhost:8080
+# Defaults to https://synapseone.space (or pass --base http://localhost:8080 for local dev)
 synapseone login --email demo@acme.local
 synapseone orgs
 synapseone accounts create prod Production
@@ -45,7 +45,7 @@ synapseone workflows create --template webhook-to-log --name demo
 synapseone audit --limit 20
 ```
 
-Against the live demo: add `--base https://api.synapseone.space` (or `export SYNAPSEONE_BASE_URL=https://api.synapseone.space`) and sign in with an API key (`synapseone use-key <key>`).
+For local container development: add `--base http://localhost:8080` (or `export SYNAPSEONE_BASE_URL=http://localhost:8080`).
 
 ## Configuration
 
@@ -56,7 +56,7 @@ The CLI resolves the base URL in this order (first match wins):
 1. `--base <URL>` flag
 2. `$SYNAPSEONE_BASE_URL` environment variable
 3. `baseUrl` in `~/.synapseone/config.json`
-4. `http://localhost:8080` (default)
+4. `https://synapseone.space` (default)
 
 ### Auth resolution
 

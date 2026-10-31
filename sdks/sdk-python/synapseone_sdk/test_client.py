@@ -129,6 +129,16 @@ def test_import():
     c = SynapseOneClient("http://localhost:8080")
     assert c.base_url == "http://localhost:8080"
 
+    import os
+
+    orig = os.environ.pop("SYNAPSEONE_BASE_URL", None)
+    try:
+        c_def = SynapseOneClient()
+        assert c_def.base_url == "https://synapseone.space"
+    finally:
+        if orig is not None:
+            os.environ["SYNAPSEONE_BASE_URL"] = orig
+
 
 def test_synapsedx_aliases():
     # Rebrand window: old class names and old import path keep working.
