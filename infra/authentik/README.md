@@ -8,14 +8,14 @@ Compose stands up `authentik-server:9000` + `authentik-worker` sharing Postgres/
    then **change the password immediately** (user menu → Change password).
 2. Create a Provider (OAuth2/OIDC):
    - Authorization flow: `default-provider-authorization-implicit-consent`
-   - Client ID: `synapsedx-platform` (matches `OIDC_CLIENT_ID`)
+   - Client ID: `synapseone-platform` (matches `OIDC_CLIENT_ID`)
    - Redirect URI: your Console `/oidc/callback` page, e.g.
      `https://cloud.example.com/oidc/callback` (matches `OIDC_REDIRECT_URI`;
      local dev without a frontend page may use the API callback instead)
-3. Create the `synapsedx` Application, attach the provider, take the slug →
-   `OIDC_ISSUER=http://localhost:19000/application/o/synapsedx/` for browsers, while
+3. Create the `synapseone` Application, attach the provider, take the slug →
+   `OIDC_ISSUER=http://localhost:19000/application/o/synapseone/` for browsers, while
    inside the docker network IAM uses
-   `OIDC_ISSUER=http://authentik-server:9000/application/o/synapsedx/`.
+   `OIDC_ISSUER=http://authentik-server:9000/application/o/synapseone/`.
 4. Put `OIDC_CLIENT_SECRET` in `.env`, `docker compose up -d iam`.
 
 > Deploy note: the Authentik image doesn't print the bootstrap password to the log, so
@@ -26,9 +26,9 @@ Compose stands up `authentik-server:9000` + `authentik-worker` sharing Postgres/
 ## Using Keycloak instead
 
 1. Stand up Keycloak (outside compose, or add a service).
-2. Create a realm (e.g. `synapsedx`) and a `synapsedx-platform` client (standard flow,
+2. Create a realm (e.g. `synapseone`) and a `synapseone-platform` client (standard flow,
    same redirect as above).
-3. Change `.env`: `OIDC_ISSUER=https://<host>/realms/synapsedx`,
+3. Change `.env`: `OIDC_ISSUER=https://<host>/realms/synapseone`,
    matching `OIDC_CLIENT_ID`/`SECRET`.
 4. No IAM code changes — `GET /v1/auth/oidc/config` reflects the new issuer.
 

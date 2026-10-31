@@ -1,9 +1,9 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // Synapse Inference Engine: OpenRouter-backed LLM proxy, self-hosted lightweight
 // embeddings (sentence-transformers/all-MiniLM-L6-v2), and self-hosted
 // Decision-2.0-Eos-0.8B structured routing.
-package synapsedx
+package synapseone
 
 // ChatMessage represents a single message in a chat completion request.
 type ChatMessage struct {

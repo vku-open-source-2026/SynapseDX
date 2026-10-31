@@ -8,7 +8,7 @@ key scans and distributed locks — all tenant-scoped.
 - Storage: Redis (`FASTSTORE_REDIS_URL` / `REDIS_URL`) with an in-memory fallback
   for dev/tests
 - Auth: gateway JWT/API key (`either`); direct calls need
-  `x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` when configured
+  `x-synapseone-internal: <SYNAPSEONE_INTERNAL_SECRET>` when configured
 - SDKs: `client.faststore` (Python/JS), `Client.Faststore*` (Go)
 
 ## Tenancy
@@ -17,15 +17,15 @@ Every operation is namespaced by the caller's tenant:
 
 | Principal | Namespace |
 |---|---|
-| Org (`x-synapsedx-org`) | `org:<org>` |
-| Account only (`x-synapsedx-account`) | `account:<account>` |
+| Org (`x-synapseone-org`) | `org:<org>` |
+| Account only (`x-synapseone-account`) | `account:<account>` |
 | User only | `user:<sub>` |
-| Platform caller | `tenant:<x-synapsedx-tenant>` or `?tenant=<name>` |
+| Platform caller | `tenant:<x-synapseone-tenant>` or `?tenant=<name>` |
 
 - Tenant names provided by platform callers must be 1..128 chars (no control
   characters).
-- The gateway strips client-supplied `x-synapsedx-user/org/account/...` headers
-  but forwards `x-synapsedx-tenant`; for principal callers the verified
+- The gateway strips client-supplied `x-synapseone-user/org/account/...` headers
+  but forwards `x-synapseone-tenant`; for principal callers the verified
   principal always wins, so a client cannot choose another tenant by sending it.
 - Platform callers (internal calls with no principal and no anonymous marker)
   **must** pass a tenant, otherwise `400 tenant_required`.
@@ -349,9 +349,9 @@ All errors use `{error, message}`.
 ### Python
 
 ```python
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-c = SynapseDXClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient("http://localhost:8080", token=jwt)
 
 c.faststore.set("cache:park:1", {"name": "Central"}, ttl_seconds=300, if_not_exists=True)
 entry = c.faststore.get("cache:park:1")
@@ -382,9 +382,9 @@ page = c.faststore.list_keys(prefix="cache:", limit=100)
 ### JavaScript / TypeScript
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
 
 await c.faststore.set('cache:park:1', { name: 'Central' }, { ttlSeconds: 300, ifNotExists: true });
 const entry = await c.faststore.get('cache:park:1');
@@ -407,24 +407,24 @@ await c.faststore.batch([
 ### Go
 
 ```go
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 c.SetToken(jwt)
-// Platform callers: c.SetTenant("acme") -> x-synapsedx-tenant
+// Platform callers: c.SetTenant("acme") -> x-synapseone-tenant
 
 _, err := c.FaststoreSet("cache:park:1", map[string]any{"name": "Central"},
-    synapsedx.FaststoreSetOptions{TTLSeconds: 300, IfNotExists: true})
+    synapseone.FaststoreSetOptions{TTLSeconds: 300, IfNotExists: true})
 entry, err := c.FaststoreGet("cache:park:1")
 _, err = c.FaststoreIncr("visits", 1, 0)
 
 _, err = c.FaststoreHashSet("user:1", map[string]any{"name": "Alice"}, 3600)
 _, err = c.FaststoreListPush("jobs", []any{map[string]any{"id": 1}},
-    synapsedx.FaststoreListPushOptions{Side: "left"})
+    synapseone.FaststoreListPushOptions{Side: "left"})
 
 _, err = c.FaststoreSetAdd("tags", []any{"a", "b"}, 0)
 _, err = c.FaststoreZSetAdd("scores",
-    []synapsedx.FaststoreZSetMember{{Member: "alice", Score: 10}}, 0)
+    []synapseone.FaststoreZSetMember{{Member: "alice", Score: 10}}, 0)
 
-lock, err := c.FaststoreLockAcquire("report", synapsedx.FaststoreLockOptions{TTLSeconds: 60, WaitMS: 500})
+lock, err := c.FaststoreLockAcquire("report", synapseone.FaststoreLockOptions{TTLSeconds: 60, WaitMS: 500})
 if acquired, _ := lock["acquired"].(bool); acquired {
     _, _ = c.FaststoreLockRelease("report", lock["token"].(string))
 }
@@ -433,12 +433,12 @@ if acquired, _ := lock["acquired"].(bool); acquired {
 ## Operations
 
 - `GET /health` → `{status, service:"faststore", version, backend:"redis"|"memory", time}`
-- `GET /metrics` → `synapsedx_faststore_up`,
-  `synapsedx_faststore_backend_info{backend="redis"|"memory"}`,
-  `synapsedx_faststore_http_requests_total{key="METHOD|route|status"}`,
-  `synapsedx_faststore_process_uptime_seconds`
-- Production requires `SYNAPSEDX_INTERNAL_SECRET` and
+- `GET /metrics` → `synapseone_faststore_up`,
+  `synapseone_faststore_backend_info{backend="redis"|"memory"}`,
+  `synapseone_faststore_http_requests_total{key="METHOD|route|status"}`,
+  `synapseone_faststore_process_uptime_seconds`
+- Production requires `SYNAPSEONE_INTERNAL_SECRET` and
   `FASTSTORE_REDIS_URL` (or `REDIS_URL`). Without Redis the service uses a
   per-process in-memory store — fine for local development, not for replicas.
-- Redis keys live under `synapsedx:faststore:v1:<tenant>:`; do not write that
+- Redis keys live under `synapseone:faststore:v1:<tenant>:`; do not write that
   namespace directly.

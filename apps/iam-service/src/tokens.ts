@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Token management: JWT access tokens + opaque refresh tokens + API keys.
  */
@@ -58,16 +58,17 @@ export interface AccessClaims {
 }
 
 export function signAccess(claims: AccessClaims): { token: string; expiresIn: number } {
-  const token = jwt.sign({ ...claims, iss: 'synapsedx-iam', kind: claims.kind || 'user' }, JWT_SECRET, { expiresIn: ACCESS_TTL });
+  const token = jwt.sign({ ...claims, iss: 'synapseone-iam', kind: claims.kind || 'user' }, JWT_SECRET, { expiresIn: ACCESS_TTL });
   return { token, expiresIn: ACCESS_TTL };
 }
 
 export function verifyAccess(token: string): AccessClaims {
-  return jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] }) as AccessClaims;
+  // Accept legacy issuer during the rebrand window so existing sessions survive.
+  return jwt.verify(token, JWT_SECRET, { issuer: ['synapseone-iam', 'synapsedx-iam'], algorithms: ['HS256'] }) as AccessClaims;
 }
 
 export function newRefreshToken(): { value: string; hash: string } {
-  const value = 'synapsedx_rt_' + randomBytes(32).toString('base64url');
+  const value = 'synapseone_rt_' + randomBytes(32).toString('base64url');
   return { value, hash: hashSecret(value) };
 }
 
@@ -211,7 +212,7 @@ export async function revokeAllRefresh(userId: string): Promise<number> {
 }
 
 export async function createApiKeyRecord(accountId: string, userId: string | null, name: string, scopes: string[], expiresAt: Date | null): Promise<{ id: string; value: string; prefix: string }> {
-  const raw = 'synapsedx_' + randomBytes(24).toString('base64url');
+  const raw = 'synapseone_' + randomBytes(24).toString('base64url');
   const prefix = raw.slice(0, 12);
   const hash = hashSecret(raw);
   if (useDb()) {

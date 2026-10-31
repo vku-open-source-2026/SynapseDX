@@ -1,13 +1,13 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 import { api } from '../lib/api.js';
 
-const ORG_KEY = 'synapsedx.console.org';
-const ACC_KEY = 'synapsedx.console.acc';
+const ORG_KEY = 'synapseone.console.org';
+const ACC_KEY = 'synapseone.console.acc';
 
 const ScopeCtx = createContext(null);
 

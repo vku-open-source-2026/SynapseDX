@@ -18,7 +18,7 @@
 
 ## v0.1 (Tier-1 PaaS MVP) ✅
 - [x] API Gateway: proxy (pathFilter, no strip bugs), JWT/API-key (+strict verify mode),
-      principal `x-synapsedx-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
+      principal `x-synapseone-*` propagation, `x-request-id`, rate-limit (Redis/Lua, fail-open),
       proxy timeout, CORS gating, `/ready` aggregate, Prometheus, graceful shutdown
 - [x] IAM: Organization/Account/User/Role/Policy AWS-style + Conditions
       (StringEquals/StringLike/IfExists) + `POST /v1/authorize` + dry-run simulator + audit log
@@ -37,7 +37,7 @@
 - [ ] Enforce API-key scopes at gateway (central) + audit retention job
 - [x] License check in CI (zero-dep copyleft gate `tools/license-check.cjs` + SBOM artifact + `pip-licenses` fail-on GPL) — tree verified clean (290 pkgs: MIT/Apache-2.0/ISC/BSD, no GPL/AGPL)
 - [ ] S3Bucket abstraction API (presigned URLs, MinIO/real-S3 backend swap via env)
-- [ ] n8n credential auto-provisioning + execution webhooks → synapsedx events
+- [ ] n8n credential auto-provisioning + execution webhooks → synapseone events
 - [ ] e2e with real Postgres (testcontainers) + load test gateway
 - [ ] Helm chart + production hardening guide
 

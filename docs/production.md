@@ -1,12 +1,12 @@
 # Production checklist (Tier-1 PaaS)
 
-Use when taking SynapseDX off your laptop. Every item already has a mechanism — just switch it on.
+Use when taking SynapseOne off your laptop. Every item already has a mechanism — just switch it on.
 
 ## 1. Secrets & auth
 
 - [ ] Replace **every** `*_change_me_*` in `.env` (`IAM_JWT_SECRET` ≥ 32 random chars,
       identical on gateway + IAM; production boot fails on defaults).
-- [ ] Same `SYNAPSEDX_INTERNAL_SECRET` on gateway + iam + workflow, then remove the
+- [ ] Same `SYNAPSEONE_INTERNAL_SECRET` on gateway + iam + workflow, then remove the
       `ports:` of IAM/workflow from host/internet (gateway only is public).
 - [ ] `IAM_ALLOW_DEV_LOGIN=false` (SSO + API keys only).
 - [ ] `IAM_ALLOW_OIDC_DEMO_CALLBACK=false` (the demo callback accepts any caller-supplied email).
@@ -56,7 +56,7 @@ Use when taking SynapseDX off your laptop. Every item already has a mechanism �
 
 - [ ] `restart: unless-stopped` is already set for every long-lived compose service;
       K8s has liveness/readiness (see `infra/k8s/base/all.yaml`). Alert when `/ready` → 503.
-- [ ] Pin image digests for releases (`synapsedx/*:0.1.0` → digest), never `latest` for external engines.
+- [ ] Pin image digests for releases (`synapseone/*:0.1.0` → digest), never `latest` for external engines.
 - [ ] Centralized logs (default json-file driver; move to Loki/ELK when needed) + keep `x-request-id`.
 - [ ] `audit_log` Postgres retention under heavy authorize traffic: set
       `AUDIT_RETENTION_DAYS` (e.g. `180`) — the IAM service purges hourly by

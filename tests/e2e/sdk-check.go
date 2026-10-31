@@ -1,7 +1,7 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 //
-// End-to-end check for the Go SDK (synapsedx-sdk-go) covering:
+// End-to-end check for the Go SDK (synapseone-sdk-go) covering:
 // - Gateway & IAM authentication
 // - Workflow Templates
 // - SynapseBase (Collections & Documents)
@@ -23,12 +23,12 @@ import (
 	"strings"
 	"time"
 
-	synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+	synapseone "github.com/synapseone/synapseone-sdk-go"
 )
 
 func generateTestJWT(secret string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
-	claims := fmt.Sprintf(`{"sub":"e2e-go-tester","org":"acme","account":"prod","scopes":["*"],"iss":"synapsedx-iam","exp":%d}`,
+	claims := fmt.Sprintf(`{"sub":"e2e-go-tester","org":"acme","account":"prod","scopes":["*"],"iss":"synapseone-iam","exp":%d}`,
 		time.Now().Add(2*time.Hour).Unix())
 	payload := header + "." + base64.RawURLEncoding.EncodeToString([]byte(claims))
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -61,17 +61,17 @@ func readEnv(key, fallback string) string {
 }
 
 func main() {
-	baseURL := readEnv("SYNAPSEDX_BASE_URL", "http://localhost:8080")
+	baseURL := readEnv("SYNAPSEONE_BASE_URL", "http://localhost:8080")
 	jwtSecret := getJWTSecret()
 	stamp := strconv.FormatInt(time.Now().UnixMilli(), 36)
 
 	fmt.Println("==================================================")
-	fmt.Println("== SynapseDX Go SDK Full End-to-End Test Suite ==")
+	fmt.Println("== SynapseOne Go SDK Full End-to-End Test Suite ==")
 	fmt.Println("==================================================")
 	fmt.Printf("Gateway URL: %s\n", baseURL)
 	fmt.Printf("Timestamp:   %s\n\n", stamp)
 
-	client := synapsedx.NewWithClient(baseURL, &http.Client{Timeout: 60 * time.Second})
+	client := synapseone.NewWithClient(baseURL, &http.Client{Timeout: 60 * time.Second})
 	token := generateTestJWT(jwtSecret)
 	client.SetToken(token)
 
@@ -100,7 +100,7 @@ func main() {
 	fmt.Printf("✓ Created Collection: %v\n", coll["name"])
 
 	// Create document
-	doc, err := client.CreateBaseDocument(collName, synapsedx.BaseDocumentInput{
+	doc, err := client.CreateBaseDocument(collName, synapseone.BaseDocumentInput{
 		ID: "doc-1",
 		Data: map[string]any{
 			"title":  "Go SDK E2E",
@@ -139,7 +139,7 @@ func main() {
 	key := "e2e:go:" + stamp
 
 	// Set string with TTL
-	if _, err := client.FaststoreSet(key, map[string]any{"hello": "synapse-go"}, synapsedx.FaststoreSetOptions{
+	if _, err := client.FaststoreSet(key, map[string]any{"hello": "synapse-go"}, synapseone.FaststoreSetOptions{
 		TTLSeconds: 60,
 	}); err != nil {
 		log.Fatalf("❌ FaststoreSet failed: %v", err)
@@ -168,7 +168,7 @@ func main() {
 	fmt.Printf("[%d] SynapseQueue via Gateway (c.CreateQueue, c.PublishMessage, ...)...\n", step)
 	step++
 	qName := "goqueue" + stamp
-	if _, err := client.CreateQueue(qName, synapsedx.QueueConfig{
+	if _, err := client.CreateQueue(qName, synapseone.QueueConfig{
 		MaxAttempts:              3,
 		VisibilityTimeoutSeconds: 30,
 	}); err != nil {
@@ -180,14 +180,14 @@ func main() {
 	pubRes, err := client.PublishMessage(qName, map[string]any{
 		"action": "process_alert",
 		"ts":     time.Now().Unix(),
-	}, synapsedx.QueuePublishOptions{})
+	}, synapseone.QueuePublishOptions{})
 	if err != nil {
 		log.Fatalf("❌ PublishMessage failed: %v", err)
 	}
 	fmt.Printf("✓ Published Message: id=%v\n", pubRes["id"])
 
 	// Consume message
-	consumeRes, err := client.ConsumeMessages(qName, synapsedx.QueueConsumeOptions{
+	consumeRes, err := client.ConsumeMessages(qName, synapseone.QueueConsumeOptions{
 		MaxMessages: 1,
 	})
 	if err != nil {
@@ -223,7 +223,7 @@ func main() {
 	// [6] Synapse Inference Engine - Text Embeddings
 	fmt.Printf("[%d] Synapse Inference Engine Embeddings (c.InferenceEmbeddings)...\n", step)
 	step++
-	embRes, err := client.InferenceEmbeddings([]string{"SynapseDX high performance microservices platform", "AI Agents and Orchestration"})
+	embRes, err := client.InferenceEmbeddings([]string{"SynapseOne high performance microservices platform", "AI Agents and Orchestration"})
 	if err != nil {
 		log.Fatalf("❌ InferenceEmbeddings failed: %v", err)
 	}
@@ -261,7 +261,7 @@ func main() {
 	step++
 	decRes, err := client.InferenceDecision(
 		"Customer reports payment failed with HTTP 500 error during checkout transaction",
-		map[string]synapsedx.DecisionQuestion{
+		map[string]synapseone.DecisionQuestion{
 			"department": {
 				Type:         "choice",
 				Instructions: "Choose the target department for this issue",
@@ -283,9 +283,9 @@ func main() {
 	// [9] Synapse Inference Engine - LLM Chat Completion (OpenRouter Proxy)
 	fmt.Printf("[%d] Synapse Inference Engine LLM Chat Completion (c.InferenceChat)...\n", step)
 	step++
-	chatRes, err := client.InferenceChat([]synapsedx.ChatMessage{
+	chatRes, err := client.InferenceChat([]synapseone.ChatMessage{
 		{Role: "user", Content: "Respond with the single word: PONG"},
-	}, synapsedx.ChatCompletionOptions{
+	}, synapseone.ChatCompletionOptions{
 		Model:       "liquid/lfm-2.5-2.6b:free",
 		MaxTokens:   15,
 		Temperature: 0.1,
@@ -300,7 +300,7 @@ func main() {
 
 	// [10] Security Validation: Anonymous Request must be rejected
 	fmt.Printf("[%d] Security Check: Anonymous Request Rejection...\n", step)
-	anonClient := synapsedx.New(baseURL) // No token set
+	anonClient := synapseone.New(baseURL) // No token set
 	_, err = anonClient.InferenceHealth()
 	if err == nil {
 		log.Fatalf("❌ Expected anonymous request to be rejected with 401, but it succeeded!")

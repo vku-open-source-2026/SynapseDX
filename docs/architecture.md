@@ -1,4 +1,4 @@
-# Architecture — SynapseDX Tier-1 PaaS
+# Architecture — SynapseOne Tier-1 PaaS
 
 ```
                     ┌─────────────┐   OIDC    ┌──────────────┐
@@ -45,7 +45,7 @@ Data services (same gateway, same tenant model):
 ## Tier 1 = PaaS
 
 - **API Gateway**: the single entry point — authentication (JWT/API key), stripping +
-  re-stamping `x-synapsedx-*` headers from the verified principal (anti-spoofing),
+  re-stamping `x-synapseone-*` headers from the verified principal (anti-spoofing),
   rate limiting (Redis when `REDIS_URL` is set, fail-open), routing via `routes.yaml`,
   Prometheus metrics.
 - **Access Management (IAM)**: the AWS model — Organization (like AWS Organizations),
@@ -54,10 +54,10 @@ Data services (same gateway, same tenant model):
   IdPs over OIDC (real Authorization Code flow with JWKS-verified ID tokens); IAM keeps
   the shadow user plus all authorization data.
 - **Tokens**: short-lived JWT (Bearer), rotating opaque refresh tokens, long-lived
-  `synapsedx_...` API keys (hash + prefix), service accounts for workloads.
+  `synapseone_...` API keys (hash + prefix), service accounts for workloads.
 - **Core data cluster**: Postgres 16 (source of truth), Redis (cache/rate-limit/session,
   and the Faststore/Queue backends), S3Mock (S3-compatible object storage, bucket
-  `synapsedx-core`; swap to MinIO/real S3 in production via `S3_ENDPOINT`).
+  `synapseone-core`; swap to MinIO/real S3 in production via `S3_ENDPOINT`).
 - **Workflow**: local built-in engine (Apache-2.0, no external dependency); `workflow-service` owns
   workflows + executions in Postgres: DAG runner (webhook/cron/manual/http/code/set/if/noOp),
   sandboxed code, public webhooks, cron scheduler, definition editor.
@@ -76,7 +76,7 @@ Data services (same gateway, same tenant model):
   visibility resolved at read time, reserved names rejected at registration and
   quarantined at ingest, and tenant binding enforced with 404s. Every export carries
   the user-picked license (`X-LDS-License` + `Link rel="license"`). Workflows publish
-  into it via `synapsedx.api → lds.publish-record` (`webhook-to-lds` template).
+  into it via `synapseone.api → lds.publish-record` (`webhook-to-lds` template).
 - **SynapseBase**: `base-service` is the self-managed document database — collections
   with a logical object↔data mapping, server-side validation, filters/ordering/cursors,
   optimistic concurrency (`ifVersion`/`If-Match`), atomic increments, batch writes and
@@ -86,7 +86,7 @@ Data services (same gateway, same tenant model):
 - **Synapse Faststore**: `faststore-service` exposes Redis as a tenant-scoped data
   API — strings with TTLs, atomic counters, hashes, lists, sets, sorted sets, scans,
   bulk operations and token-owned distributed locks. One Redis deployment can back it
-  alongside the queue; keys are namespaced `synapsedx:faststore:v1:<tenant>:`.
+  alongside the queue; keys are namespaced `synapseone:faststore:v1:<tenant>:`.
 - **SynapseQueue**: `queue-service` provides at-least-once messaging — delayed and
   deduplicated publishing, visibility-timeout leases with receipts, ack/nack/heartbeat,
   retry budgets, dead letters and replay. Redis sorted sets + Lua make consume/ack/nack

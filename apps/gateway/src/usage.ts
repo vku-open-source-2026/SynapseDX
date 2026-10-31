@@ -1,10 +1,11 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Gateway request telemetry: every proxied request becomes one usage event,
  * buffered in memory and flushed to IAM in small batches. Best-effort by
  * design — a dead analytics sink must never affect live traffic.
  */
+import './env-compat';
 
 export interface UsageEvent {
   createdAt: string;
@@ -91,8 +92,8 @@ async function postBatch(events: UsageEvent[]): Promise<void> {
   const to = setTimeout(() => ctl.abort(), POST_TIMEOUT_MS);
   try {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      headers['x-synapsedx-internal'] = process.env.SYNAPSEDX_INTERNAL_SECRET;
+    if (process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      headers['x-synapseone-internal'] = process.env.SYNAPSEONE_INTERNAL_SECRET;
     }
     const res = await fetch(iamIngestUrl(), {
       method: 'POST',

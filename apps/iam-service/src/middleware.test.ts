@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * IAM middleware tests — defense-in-depth gate, input validation, OIDC demo gate.
  * Boots the real Express app on an ephemeral port (memory backend, no DB).

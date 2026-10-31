@@ -1,6 +1,6 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
-package synapsedx
+package synapseone
 
 import (
 	"encoding/json"
@@ -23,7 +23,7 @@ func TestInferenceEngine(t *testing.T) {
 		case "/v1/inference/health":
 			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "ok",
-				"service": "synapsedx-inference",
+				"service": "synapseone-inference",
 				"version": "0.5.2",
 				"models": map[string]any{
 					"llm":       "apodex/apodex-1.1-mini:free",

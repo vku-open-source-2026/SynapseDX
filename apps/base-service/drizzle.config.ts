@@ -5,6 +5,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgres://synapsedx:synapsedx@localhost:5432/synapsedx',
+    url: process.env.DATABASE_URL || 'postgres://synapseone:synapseone@localhost:5432/synapseone',
   },
 });

@@ -1,14 +1,14 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Synapse Faststore client: Redis-backed cache/KV with strings, hashes, lists,
  * sets, sorted sets, TTLs, counters, scans, batches and distributed locks.
  *
  * Every operation is scoped to the caller's tenant (org / account / user).
- * Platform callers set `tenant` on the client (x-synapsedx-tenant).
+ * Platform callers set `tenant` on the client (x-synapseone-tenant).
  */
 
-import { HttpClient, SynapseDXError } from './_http';
+import { HttpClient, SynapseOneError } from './_http';
 
 const P = '/v1/faststore';
 
@@ -37,7 +37,7 @@ export class FaststoreService {
       await this.get(key);
       return true;
     } catch (e) {
-      if (e instanceof SynapseDXError && e.status === 404) return false;
+      if (e instanceof SynapseOneError && e.status === 404) return false;
       throw e;
     }
   }

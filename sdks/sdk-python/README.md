@@ -1,21 +1,21 @@
-# synapsedx SDK for Python
+# synapseone SDK for Python
 
-Apache-2.0. See root LICENSE. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
+Apache-2.0. See root LICENSE. Part of [SynapseOne](../../README.md) Tier-1 PaaS.
 
 Requires Python 3.9+. Single runtime dependency: `requests>=2.28`.
 
 ## Install
 
 ```bash
-pip install synapsedx-sdk
+pip install synapseone-sdk
 ```
 
 ## Quick start
 
 ```python
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-c = SynapseDXClient("http://localhost:8080")
+c = SynapseOneClient("http://localhost:8080")
 login = c.iam.login("demo@acme.local")
 c.set_token(login["accessToken"])
 
@@ -89,9 +89,9 @@ for msg in batch["messages"]:
 
 ## Auth and tenants
 
-`SynapseDXClient(base_url, token=..., api_key=..., tenant=...)`, or
+`SynapseOneClient(base_url, token=..., api_key=..., tenant=...)`, or
 `set_token(jwt)` / `set_api_key(key)` after login. `timeout` configurable
-(default 15s). `tenant` is sent as `x-synapsedx-tenant` and is only required by
+(default 15s). `tenant` is sent as `x-synapseone-tenant` and is only required by
 platform callers of the tenant-scoped services (faststore/queue).
 
 ## Deprecated flat API
@@ -105,7 +105,7 @@ warnings. `c.call(method, path, body)` remains the generic escape hatch.
 ## Tests
 
 ```bash
-python -m pytest synapsedx_sdk -q
+python -m pytest synapseone_sdk -q
 ```
 
 ## Full documentation

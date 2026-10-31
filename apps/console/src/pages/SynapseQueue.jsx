@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -40,7 +40,7 @@ import {
 const SAMPLE_PAYLOAD = JSON.stringify(
   {
     to: 'dev@acme.test',
-    subject: 'Welcome to SynapseDX',
+    subject: 'Welcome to SynapseOne',
     template: 'onboarding-welcome',
     data: { role: 'engineer' },
   },

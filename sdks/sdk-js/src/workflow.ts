@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Workflow client: templates, workflow CRUD/lifecycle, executions, test runs
  * and public inbound webhooks.
@@ -133,7 +133,7 @@ export class WorkflowService {
    */
   triggerWebhook(path: string, payload?: unknown, init: { method?: string } = {}) {
     const clean = String(path || '').replace(/^\/+|\/+$/g, '').split('?')[0];
-    if (!clean) throw new Error('synapsedx webhook: path required');
+    if (!clean) throw new Error('synapseone webhook: path required');
     const method = (init.method || (payload === undefined ? 'GET' : 'POST')).toUpperCase();
     return this.http.call(method, `/webhook/${clean}`, payload);
   }
@@ -164,7 +164,7 @@ export function unwrapExecutions(payload: any): any[] {
  * The gateway proxies `/webhook/*` to the workflow service, so `webhookBaseUrl`
  * is normally the gateway URL. Use `client.workflow.triggerWebhook()` for the
  * gateway-bound convenience form. `path` is the webhook node's
- * `parameters.path` (e.g. `synapsedx-event`), not a workflow id.
+ * `parameters.path` (e.g. `synapseone-event`), not a workflow id.
  */
 export async function triggerWebhook(
   webhookBaseUrl: string,
@@ -174,7 +174,7 @@ export async function triggerWebhook(
 ): Promise<any> {
   const base = webhookBaseUrl.replace(/\/$/, '');
   const clean = String(path || '').replace(/^\/+|\/+$/g, '').split('?')[0];
-  if (!clean) throw new Error('synapsedx webhook: path required');
+  if (!clean) throw new Error('synapseone webhook: path required');
   const method = (init?.method || (payload === undefined ? 'GET' : 'POST')).toUpperCase();
   const url = `${base}/webhook/${clean}`;
   const ctl = new AbortController();
@@ -188,7 +188,7 @@ export async function triggerWebhook(
       body: payload === undefined ? undefined : JSON.stringify(payload),
     });
   } catch (e: any) {
-    throw new Error(`synapsedx network /webhook/${clean}: ${e?.message || e}`);
+    throw new Error(`synapseone network /webhook/${clean}: ${e?.message || e}`);
   } finally {
     clearTimeout(to);
   }
@@ -199,6 +199,6 @@ export async function triggerWebhook(
   } catch {
     data = text;
   }
-  if (!r.ok) throw new Error(`synapsedx ${r.status} /webhook/${clean}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+  if (!r.ok) throw new Error(`synapseone ${r.status} /webhook/${clean}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
   return data;
 }

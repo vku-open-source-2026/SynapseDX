@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
@@ -47,7 +47,7 @@ export default function Sidebar() {
     >
       <Link to="/">
         <h1 className="my-6 mt-8 ml-2 text-2xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-          SynapseDX Console
+          SynapseOne Console
         </h1>
       </Link>
       <nav className="w-full bg-white rounded-3xl py-4 px-3 flex flex-col text-normal-text shadow-md max-h-[82vh] overflow-y-auto">

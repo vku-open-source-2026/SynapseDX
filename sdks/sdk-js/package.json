@@ -1,8 +1,31 @@
 {
-  "name": "@synapsedx/sdk",
-  "version": "0.6.2",
+  "name": "@synapseone/sdk",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "synapsedx SDK for JavaScript/TypeScript",
+  "description": "synapseone SDK for JavaScript/TypeScript",
+  "homepage": "https://synapseone.space",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vku-open-source-2026/SynapseOne.git",
+    "directory": "sdks/sdk-js"
+  },
+  "bugs": {
+    "url": "https://github.com/vku-open-source-2026/SynapseOne/issues"
+  },
+  "keywords": [
+    "synapseone",
+    "sdk",
+    "paas",
+    "iam",
+    "workflow",
+    "ngsi-ld",
+    "document-db",
+    "redis",
+    "queue"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useState } from 'react';
@@ -44,8 +44,8 @@ export default function ApiDocs() {
     }
     const parts = [`curl -X ${e.method} '${baseUrl()}${p}'`];
     // Secrets stay out of the clipboard: reference env vars instead.
-    if (headers.token) parts.push(`-H "Authorization: Bearer $SYNAPSEDX_TOKEN"`);
-    if (headers.apiKey) parts.push(`-H "X-API-Key: $SYNAPSEDX_API_KEY"`);
+    if (headers.token) parts.push(`-H "Authorization: Bearer $SYNAPSEONE_TOKEN"`);
+    if (headers.apiKey) parts.push(`-H "X-API-Key: $SYNAPSEONE_API_KEY"`);
     if (e.method !== 'GET') {
       parts.push(`-H 'Content-Type: application/json'`);
       // Escape single quotes for POSIX shells (o'clock → o'\''clock).

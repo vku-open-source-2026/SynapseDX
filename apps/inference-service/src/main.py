@@ -16,7 +16,7 @@ from .llm import (
     stream_chat_completion,
 )
 
-VERSION = "0.6.2"
+VERSION = "0.7.0"
 
 app = FastAPI(
     title="Synapse Inference Engine",
@@ -43,11 +43,11 @@ async def security_and_telemetry_middleware(request: Request, call_next):
     if not req_id:
         req_id = f"{int(time.time() * 1000):x}-{secrets.token_hex(4)}"
 
-    # 2. Defense-in-depth: check SYNAPSEDX_INTERNAL_SECRET on /v1/*
-    internal_secret = settings.SYNAPSEDX_INTERNAL_SECRET
+    # 2. Defense-in-depth: check SYNAPSEONE_INTERNAL_SECRET on /v1/*
+    internal_secret = settings.SYNAPSEONE_INTERNAL_SECRET
     if request.url.path.startswith("/v1/"):
         if internal_secret:
-            incoming_secret = request.headers.get("x-synapsedx-internal", "")
+            incoming_secret = request.headers.get("x-synapseone-internal", "")
             if not secrets.compare_digest(incoming_secret, internal_secret):
                 return JSONResponse(
                     status_code=status.HTTP_401_UNAUTHORIZED,

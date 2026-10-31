@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // Nested workflow execution must be useful (agent workflow_run / SynapseFlow
@@ -7,7 +7,7 @@
 // concurrent workflows don't share a counter.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { synapsedxCall } from './index';
+import { synapseoneCall } from './index';
 import { __clearMem, createWorkflowRec, updateWorkflowRec } from './store';
 
 describe('nested workflow execution', () => {
@@ -27,13 +27,13 @@ describe('nested workflow execution', () => {
         { name: 'Start', type: 'manualTrigger', parameters: {} },
         {
           name: 'Call',
-          type: 'synapsedx.flow',
+          type: 'synapseone.flow',
           parameters: { operation: 'workflows.execute', input: { id: child.id, input: '={{ $json }}' } },
         },
       ],
       connections: { Start: { main: [[{ node: 'Call' }]] } },
     });
-    const res: any = await synapsedxCall('workflows', 'execute', { id: parent.id, input: { value: 42 } }, null);
+    const res: any = await synapseoneCall('workflows', 'execute', { id: parent.id, input: { value: 42 } }, null);
     assert.equal(res.ok, true);
     // The parent's output is the SynapseFlow node's result wrapper.
     assert.equal(res.output.output.childRan, true);
@@ -49,14 +49,14 @@ describe('nested workflow execution', () => {
         { name: 'Start', type: 'manualTrigger', parameters: {} },
         {
           name: 'CallSelf',
-          type: 'synapsedx.flow',
+          type: 'synapseone.flow',
           parameters: { operation: 'workflows.execute', input: { id: rec.id, input: { tick: 1 } } },
         },
       ],
       connections: { Start: { main: [[{ node: 'CallSelf' }]] } },
     });
     await assert.rejects(
-      () => synapsedxCall('workflows', 'execute', { id: rec.id, input: {} }, null),
+      () => synapseoneCall('workflows', 'execute', { id: rec.id, input: {} }, null),
       /nesting limit \(3\)/,
     );
   });

@@ -1,11 +1,11 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
-const { SynapseDXClient } = require('../../sdks/sdk-js/dist/index.js');
+const { SynapseOneClient } = require('../../sdks/sdk-js/dist/index.js');
 
 async function main() {
-  const c = new SynapseDXClient({ baseUrl: process.env.SYNAPSEDX_BASE_URL || 'http://127.0.0.1:18110' });
+  const c = new SynapseOneClient({ baseUrl: process.env.SYNAPSEONE_BASE_URL || 'http://127.0.0.1:18110' });
   const login = await c.login('sdksim@acme.local');
   c.setToken(login.accessToken);
   console.log('SDK_ME', (await c.me()).user.email);

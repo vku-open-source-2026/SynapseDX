@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -789,7 +789,7 @@ export default function Dashboard() {
                       Feature Usage Breakdown
                     </h3>
                     <p className="text-xs text-normal-text mt-0.5">
-                      Request distribution, latency, and error rates across SynapseDX platform capabilities
+                      Request distribution, latency, and error rates across SynapseOne platform capabilities
                     </p>
                   </div>
                   {featureFilter !== 'all' && (

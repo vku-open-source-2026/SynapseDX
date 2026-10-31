@@ -1,4 +1,4 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """SynapseBase client: collections, documents, queries, batch writes, atomic
 counters, a change feed and typed object <-> data mapping.
@@ -10,8 +10,8 @@ converts in both directions. :class:`BaseCollection` is a small typed wrapper
 that binds one collection to a dataclass/model so application code works with
 objects instead of JSON.
 
-Access the service through ``SynapseDXClient(...).base`` or build it directly
-with a :class:`~synapsedx_sdk._http.HttpClient`.
+Access the service through ``SynapseOneClient(...).base`` or build it directly
+with a :class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations

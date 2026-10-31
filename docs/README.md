@@ -1,4 +1,4 @@
-# SynapseDX docs
+# SynapseOne docs
 
 | Guide | Content |
 |---|---|
@@ -20,6 +20,7 @@
 | [sdk-python.md](sdk-python.md) | Python SDK — install, auth, full API reference |
 | [sdk-go.md](sdk-go.md) | Go SDK — install, auth, full API reference |
 | [cli.md](cli.md) | CLI — install, configuration, all commands |
+| [migration-synapseone.md](migration-synapseone.md) | Upgrade an existing SynapseDX deployment to SynapseOne 0.7.0 |
 
 Start at [../README.md](../README.md) → [quickstart.md](quickstart.md).
 Contributing: [../CONTRIBUTING.md](../CONTRIBUTING.md). K8s operations: [../infra/k8s/README.md](../infra/k8s/README.md).

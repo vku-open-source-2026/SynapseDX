@@ -1,16 +1,16 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
-"""Smoke example for synapsedx-sdk (gateway on :8080).
+"""Smoke example for synapseone-sdk (gateway on :8080).
 
 Shows the namespaced services: iam / workflow / lds / base / faststore / queue.
 """
 
 import os
 
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-base = os.environ.get("SYNAPSEDX_BASE_URL", "http://localhost:8080")
-c = SynapseDXClient(base)
+base = os.environ.get("SYNAPSEONE_BASE_URL", "http://localhost:8080")
+c = SynapseOneClient(base)
 login = c.iam.login("demo@acme.local")
 print("login:", login["user"]["email"])
 c.token = login["accessToken"]

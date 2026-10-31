@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useState } from 'react';
@@ -81,7 +81,7 @@ export default function Topbar({ servicesOpen = true, onToggleServices }) {
       <header className="lg:hidden fixed z-50 top-0 left-0 w-full bg-white/80 backdrop-blur-md shadow-sm">
         <div className="flex items-center justify-between px-4 h-14">
           <Link to="/" className="font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent">
-            SynapseDX Console
+            SynapseOne Console
           </Link>
           <button onClick={() => setOpen(!open)} className="text-xl text-normal-text">
             <FontAwesomeIcon icon={open ? faXmark : faBars} />

@@ -5,6 +5,41 @@ Format based on Keep a Changelog; versioning follows SemVer.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-31
+
+### Changed - SynapseDX renamed to SynapseOne
+- Renamed the product, packages and runtime identifiers to SynapseOne:
+  `synapseone`, `SYNAPSEONE_*`, `x-synapseone-*`, `synapseone.*` workflow nodes.
+- npm packages are now `@synapseone/sdk` and `@synapseone/cli`; the Python
+  distribution is `synapseone-sdk` with the `synapseone_sdk` module.
+- JWT issuer is now `synapseone-iam`; the gateway and IAM still verify tokens
+  issued by `synapsedx-iam` during the rebrand window.
+- Compose project/network/images, Kubernetes manifests, Prometheus rules and
+  example domains now use the SynapseOne naming (`synapseone.space`).
+- Base and Workflow tables were renamed from `synapsedx_*` to `synapseone_*`
+  with conditional in-place migrations; Redis namespaces moved to
+  `synapseone:queue|faststore|stream:v1:`.
+- Console session storage key moved to `synapseone.console.auth` and migrates
+  the old `synapsedx.console.auth` value on first load.
+
+### Added - Backward compatibility
+- `SynapseDXClient`, `SynapseDXError` and `SynapseDXClientOptions` aliases in
+  the JS SDK; `SynapseDXClient`/`SynapseDXError` aliases plus a `synapsedx_sdk`
+  shim package in Python.
+- CLI reads `~/.synapsedx/config.json` and `SYNAPSEDX_*` env vars when the new
+  names are not configured.
+- Services mirror `SYNAPSEDX_*` env vars to `SYNAPSEONE_*` at boot; Compose also
+  falls back to the legacy internal secret/API key/public URL variables.
+- Gateway strips both header prefixes, normalizes the legacy tenant header and
+  mirrors stamped canonical headers for rolling deployments.
+- Workflow engine and Console accept legacy `synapsedx.*` node types.
+- `docs/migration-synapseone.md` covers volumes, environment, DB, Redis, OIDC,
+  TLS/DNS and SDK upgrades.
+
+### Fixed
+- Legacy env fallback now loads `.env` before mirroring, so local development
+  keeps working with old `SYNAPSEDX_*` keys.
+
 ## [0.6.2] - 2026-10-27
 
 ### Added — SynapseStream & Full Multi-SDK Coverage
@@ -12,15 +47,15 @@ Format based on Keep a Changelog; versioning follows SemVer.
   - Distributed event streaming log microservice on port 4009.
   - Pluggable Engine Driver architecture (`StreamEngine` contract) supporting `MemoryStreamEngine` for dev/unit tests and `RedisStreamsEngine` (using Redis 7 native `XADD`, `XREAD`, `XRANGE`, `XREADGROUP`, `XACK`, `XTRIM`) for production.
   - Pluggable Driver Registry (`registerStreamEngine`) ready for external Kafka/Redpanda integrations.
-  - Full tenant isolation (`synapsedx:stream:v1:<tenant>:...`) and `SYNAPSEDX_INTERNAL_SECRET` validation.
+  - Full tenant isolation (`synapseone:stream:v1:<tenant>:...`) and `SYNAPSEONE_INTERNAL_SECRET` validation.
 - **Gateway & Console Integration**:
   - Mounted `/v1/stream` in API Gateway (`apps/gateway/routes.yaml`) with readiness probe in `/ready`.
   - Added dedicated **SynapseStream** dashboard (`/stream`) in React Console with 4 operational tabs: Live Stream Tail, Publish Event, Consumer Groups, and Time-Range Replay.
   - Added SynapseStream entry in `PLATFORM_SERVICES` (`ServicesSidebar.jsx`).
 - **Complete SDK Support for Streaming (JS, Python, Go)**:
-  - **JavaScript / TypeScript SDK** (`@synapsedx/sdk`): Exposed under `client.stream.*` (`listTopics`, `createTopic`, `getTopic`, `deleteTopic`, `topicStats`, `publish`, `publishBatch`, `read`, `range`, `createGroup`, `destroyGroup`, `readGroup`, `ack`).
-  - **Python SDK** (`synapsedx-sdk`): Exposed under `client.stream.*` (`list_topics`, `create_topic`, `get_topic`, `delete_topic`, `topic_stats`, `publish`, `publish_batch`, `read`, `range`, `create_group`, `destroy_group`, `read_group`, `ack`).
-  - **Go SDK** (`synapsedx-sdk-go`): Added typed client methods on `*Client` (`ListStreamTopics`, `CreateStreamTopic`, `GetStreamTopic`, `DeleteStreamTopic`, `StreamTopicStats`, `PublishStreamEvent`, `PublishStreamBatch`, `ReadStreamEvents`, `QueryStreamRange`, `CreateStreamGroup`, `DestroyStreamGroup`, `ReadStreamGroup`, `AckStreamEvents`).
+  - **JavaScript / TypeScript SDK** (`@synapseone/sdk`): Exposed under `client.stream.*` (`listTopics`, `createTopic`, `getTopic`, `deleteTopic`, `topicStats`, `publish`, `publishBatch`, `read`, `range`, `createGroup`, `destroyGroup`, `readGroup`, `ack`).
+  - **Python SDK** (`synapseone-sdk`): Exposed under `client.stream.*` (`list_topics`, `create_topic`, `get_topic`, `delete_topic`, `topic_stats`, `publish`, `publish_batch`, `read`, `range`, `create_group`, `destroy_group`, `read_group`, `ack`).
+  - **Go SDK** (`synapseone-sdk-go`): Added typed client methods on `*Client` (`ListStreamTopics`, `CreateStreamTopic`, `GetStreamTopic`, `DeleteStreamTopic`, `StreamTopicStats`, `PublishStreamEvent`, `PublishStreamBatch`, `ReadStreamEvents`, `QueryStreamRange`, `CreateStreamGroup`, `DestroyStreamGroup`, `ReadStreamGroup`, `AckStreamEvents`).
 - **Comprehensive Test Coverage**:
   - Unit tests across all 3 SDKs for SynapseStream methods.
   - CI catalog drift check maintained at 163/163 synchronized endpoints.
@@ -52,7 +87,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
     (384 dimensions) with deterministic L2 normalized fallback for constrained dev environments.
   - **Self-Hosted Decision-2.0-Eos-0.8B SLM**: Structured question evaluation (`system_one`)
     and semantic intent classification/routing (`/v1/inference/decision/route`).
-  - **Security & Headers**: Standardized `x-request-id`, internal secret gating (`x-synapsedx-internal`),
+  - **Security & Headers**: Standardized `x-request-id`, internal secret gating (`x-synapseone-internal`),
     HSTS headers, and non-root Docker container.
 - **Console Web UI Integration**:
   - Added dedicated **SynapseInference** playground (`/inference`) with interactive tabs for
@@ -61,11 +96,11 @@ Format based on Keep a Changelog; versioning follows SemVer.
   - Integrated into the Services sidebar drawer under "AI & Inference" (`faBrain`).
   - Added dedicated service dashboards for SynapseBase, Synapse Faststore, and SynapseQueue.
 - **SDK Ecosystem (JS/TS, Python, Go)**:
-  - **JavaScript / TypeScript SDK** (`@synapsedx/sdk`): Exposed under `client.inference.*`
+  - **JavaScript / TypeScript SDK** (`@synapseone/sdk`): Exposed under `client.inference.*`
     (`health`, `chat`, `embeddings`, `decision`, `route`).
-  - **Python SDK** (`synapsedx_sdk`): Exposed under `client.inference.*`
+  - **Python SDK** (`synapseone_sdk`): Exposed under `client.inference.*`
     (`health`, `chat`, `embeddings`, `decision`, `route`).
-  - **Go SDK** (`github.com/synapsedx/synapsedx-sdk-go`): Added `c.InferenceHealth()`,
+  - **Go SDK** (`github.com/synapseone/synapseone-sdk-go`): Added `c.InferenceHealth()`,
     `c.InferenceChat()`, `c.InferenceEmbeddings()`, `c.InferenceDecision()`, and `c.InferenceRoute()`.
 - **E2E & Unit Test Coverage**:
   - `npm run test:e2e:inference`: 8/8 comprehensive E2E tests through Gateway.
@@ -112,7 +147,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   the account picker deliberately does not filter usage (it would hide every
   user-session request).
 - **SDK (JS/TS)**: `usageSummary(params?)` and `usageEvents(params?)` on the
-  IAM client, exported from the root and `@synapsedx/sdk/iam` subpath.
+  IAM client, exported from the root and `@synapseone/sdk/iam` subpath.
 - **API catalog / docs**: `/v1/usage/*` added to the in-console API explorer,
   `docs/api.md`, `docs/monitoring.md` and `docs/console.md`.
 
@@ -151,7 +186,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   atomic counters, hashes, lists, sets, sorted sets, key scans, batches and
   token-owned distributed locks. In-memory fallback for dev/tests. Keys are
   namespaced per tenant (`org:`/`account:`/`user:`; platform callers use
-  `x-synapsedx-tenant` or `?tenant=`).
+  `x-synapseone-tenant` or `?tenant=`).
 - **SynapseQueue** (`apps/queue-service`, :4007, gateway `/v1/queue`, auth
   `either`): at-least-once queues with delayed publishing, dedupe keys, custom
   message ids/headers, visibility-timeout leases + receipts, ack/ack-batch,
@@ -160,22 +195,22 @@ Format based on Keep a Changelog; versioning follows SemVer.
   dev/tests. Delivery is at-least-once, `maxAttempts` is enforced on nack, and
   expired leases are reclaimed regardless of attempt count.
 - Gateway routes for all three prefixes and `/ready` probes; tenant header
-  `x-synapsedx-tenant` forwarded for platform callers (other client identity
+  `x-synapseone-tenant` forwarded for platform callers (other client identity
   headers remain stripped).
 - Compose, production compose, `.env.example`, K8s manifests and Prometheus
   scrape/alert configs for the new services; root workspace dev scripts.
 
 ### Added — SDK 0.5.0
-- **Python** (`synapsedx-sdk` 0.5.0): split into per-service modules
+- **Python** (`synapseone-sdk` 0.5.0): split into per-service modules
   (`iam`, `workflow`, `lds`, `base`, `faststore`, `queue`) exposed as
-  `SynapseDXClient` namespaces, plus typed `BaseCollection`, `QueryResult`,
+  `SynapseOneClient` namespaces, plus typed `BaseCollection`, `QueryResult`,
   `UNSET` sentinel, `tenant` support and `as_view=` for Base reads. Legacy flat
   methods remain and emit `DeprecationWarning`; LDS drops the `lds_` prefix.
-- **JavaScript/TypeScript** (`@synapsedx/sdk` 0.5.0): per-service modules and
+- **JavaScript/TypeScript** (`@synapseone/sdk` 0.5.0): per-service modules and
   subpath exports (`./iam`, `./workflow`, `./lds`, `./base`, `./faststore`,
   `./queue`), typed `BaseCollection`, `tenant`/`setTenant`, runtime-installed
-  deprecated flat methods, `SynapseDXError` with `status`/`body`.
-- **Go** (`synapsedx-sdk-go`): `base.go`, `faststore.go`, `queue.go` with full
+  deprecated flat methods, `SynapseOneError` with `status`/`body`.
+- **Go** (`synapseone-sdk-go`): `base.go`, `faststore.go`, `queue.go` with full
   endpoint coverage, generic `BaseCollection[T]`, object↔data conversion and
   `Client.Tenant` / `SetTenant`.
 - New SDK tests for every service; Python 32 tests, JS 34 tests, Go suite pass.
@@ -193,7 +228,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   (`Property|Relationship|GeoProperty`; visibility `public|restricted|internal`),
   record ingest with quarantine reporting, stats, and JSON-LD exports that carry
   `X-LDS-License: <SPDX>` + `Link: <licenseUrl>; rel="license"`.
-- Security by construction (spec: `docs/specs/synapsedx-lds.md`): records store
+- Security by construction (spec: `docs/specs/synapseone-lds.md`): records store
   `{_core, entity, attributes}`; the projector is a **structural allowlist**
   (it never reads `_core`, so future metadata cannot leak); unregistered fields
   default-deny (stored but never exported); reserved names
@@ -211,12 +246,12 @@ Format based on Keep a Changelog; versioning follows SemVer.
   500s); restricted exports are `Cache-Control: private, no-store`; registry
   entries inherit `defaultVisibility`; webhook/cron runs execute as the
   workflow's tenant principal (SynapseLDS publishes stay tenant-scoped);
-  `synapsedx.api` required args are validated at save time; prototype-chain
+  `synapseone.api` required args are validated at save time; prototype-chain
   attribute names are rejected; Postgres record versions bump atomically.
 - **Anonymous public export channel** (spec "public = anyone reaching the
   API"): gateway wildcard routes `/v1/lds/licenses` and
   `/v1/lds/datasources/:id/entities[/:entityId]` are `auth: none` and stamp an
-  internal `x-synapsedx-anon` marker; LDS serves anonymous callers only the
+  internal `x-synapseone-anon` marker; LDS serves anonymous callers only the
   public projection (license surfacing included) and answers `401
   auth_required` for every write, the registry, stats, listing and
   `?visibility=restricted`. A verifying Bearer token is honoured as optional
@@ -230,7 +265,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   out), the console pre-validates the create wizard against the server
   contract with actionable messages, the schema "Saved" confirmation survives
   the post-save refresh, and monitoring now scrapes `lds:4004/metrics`
-  (`synapsedx_lds_*`) + `workflow:4002/metrics` alongside the gateway.
+  (`synapseone_lds_*`) + `workflow:4002/metrics` alongside the gateway.
 
 ### Fixed
 - Console overlays (New-datasource modal, workflow editor, code editor): the
@@ -247,12 +282,12 @@ Format based on Keep a Changelog; versioning follows SemVer.
   upstream until the next nginx restart/reload.
 - License catalog built in (CC0-1.0, PDDL-1.0, CC-BY-4.0, CC-BY-SA-4.0,
   ODbL-1.0, LicenseRef-Proprietary) — the user picks one per datasource.
-- Workflow integration: `synapsedx.api` resource `lds`
+- Workflow integration: `synapseone.api` resource `lds`
   (`list-datasources`, `publish-record`) + template `webhook-to-lds`.
 - Console: **Linked Data** page — datasource create with license picker, schema
   editor with visibility, JSON ingest, NGSI-LD preview, copyable export URL.
 - Clients at 0.4.0: JS/Python/Go SDKs and the CLI gain full LDS support;
-  gateway `/ready` aggregates lds; compose ships `synapsedx/lds:0.4.0`
+  gateway `/ready` aggregates lds; compose ships `synapseone/lds:0.4.0`
   (all images bumped to 0.4.0); e2e `api-check.sh` covers the LDS flow incl.
   a metadata-leak assertion.
 ### Changed — workflow engine replaced (BREAKING from n8n)
@@ -300,7 +335,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   in the target tenant (role-based account binding, or same-org fallback since login
   JWTs carry org but no account; machine service-account tokens stay strictly
   account-bound) — `403 forbidden` otherwise. Gateway-stamped tenant headers are
-  trusted only when `SYNAPSEDX_INTERNAL_SECRET` is set (dev direct callers can't
+  trusted only when `SYNAPSEONE_INTERNAL_SECRET` is set (dev direct callers can't
   spoof tenant); reads and org creation stay open by design. Key-creation `userId`
   validated; malformed UUIDs now `400 invalid_id`; auth-store outages answer
   `503 iam_unavailable`; creates under ghost parents answer `404` on both backends.
@@ -347,8 +382,8 @@ Format based on Keep a Changelog; versioning follows SemVer.
   touch the URL) + "Continue with SSO" on `/login`. Set `OIDC_REDIRECT_URI` to the
   Console page (e.g. `https://cloud.example.com/oidc/callback`).
 - CLI one-line installer (`tools/cli/install.sh`, mirrored at `/install.sh` on the web
-  frontend): `curl -fsSL https://synapsedx.sbs/install.sh | sh`. CLI tarball slimmed
-  via `files: ["bin", "README.md"]`; `npx -y @synapsedx/cli@latest` verified live.
+  frontend): `curl -fsSL https://synapseone.space/install.sh | sh`. CLI tarball slimmed
+  via `files: ["bin", "README.md"]`; `npx -y @synapseone/cli@latest` verified live.
 ### Changed
 - All user-facing documentation and Console UI strings translated to English
   (`README.md`, `docs/*.md`, Console pages, template descriptions, CLI README).
@@ -359,7 +394,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   (list/get/create-from-template/create-raw/activate/deactivate/execute), templates
   (+single),   executions (list/get); `NewWithClient`, path-escaping, 7 offline tests.
   (Breaking, pre-1.0: `Login(email)` → `Login(email, orgSlug)`; package renamed
-  `danax` → `synapsedx`.)
+  `danax` → `synapseone`.)
 - Python SDK: `list_accounts`, `user_policies`, `verify_api_key`, `get_template`,
   `create_workflow` (raw), `deactivate_workflow`, `execute_workflow`,
   `list/get_execution(s)`; `set_token`/`set_api_key`; URL-encoding everywhere.
@@ -370,9 +405,9 @@ Format based on Keep a Changelog; versioning follows SemVer.
   refresh token persisted; config file 0600 + secrets redacted in `config`;
   URL-encoding on all ids.
 ### Fixed (security hardening)
-- IAM/workflow no longer trust the network: `SYNAPSEDX_INTERNAL_SECRET` (shared with
+- IAM/workflow no longer trust the network: `SYNAPSEONE_INTERNAL_SECRET` (shared with
   gateway) gates all `/v1/*` (except `/v1/auth/*`); dev fallback verifies the caller's
-  own Bearer/API key. Gateway strips + re-sets `x-synapsedx-internal` after auth.
+  own Bearer/API key. Gateway strips + re-sets `x-synapseone-internal` after auth.
 - OIDC demo callback (email-trusting, impersonation-capable) now kill-switchable via
   `IAM_ALLOW_OIDC_DEMO_CALLBACK=false` (production); zod-validated email/slug inputs
   on login/callback/org/account/user creation.
@@ -401,7 +436,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
   workflow create validates name/template.
 - Token TTLs (`IAM_JWT_EXPIRES_IN`, `IAM_REFRESH_EXPIRES_IN`) clamped at startup
   (garbage env → safe defaults, no NaN expiries).
-- JWT `issuer: synapsedx-iam` pinned on every verify (gateway + IAM) — foreign
+- JWT `issuer: synapseone-iam` pinned on every verify (gateway + IAM) — foreign
   tokens signed with a leaked/shared secret but wrong issuer no longer pass.
 - Gateway: routes.yaml validated at boot (unknown auth mode / bad path → fail fast,
   not silent 401s); proxy `on.error` (HPM v3 API, not v2 `onError`) returns fast 502
@@ -409,10 +444,10 @@ Format based on Keep a Changelog; versioning follows SemVer.
   `PROXY_TIMEOUT_MS` clamped.
 - Gateway rate-limiters no longer share one Redis store (was counting ALL traffic
   against the 60/min auth quota → spurious 429s, caught from a CI log): separate
-  `synapsedx:rl:` / `synapsedx:rl:auth:` keyspaces; live-verified against real
+  `synapseone:rl:` / `synapseone:rl:auth:` keyspaces; live-verified against real
   Redis (20 non-auth → untouched, 6th auth → 429 exactly at max=5) + unit test.
 - K8s manifests: gateway now receives `IAM_JWT_SECRET` (was missing → all Bearer
-  checks failed closed in-cluster); `SYNAPSEDX_INTERNAL_SECRET` + pepper wired via
+  checks failed closed in-cluster); `SYNAPSEONE_INTERNAL_SECRET` + pepper wired via
   secrets; production env flips (`NODE_ENV`, dev-login/OIDC-demo off, HSTS, CORS,
   `GATEWAY_VERIFY_APIKEY`); `runAsNonRoot` securityContext; secrets example extended.
 - Console `api.js`: URL-encoding on all ids (path-injection parity with SDKs/CLI).
@@ -426,7 +461,7 @@ Format based on Keep a Changelog; versioning follows SemVer.
 - Console API catalog: added `GET /v1/templates/:name` + `GET /v1/executions/:id`
   (try-it now covers every documented route).
 - Gateway `GATEWAY_VERIFY_APIKEY=true` + internal secret: upstream `/v1/keys/verify`
-  call now carries `x-synapsedx-internal` (was missing → fail-closed 503 always);
+  call now carries `x-synapseone-internal` (was missing → fail-closed 503 always);
   `verifyApiKeyUpstream` exported + unit-tested (header forwarding, invalid-key null,
   unreachable-IAM error).
 - Rate limiting REMOVED from the gateway (ops decision to keep CI green): deleted
@@ -508,11 +543,11 @@ Format based on Keep a Changelog; versioning follows SemVer.
   (sdk-js, sdk-python, sdk-go) + `tools/cli` (distributables). npm workspaces:
   `apps/*`, `tools/*`, `sdks/sdk-js`. All CI paths, compose contexts, docs,
   SDK/CLI references updated accordingly.
-- Repo moved into the `SynapseDX/` folder (dropped the nested `danax/` layer).
-- Project renamed danax → SynapseDX: packages `@synapsedx/*`, `synapsedx-sdk`
-  (PyPI), `synapsedx-sdk-go`, CLI `synapsedx` (`~/.synapsedx`), images
-  `synapsedx/*`, K8s namespace `synapsedx`, key prefix `synapsedx_*`,
-  OIDC `synapsedx-platform`, domain `synapsedx.local`, DB `synapsedx`.
+- Repo moved into the `SynapseOne/` folder (dropped the nested `danax/` layer).
+- Project renamed danax → SynapseOne: packages `@synapseone/*`, `synapseone-sdk`
+  (PyPI), `synapseone-sdk-go`, CLI `synapseone` (`~/.synapseone`), images
+  `synapseone/*`, K8s namespace `synapseone`, key prefix `synapseone_*`,
+  OIDC `synapseone-platform`, domain `synapseone.local`, DB `synapseone`.
 ### Added
 - Console: public home `/` (header nav) separated from post-login console pages
   (sidebar nav); public `/api-docs`, `/docs`; Dashboard moved to `/dashboard`.
@@ -523,26 +558,26 @@ Format based on Keep a Changelog; versioning follows SemVer.
   Poppins, `#4FACFE→#00F2FE` gradients, sidebar + FontAwesome) — Dashboard (ready),
   Organizations/Accounts/Users/Roles/Policies (JSON editor)/API Keys/Service
   Accounts/Workflows/Authorize simulator/Audit Log; email+org or API-key sign-in;
-  runtime backend URL via `config.js` (`SYNAPSEDX_PUBLIC_BASE_URL`); compose service
-  `:3000`, K8s Deployment/Service, Nginx SPA image `synapsedx/console`.
-- `synapsedx` CLI, zero-dependency (Node 18+): login/use-key/logout, orgs/accounts/users,
+  runtime backend URL via `config.js` (`SYNAPSEONE_PUBLIC_BASE_URL`); compose service
+  `:3000`, K8s Deployment/Service, Nginx SPA image `synapseone/console`.
+- `synapseone` CLI, zero-dependency (Node 18+): login/use-key/logout, orgs/accounts/users,
   roles/policies/attach/assign, authz/sim (with `--context`), audit, keys
   create/revoke, sa create/token, workflows/templates, config; `--json` for scripts;
-  `~/.synapsedx/config.json`; offline unit tests (standard exit codes).
-- K8s: console Deployment/Service; release workflow additionally publishes `synapsedx-console`.
+  `~/.synapseone/config.json`; offline unit tests (standard exit codes).
+- K8s: console Deployment/Service; release workflow additionally publishes `synapseone-console`.
 - Console (cont.): intro home page `/welcome`, interactive API Docs
   (try-it for every endpoint), in-app Console/SDK Docs.
 ### Changed (BREAKING)
-- Project renamed OLP → synapsedx: packages `@synapsedx/*`, `synapsedx-sdk` (PyPI),
-  `synapsedx-sdk-go`, CLI `synapsedx`, images `synapsedx/*`, K8s namespace `synapsedx`,
-  key prefix `synapsedx_*`, OIDC `synapsedx-platform`, domain `synapsedx.local`.
+- Project renamed OLP → synapseone: packages `@synapseone/*`, `synapseone-sdk` (PyPI),
+  `synapseone-sdk-go`, CLI `synapseone`, images `synapseone/*`, K8s namespace `synapseone`,
+  key prefix `synapseone_*`, OIDC `synapseone-platform`, domain `synapseone.local`.
 
 ## [0.1.0] - 2026-10-06
 ### Added
 - Tier-1 PaaS MVP: gateway, IAM (AWS-style org/account/role/policy + tokens + OIDC config), core data (Postgres/Redis/S3), workflow-service over n8n (proxied control-plane + versioned templates + activate/execute, trigger→execution verified on real n8n).
 - IAM extras: service accounts, API keys, refresh rotation + logout, `POST /v1/authorize` + dry-run simulator, list endpoints (users/roles/policies/SA).
-- Gateway: root-mounted proxies with v3 `pathFilter` (no Express strip bugs), JWT/API-key auth, principal `x-synapsedx-*` propagation, `x-request-id` tracing, rate-limit (Redis-backed w/ fail-open, memory fallback), `/ready` aggregate, longest-prefix routing + unit tests.
-- SDKs: `@synapsedx/sdk` (JS/TS), `synapsedx-sdk` (Python), `synapsedx-sdk-go` (minimal).
+- Gateway: root-mounted proxies with v3 `pathFilter` (no Express strip bugs), JWT/API-key auth, principal `x-synapseone-*` propagation, `x-request-id` tracing, rate-limit (Redis-backed w/ fail-open, memory fallback), `/ready` aggregate, longest-prefix routing + unit tests.
+- SDKs: `@synapseone/sdk` (JS/TS), `synapseone-sdk` (Python), `synapseone-sdk-go` (minimal).
 - Docker Compose topology (parametrized host ports, S3Mock + bucket init, Authentik on 19000/19443), service Dockerfiles + .dockerignore, K8s base manifests + secrets example, GitHub CI/release workflows.
 - Docs: architecture, IAM model, API reference, quickstart (incl. scripted n8n bootstrap), object-storage, troubleshooting; OSS files: LICENSE (Apache-2.0), NOTICE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, GOVERNANCE.
 - Tests: 50 node + 3 Python + Go unit green; live-verified: gateway proxy, IAM on memory + Postgres, n8n workflow create/list, S3 bucket ops, Authentik boot, JS/Python/Go SDKs, CLI full sweep, rate-limiting.

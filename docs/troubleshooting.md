@@ -4,10 +4,10 @@
 
 nginx resolves `upstream` hostnames once at (re)load and caches the container IP.
 Recreating a container changes its IP → `connect() failed (111: Connection refused)`
-in `docker logs synapsedx-nginx-1`. Fix without downtime:
+in `docker logs synapseone-nginx-1`. Fix without downtime:
 
 ```bash
-docker exec synapsedx-nginx-1 nginx -s reload
+docker exec synapseone-nginx-1 nginx -s reload
 ```
 
 Rule of thumb for prod: always deploy with both files
@@ -35,7 +35,7 @@ render failed` log line with the component stack — paste both when reporting.
 ## Port already in use (EADDRINUSE / Bind for ... failed)
 
 Dev machines often already run something (e.g. a web server on `:8080`, Postgres on
-`:5432`). SynapseDX never hardcodes host ports — change them via env in `.env`:
+`:5432`). SynapseOne never hardcodes host ports — change them via env in `.env`:
 
 | Env | Default | Service |
 |---|---|---|
@@ -72,7 +72,7 @@ for exact paths. Use http-proxy-middleware v3 `pathFilter` + mount at root (see
 
 `DATABASE_URL` never reached the container. In compose, `DATABASE_URL` points at
 `postgres:5432` (service name). When running IAM outside docker (local dev), set:
-`DATABASE_URL=postgres://synapsedx:<pw>@localhost:<HOST_PORT>/synapsedx`.
+`DATABASE_URL=postgres://synapseone:<pw>@localhost:<HOST_PORT>/synapseone`.
 
 ## Authentik won't start
 
@@ -86,8 +86,8 @@ the same `.env` value, then restart the server/worker.
 ## Backup / restore Postgres (core data cluster)
 
 ```bash
-docker compose exec postgres pg_dump -U synapsedx synapsedx > synapsedx-$(date +%F).sql
-cat synapsedx-2026-10-06.sql | docker compose exec -T postgres psql -U synapsedx -d synapsedx
+docker compose exec postgres pg_dump -U synapseone synapseone > synapseone-$(date +%F).sql
+cat synapseone-2026-10-06.sql | docker compose exec -T postgres psql -U synapseone -d synapseone
 ```
 
 ## Workflow execute returns 500 `ok:false`
@@ -98,8 +98,8 @@ Fetch `GET /v1/executions/:id?includeData=true` for per-node input/output, or us
 
 ## 401 `Missing or invalid internal credential` on direct service calls
 
-Once `SYNAPSEDX_INTERNAL_SECRET` is configured, every service only accepts
-gateway traffic (`x-synapsedx-internal` header). Call services directly with that
+Once `SYNAPSEONE_INTERNAL_SECRET` is configured, every service only accepts
+gateway traffic (`x-synapseone-internal` header). Call services directly with that
 header, or go through gateway `:8080`. Verify every service shares the **same**
 secret value.
 

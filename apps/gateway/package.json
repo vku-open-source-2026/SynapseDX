@@ -1,8 +1,8 @@
 {
-  "name": "@synapsedx/gateway",
-  "version": "0.6.2",
+  "name": "@synapseone/gateway",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "synapsedx API Gateway - reverse proxy with JWT/API-key auth, rate limiting, routing",
+  "description": "synapseone API Gateway - reverse proxy with JWT/API-key auth, rate limiting, routing",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

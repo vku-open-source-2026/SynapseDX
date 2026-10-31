@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * API tests: boot the real Express app on an ephemeral port (memory store)
  * and drive the full SynapseLDS flow, including leak-attempt assertions.
@@ -14,7 +14,7 @@ let server: Server;
 let base = '';
 
 function headers(org = 'tenant-danang', sub = 'user-1'): Record<string, string> {
-  return { 'content-type': 'application/json', 'x-synapsedx-user': sub, 'x-synapsedx-org': org, 'x-synapsedx-kind': 'user' };
+  return { 'content-type': 'application/json', 'x-synapseone-user': sub, 'x-synapseone-org': org, 'x-synapseone-kind': 'user' };
 }
 
 async function call(method: string, path: string, body?: any, h: Record<string, string> = headers(), rawBody = false): Promise<{ status: number; json: any; res: Response }> {
@@ -158,10 +158,10 @@ test('ingest → NGSI-LD export: allowlist projection, default deny, quarantine'
   }
 
   // restricted visibility requires a caller inside the datasource tenant:
-  // gateway-anonymous callers (x-synapsedx-anon marker, public route) get 401,
+  // gateway-anonymous callers (x-synapseone-anon marker, public route) get 401,
   // authenticated outsiders can't even resolve the dataset (404, no existence
   // leak), and the platform (internal ops) superuser may read it.
-  const anonLocalTenant = await call('GET', `/v1/lds/datasources/${ds.id}`, undefined, { 'content-type': 'application/json', 'x-synapsedx-anon': '1' });
+  const anonLocalTenant = await call('GET', `/v1/lds/datasources/${ds.id}`, undefined, { 'content-type': 'application/json', 'x-synapseone-anon': '1' });
   assert.equal(anonLocalTenant.status, 401);
   assert.equal(anonLocalTenant.json.error, 'auth_required');
   const outsider = await call('GET', `/v1/lds/datasources/${ds.id}`, undefined, headers('tenant-evil', 'user-9'));
@@ -172,7 +172,7 @@ test('ingest → NGSI-LD export: allowlist projection, default deny, quarantine'
   const gid = globalCreate.json.id;
   await call('PUT', `/v1/lds/datasources/${gid}/attributes`, { attributes: [{ name: 'note', visibility: 'restricted' }] }, { 'content-type': 'application/json' });
   await call('POST', `/v1/lds/datasources/${gid}/records`, { id: 'g1', note: 'restricted note' }, { 'content-type': 'application/json' });
-  const anonRestricted = await call('GET', `/v1/lds/datasources/${gid}/entities?visibility=restricted`, undefined, { 'content-type': 'application/json', 'x-synapsedx-anon': '1' });
+  const anonRestricted = await call('GET', `/v1/lds/datasources/${gid}/entities?visibility=restricted`, undefined, { 'content-type': 'application/json', 'x-synapseone-anon': '1' });
   assert.equal(anonRestricted.status, 401);
   // platform = internal ops superuser (direct internal call, no marker)
   const platformRestricted = await call('GET', `/v1/lds/datasources/${ds.id}/entities?visibility=restricted`, undefined, { 'content-type': 'application/json' });
@@ -202,8 +202,8 @@ test('ingest → NGSI-LD export: allowlist projection, default deny, quarantine'
 });
 
 test('anonymous public surface: export is public, management is 401, restricted is 401', async () => {
-  const anonH = { 'content-type': 'application/json', 'x-synapsedx-anon': '1' };
-  const anonHNoCt = { 'x-synapsedx-anon': '1' };
+  const anonH = { 'content-type': 'application/json', 'x-synapseone-anon': '1' };
+  const anonHNoCt = { 'x-synapseone-anon': '1' };
   const ds = await createDatasource({ defaultVisibility: 'public' });
   await call('PUT', `/v1/lds/datasources/${ds.id}/attributes`, {
     attributes: [{ name: 'name', visibility: 'public' }, { name: 'taxCode', visibility: 'restricted' }],
@@ -264,7 +264,7 @@ test('list is principal-scoped: query params narrow, never widen', async () => {
   assert.equal(hue.json[0].name, 'Hue DS');
   // account-scoped principals (API keys / service accounts) are bound to
   // their own account and can never create or reach another tenant's rows
-  const keyH = { 'content-type': 'application/json', 'x-synapsedx-user': 'sa-1', 'x-synapsedx-account': 'acc-9', 'x-synapsedx-kind': 'apikey' };
+  const keyH = { 'content-type': 'application/json', 'x-synapseone-user': 'sa-1', 'x-synapseone-account': 'acc-9', 'x-synapseone-kind': 'apikey' };
   const made = await call('POST', '/v1/lds/datasources', { name: 'Key DS', entityType: 'Thing', license: 'CC0-1.0' }, keyH);
   assert.equal(made.status, 201);
   assert.equal(made.json.orgId, undefined);
@@ -284,9 +284,9 @@ test('list is principal-scoped: query params narrow, never widen', async () => {
 
 test('API-key headers without a user are account-scoped, never platform (#17)', async () => {
   await call('POST', '/v1/lds/datasources', { name: 'Org DS', entityType: 'Museum', license: 'CC0-1.0' });
-  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  const keyH = { 'content-type': 'application/json', 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-9' };
 
-  // No x-synapsedx-user still means an authenticated account principal: it
+  // No x-synapseone-user still means an authenticated account principal: it
   // must not inherit the platform superuser view.
   const list = await call('GET', '/v1/lds/datasources', undefined, keyH);
   assert.deepEqual(list.json, []);

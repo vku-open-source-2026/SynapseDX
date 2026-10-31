@@ -70,7 +70,7 @@
     {
       "id": "081652b8-0472-41c6-b147-076a44d38537",
       "name": "FlowCatalog",
-      "type": "synapsedx.flow",
+      "type": "synapseone.flow",
       "typeVersion": 1,
       "position": [
         840,
@@ -97,7 +97,7 @@
     {
       "id": "d3d84269-67b0-4d7c-881f-64c807d805f2",
       "name": "PublishTimeline",
-      "type": "synapsedx.lds",
+      "type": "synapseone.lds",
       "typeVersion": 1,
       "position": [
         1100,
@@ -148,7 +148,7 @@
     {
       "id": "331a25a0-a150-4c2a-a511-51ed73dffb81",
       "name": "BillingCache",
-      "type": "synapsedx.faststore",
+      "type": "synapseone.faststore",
       "typeVersion": 1,
       "position": [
         1120,
@@ -166,7 +166,7 @@
     {
       "id": "08383c23-fa7b-431a-8ed6-0168ff824426",
       "name": "BillingRecord",
-      "type": "synapsedx.base",
+      "type": "synapseone.base",
       "typeVersion": 1,
       "position": [
         1120,
@@ -238,7 +238,7 @@
     {
       "id": "682cff32-0842-4e59-9e55-f292b0a4cfc0",
       "name": "AccountAuth",
-      "type": "synapsedx.iam",
+      "type": "synapseone.iam",
       "typeVersion": 1,
       "position": [
         1120,
@@ -256,7 +256,7 @@
     {
       "id": "625e6a48-975e-46f1-95ef-4aab66864ef4",
       "name": "AccountSnapshot",
-      "type": "synapsedx.faststore",
+      "type": "synapseone.faststore",
       "typeVersion": 1,
       "position": [
         1120,
@@ -278,7 +278,7 @@
     {
       "id": "425225ba-cf85-4d74-a27e-ef331d3c6f12",
       "name": "AccountRecord",
-      "type": "synapsedx.base",
+      "type": "synapseone.base",
       "typeVersion": 1,
       "position": [
         1120,
@@ -326,7 +326,7 @@
     {
       "id": "11825349-443d-4aee-a6a1-503bb0558c08",
       "name": "GrowthRecord",
-      "type": "synapsedx.base",
+      "type": "synapseone.base",
       "typeVersion": 1,
       "position": [
         1120,
@@ -374,7 +374,7 @@
     {
       "id": "a7676a5c-c018-495d-84dd-321da659c03e",
       "name": "Metrics",
-      "type": "synapsedx.faststore",
+      "type": "synapseone.faststore",
       "typeVersion": 1,
       "position": [
         1960,
@@ -404,7 +404,7 @@
     {
       "id": "5f0ce9be-1daf-4aba-b133-436d2f63c518",
       "name": "Escalate",
-      "type": "synapsedx.queue",
+      "type": "synapseone.queue",
       "typeVersion": 1,
       "position": [
         2240,
@@ -433,7 +433,7 @@
     {
       "id": "ee519fbc-f00e-4356-ab5b-7fb5799776f6",
       "name": "KBLookup",
-      "type": "synapsedx.base",
+      "type": "synapseone.base",
       "typeVersion": 1,
       "position": [
         840,
@@ -450,7 +450,7 @@
     {
       "id": "7ef9648d-0cfd-446c-b950-077f1a3d8ba4",
       "name": "TraceCache",
-      "type": "synapsedx.faststore",
+      "type": "synapseone.faststore",
       "typeVersion": 1,
       "position": [
         1060,
@@ -466,7 +466,7 @@
     {
       "id": "5bb06c18-504d-4ef9-87b8-ee87426fa851",
       "name": "PermissionProbe",
-      "type": "synapsedx.iam",
+      "type": "synapseone.iam",
       "typeVersion": 1,
       "position": [
         1280,
@@ -484,7 +484,7 @@
     {
       "id": "bde0d85d-ec04-4486-8fa6-704667dff31d",
       "name": "FlowProbe",
-      "type": "synapsedx.flow",
+      "type": "synapseone.flow",
       "typeVersion": 1,
       "position": [
         1500,

@@ -1,6 +1,6 @@
-# Prod overlay cho synapsedx.sbs (dung kem compose chinh):
+# Prod overlay cho synapseone.space (dung kem compose chinh):
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# Edge cong khai duy nhat: nginx :80/:443 (synapsedx.sbs, cloud.*, api.* + LE).
+# Edge cong khai duy nhat: nginx :80/:443 (synapseone.space, cloud.*, api.* + LE).
 # Moi service khac bind 127.0.0.1 qua .env (debug local), khong public.
 # Authentik/s3/postgres/redis: chi trong network noi bo.
 
@@ -68,10 +68,10 @@ services:
   nginx:
     build:
       context: ./infra/prod
-    image: synapsedx/edge:0.6.2
+    image: synapseone/edge:0.7.0
     restart: unless-stopped
     environment:
-      DOMAIN: ${DOMAIN:-synapsedx.sbs}
+      DOMAIN: ${DOMAIN:-synapseone.space}
     ports:
       - "80:80"
       - "443:443"
@@ -81,7 +81,7 @@ services:
     depends_on:
       - gateway
       - console
-    networks: [synapsedx-net]
+    networks: [synapseone-net]
 
   certbot:
     image: certbot/certbot:latest
@@ -93,7 +93,7 @@ services:
     volumes:
       - certbot-www:/var/www/certbot
       - letsencrypt:/etc/letsencrypt
-    networks: [synapsedx-net]
+    networks: [synapseone-net]
 
 volumes:
   certbot-www:

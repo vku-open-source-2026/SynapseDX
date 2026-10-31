@@ -1,8 +1,8 @@
 {
-  "name": "@synapsedx/workflow-service",
-  "version": "0.6.2",
+  "name": "@synapseone/workflow-service",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "synapsedx Workflow - local built-in engine (no external dependency)",
+  "description": "synapseone Workflow - local built-in engine (no external dependency)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

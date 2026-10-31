@@ -20,7 +20,7 @@ reads which key (audited from source):
 | `GATEWAY_VERIFY_APIKEY` | `true` | `true` → centralized `X-API-Key` verification via IAM (fail-closed 503 when IAM is down); `false` → edge presence check, upstream verifies (dev-only, forbidden in production) |
 | `PROXY_TIMEOUT_MS` | 30000 | upstream timeout (504 when exceeded) |
 | `CORS_ORIGIN` | (allow all) | `a.com,b.com` → only those origins (production) |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | gateway → service credential (`x-synapsedx-internal` header); **identical** on every service in production |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | gateway → service credential (`x-synapseone-internal` header); **identical** on every service in production |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 | ~~`RATE_LIMIT_*` / `AUTH_RATE_LIMIT_*` / `TRUST_PROXY`~~ | — | removed from gateway (rate limiting lives at Ingress/WAF); restore by reverting the removal commit |
 | `REDIS_URL` | — (memory) | `redis://...` → Redis-backed rate limiting (shared across replicas, fail-open when Redis is down) |
@@ -39,7 +39,7 @@ reads which key (audited from source):
 | `AUDIT_RETENTION_DAYS` | `0` (disabled) | hourly purge of `audit_log` rows older than N days (batched, clamped 1–3650); prod e.g. `180` |
 | `IAM_ALLOW_DEV_LOGIN` | `true` | `false` disables `POST /v1/auth/login` in production (SSO + API keys only) |
 | `IAM_ALLOW_OIDC_DEMO_CALLBACK` | `true` | demo callback trusts the caller-supplied email (impersonation possible) — production **must** be `false` (then a real IdP `code` is required) |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` (except `/v1/auth/*`) — blocks direct `:4001` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` (except `/v1/auth/*`) — blocks direct `:4001` bypass |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 | `OIDC_PROVIDER` | `authentik` | IdP display name (`authentik`\|`keycloak`) |
 | `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI` | see `.env.example` | federated OIDC (Authentik/Keycloak). For SPA login, point `OIDC_REDIRECT_URI` at the Console's `/oidc/callback` page (e.g. `https://cloud.example.com/oidc/callback`) |
@@ -50,13 +50,13 @@ reads which key (audited from source):
 | Key | Default | Meaning |
 |---|---|---|
 | `PORT` | 4002 | listen port |
-| `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`synapsedx_workflows` + `synapsedx_executions`); required in production |
+| `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`synapseone_workflows` + `synapseone_executions`); required in production |
 | `WORKFLOW_CRON_TICK_MS` | 15000 | cron scheduler tick (ms, clamped ≥10000) |
 | `WORKFLOW_TIMEOUT_MS` | 60000 | hard execution budget for workflows without `settings.timeoutMs` (clamped 1000–300000). AI templates set 300000 |
 | `INFERENCE_TIMEOUT_MS` | 120000 | per-call budget for workflow → inference LLM requests (clamped 1000–300000) |
-| `IAM_SERVICE_URL` | `http://iam:4001` | internal base URL for `synapsedx.api` IAM nodes (users/roles/policies/audit/keys) |
-| `SYNAPSEDX_IAM_API_KEY` | — | service API key sent as `X-API-Key` on `synapsedx.api` IAM calls; IAM requires a real caller credential even with the internal secret. Create it on the workflow service account (`POST /v1/accounts/:accountId/keys`, scope `*`). Unset → IAM nodes fail with a clear configuration error |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4002` bypass (`/webhook/*` stays public) |
+| `IAM_SERVICE_URL` | `http://iam:4001` | internal base URL for `synapseone.api` IAM nodes (users/roles/policies/audit/keys) |
+| `SYNAPSEONE_IAM_API_KEY` | — | service API key sent as `X-API-Key` on `synapseone.api` IAM calls; IAM requires a real caller credential even with the internal secret. Create it on the workflow service account (`POST /v1/accounts/:accountId/keys`, scope `*`). Unset → IAM nodes fail with a clear configuration error |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4002` bypass (`/webhook/*` stays public) |
 | `HSTS_ENABLED` | `false` | `true` → send `Strict-Transport-Security` (only behind TLS) |
 
 ## AI agent (`apps/ai-service`)
@@ -71,7 +71,7 @@ reads which key (audited from source):
 | `AI_RETRIES` | 2 | extra attempts on empty/invalid/5xx LLM replies (clamped 0–3; 4xx fail fast) |
 | `AI_LLM_FALLBACK_MODEL` | decision model | different-provider fallback for generate/guide after the primary exhausts retries; empty disables |
 | `AI_RATE_LIMIT` | 30 | agent calls per principal per minute (clamped 1–1000; LLM calls cost money) |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4003` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4003` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 
 ## Linked data — SynapseLDS (`apps/lds-service`)
@@ -80,7 +80,7 @@ reads which key (audited from source):
 |---|---|---|
 | `PORT` | 4004 | listen port (gateway route `/v1/lds`, auth `either`) |
 | `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend (`lds_datasources` + `lds_attributes` + `lds_records`); required in production |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4004` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4004` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 
 Records are stored as `{_core, entity, attributes}`; the NGSI-LD projector only reads
@@ -97,7 +97,7 @@ attributes default-deny; visibility is resolved at read time from the registry
 | `DATABASE_URL` | — (memory) | `postgres://...` → Postgres backend; **required in production** (otherwise a per-process in-memory store) |
 | `BASE_MAX_DOCUMENT_BYTES` | 262144 | max serialized document size, clamped 1024..4194304 |
 | `BASE_QUERY_SCAN_LIMIT` | 10000 | max documents scanned per query, clamped 100..100000; larger collections return `413 collection_too_large` |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4005` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4005` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 | `BASE_SERVICE_HOST_PORT` | `127.0.0.1:4005` | compose host binding |
 
@@ -107,7 +107,7 @@ attributes default-deny; visibility is resolved at read time from the registry
 |---|---|---|
 | `PORT` | 4006 | listen port (gateway route `/v1/faststore`, auth `either`) |
 | `FASTSTORE_REDIS_URL` | falls back to `REDIS_URL` | `redis://...` → Redis backend; **required in production** |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4006` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4006` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 | `FASTSTORE_SERVICE_HOST_PORT` | `127.0.0.1:4006` | compose host binding |
 
@@ -118,20 +118,20 @@ attributes default-deny; visibility is resolved at read time from the registry
 | `PORT` | 4007 | listen port (gateway route `/v1/queue`, auth `either`) |
 | `QUEUE_REDIS_URL` | falls back to `REDIS_URL` | `redis://...` → Redis backend; **required in production** (an in-memory queue would split-brain across replicas) |
 | `QUEUE_MAX_PAYLOAD_BYTES` | 262144 | max serialized message payload, clamped 1024..1048576 |
-| `SYNAPSEDX_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapsedx-internal` header on every `/v1/*` — blocks direct `:4007` bypass |
+| `SYNAPSEONE_INTERNAL_SECRET` | — (dev) | requires a matching `x-synapseone-internal` header on every `/v1/*` — blocks direct `:4007` bypass |
 | `HSTS_ENABLED` / `CORS_ORIGIN` | `false` / — | same semantics as the other services |
 | `QUEUE_SERVICE_HOST_PORT` | `127.0.0.1:4007` | compose host binding |
 
 The three data services share the platform tenancy model: principal callers are
 scoped to their org/account/user; platform callers must select a tenant with
-`x-synapsedx-tenant` (Faststore/Queue) or `?orgId`/`?accountId` (Base). The gateway
-forwards `x-synapsedx-tenant` and strips the other client-supplied identity headers.
+`x-synapseone-tenant` (Faststore/Queue) or `?orgId`/`?accountId` (Base). The gateway
+forwards `x-synapseone-tenant` and strips the other client-supplied identity headers.
 
 ## Console (`apps/console`, runtime via `config.js`)
 
 | Key | Default | Meaning |
 |---|---|---|
-| `SYNAPSEDX_PUBLIC_BASE_URL` | `http://localhost:8080` | gateway URL the **browser** calls (must be browser-reachable, not a docker hostname) |
+| `SYNAPSEONE_PUBLIC_BASE_URL` | `http://localhost:8080` | gateway URL the **browser** calls (must be browser-reachable, not a docker hostname) |
 | `CONSOLE_APP_URL` | `http://localhost:3000` | canonical app host; the landing domain redirects sign-in here in multi-domain deploys |
 
 ## Core data / external engines

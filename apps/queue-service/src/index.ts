@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseQueue — tenant-scoped message queue with delayed and deduplicated
  * publishing, visibility-timeout consumption, receipts, ack/nack/heartbeat,
@@ -7,8 +7,9 @@
  *
  * Redis is the production backend; an in-memory fallback keeps local
  * development and tests dependency-free. Auth matches the platform:
- * gateway-stamped x-synapsedx-* headers plus SYNAPSEDX_INTERNAL_SECRET.
+ * gateway-stamped x-synapseone-* headers plus SYNAPSEONE_INTERNAL_SECRET.
  */
+import './env-compat';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -56,23 +57,25 @@ export interface Caller {
 
 export function principalFromHeaders(req: express.Request): Principal | null {
   const h = (n: string): string => {
-    const v = req.headers[n];
+    // Accept the legacy x-synapsedx-* prefix during the rebrand window.
+    const legacy = n.startsWith('x-synapseone-') ? n.replace('x-synapseone-', 'x-synapsedx-') : n;
+    const v = req.headers[n] ?? req.headers[legacy];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
-  const user = h('x-synapsedx-user');
+  const user = h('x-synapseone-user');
   if (user) {
     if (user.length > 128) return null;
-    return { sub: user, org: clean(h('x-synapsedx-org')), account: clean(h('x-synapsedx-account')), kind: clean(h('x-synapsedx-kind')) };
+    return { sub: user, org: clean(h('x-synapseone-org')), account: clean(h('x-synapseone-account')), kind: clean(h('x-synapseone-kind')) };
   }
   // API keys are machine identities: the gateway stamps kind=apikey + account
   // but no user (keys carry no user claim). Without this fallback they would
   // look unauthenticated and fall through to `platform` — a cross-tenant
   // superuser. Any tenant marker means "authenticated principal", never
   // internal/platform; synthesize a non-user subject so scoping applies.
-  const kind = clean(h('x-synapsedx-kind'));
-  const account = clean(h('x-synapsedx-account'));
-  const org = clean(h('x-synapsedx-org'));
+  const kind = clean(h('x-synapseone-kind'));
+  const account = clean(h('x-synapseone-account'));
+  const org = clean(h('x-synapseone-org'));
   if (kind || account || org) {
     return { sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`, org, account, kind: kind || 'apikey' };
   }
@@ -82,7 +85,7 @@ export function principalFromHeaders(req: express.Request): Principal | null {
 export function resolveCaller(req: express.Request): Caller {
   const p = principalFromHeaders(req);
   if (p) return { kind: 'principal', principal: p };
-  const raw = req.headers['x-synapsedx-anon'];
+  const raw = (req.headers['x-synapseone-anon'] ?? req.headers['x-synapsedx-anon']);
   const anon = (Array.isArray(raw) ? raw[0] : raw) === '1';
   return anon ? { kind: 'anon', principal: null } : { kind: 'platform', principal: null };
 }
@@ -113,7 +116,7 @@ function tenantFor(req: express.Request): string | null {
     return `user:${p.sub}`;
   }
   if (caller.kind === 'platform') {
-    const header = req.headers['x-synapsedx-tenant'];
+    const header = (req.headers['x-synapseone-tenant'] ?? req.headers['x-synapsedx-tenant']);
     const raw = Array.isArray(header) ? header[0] : header;
     const t = cleanTenant(raw || req.query.tenant);
     return t ? `tenant:${t}` : null;
@@ -129,7 +132,7 @@ function requireTenant(req: express.Request, res: express.Response): string | nu
   }
   const tenant = tenantFor(req);
   if (!tenant) {
-    res.status(400).json({ error: 'tenant_required', message: 'platform callers must pass x-synapsedx-tenant or ?tenant=' });
+    res.status(400).json({ error: 'tenant_required', message: 'platform callers must pass x-synapseone-tenant or ?tenant=' });
     return null;
   }
   return tenant;
@@ -285,8 +288,8 @@ function toApiError(e: any): { status: number; body: any } {
 
 export function createApp(): express.Express {
   if (IS_PROD) {
-    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      throw new Error('[queue] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+    if (!process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      throw new Error('[queue] SYNAPSEONE_INTERNAL_SECRET must be set in production');
     }
     if (!process.env.QUEUE_REDIS_URL && !process.env.REDIS_URL) {
       throw new Error('[queue] QUEUE_REDIS_URL/REDIS_URL must be set in production (in-memory fallback would split-brain)');
@@ -343,33 +346,33 @@ export function createApp(): express.Express {
   }) as any);
   app.get('/metrics', (_req, res) => {
     const lines = [
-      '# HELP synapsedx_queue_up SynapseQueue service up.',
-      '# TYPE synapsedx_queue_up gauge',
-      'synapsedx_queue_up 1',
-      '# HELP synapsedx_queue_backend_info Active backend (1 = active).',
-      '# TYPE synapsedx_queue_backend_info gauge',
-      `synapsedx_queue_backend_info{backend="${useRedis() ? 'redis' : 'memory'}"} 1`,
-      '# HELP synapsedx_queue_process_uptime_seconds Process uptime in seconds.',
-      '# TYPE synapsedx_queue_process_uptime_seconds gauge',
-      `synapsedx_queue_process_uptime_seconds ${Math.floor(process.uptime())}`,
-      '# HELP synapsedx_queue_http_requests_total HTTP requests by key = method|route|status.',
-      '# TYPE synapsedx_queue_http_requests_total counter',
-      ...[...METRIC_REQUESTS.entries()].map(([k, v]) => `synapsedx_queue_http_requests_total{key="${k}"} ${v}`),
+      '# HELP synapseone_queue_up SynapseQueue service up.',
+      '# TYPE synapseone_queue_up gauge',
+      'synapseone_queue_up 1',
+      '# HELP synapseone_queue_backend_info Active backend (1 = active).',
+      '# TYPE synapseone_queue_backend_info gauge',
+      `synapseone_queue_backend_info{backend="${useRedis() ? 'redis' : 'memory'}"} 1`,
+      '# HELP synapseone_queue_process_uptime_seconds Process uptime in seconds.',
+      '# TYPE synapseone_queue_process_uptime_seconds gauge',
+      `synapseone_queue_process_uptime_seconds ${Math.floor(process.uptime())}`,
+      '# HELP synapseone_queue_http_requests_total HTTP requests by key = method|route|status.',
+      '# TYPE synapseone_queue_http_requests_total counter',
+      ...[...METRIC_REQUESTS.entries()].map(([k, v]) => `synapseone_queue_http_requests_total{key="${k}"} ${v}`),
     ];
     res.type('text/plain').send(`${lines.join('\n')}\n`);
   });
 
   // Internal secret gate: every /v1/* call must carry it when configured.
-  const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   if (!INTERNAL_SECRET) {
-    console.warn('[queue][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default).');
+    console.warn('[queue][security] SYNAPSEONE_INTERNAL_SECRET not set — service-to-service auth disabled (dev default).');
   }
   app.use('/v1/' as any, ((req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!INTERNAL_SECRET) {
       if (IS_PROD) return res.status(500).json({ error: 'misconfigured', message: 'internal secret required in production' });
       return next();
     }
-    const raw = req.headers['x-synapsedx-internal'] as string | string[] | undefined;
+    const raw = (req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as string | string[] | undefined;
     const got = Array.isArray(raw) ? (raw[0] || '') : (raw || '');
     const a = Buffer.from(got);
     const b = Buffer.from(INTERNAL_SECRET);

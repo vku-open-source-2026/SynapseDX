@@ -17,7 +17,7 @@
 1. Change every `*_change_me_*` secret in `.env` (JWT, postgres, authentik, OIDC).
 2. `IAM_JWT_SECRET`: random value ≥32 chars. Gateway and IAM **must share the same value**.
    The services refuse to boot in `NODE_ENV=production` with a default/weak secret.
-3. `SYNAPSEDX_INTERNAL_SECRET`: random 32+ chars, **same value** on gateway + iam + workflow.
+3. `SYNAPSEONE_INTERNAL_SECRET`: random 32+ chars, **same value** on gateway + iam + workflow.
    With it set, IAM/workflow reject any traffic that did not come through the gateway
    (direct `:4001`/`:4002` access without the header → 401). Also stop publishing
    `IAM_HOST_PORT`/`WORKFLOW_HOST_PORT` to the host / internet — bind them to
@@ -44,10 +44,10 @@
 ## Auth model (defense in depth)
 - Gateway is the only public entrypoint: JWT (`Authorization: Bearer`) and/or
   `X-API-Key` on every route except `/v1/auth/*`, `/health`, `/ready`, `/metrics`.
-- Gateway strips all client-sent `x-synapsedx-*` headers and re-emits them from the
+- Gateway strips all client-sent `x-synapseone-*` headers and re-emits them from the
   verified principal (spoof-proof propagation to upstreams).
-- IAM and workflow additionally require `x-synapsedx-internal` (shared secret) on
-  `/v1/*` when `SYNAPSEDX_INTERNAL_SECRET` is set — direct-to-service bypass is
+- IAM and workflow additionally require `x-synapseone-internal` (shared secret) on
+  `/v1/*` when `SYNAPSEONE_INTERNAL_SECRET` is set — direct-to-service bypass is
   closed. Without the secret (dev), IAM falls back to verifying the caller's own
   Bearer/API key on every route.
 - Refresh rotation is atomic (`consume+revoke` in one step): parallel replay of the

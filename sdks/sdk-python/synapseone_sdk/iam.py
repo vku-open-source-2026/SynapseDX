@@ -1,10 +1,10 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Synapse IAM service client: auth, orgs, accounts, users, roles, policies,
 API keys, credentials and service accounts.
 
-Access it through ``SynapseDXClient(...).iam`` or build it directly with a
-:class:`~synapsedx_sdk._http.HttpClient`.
+Access it through ``SynapseOneClient(...).iam`` or build it directly with a
+:class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * license-check — zero-dependency copyleft gate + SBOM for npm workspaces.
  * Walks every workspace's node_modules (npm-hoisted aware), reads each

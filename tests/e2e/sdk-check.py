@@ -1,12 +1,12 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 import os
 import time
 
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-base = os.environ.get("SYNAPSEDX_BASE_URL", "http://127.0.0.1:18128")
-c = SynapseDXClient(base)
+base = os.environ.get("SYNAPSEONE_BASE_URL", "http://127.0.0.1:18128")
+c = SynapseOneClient(base)
 login = c.login("pyfull@acme.local")
 r = c.refresh(login["refreshToken"])
 print("PY_REFRESH", bool(r["accessToken"]))

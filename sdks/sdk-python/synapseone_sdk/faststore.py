@@ -1,14 +1,14 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Synapse Faststore client: Redis-backed cache/KV with strings, hashes,
 lists, sets, sorted sets, TTLs, counters, scans, batches and distributed locks.
 
 Every operation is scoped to the caller's tenant: org-wide when the caller has
 an org, else account-wide, else per user. Platform callers must set the tenant
-explicitly (``SynapseDXClient(..., tenant="acme")`` -> ``x-synapsedx-tenant``).
+explicitly (``SynapseOneClient(..., tenant="acme")`` -> ``x-synapseone-tenant``).
 
-Access the service through ``SynapseDXClient(...).faststore`` or build it
-directly with a :class:`~synapsedx_sdk._http.HttpClient`.
+Access the service through ``SynapseOneClient(...).faststore`` or build it
+directly with a :class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import quote, urlencode
 
-from ._http import HttpClient, SynapseDXError
+from ._http import HttpClient, SynapseOneError
 
 _P = "/v1/faststore"
 
@@ -65,7 +65,7 @@ class FaststoreService:
         try:
             self.get(key)
             return True
-        except SynapseDXError as e:
+        except SynapseOneError as e:
             if e.status == 404:
                 return False
             raise

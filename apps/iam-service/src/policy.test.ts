@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Unit tests for AWS-style policy evaluation (pure, no DB).
  */
@@ -23,9 +23,9 @@ describe('matchPattern', () => {
     assert.equal(matchPattern('iam:Create', 'iam:Delete'), false);
   });
   it('arn-style resources', () => {
-    const doc = { Version: '1', Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: 'arn:synapsedx:acme:prod:workflow:*' }] };
-    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:synapsedx:acme:prod:workflow:etl' }).allowed, true);
-    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:synapsedx:acme:staging:workflow:etl' }).allowed, false);
+    const doc = { Version: '1', Statement: [{ Effect: 'Allow' as const, Action: 'workflow:Execute', Resource: 'arn:synapseone:acme:prod:workflow:*' }] };
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:synapseone:acme:prod:workflow:etl' }).allowed, true);
+    assert.equal(evaluatePolicies([doc], { action: 'workflow:Execute', resource: 'arn:synapseone:acme:staging:workflow:etl' }).allowed, false);
   });
 });
 
@@ -40,10 +40,10 @@ describe('evaluatePolicies', () => {
   it('explicit deny beats allow', () => {
     const r = evaluatePolicies([workflowRunnerPolicy('prod')], { action: 'iam:Delete', resource: '*' });
     assert.equal(r.allowed, false);
-    const r2 = evaluatePolicies([workflowRunnerPolicy('prod')], { action: 'workflow:Execute', resource: 'arn:synapsedx:acme:prod:workflow:etl' });
+    const r2 = evaluatePolicies([workflowRunnerPolicy('prod')], { action: 'workflow:Execute', resource: 'arn:synapseone:acme:prod:workflow:etl' });
     assert.equal(r2.allowed, true);
     // Cross-account scope: prod policy must not match staging resources.
-    const r3 = evaluatePolicies([workflowRunnerPolicy('prod')], { action: 'workflow:Execute', resource: 'arn:synapsedx:acme:staging:workflow:etl' });
+    const r3 = evaluatePolicies([workflowRunnerPolicy('prod')], { action: 'workflow:Execute', resource: 'arn:synapseone:acme:staging:workflow:etl' });
     assert.equal(r3.allowed, false);
   });
   it('deny in one doc overrides allow in another', () => {

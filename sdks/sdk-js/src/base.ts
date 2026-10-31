@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseBase client: collections, documents, queries, batch writes, atomic
  * counters, the change feed and typed object<->data mapping.

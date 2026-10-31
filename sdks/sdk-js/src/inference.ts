@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Synapse Inference Engine client: OpenRouter LLM proxy, self-hosted lightweight
  * embeddings, and self-hosted Decision-2.0-Eos-0.8B structured routing.

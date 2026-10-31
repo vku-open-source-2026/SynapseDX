@@ -4,7 +4,7 @@ Base: `http://localhost:8080` (gateway) — every `/v1/*` route needs
 `Authorization: Bearer <JWT>` or `X-API-Key`, except `/v1/auth/*` and the public
 LDS export routes.
 Calling any service **directly** (bypassing the gateway) additionally requires
-`x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` once the secret is configured
+`x-synapseone-internal: <SYNAPSEONE_INTERNAL_SECRET>` once the secret is configured
 (production), otherwise 401 — see `SECURITY.md`.
 
 Service ports: IAM **4001**, workflow **4002**, AI **4003**, LDS **4004**,
@@ -12,15 +12,15 @@ Base **4005**, Faststore **4006**, Queue **4007**, gateway **8080**.
 
 ## Principal propagation (gateway → upstream)
 
-The gateway **strips** every client-sent `x-synapsedx-*` header (anti-spoofing), then
-**re-stamps** them from the verified principal: `x-synapsedx-kind: user|apikey`,
-`x-synapsedx-user: <sub>`, `x-synapsedx-org`, `x-synapsedx-account`,
-`x-synapsedx-scopes`, plus `x-synapsedx-internal` (service-to-service credential when
+The gateway **strips** every client-sent `x-synapseone-*` header (anti-spoofing), then
+**re-stamps** them from the verified principal: `x-synapseone-kind: user|apikey`,
+`x-synapseone-user: <sub>`, `x-synapseone-org`, `x-synapseone-account`,
+`x-synapseone-scopes`, plus `x-synapseone-internal` (service-to-service credential when
 configured). Upstreams trust these directly without re-verifying the JWT.
 
 One header is intentionally forwarded rather than stripped:
-`x-synapsedx-tenant`. Principal callers are always scoped to their own
-org/account/user; **platform** callers (no principal) use `x-synapsedx-tenant`
+`x-synapseone-tenant`. Principal callers are always scoped to their own
+org/account/user; **platform** callers (no principal) use `x-synapseone-tenant`
 (or `?tenant=` for Faststore/Queue, `?orgId=`/`?accountId=` for Base) to select a
 tenant. Platform calls without a tenant fail with `400 tenant_required`.
 
@@ -133,7 +133,7 @@ only (`{id, name, type, accountId, expiresAt, version}`). `type` is one of
 - `POST /v1/workflows/:id/execute {input}` (manual run — works for ANY trigger type, active or not; the body IS the input; returns `{ok, output, executionId, status}`; `500 {ok:false, error}` when a node fails; records the caller principal + `actor: "workflow:<id> principal:<sub>"`)
 - `POST /v1/workflows/test-run {definition, input, workflowId?}` (try a definition without saving; validates + executes in the sandbox; persisted as a `triggered_by=test` execution — pass `workflowId` to attach it to that workflow's history; returns `{ok, output, nodeRuns, executionId}`)
 - `GET /v1/executions` (`limit,offset,workflowId,status,triggeredBy,includeData`; `limit/offset` 0..9999, `offset=0` = first page; `triggeredBy` is `manual|webhook|cron|test`; secret-looking keys in payloads are masked to `***`; always returns the envelope `{data: [...]}` — SDKs/Console/CLI unwrap `.data` and also accept a bare array) / `GET /v1/executions/:id` (`?includeData=true` for per-node input/output; also carries `principal` + `actor`)
-- `GET/POST/DELETE /v1/credentials[?accountId=]` (account-scoped secrets, AES-256-GCM at rest via `SYNAPSEDX_CREDENTIAL_KEY`; list/create return metadata only, never secrets; duplicate names per account are `409`)
+- `GET/POST/DELETE /v1/credentials[?accountId=]` (account-scoped secrets, AES-256-GCM at rest via `SYNAPSEONE_CREDENTIAL_KEY`; list/create return metadata only, never secrets; duplicate names per account are `409`)
 - Public inbound webhooks: `ANY /webhook/:path` triggers the ACTIVE workflow whose webhook node declares that `path` (also proxied at the gateway as `/webhook`, auth none — per-workflow auth below still applies):
   ```bash
   curl -X POST http://localhost:4002/webhook/transform \
@@ -156,17 +156,17 @@ only (`{id, name, type, accountId, expiresAt, version}`). `type` is one of
   `issues`, `pull_request` all land as the run input. Replying back (comment,
   dispatch) is a plain `httpRequest` to `https://api.github.com/...` with a PAT
   stored as a `bearer` credential (never in the URL).
-- `GET /metrics` (Prometheus: `synapsedx_workflow_runs_total{triggered_by,status}`,
-  `synapsedx_workflow_webhook_rejected_total{reason}`)
+- `GET /metrics` (Prometheus: `synapseone_workflow_runs_total{triggered_by,status}`,
+  `synapseone_workflow_webhook_rejected_total{reason}`)
 
-Calling SynapseDX from a workflow: the SSRF guard blocks first-party hosts by
-default. Operators who need it set `SYNAPSEDX_SELF_BASE_URLS` (comma-separated
+Calling SynapseOne from a workflow: the SSRF guard blocks first-party hosts by
+default. Operators who need it set `SYNAPSEONE_SELF_BASE_URLS` (comma-separated
 exact origins, e.g. `"http://gateway:8080,http://iam:4001"`). Calls to those
-origins bypass the block AND forward the run principal as `x-synapsedx-*`
+origins bypass the block AND forward the run principal as `x-synapseone-*`
 headers so downstream services can authorize. Redirects are followed manually
 with every hop re-checked (max 5).
 
-Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). `synapsedx.api` (first-party SynapseDX block: `parameters.resource/operation/input` — resources `orgs/users/roles/policies/authorize/audit/keys/service-accounts/workflows/executions/templates/lds`; runs as your login, values support `={{ $json.x }}`; `lds` = `list-datasources` | `publish-record`). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
+Node types: `webhook` (trigger, `parameters.path/httpMethod`), `cron` (trigger, `rule.interval` or `cronExpression`), `manualTrigger`, `httpRequest` (`url/method/headers/body`, SSRF-blocked, 15s timeout), `code` (sandboxed JS, `parameters.code`, 5s timeout, `$input/$json/input/$now` + `console` capture), `set` (`values/assignments`, supports `={{ $json.x }}` templating), `if` (`condition` JS or `value1/operation/value2` or n8n `conditions[]`; `main[0]`=true, `main[1]`=false), `noOp` (passthrough). `synapseone.api` (first-party SynapseOne block: `parameters.resource/operation/input` — resources `orgs/users/roles/policies/authorize/audit/keys/service-accounts/workflows/executions/templates/lds`; runs as your login, values support `={{ $json.x }}`; `lds` = `list-datasources` | `publish-record`). Unknown types pass data through but are recorded as `skipped` (visible in `nodeRuns`), not silent success.
 
 | Node | Key `parameters` | Notes |
 | --- | --- | --- |
@@ -252,12 +252,12 @@ curl -s http://localhost:8080/v1/lds/datasources/$DS/entities
 curl -s http://localhost:8080/v1/lds/datasources/$DS/entities   # 200 public slice
 ```
 
-From workflows: the `synapsedx.api` node gains resource `lds` with operations
+From workflows: the `synapseone.api` node gains resource `lds` with operations
 `list-datasources` (no args) and `publish-record` (`datasourceId` required —
 validated at save time, `record` object — `={{ $json }}` passes the whole
 payload). Template `webhook-to-lds`: webhook → publish → done (webhook/cron
 runs act as the workflow's tenant principal, so tenant-bound datasources stay
-publishable). See `docs/specs/synapsedx-lds.md`.
+publishable). See `docs/specs/synapseone-lds.md`.
 
 ## Base — documents with object ↔ data mapping (`base-service:4005`, gateway `/v1/base`)
 
@@ -374,7 +374,7 @@ Distributed locks:
 
 TTL: 1..2,592,000 seconds; `0` clears it. Read responses use `ttlSeconds: null`
 when a key has no expiry. Platform callers select a tenant with
-`x-synapsedx-tenant` (SDK `tenant` option) or `?tenant=`; principal callers are
+`x-synapseone-tenant` (SDK `tenant` option) or `?tenant=`; principal callers are
 always scoped to their own org/account/user.
 
 ## Queue — messaging (`queue-service:4007`, gateway `/v1/queue`)
@@ -454,7 +454,7 @@ from telemetry.
   → `{total, limit, offset, items:[{id,createdAt,requestId,feature,route,method,path,status,durationMs,authKind,orgId,accountId,userId,userEmail,error}]}`
   (newest first) — the drill-down source for the console request log.
 - `POST /v1/usage/ingest {events:[…]}` → `202 {ok, accepted}` — service-to-service
-  only (`X-SynapseDX-Internal`); requires `SYNAPSEDX_INTERNAL_SECRET` in prod.
+  only (`X-SynapseOne-Internal`); requires `SYNAPSEONE_INTERNAL_SECRET` in prod.
 - Filters: `feature` (`iam|workflows|ai|lds|base|faststore|queue|auth|…`),
   `statusClass` (`2xx|3xx|4xx|5xx`), `method`, `q` (matches path / request id),
   `accountId` (optional — omit for org-wide telemetry; login JWTs carry only an
@@ -470,7 +470,7 @@ from telemetry.
 - `GET /ready` (gateway: aggregates iam, workflow, ai, lds, base, faststore and
   queue; 503 when any upstream is degraded)
 - `GET /metrics` (gateway, Prometheus); each service also exposes `/metrics` with
-  its own `synapsedx_<service>_*` metrics
+  its own `synapseone_<service>_*` metrics
 
 ## Tracing
 

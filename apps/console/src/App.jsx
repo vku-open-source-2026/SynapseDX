@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { Suspense, useState } from 'react';
@@ -68,7 +68,7 @@ function PublicLayout({ children }) {
 function ConsoleLayout({ children }) {
   const [servicesOpen, setServicesOpen] = useState(() => {
     try {
-      const saved = localStorage.getItem('synapsedx.console.services_open');
+      const saved = localStorage.getItem('synapseone.console.services_open');
       if (saved !== null) return saved === 'true';
       return typeof window !== 'undefined' ? window.innerWidth >= 1440 : true;
     } catch {
@@ -80,7 +80,7 @@ function ConsoleLayout({ children }) {
     setServicesOpen((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem('synapsedx.console.services_open', String(next));
+        localStorage.setItem('synapseone.console.services_open', String(next));
       } catch {
         /* ignore */
       }

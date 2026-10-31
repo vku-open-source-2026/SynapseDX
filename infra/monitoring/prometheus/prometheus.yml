@@ -1,4 +1,4 @@
-# SynapseDX Prometheus — scrape gateway (/metrics) + infra exporters.
+# SynapseOne Prometheus — scrape gateway (/metrics) + infra exporters.
 # Reload: docker compose up -d prometheus (config mounted read-only).
 global:
   scrape_interval: 15s

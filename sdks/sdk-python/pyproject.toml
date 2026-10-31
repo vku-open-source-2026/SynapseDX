@@ -3,13 +3,29 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "synapsedx-sdk"
-version = "0.6.2"
-description = "synapsedx SDK for Python (Apache-2.0)"
+name = "synapseone-sdk"
+version = "0.7.0"
+description = "synapseone SDK for Python (Apache-2.0)"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
 dependencies = ["requests>=2.28"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://synapseone.space"
+Repository = "https://github.com/vku-open-source-2026/SynapseOne"
+Issues = "https://github.com/vku-open-source-2026/SynapseOne/issues"
 
 [project.optional-dependencies]
 # Pin ruff so future default-rule changes cannot break CI unexpectedly.
@@ -25,4 +41,4 @@ select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["synapsedx_sdk*"]
+include = ["synapseone_sdk*", "synapsedx_sdk*"]

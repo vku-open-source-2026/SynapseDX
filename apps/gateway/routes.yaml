@@ -1,4 +1,4 @@
-# SynapseDX Gateway routing table.
+# SynapseOne Gateway routing table.
 # path prefix -> upstream. Auth mode: none|jwt|apikey|either
 routes:
   - path: /v1/auth
@@ -92,7 +92,7 @@ routes:
   # SynapseLDS — linked data service (NGSI-LD datasources + licensed exports).
   # SynapseLDS public (anonymous) read surface — spec: public = "anyone reaching
   # the API". LDS enforces GET/HEAD-only + public-only projection for anonymous
-  # callers (gateway-stamped x-synapsedx-anon marker; management routes stay
+  # callers (gateway-stamped x-synapseone-anon marker; management routes stay
   # authenticated via the /v1/lds rule below).
   - path: /v1/lds/licenses
     target: ${LDS_SERVICE_URL:http://lds:4004}

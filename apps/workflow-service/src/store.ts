@@ -1,17 +1,18 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Local workflow persistence — Drizzle ORM on Postgres with in-memory
  * fallback for dev/test. Tables/indexes live in ./schema.ts and are applied by
  * versioned Drizzle migrations.
  */
+import './env-compat';
 import path from 'path';
 import { Pool } from 'pg';
 import { randomUUID } from 'crypto';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { isWebhookType, isCronType } from './engine';
+import { isWebhookType, isCronType, normalizeNodeType } from './engine';
 import { credentials, executions, workflows } from './schema';
 
 /** Caller principal stamped by the gateway (P0-2). Anonymous when called
@@ -109,14 +110,14 @@ export async function ensureTables(): Promise<void> {
       // Hold the advisory lock on the same dedicated session that runs the
       // migration (pool connections are not guaranteed to be reused).
       const migrationDb = drizzle(client, { schema: { credentials, executions, workflows } });
-      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_workflow_migrations'))`);
+      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapseone_workflow_migrations'))`);
       try {
         await migrate(migrationDb, {
           migrationsFolder: path.join(__dirname, '..', 'drizzle'),
           migrationsTable: '__drizzle_migrations_workflow',
         });
       } finally {
-        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapsedx_workflow_migrations'))`).catch(() => undefined);
+        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapseone_workflow_migrations'))`).catch(() => undefined);
       }
     } finally {
       client.release();
@@ -138,7 +139,12 @@ function rowToWorkflow(r: typeof workflows.$inferSelect): StoredWorkflow {
   return {
     id: String(r.id),
     name: String(r.name || ''),
-    nodes: Array.isArray(r.nodes) ? r.nodes : [],
+    nodes: Array.isArray(r.nodes)
+      ? r.nodes.map((n: any) => {
+          const type = normalizeNodeType(n?.type);
+          return type === n?.type ? n : { ...n, type };
+        })
+      : [],
     connections: r.connections && typeof r.connections === 'object' ? r.connections : {},
     settings: r.settings && typeof r.settings === 'object' ? r.settings : {},
     active: !!r.active,
@@ -451,16 +457,16 @@ const memCredentials = new Map<string, StoredCredential>();
 function credKey(): Buffer {
   // Production requires an explicit 32-byte hex key; dev falls back to an
   // ephemeral key (secrets don't survive restart — fail-safe, never plaintext).
-  const raw = (process.env.SYNAPSEDX_CREDENTIAL_KEY || '').trim();
+  const raw = (process.env.SYNAPSEONE_CREDENTIAL_KEY || '').trim();
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex');
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('[workflow] SYNAPSEDX_CREDENTIAL_KEY must be a 32-byte hex string in production');
+    throw new Error('[workflow] SYNAPSEONE_CREDENTIAL_KEY must be a 32-byte hex string in production');
   }
-  if (!(globalThis as any).__synapsedxCredKey) {
-    console.warn('[workflow][security] SYNAPSEDX_CREDENTIAL_KEY not set — using an ephemeral dev key (credentials reset on restart).');
-    (globalThis as any).__synapsedxCredKey = require('crypto').randomBytes(32);
+  if (!(globalThis as any).__synapseoneCredKey) {
+    console.warn('[workflow][security] SYNAPSEONE_CREDENTIAL_KEY not set — using an ephemeral dev key (credentials reset on restart).');
+    (globalThis as any).__synapseoneCredKey = require('crypto').randomBytes(32);
   }
-  return (globalThis as any).__synapsedxCredKey;
+  return (globalThis as any).__synapseoneCredKey;
 }
 
 /** Encrypt a secret envelope (AES-256-GCM). Returns opaque base64 JSON. */

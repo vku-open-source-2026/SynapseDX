@@ -1,11 +1,11 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // Synapse Faststore: Redis-backed cache/KV with strings, hashes, lists, sets,
 // sorted sets, TTLs, counters, scans, batches and distributed locks.
 //
 // Every operation is scoped to the caller's tenant (org / account / user).
-// Platform callers set Client.Tenant (x-synapsedx-tenant).
-package synapsedx
+// Platform callers set Client.Tenant (x-synapseone-tenant).
+package synapseone
 
 import (
 	"net/url"

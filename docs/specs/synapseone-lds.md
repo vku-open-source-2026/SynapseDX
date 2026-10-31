@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseLDS (Linked Data Service) — design spec: linked-data export of
  * datasource records through a structural allowlist projection.
@@ -84,7 +84,7 @@ tenancy fields stay owned by the platform. Matching is case-insensitive.
 
 The **public channel** is anonymous by design: the gateway marks the export
 routes (`GET /v1/lds/licenses`, `GET /v1/lds/datasources/:id/entities[/:eid]`,
-single path segment) as `auth: none` and stamps `x-synapsedx-anon: 1`
+single path segment) as `auth: none` and stamps `x-synapseone-anon: 1`
 (client-forged markers are stripped). A Bearer token that verifies is honoured
 as *optional* auth on public routes (so same-tenant `?visibility=restricted`
 queries reuse the same URL); an invalid or absent token stays anonymous. An
@@ -127,7 +127,7 @@ surface is additionally open anonymously (see **Visibility**).
   { "id": "CC-BY-SA-4.0", "name": "Creative Commons Attribution-ShareAlike 4.0", "url": "https://creativecommons.org/licenses/by-sa/4.0/", "openData": true },
   { "id": "ODbL-1.0", "name": "Open Database License 1.0", "url": "https://opendatacommons.org/licenses/odbl/1.0/", "openData": true },
   { "id": "PDDL-1.0", "name": "Public Domain Dedication and License 1.0", "url": "https://opendatacommons.org/licenses/pddl/1.0/", "openData": true },
-  { "id": "LicenseRef-Proprietary", "name": "Proprietary", "url": "https://synapsedx.sbs/licenses/proprietary", "openData": false }
+  { "id": "LicenseRef-Proprietary", "name": "Proprietary", "url": "https://synapseone.space/licenses/proprietary", "openData": false }
 ]
 ```
 
@@ -213,7 +213,7 @@ outside `entity` + registered `attributes` are absent **by construction**.
 
 ## Workflow integration
 
-The `synapsedx.api` node type gains resource `lds`:
+The `synapseone.api` node type gains resource `lds`:
 
 | Resource.operation | Required args | Optional args |
 |---|---|---|
@@ -222,7 +222,7 @@ The `synapsedx.api` node type gains resource `lds`:
 
 `record` values support `={{ $json.x }}` templates and are deep-resolved against the
 incoming item at run time. Unknown resource/operation and missing required args are
-rejected at save time (same validation path as the other `synapsedx.api` resources).
+rejected at save time (same validation path as the other `synapseone.api` resources).
 
 ```json
 { "resource": "lds", "operation": "publish-record",
@@ -244,7 +244,7 @@ received Webhook item is published to a datasource with no extra nodes.
 - [ ] `visibility=restricted` export requires an authenticated same-tenant call; cross-org callers get `404`, anonymous callers get `401`, never data.
 - [ ] `limit` is validated to 1..500 (`400` otherwise) and `offset` paging is stable and ordered.
 - [ ] Every export carries `Link rel="license"`, the license URL in `@context`, and the id in `X-LDS-License`; `LicenseRef-Proprietary` is reported as not-open.
-- [ ] `synapsedx.api` save-time validation covers `lds.list-datasources` (no args) and `lds.publish-record` (requires `datasourceId`).
+- [ ] `synapseone.api` save-time validation covers `lds.list-datasources` (no args) and `lds.publish-record` (requires `datasourceId`).
 - [ ] Template `webhook-to-lds` builds a valid webhook → publish → noOp definition.
 - [ ] `GET /v1/lds/datasources/:id/stats` reports the record count and public/restricted/internal attribute counts.
 

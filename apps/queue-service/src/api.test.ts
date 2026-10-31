@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseQueue API tests: boot the real Express app on the in-memory backend
  * and cover publish, delay, dedupe, consume/ack, visibility + heartbeat,
@@ -15,7 +15,7 @@ let server: Server;
 let base = '';
 
 function headers(org = 'tenant-a', sub = 'user-1'): Record<string, string> {
-  return { 'content-type': 'application/json', 'x-synapsedx-user': sub, 'x-synapsedx-org': org, 'x-synapsedx-kind': 'user' };
+  return { 'content-type': 'application/json', 'x-synapseone-user': sub, 'x-synapseone-org': org, 'x-synapseone-kind': 'user' };
 }
 
 async function call(method: string, path: string, body?: any, h: Record<string, string> = headers()): Promise<{ status: number; json: any }> {
@@ -50,7 +50,7 @@ test('health and metrics are served', async () => {
   assert.equal(health.json.backend, 'memory');
   const metrics = await fetch(`${base}/metrics`);
   assert.equal(metrics.status, 200);
-  assert.match(await metrics.text(), /synapsedx_queue_up 1/);
+  assert.match(await metrics.text(), /synapseone_queue_up 1/);
 });
 
 test('publish, peek, consume and ack', async () => {
@@ -231,7 +231,7 @@ test('batch publish and tenant isolation', async () => {
 });
 
 test('API-key headers without a user are account-scoped, never platform (#17)', async () => {
-  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  const keyH = { 'content-type': 'application/json', 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-9' };
   // A queue owned by the org tenant stays invisible, and the key cannot
   // hijack the platform `?tenant=` namespace.
   await createQueue();
@@ -244,7 +244,7 @@ test('API-key headers without a user are account-scoped, never platform (#17)', 
   assert.equal((await call('GET', '/v1/queue/queues/jobs/stats', undefined, keyH)).json.pending, 1);
 
   // platform (tenant:admin) sees a different namespace
-  const platformH = { 'content-type': 'application/json', 'x-synapsedx-tenant': 'admin' };
+  const platformH = { 'content-type': 'application/json', 'x-synapseone-tenant': 'admin' };
   assert.equal((await call('GET', '/v1/queue/queues/jobs/stats', undefined, platformH)).status, 404);
 });
 
@@ -281,14 +281,14 @@ test('queue configuration, listing, purge and delete', async () => {
 });
 
 test('authentication and validation', async () => {
-  const anon = await call('GET', '/v1/queue/queues', undefined, { 'x-synapsedx-anon': '1' } as any);
+  const anon = await call('GET', '/v1/queue/queues', undefined, { 'x-synapseone-anon': '1' } as any);
   assert.equal(anon.status, 401);
 
   const platformMissing = await call('GET', '/v1/queue/queues', undefined, {} as any);
   assert.equal(platformMissing.status, 400);
   assert.equal(platformMissing.json.error, 'tenant_required');
 
-  const platformOk = await call('GET', '/v1/queue/queues', undefined, { 'x-synapsedx-tenant': 'admin' } as any);
+  const platformOk = await call('GET', '/v1/queue/queues', undefined, { 'x-synapseone-tenant': 'admin' } as any);
   assert.equal(platformOk.status, 200);
 
   const badQueue = await call('GET', '/v1/queue/queues/1bad');

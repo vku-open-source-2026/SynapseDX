@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseBase API tests: boot the real Express app (memory store) and cover
  * CRUD, object<->data mapping, query operators, pagination, optimistic
@@ -15,7 +15,7 @@ let server: Server;
 let base = '';
 
 function headers(org = 'tenant-a', sub = 'user-1'): Record<string, string> {
-  return { 'content-type': 'application/json', 'x-synapsedx-user': sub, 'x-synapsedx-org': org, 'x-synapsedx-kind': 'user' };
+  return { 'content-type': 'application/json', 'x-synapseone-user': sub, 'x-synapseone-org': org, 'x-synapseone-kind': 'user' };
 }
 
 async function call(method: string, path: string, body?: any, h: Record<string, string> = headers(), rawBody = false): Promise<{ status: number; json: any }> {
@@ -51,7 +51,7 @@ test('health and metrics are served', async () => {
   const metrics = await fetch(`${base}/metrics`);
   assert.equal(metrics.status, 200);
   const text = await metrics.text();
-  assert.match(text, /synapsedx_base_up 1/);
+  assert.match(text, /synapseone_base_up 1/);
 });
 
 test('collection CRUD + tenant isolation', async () => {
@@ -84,7 +84,7 @@ test('API-key headers without a user are account-scoped, never platform (#17)', 
   const orgCol = await createCollection({ name: 'orgdata' });
   assert.equal(orgCol.orgId, 'tenant-a');
 
-  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  const keyH = { 'content-type': 'application/json', 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-9' };
   const mine = await call('POST', '/v1/base/collections', { name: 'keydata' }, keyH);
   assert.equal(mine.status, 201, JSON.stringify(mine.json));
   assert.equal(mine.json.orgId, undefined);
@@ -259,7 +259,7 @@ test('batch writes and change feed', async () => {
 });
 
 test('anonymous callers are rejected', async () => {
-  const r = await call('GET', '/v1/base/collections', undefined, { 'x-synapsedx-anon': '1' } as any);
+  const r = await call('GET', '/v1/base/collections', undefined, { 'x-synapseone-anon': '1' } as any);
   assert.equal(r.status, 401);
 });
 

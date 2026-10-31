@@ -2,7 +2,7 @@
 # Render nginx conf tu template (thay @@DOMAIN@@) roi chon full-https hay http-only
 # tuy cert LE da ton tai chua. Chay trong container nginx (alpine/busybox sh).
 set -eu
-DOMAIN="${DOMAIN:-synapsedx.sbs}"
+DOMAIN="${DOMAIN:-synapseone.space}"
 CERT="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
 mkdir -p /etc/nginx/conf.d
 # thay the an toan: DOMAIN chi chua [a-z0-9.-] (validate truoc khi sed)

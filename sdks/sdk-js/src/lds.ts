@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * LDS (linked-data service) client: datasources, attributes, records,
  * NGSI-LD entities, stats and licenses.

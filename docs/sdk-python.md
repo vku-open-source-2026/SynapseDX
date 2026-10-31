@@ -1,13 +1,13 @@
-# `synapsedx-sdk` — SynapseDX SDK for Python
+# `synapseone-sdk` — SynapseOne SDK for Python
 
-Apache-2.0. Part of [SynapseDX](../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseOne](../README.md) Tier-1 PaaS.
 
 Requires Python 3.10+. Single runtime dependency: `requests>=2.28`.
 
 ## Install
 
 ```bash
-pip install synapsedx-sdk
+pip install synapseone-sdk
 ```
 
 Or with a virtual environment:
@@ -15,7 +15,7 @@ Or with a virtual environment:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install synapsedx-sdk
+pip install synapseone-sdk
 ```
 
 For development (from the monorepo):
@@ -28,9 +28,9 @@ pip install -e .
 ## Quick start
 
 ```python
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-c = SynapseDXClient("http://localhost:8080")
+c = SynapseOneClient("http://localhost:8080")
 
 # Login (dev login or seed)
 login = c.iam.login("demo@acme.local")
@@ -45,7 +45,7 @@ c.workflow.create_workflow_from_template("webhook-to-log", "demo")
 ## Constructor
 
 ```python
-SynapseDXClient(base_url, token=None, api_key=None, timeout=15, tenant=None)
+SynapseOneClient(base_url, token=None, api_key=None, timeout=15, tenant=None)
 ```
 
 | Parameter | Type | Default | Description |
@@ -54,14 +54,14 @@ SynapseDXClient(base_url, token=None, api_key=None, timeout=15, tenant=None)
 | `token` | `str \| None` | `None` | Bearer JWT (from login or service account) |
 | `api_key` | `str \| None` | `None` | API key sent as `X-API-Key` header |
 | `timeout` | `int` | `15` | Per-request timeout in seconds |
-| `tenant` | `str \| None` | `None` | `x-synapsedx-tenant`; platform callers only (Faststore/Queue) |
+| `tenant` | `str \| None` | `None` | `x-synapseone-tenant`; platform callers only (Faststore/Queue) |
 
 ### Auth methods
 
 ```python
 c.set_token(token)      # set/replace Bearer token
 c.set_api_key(key)      # set/replace API key
-c.tenant = "acme"       # set/replace x-synapsedx-tenant (or None)
+c.tenant = "acme"       # set/replace x-synapseone-tenant (or None)
 ```
 
 Both credentials can also be set via constructor arguments. When both are present,
@@ -70,7 +70,7 @@ always uses their verified org/account/user scope.
 
 ## Service namespaces
 
-The SDK is split by service. `SynapseDXClient` is a thin facade that shares one
+The SDK is split by service. `SynapseOneClient` is a thin facade that shares one
 HTTP layer and exposes:
 
 | Namespace | Service | Examples |
@@ -737,7 +737,7 @@ that `path`. The gateway does **not** proxy `/webhook/*` — call the
 workflow-service origin directly (e.g. `http://localhost:4002`).
 
 ```python
-from synapsedx_sdk import trigger_webhook
+from synapseone_sdk import trigger_webhook
 
 # Copy-paste: fire the code-transform template's webhook after activating it.
 out = trigger_webhook("http://localhost:4002", "transform", {"value": 21})
@@ -754,26 +754,26 @@ curl -X POST http://localhost:4002/webhook/transform \
 
 ## Error handling
 
-All methods raise `SynapseDXError` on failure (network or HTTP errors):
+All methods raise `SynapseOneError` on failure (network or HTTP errors):
 
 ```python
-from synapsedx_sdk import SynapseDXClient, SynapseDXError
+from synapseone_sdk import SynapseOneClient, SynapseOneError
 
 try:
     c.authorize(user_id, "workflow:Execute", "*")
-except SynapseDXError as e:
+except SynapseOneError as e:
     print(f"Error: {e}")
 ```
 
-The error message includes the HTTP status and path, e.g. `"synapsedx 403 /v1/authorize: ..."`.
+The error message includes the HTTP status and path, e.g. `"synapseone 403 /v1/authorize: ..."`.
 
 ## Full example
 
 ```python
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
 def main():
-    c = SynapseDXClient("http://localhost:8080")
+    c = SynapseOneClient("http://localhost:8080")
 
     # 1. Login
     login = c.login("demo@acme.local")

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useState } from 'react';
@@ -30,7 +30,7 @@ export default function PublicHeader() {
           to="/"
           className="text-xl font-semibold bg-gradient-to-b from-main-start to-main-end bg-clip-text text-transparent"
         >
-          synapsedx
+          synapseone
         </Link>
         <nav className="hidden md:flex items-center gap-1 text-sm">
           {LINKS.map((l) => (

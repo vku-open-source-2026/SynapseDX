@@ -1,7 +1,7 @@
-# SynapseDX alert rules (load via rule_files in prometheus.yml).
+# SynapseOne alert rules (load via rule_files in prometheus.yml).
 # Wire Alertmanager later; until then alerts show on the Prometheus /alerts page.
 groups:
-  - name: synapsedx
+  - name: synapseone
     interval: 30s
     rules:
       - alert: GatewayDown
@@ -9,7 +9,7 @@ groups:
         for: 1m
         labels: { severity: critical }
         annotations:
-          summary: "SynapseDX gateway is down"
+          summary: "SynapseOne gateway is down"
           description: "Prometheus cannot scrape gateway:8080/metrics for >1m."
 
       - alert: BaseServiceDown

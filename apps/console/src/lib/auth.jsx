@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
@@ -10,32 +10,36 @@ const AuthCtx = createContext(null);
 // That makes it readable by any JS on this origin — keep the console origin clean
 // (strict CSP at the reverse proxy, patched deps) and prefer short JWT TTL +
 // refresh rotation. Never put tokens in URLs (they leak via history/logs).
-const KEY = 'synapsedx.console.auth';
+const KEY = 'synapseone.console.auth';
+// Pre-rebrand key: keep existing sessions across the upgrade, then migrate.
+const LEGACY_KEY = 'synapsedx.console.auth';
+
+function readStoredAuth() {
+  try {
+    const raw = localStorage.getItem(KEY) ?? localStorage.getItem(LEGACY_KEY);
+    return JSON.parse(raw || 'null');
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }) {
-  const [auth, setAuth] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(KEY) || 'null');
-    } catch {
-      return null;
-    }
-  });
+  const [auth, setAuth] = useState(readStoredAuth);
 
   useEffect(() => {
-    if (auth) localStorage.setItem(KEY, JSON.stringify(auth));
-    else localStorage.removeItem(KEY);
+    if (auth) {
+      localStorage.setItem(KEY, JSON.stringify(auth));
+      localStorage.removeItem(LEGACY_KEY);
+    } else {
+      localStorage.removeItem(KEY);
+      localStorage.removeItem(LEGACY_KEY);
+    }
   }, [auth]);
 
   // Wire the api-level session hook: silent refresh persists the rotated pair,
   // dead refresh drops the session (pages re-render to login).
   useEffect(() => {
-    authStore.get = () => {
-      try {
-        return JSON.parse(localStorage.getItem(KEY) || 'null');
-      } catch {
-        return null;
-      }
-    };
+    authStore.get = readStoredAuth;
     authStore.set = (patch) => {
       const cur = authStore.get() || {};
       const next = { ...cur, ...patch };

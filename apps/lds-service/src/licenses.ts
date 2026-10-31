@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Built-in license catalog for SynapseLDS datasets. Users pick one per
  * datasource; the SPDX id + canonical URL surface on every NGSI-LD export
@@ -48,7 +48,7 @@ export const LDS_LICENSES: LdsLicense[] = [
   {
     id: 'LicenseRef-Proprietary',
     name: 'Proprietary / internal use only (not open data)',
-    url: 'https://synapsedx.sbs/licenses/proprietary',
+    url: 'https://synapseone.space/licenses/proprietary',
     openData: false,
   },
 ];

@@ -1,7 +1,7 @@
 .PHONY: help bootstrap build test lint license-check compose-up compose-down compose-logs e2e sdk-check clean
 
 help:
-	@echo "synapsedx make targets:"
+	@echo "synapseone make targets:"
 	@echo "  bootstrap    - copy .env.example to .env + npm install all"
 	@echo "  build        - build all node packages"
 	@echo "  test         - run unit tests"
@@ -9,7 +9,7 @@ help:
 	@echo "  compose-up   - docker compose up --build -d"
 	@echo "  compose-down - docker compose down"
 	@echo "  e2e          - run e2e smoke script"
-	@echo "  sdk-check    - live SDK smoke (needs gateway at SYNAPSEDX_BASE_URL)"
+	@echo "  sdk-check    - live SDK smoke (needs gateway at SYNAPSEONE_BASE_URL)"
 
 bootstrap:
 	cp -n .env.example .env || copy .env.example .env

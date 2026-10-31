@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * OIDC callback page: the IdP redirects here with ?code&state (or ?error).
  * The single-use code is POSTed to the API for exchange — tokens never

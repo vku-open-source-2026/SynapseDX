@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Workflow Drizzle schema — tables/indexes are versioned migrations.
  */
@@ -7,7 +7,7 @@ import { sql } from 'drizzle-orm';
 import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 export const workflows = pgTable(
-  'synapsedx_workflows',
+  'synapseone_workflows',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
@@ -24,13 +24,13 @@ export const workflows = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('idx_synapsedx_workflows_active').on(t.active),
-    index('idx_synapsedx_workflows_tenant').on(t.orgId, t.accountId),
+    index('idx_synapseone_workflows_active').on(t.active),
+    index('idx_synapseone_workflows_tenant').on(t.orgId, t.accountId),
   ],
 );
 
 export const executions = pgTable(
-  'synapsedx_executions',
+  'synapseone_executions',
   {
     id: text('id').primaryKey(),
     workflowId: text('workflow_id').notNull(),
@@ -47,20 +47,20 @@ export const executions = pgTable(
     finishedAt: timestamp('finished_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('idx_synapsedx_exec_workflow').on(t.workflowId, t.startedAt.desc()),
-    index('idx_synapsedx_exec_status').on(t.status, t.startedAt.desc()),
-    index('idx_synapsedx_exec_time').on(t.startedAt.desc()),
-    index('idx_synapsedx_exec_principal_org')
+    index('idx_synapseone_exec_workflow').on(t.workflowId, t.startedAt.desc()),
+    index('idx_synapseone_exec_status').on(t.status, t.startedAt.desc()),
+    index('idx_synapseone_exec_time').on(t.startedAt.desc()),
+    index('idx_synapseone_exec_principal_org')
       .on(sql`(${t.principal}->>'org')`)
       .where(sql`${t.principal} is not null`),
-    index('idx_synapsedx_exec_principal_account')
+    index('idx_synapseone_exec_principal_account')
       .on(sql`(${t.principal}->>'account')`)
       .where(sql`${t.principal} is not null`),
   ],
 );
 
 export const credentials = pgTable(
-  'synapsedx_credentials',
+  'synapseone_credentials',
   {
     id: text('id').primaryKey(),
     accountId: text('account_id').notNull(),
@@ -72,8 +72,8 @@ export const credentials = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('synapsedx_credentials_account_id_name_key').on(t.accountId, t.name),
-    index('idx_synapsedx_credentials_account').on(t.accountId),
-    index('idx_synapsedx_credentials_org').on(t.orgId),
+    uniqueIndex('synapseone_credentials_account_id_name_key').on(t.accountId, t.name),
+    index('idx_synapseone_credentials_account').on(t.accountId),
+    index('idx_synapseone_credentials_org').on(t.orgId),
   ],
 );

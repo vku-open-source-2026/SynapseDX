@@ -1,8 +1,8 @@
 {
-  "name": "@synapsedx/console",
-  "version": "0.6.2",
+  "name": "@synapseone/console",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "SynapseDX Console - AWS-style management UI (React + Vite + Tailwind)",
+  "description": "SynapseOne Console - AWS-style management UI (React + Vite + Tailwind)",
   "private": true,
   "type": "module",
   "scripts": {

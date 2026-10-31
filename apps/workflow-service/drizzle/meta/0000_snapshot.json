@@ -4,8 +4,8 @@
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.synapsedx_credentials": {
-      "name": "synapsedx_credentials",
+    "public.synapseone_credentials": {
+      "name": "synapseone_credentials",
       "schema": "",
       "columns": {
         "id": {
@@ -61,8 +61,8 @@
         }
       },
       "indexes": {
-        "synapsedx_credentials_account_id_name_key": {
-          "name": "synapsedx_credentials_account_id_name_key",
+        "synapseone_credentials_account_id_name_key": {
+          "name": "synapseone_credentials_account_id_name_key",
           "columns": [
             {
               "expression": "account_id",
@@ -82,8 +82,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_credentials_account": {
-          "name": "idx_synapsedx_credentials_account",
+        "idx_synapseone_credentials_account": {
+          "name": "idx_synapseone_credentials_account",
           "columns": [
             {
               "expression": "account_id",
@@ -97,8 +97,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_credentials_org": {
-          "name": "idx_synapsedx_credentials_org",
+        "idx_synapseone_credentials_org": {
+          "name": "idx_synapseone_credentials_org",
           "columns": [
             {
               "expression": "org_id",
@@ -120,8 +120,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.synapsedx_executions": {
-      "name": "synapsedx_executions",
+    "public.synapseone_executions": {
+      "name": "synapseone_executions",
       "schema": "",
       "columns": {
         "id": {
@@ -211,8 +211,8 @@
         }
       },
       "indexes": {
-        "idx_synapsedx_exec_workflow": {
-          "name": "idx_synapsedx_exec_workflow",
+        "idx_synapseone_exec_workflow": {
+          "name": "idx_synapseone_exec_workflow",
           "columns": [
             {
               "expression": "workflow_id",
@@ -232,8 +232,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_exec_status": {
-          "name": "idx_synapsedx_exec_status",
+        "idx_synapseone_exec_status": {
+          "name": "idx_synapseone_exec_status",
           "columns": [
             {
               "expression": "status",
@@ -253,8 +253,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_exec_time": {
-          "name": "idx_synapsedx_exec_time",
+        "idx_synapseone_exec_time": {
+          "name": "idx_synapseone_exec_time",
           "columns": [
             {
               "expression": "started_at",
@@ -268,8 +268,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_exec_principal_org": {
-          "name": "idx_synapsedx_exec_principal_org",
+        "idx_synapseone_exec_principal_org": {
+          "name": "idx_synapseone_exec_principal_org",
           "columns": [
             {
               "expression": "(\"principal\"->>'org')",
@@ -279,13 +279,13 @@
             }
           ],
           "isUnique": false,
-          "where": "\"synapsedx_executions\".\"principal\" is not null",
+          "where": "\"synapseone_executions\".\"principal\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_exec_principal_account": {
-          "name": "idx_synapsedx_exec_principal_account",
+        "idx_synapseone_exec_principal_account": {
+          "name": "idx_synapseone_exec_principal_account",
           "columns": [
             {
               "expression": "(\"principal\"->>'account')",
@@ -295,7 +295,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"synapsedx_executions\".\"principal\" is not null",
+          "where": "\"synapseone_executions\".\"principal\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -308,8 +308,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.synapsedx_workflows": {
-      "name": "synapsedx_workflows",
+    "public.synapseone_workflows": {
+      "name": "synapseone_workflows",
       "schema": "",
       "columns": {
         "id": {
@@ -399,8 +399,8 @@
         }
       },
       "indexes": {
-        "idx_synapsedx_workflows_active": {
-          "name": "idx_synapsedx_workflows_active",
+        "idx_synapseone_workflows_active": {
+          "name": "idx_synapseone_workflows_active",
           "columns": [
             {
               "expression": "active",
@@ -414,8 +414,8 @@
           "method": "btree",
           "with": {}
         },
-        "idx_synapsedx_workflows_tenant": {
-          "name": "idx_synapsedx_workflows_tenant",
+        "idx_synapseone_workflows_tenant": {
+          "name": "idx_synapseone_workflows_tenant",
           "columns": [
             {
               "expression": "org_id",

@@ -1,14 +1,14 @@
 #!/bin/sh
-# SynapseDX CLI one-line installer (POSIX sh, no dependencies besides Node 18+).
-#   curl -fsSL https://synapsedx.sbs/install.sh | sh
-#   # or pin a version: CLI_VERSION=0.6.2 curl -fsSL https://synapsedx.sbs/install.sh | sh
-# What it does: checks for node >= 18, then `npm install -g @synapsedx/cli[@version]`.
-# No shell profiles are modified. Uninstall: `npm uninstall -g @synapsedx/cli`.
+# SynapseOne CLI one-line installer (POSIX sh, no dependencies besides Node 18+).
+#   curl -fsSL https://synapseone.space/install.sh | sh
+#   # or pin a version: CLI_VERSION=0.7.0 curl -fsSL https://synapseone.space/install.sh | sh
+# What it does: checks for node >= 18, then `npm install -g @synapseone/cli[@version]`.
+# No shell profiles are modified. Uninstall: `npm uninstall -g @synapseone/cli`.
 # Mirror: this file is the canonical source; apps/console/public/install.sh is a
 # byte-identical copy served by the web frontend — keep them in sync.
 set -eu
 
-PKG="@synapsedx/cli"
+PKG="@synapseone/cli"
 VERSION="${CLI_VERSION:-latest}"
 
 need() {
@@ -37,11 +37,11 @@ echo "install: installing ${PKG}@${VERSION} ..."
 # shellcheck disable=SC2086
 npm install -g ${PKG}@${VERSION}
 
-if ! command -v synapsedx >/dev/null 2>&1; then
-  echo "install: done, but 'synapsedx' is not on PATH." >&2
+if ! command -v synapseone >/dev/null 2>&1; then
+  echo "install: done, but 'synapseone' is not on PATH." >&2
   echo "install: add npm's global bin dir to PATH, e.g.: export PATH=\"\$(npm config get prefix)/bin:\$PATH\"" >&2
   exit 1
 fi
 
-echo "install: OK — $(synapsedx --help 2>/dev/null | head -n 1)"
-echo "install: next: synapsedx login --base https://api.synapsedx.sbs --email you@example.com"
+echo "install: OK — $(synapseone --help 2>/dev/null | head -n 1)"
+echo "install: next: synapseone login --base https://api.synapseone.space --email you@example.com"

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * AWS IAM-style policy evaluation: explicit Deny wins, then Allow, default deny.
  */
@@ -24,7 +24,7 @@ export function matchPattern(pattern: string, value: string): boolean {
 
 export interface AuthzRequest {
   action: string;   // e.g. "workflow:Execute"
-  resource: string; // e.g. "arn:synapsedx:acme:prod:workflow:etl-nightly" or "*"
+  resource: string; // e.g. "arn:synapseone:acme:prod:workflow:etl-nightly" or "*"
 }
 
 export type ConditionContext = Record<string, string | number | boolean | undefined>;
@@ -106,7 +106,7 @@ export function workflowRunnerPolicy(accountSlug: string): PolicyDoc {
   return {
     Version: '2026-01-01',
     Statement: [
-      { Effect: 'Allow', Action: ['workflow:Execute', 'workflow:Read'], Resource: safe === '*' ? '*' : `arn:synapsedx:*:${safe}:*` },
+      { Effect: 'Allow', Action: ['workflow:Execute', 'workflow:Read'], Resource: safe === '*' ? '*' : `arn:synapseone:*:${safe}:*` },
       { Effect: 'Deny', Action: ['iam:*', 'org:Delete'], Resource: '*' },
     ],
   };

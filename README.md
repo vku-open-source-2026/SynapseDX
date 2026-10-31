@@ -1,28 +1,28 @@
-# SynapseDX — the open PaaS for your infrastructure
+# SynapseOne — the open PaaS for your infrastructure
 
-[![CI](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml/badge.svg)](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/vku-open-source-2026/SynapseDX)](https://github.com/vku-open-source-2026/SynapseDX/releases)
+[![CI](https://github.com/vku-open-source-2026/SynapseOne/actions/workflows/ci.yml/badge.svg)](https://github.com/vku-open-source-2026/SynapseOne/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vku-open-source-2026/SynapseOne)](https://github.com/vku-open-source-2026/SynapseOne/releases)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![npm SDK](https://img.shields.io/npm/v/@synapsedx/sdk)](https://www.npmjs.com/package/@synapsedx/sdk)
-[![npm CLI](https://img.shields.io/npm/v/@synapsedx/cli)](https://www.npmjs.com/package/@synapsedx/cli)
-[![PyPI SDK](https://img.shields.io/pypi/v/synapsedx-sdk)](https://pypi.org/project/synapsedx-sdk/)
+[![npm SDK](https://img.shields.io/npm/v/@synapseone/sdk)](https://www.npmjs.com/package/@synapseone/sdk)
+[![npm CLI](https://img.shields.io/npm/v/@synapseone/cli)](https://www.npmjs.com/package/@synapseone/cli)
+[![PyPI SDK](https://img.shields.io/pypi/v/synapseone-sdk)](https://pypi.org/project/synapseone-sdk/)
 
-**SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
+**SynapseOne is an open-source Tier-1 PaaS (Apache-2.0): one API gateway, AWS-style access
 management, a core data cluster (documents, cache and queue), and native workflows —
 operated through a web Console, SDKs in three languages, and a zero-dependency CLI.**
 
 No lock-in: Authentik/Keycloak runs as an optional external IdP over
-standard OIDC. Everything else is SynapseDX code, pure Apache-2.0.
+standard OIDC. Everything else is SynapseOne code, pure Apache-2.0.
 
-- 🌐 **Live demo:** [synapsedx.sbs](https://synapsedx.sbs) · Console: [cloud.synapsedx.sbs](https://cloud.synapsedx.sbs) · API: `https://api.synapsedx.sbs/health`
-- 📦 **Install:** `npm i @synapsedx/sdk` · `pip install synapsedx-sdk` · `npx @synapsedx/cli` · Go SDK via the monorepo (see below)
+- 🌐 **Live demo:** [synapseone.space](https://synapseone.space) · Console: [cloud.synapseone.space](https://cloud.synapseone.space) · API: `https://api.synapseone.space/health`
+- 📦 **Install:** `npm i @synapseone/sdk` · `pip install synapseone-sdk` · `npx @synapseone/cli` · Go SDK via the monorepo (see below)
 - 🚀 **Self-host:** `docker compose up -d --build` (details below)
 
-## Why SynapseDX
+## Why SynapseOne
 
 | Capability | What you get |
 |---|---|
-| **API Gateway** | Single entry point: JWT/API-key auth, principal propagation (`x-synapsedx-*`), edge rate limiting, tracing, aggregate `/ready`, Prometheus `/metrics` |
+| **API Gateway** | Single entry point: JWT/API-key auth, principal propagation (`x-synapseone-*`), edge rate limiting, tracing, aggregate `/ready`, Prometheus `/metrics` |
 | **AWS-style IAM** | Organization → Account → User → Role → JSON Policy (Allow/Deny + Condition), `authorize` API + dry-run simulator + audit log, tenant isolation on every write (role-based, same-org fallback) |
 | **Flexible identity** | Short-lived JWT, atomic rotating refresh tokens, API keys, service accounts, and real OIDC Authorization Code flow (Authentik/Keycloak) with shadow users |
 | **Core data** | Postgres (source of truth) + Redis + S3-compatible object storage, versioned schema, idempotent seed |
@@ -40,49 +40,49 @@ No install needed — point the clients at the live demo:
 
 ```bash
 # CLI, straight from the registry (Node 18+)
-npx -y @synapsedx/cli@latest --base https://api.synapsedx.sbs login --email demo@acme.local
-npx -y @synapsedx/cli@latest --base https://api.synapsedx.sbs orgs
+npx -y @synapseone/cli@latest --base https://api.synapseone.space login --email demo@acme.local
+npx -y @synapseone/cli@latest --base https://api.synapseone.space orgs
 ```
 
 ```python
 # Python SDK
-pip install synapsedx-sdk
+pip install synapseone-sdk
 ```
 
 ```python
-from synapsedx_sdk import SynapseDXClient
-c = SynapseDXClient("https://api.synapsedx.sbs")
+from synapseone_sdk import SynapseOneClient
+c = SynapseOneClient("https://api.synapseone.space")
 login = c.iam.login("demo@acme.local")
-c.set_api_key("<your-key>")  # create one in the Console: cloud.synapsedx.sbs → Keys
+c.set_api_key("<your-key>")  # create one in the Console: cloud.synapseone.space → Keys
 print(c.iam.list_orgs())
 ```
 
-Or open the [Console](https://cloud.synapsedx.sbs) and sign in with an API key.
+Or open the [Console](https://cloud.synapseone.space) and sign in with an API key.
 
 ## Install
 
 ```bash
 # JavaScript / TypeScript
-npm install @synapsedx/sdk
+npm install @synapseone/sdk
 
 # Python (3.9+)
-pip install synapsedx-sdk
+pip install synapseone-sdk
 
 # Go (1.22+) — the SDK lives in this monorepo (sdks/sdk-go); wire it with a
 # replace directive (a standalone module repo is planned — the monorepo path
 # contains uppercase letters, which Go module paths forbid):
-#   go mod edit -replace github.com/synapsedx/synapsedx-sdk-go=<checkout>/sdks/sdk-go
+#   go mod edit -replace github.com/synapseone/synapseone-sdk-go=<checkout>/sdks/sdk-go
 
 # CLI — one-line installer (Node 18+, no clone needed)
-curl -fsSL https://synapsedx.sbs/install.sh | sh
+curl -fsSL https://synapseone.space/install.sh | sh
 # ..or run without installing anything:
-npx -y @synapsedx/cli@latest --help
+npx -y @synapseone/cli@latest --help
 ```
 
 ```ts
 // TypeScript
-import { SynapseDXClient } from '@synapsedx/sdk';
-const c = new SynapseDXClient({ baseUrl: 'https://api.synapsedx.sbs' });
+import { SynapseOneClient } from '@synapseone/sdk';
+const c = new SynapseOneClient({ baseUrl: 'https://api.synapseone.space' });
 const { accessToken } = await c.iam.login('demo@acme.local');
 c.setToken(accessToken);
 await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
@@ -147,10 +147,10 @@ apps/lds-service           SynapseLDS — NGSI-LD datasources, registry, license
 apps/base-service          SynapseBase — documents, mapping, queries, change feed
 apps/faststore-service     Synapse Faststore — cache/KV, data structures, locks
 apps/queue-service         SynapseQueue — publish/consume, leases, retries, DLQ
-sdks/sdk-js                @synapsedx/sdk (TypeScript, zero runtime deps)
-sdks/sdk-python            synapsedx-sdk (Python, requests only)
-sdks/sdk-go                synapsedx-sdk-go (Go, stdlib only)
-tools/cli                  synapsedx CLI (zero deps, Node 18+) + install.sh
+sdks/sdk-js                @synapseone/sdk (TypeScript, zero runtime deps)
+sdks/sdk-python            synapseone-sdk (Python, requests only)
+sdks/sdk-go                synapseone-sdk-go (Go, stdlib only)
+tools/cli                  synapseone CLI (zero deps, Node 18+) + install.sh
 infra/prod                 Production edge: nginx + Certbot overlay
 infra/monitoring           Prometheus (scrape gateway/PG/Redis + alert rules)
 infra/k8s/base             Kustomize manifests for Kubernetes

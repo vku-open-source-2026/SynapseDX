@@ -1,5 +1,5 @@
-SynapseDX — Tier-1 PaaS (API gateway + IAM + local workflow engine)
-Copyright 2026 SynapseDX Contributors
+SynapseOne — Tier-1 PaaS (API gateway + IAM + local workflow engine)
+Copyright 2026 SynapseOne Contributors
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,12 +13,12 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
-This product includes software developed by the SynapseDX Contributors.
+This product includes software developed by the SynapseOne Contributors.
 
 Third-party components (each under its own license — see also THIRD-PARTY.md):
 - Authentik (https://goauthentik.io) — MIT-licensed identity provider, used as optional external IdP via OIDC.
 - Keycloak (https://www.keycloak.org) — Apache-2.0 identity provider, supported as alternative external IdP via OIDC.
-- Workflow engine is SynapseDX's own Apache-2.0 code (no external engine in the default stack).
+- Workflow engine is SynapseOne's own Apache-2.0 code (no external engine in the default stack).
 - PostgreSQL (PostgreSQL Licence), Redis (RSALv2/SSPL — check your Redis distribution),
   each consumed as container images, not linked code.
 - Node.js runtime dependencies (Express, jsonwebtoken, http-proxy-middleware, …) — MIT/ISC/Apache-2.0;

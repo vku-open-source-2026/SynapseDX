@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Xin cert Let's Encrypt lan dau cho synapsedx.sbs (+cloud, +api) bang webroot.
+# Xin cert Let's Encrypt lan dau cho synapseone.space (+cloud, +api) bang webroot.
 # Chay tu repo root. Yeu cau: DNS 3 host -> IP server nay; port 80 public.
 #   bash infra/prod/init-letsencrypt.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-DOMAIN="${DOMAIN:-synapsedx.sbs}"
+DOMAIN="${DOMAIN:-synapseone.space}"
 # Doc tu .env neu co (uu tien env hien tai)
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
-DOMAIN="${DOMAIN:-synapsedx.sbs}"
+DOMAIN="${DOMAIN:-synapseone.space}"
 LE_EMAIL="${LE_EMAIL:-hosybaonhan2004@gmail.com}"
 STAGING="${STAGING:-0}"
 
@@ -38,4 +38,4 @@ echo "[le] 4/4 kiem tra..."
 curl -sk -o /dev/null -w "cloud: %{http_code}\n" "https://cloud.${DOMAIN}/config.js" || true
 curl -sk -o /dev/null -w "root : %{http_code}\n" "https://${DOMAIN}/" || true
 curl -sk -o /dev/null -w "api  : %{http_code}\n" "https://api.${DOMAIN}/health" || true
-echo "[le] renew dinh ky: them cron: 0 3 * * * /home/$(whoami)/SynapseDX/infra/prod/renew.sh"
+echo "[le] renew dinh ky: them cron: 0 3 * * * /home/$(whoami)/SynapseOne/infra/prod/renew.sh"

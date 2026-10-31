@@ -1,13 +1,13 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
-// synapsedx API client (fetch-based, mirrors @synapsedx/sdk). Apache-2.0.
+// synapseone API client (fetch-based, mirrors @synapseone/sdk). Apache-2.0.
 export function baseUrl() {
-  if (typeof window !== 'undefined' && window.SYNAPSEDX_CONFIG?.BASE_URL) {
-    return String(window.SYNAPSEDX_CONFIG.BASE_URL).replace(/\/$/, '');
+  if (typeof window !== 'undefined' && window.SYNAPSEONE_CONFIG?.BASE_URL) {
+    return String(window.SYNAPSEONE_CONFIG.BASE_URL).replace(/\/$/, '');
   }
-  return (import.meta.env?.VITE_SYNAPSEDX_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+  return (import.meta.env?.VITE_SYNAPSEONE_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 }
 
 /**
@@ -21,9 +21,9 @@ export const authStore = {
   clear: () => {},
 };
 
-export class SynapseDXError extends Error {
+export class SynapseOneError extends Error {
   constructor(status, path, body) {
-    super(`synapsedx ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
+    super(`synapseone ${status} ${path}: ${typeof body === 'string' ? body : JSON.stringify(body)}`);
     this.status = status;
     this.body = body;
   }
@@ -69,7 +69,7 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
-    throw new Error(`synapsedx network ${path}: ${e.message || e}`);
+    throw new Error(`synapseone network ${path}: ${e.message || e}`);
   }
   // Silent refresh: expired access token + live refresh token → rotate once,
   // persist via the store, and retry the original call. Never loops (one retry).
@@ -108,7 +108,7 @@ async function req(path, { method = 'GET', body, token, apiKey, _retried } = {})
   } catch {
     data = text;
   }
-  if (!r.ok) throw new SynapseDXError(r.status, path, data);
+  if (!r.ok) throw new SynapseOneError(r.status, path, data);
   return data;
 }
 

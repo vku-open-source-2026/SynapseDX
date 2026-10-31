@@ -1,4 +1,4 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """SynapseQueue client: queues, publish (delay + dedupe), at-least-once
 consumption with visibility-timeout leases, ack/nack/heartbeat, retry,
@@ -6,7 +6,7 @@ dead letters and replay.
 
 Every operation is scoped to the caller's tenant (org / account / user).
 Platform callers must set the tenant explicitly
-(``SynapseDXClient(..., tenant="acme")`` -> ``x-synapsedx-tenant``).
+(``SynapseOneClient(..., tenant="acme")`` -> ``x-synapseone-tenant``).
 
 Delivery model: :meth:`QueueService.consume` leases messages for a visibility
 timeout and returns a ``receipt`` per message. Call :meth:`ack` when processing
@@ -14,8 +14,8 @@ succeeds, :meth:`nack` to requeue (optionally delayed) or dead-letter, and
 :meth:`heartbeat` to extend long-running leases. Leases that expire without ack
 are redelivered, so consumers must be idempotent.
 
-Access the service through ``SynapseDXClient(...).queue`` or build it directly
-with a :class:`~synapsedx_sdk._http.HttpClient`.
+Access the service through ``SynapseOneClient(...).queue`` or build it directly
+with a :class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations
