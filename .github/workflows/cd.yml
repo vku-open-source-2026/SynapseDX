@@ -1,9 +1,9 @@
 name: cd
 
-# CD cho main: gate (tai su dung ci.yml) + publish kenh DEV.
+# CD cho main: gate (tai su dung ci.yml) + publish kenh DEV cho npm/GHCR.
 # - npm:  <base>-dev.<run_number> voi dist-tag `dev` (`latest` giu cho release tag v*).
-# - PyPI: <base>.dev<run_number> (PEP 440 dev release — pip mac dinh KHONG cai).
 # - GHCR: tag `main` + `main-<sha>` (khong dung `latest`).
+# PyPI chi publish ban stable tu release.yml khi push tag v* (khong publish dev).
 # Bo qua publish cho commit docs/chore: them `[skip publish]` vao message.
 on:
   push:
@@ -12,7 +12,6 @@ on:
 permissions:
   contents: read
   packages: write
-  id-token: write # PyPI Trusted Publishing (OIDC, khong can token secret)
 
 # Publish phai tuan tu: khong cancel ban dang chay do (tranh publish do dang).
 concurrency:
@@ -30,13 +29,10 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, registry-url: https://registry.npmjs.org }
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
 
       # Version dev dong tu root package.json + run number (khong commit tro lai).
       - name: Compute dev versions
@@ -45,7 +41,6 @@ jobs:
           BASE=$(node -p "require('./package.json').version")
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "npm=$BASE-dev.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
-          echo "pep=$BASE.dev${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Stamp dev versions (workspace only, no commit)
@@ -58,15 +53,13 @@ jobs:
               fs.writeFileSync(f, JSON.stringify(p, null, 2) + '\n');
             }
           "
-          sed -i 's/^version = "${{ steps.ver.outputs.base }}"$/version = "${{ steps.ver.outputs.pep }}"/' sdks/sdk-python/pyproject.toml
-          grep -H '"version":\|^version = ' sdks/sdk-js/package.json tools/cli/package.json sdks/sdk-python/pyproject.toml
+          grep -H '"version":' sdks/sdk-js/package.json tools/cli/package.json
 
       - name: Preflight secrets
         run: |
           if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
             echo "::warning::NPM_TOKEN not set — npm publish will fail. Add an Automation token in npmjs.com, then repo Settings → Secrets and variables → Actions → NPM_TOKEN."
           fi
-          echo "PyPI uses Trusted Publishing (configure once on pypi.org: project synapseone-sdk → Trusted Publisher = this repo + workflow cd.yml)."
 
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
@@ -83,17 +76,6 @@ jobs:
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Build + publish PyPI (trusted publisher, no token)
-        run: |
-          pip install build
-          python -m build sdks/sdk-python --outdir dist/
-      - name: Upload PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
-          verbose: true
-          skip-existing: true # re-runs stay green when the version already exists
 
       - name: Login GHCR
         uses: docker/login-action@v3
@@ -122,6 +104,5 @@ jobs:
           {
             echo "## CD (dev channel) — ${{ github.sha }}";
             echo "- npm: \`@synapseone/sdk@${{ steps.ver.outputs.npm }}\`, \`@synapseone/cli@${{ steps.ver.outputs.npm }}\` (tag \`dev\`)";
-            echo "- PyPI: \`synapseone-sdk==${{ steps.ver.outputs.pep }}\` (\`pip install --pre\` moi thay)";
             echo "- GHCR: \`ghcr.io/${{ github.repository_owner }}/synapseone-{gateway,iam,workflow,console}:main(-${{ steps.ver.outputs.sha }})\`";
           } >> "$GITHUB_STEP_SUMMARY"

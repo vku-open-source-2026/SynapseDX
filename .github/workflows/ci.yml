@@ -1,6 +1,6 @@
 name: ci
 
-# CI cho moi nhanh TRU main (main do cd.yml phu trach: gate + publish kenh dev).
+# CI cho moi nhanh TRU main (main do cd.yml phu trach: gate + publish dev npm/GHCR).
 on:
   push:
     branches-ignore: [main]

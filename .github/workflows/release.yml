@@ -72,6 +72,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-sdk-python:
+    # Stable PyPI releases only. The PyPI Trusted Publisher is configured for
+    # this workflow (release.yml); cd.yml must not publish to PyPI.
     runs-on: ubuntu-latest
     needs: release
     permissions:

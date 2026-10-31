@@ -202,8 +202,9 @@ gate):
 - Compose e2e: core stack, `/ready`, auth smoke, `api-check.sh`, Python/JS SDK
   checks, services check, workflow showcase.
 
-`.github/workflows/cd.yml` gates `main` and publishes dev channel;
-`release.yml` publishes npm SDK/CLI, PyPI SDK, Go tag/release artifacts.
+`.github/workflows/cd.yml` gates `main` and publishes the dev channel for npm
+and GHCR; `release.yml` publishes stable npm SDK/CLI, PyPI SDK, and Go
+tag/release artifacts on `v*` tags.
 Version bumps touch every `package.json`, Compose image tags, SDK versions, and
 `CHANGELOG.md`.
 
