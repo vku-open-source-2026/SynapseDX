@@ -41,14 +41,14 @@ curl -s localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | jq
 Prefer SDKs/CLI over raw curl — same API:
 
 ```bash
-npm install @synapsedx/sdk        # or: pip install synapsedx-sdk
-npx -y @synapsedx/cli@latest --base http://localhost:8080 login --email demo@acme.local
+npm install @synapseone/sdk        # or: pip install synapseone-sdk
+npx -y @synapseone/cli@latest --base http://localhost:8080 login --email demo@acme.local
 ```
 
 ## 4. Authentik (default IdP)
 
 - Open `http://localhost:19000` (host port `AUTHENTIK_HTTP_PORT`; the bootstrap admin
-  password is in the `authentik-server` log), create a `synapsedx` Provider +
+  password is in the `authentik-server` log), create a `synapseone` Provider +
   Application, then put `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` in
   `.env` and restart `iam`.
 - Sign-in flow: `GET /v1/auth/oidc/start?org=acme` → open `authorizeUrl` →
@@ -116,7 +116,7 @@ without those env vars they fall back to per-process memory (dev only).
 
 ## 7. Object storage (S3)
 
-- S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `synapsedx-core`
+- S3 endpoint `http://localhost:9090` (S3Mock, S3-compatible), bucket `synapseone-core`
   auto-created by the `s3-init` service.
 - Try it: `aws --endpoint-url http://localhost:9090 s3 ls` (keys in `.env`:
   `S3_ACCESS_KEY` / `S3_SECRET_KEY`).
@@ -143,10 +143,10 @@ Idempotent, safe to re-run. `SEED_ORG` / `SEED_EMAIL` change the org/email.
 ```bash
 bash infra/tls/gen-cert.sh
 docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d tls
-# https://gateway.synapsedx.local:8443 (API), https://synapsedx.local:8443 (console)
-# needs admin rights to add '127.0.0.1 synapsedx.local gateway.synapsedx.local' to hosts,
+# https://gateway.synapseone.local:8443 (API), https://synapseone.local:8443 (console)
+# needs admin rights to add '127.0.0.1 synapseone.local gateway.synapseone.local' to hosts,
 # or curl --resolve ...:8443:127.0.0.1 (bypasses SNI/DNS)
 ```
 
-Self-signed cert for `synapsedx.local` (`infra/tls/certs/`, git-ignored). Production:
+Self-signed cert for `synapseone.local` (`infra/tls/certs/`, git-ignored). Production:
 use a real LE/ACME cert and keep the `tls` service shape (`infra/prod/` does exactly this).

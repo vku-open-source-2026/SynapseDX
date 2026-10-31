@@ -1,6 +1,6 @@
-# Contributing to synapsedx
+# Contributing to synapseone
 
-Thanks for considering contributing. synapsedx follows standard open-source practices.
+Thanks for considering contributing. synapseone follows standard open-source practices.
 
 ## Ground rules
 - License: Apache-2.0. By contributing you agree your contribution is under the same license (see `LICENSE`).
@@ -38,8 +38,8 @@ branches. Validate persistence through the Docker stack instead:
 
 ```bash
 docker compose up -d
-SYNAPSEDX_BASE_URL=http://localhost:18080 bash tests/e2e/api-check.sh
-SYNAPSEDX_BASE_URL=http://localhost:18080 node tests/e2e/services-check.js
+SYNAPSEONE_BASE_URL=http://localhost:18080 bash tests/e2e/api-check.sh
+SYNAPSEONE_BASE_URL=http://localhost:18080 node tests/e2e/services-check.js
 ```
 
 The E2E scripts create fixed slugs (`e2e`, `sdkacc`, `pyfull`), so they are not

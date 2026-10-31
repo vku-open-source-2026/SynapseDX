@@ -1,28 +1,28 @@
-# `@synapsedx/sdk` — SynapseDX SDK for JavaScript/TypeScript
+# `@synapseone/sdk` — SynapseOne SDK for JavaScript/TypeScript
 
-Apache-2.0. Part of [SynapseDX](../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseOne](../README.md) Tier-1 PaaS.
 
 Zero runtime dependencies. Works in Node 18+ and browsers (fetch-based).
 
 ## Install
 
 ```bash
-npm install @synapsedx/sdk
+npm install @synapseone/sdk
 ```
 
 Or with yarn / pnpm:
 
 ```bash
-yarn add @synapsedx/sdk
-pnpm add @synapsedx/sdk
+yarn add @synapseone/sdk
+pnpm add @synapseone/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
 
 // Login (dev login or seed)
 const { accessToken, user } = await c.iam.login('demo@acme.local');
@@ -37,7 +37,7 @@ await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
 ## Constructor
 
 ```ts
-new SynapseDXClient(opts: SynapseDXClientOptions)
+new SynapseOneClient(opts: SynapseOneClientOptions)
 ```
 
 | Option | Type | Default | Description |
@@ -45,7 +45,7 @@ new SynapseDXClient(opts: SynapseDXClientOptions)
 | `baseUrl` | `string` | — | Gateway URL, e.g. `http://localhost:8080` |
 | `token` | `string` | — | Bearer JWT (from login or service account) |
 | `apiKey` | `string` | — | API key sent as `X-API-Key` header |
-| `tenant` | `string` | — | `x-synapsedx-tenant`; platform callers only (Faststore/Queue) |
+| `tenant` | `string` | — | `x-synapseone-tenant`; platform callers only (Faststore/Queue) |
 | `timeoutMs` | `number` | `15000` | Per-request timeout in milliseconds |
 
 ### Auth methods
@@ -53,7 +53,7 @@ new SynapseDXClient(opts: SynapseDXClientOptions)
 ```ts
 c.setToken(jwt)            // set/replace Bearer token
 c.setApiKey(key)           // set/replace API key
-c.setTenant('acme')        // set/replace x-synapsedx-tenant (undefined clears)
+c.setTenant('acme')        // set/replace x-synapseone-tenant (undefined clears)
 ```
 
 Both credentials can also be set via constructor options. When both are present,
@@ -62,22 +62,22 @@ always uses their verified org/account/user scope.
 
 ## Service namespaces
 
-The SDK is split per service and also ships subpath entry points. `SynapseDXClient`
+The SDK is split per service and also ships subpath entry points. `SynapseOneClient`
 shares one `HttpClient` across:
 
 | Namespace | Service | Subpath import |
 |---|---|---|
-| `c.iam` | IAM | `@synapsedx/sdk/iam` |
-| `c.workflow` | Workflow engine | `@synapsedx/sdk/workflow` |
-| `c.lds` | SynapseLDS | `@synapsedx/sdk/lds` |
-| `c.base` | SynapseBase | `@synapsedx/sdk/base` |
-| `c.faststore` | Synapse Faststore | `@synapsedx/sdk/faststore` |
-| `c.queue` | SynapseQueue | `@synapsedx/sdk/queue` |
+| `c.iam` | IAM | `@synapseone/sdk/iam` |
+| `c.workflow` | Workflow engine | `@synapseone/sdk/workflow` |
+| `c.lds` | SynapseLDS | `@synapseone/sdk/lds` |
+| `c.base` | SynapseBase | `@synapseone/sdk/base` |
+| `c.faststore` | Synapse Faststore | `@synapseone/sdk/faststore` |
+| `c.queue` | SynapseQueue | `@synapseone/sdk/queue` |
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
-import { BaseService } from '@synapsedx/sdk/base';
-import { QueueService } from '@synapsedx/sdk/queue';
+import { SynapseOneClient } from '@synapseone/sdk';
+import { BaseService } from '@synapseone/sdk/base';
+import { QueueService } from '@synapseone/sdk/queue';
 ```
 
 The legacy flat methods (`c.login(...)`, `c.listTemplates(...)`,
@@ -727,7 +727,7 @@ that `path`. The gateway does **not** proxy `/webhook/*` — call the
 workflow-service origin directly (e.g. `http://localhost:4002`).
 
 ```ts
-import { triggerWebhook } from '@synapsedx/sdk';
+import { triggerWebhook } from '@synapseone/sdk';
 
 // Copy-paste: fire the code-transform template's webhook after activating it.
 const out = await triggerWebhook('http://localhost:4002', 'transform', { value: 21 });
@@ -744,33 +744,33 @@ curl -X POST http://localhost:4002/webhook/transform \
 
 ## Error handling
 
-All methods throw `SynapseDXError` on failure (a subclass of `Error`). The
+All methods throw `SynapseOneError` on failure (a subclass of `Error`). The
 message includes the HTTP status and path, and the class exposes the parsed
 response:
 
 ```ts
-import { SynapseDXError } from '@synapsedx/sdk';
+import { SynapseOneError } from '@synapseone/sdk';
 
 try {
   await c.iam.authorize(userId, 'workflow:Execute', '*');
 } catch (e) {
-  if (e instanceof SynapseDXError) {
-    console.error(e.message); // e.g. "synapsedx 403 /v1/authorize: ..."
+  if (e instanceof SynapseOneError) {
+    console.error(e.message); // e.g. "synapseone 403 /v1/authorize: ..."
     console.error(e.status, e.body);
   }
 }
 ```
 
-Network errors are also `SynapseDXError`, with `status` undefined and a
+Network errors are also `SynapseOneError`, with `status` undefined and a
 descriptive message.
 
 ## Full example
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
 async function main() {
-  const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
+  const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
 
   // 1. Login
   const { accessToken, user } = await c.login('demo@acme.local');

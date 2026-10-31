@@ -1,9 +1,9 @@
-# SynapseDX — Service Reference
+# SynapseOne — Service Reference
 
 Per-service map for agents: purpose, key files, API surface, data, rules, env.
 Ports assume Compose defaults. Apart from explicit public gateway routes
 (`/v1/auth/*`, LDS public reads, `/webhook/*`), services are internal in
-production and require `x-synapsedx-internal` when the shared secret is set.
+production and require `x-synapseone-internal` when the shared secret is set.
 
 ---
 
@@ -24,8 +24,8 @@ upstreams. `routes.yaml` covers `/v1/auth`, IAM resources, `/v1/workflows`,
 **Rules:**
 - Auth modes per route: `none|jwt|apikey|either`; route specificity by literal
   length; `*` = one segment, trailing `/*` = remainder.
-- Strips all client `x-synapsedx-*`, re-stamps verified identity, adds
-  `x-synapsedx-anon: 1` for public routes without a principal.
+- Strips all client `x-synapseone-*`, re-stamps verified identity, adds
+  `x-synapseone-anon: 1` for public routes without a principal.
 - API-key verification calls IAM `/v1/keys/verify` (5 s timeout, fail-closed).
 - No global `express.json()` (must preserve raw proxy body). No path rewrite.
 - Per-route `timeoutMs` 1–300 s (LLM/webhook routes are longer); 502 on upstream
@@ -36,7 +36,7 @@ upstreams. `routes.yaml` covers `/v1/auth`, IAM resources, `/v1/workflows`,
 - `/ready` probes IAM, Workflow, AI, LDS, Base, Faststore, Queue (not Inference).
 
 **Env:** `PORT`/`GATEWAY_PORT`, `IAM_SERVICE_URL`, all `*_SERVICE_URL`,
-`IAM_JWT_SECRET`, `SYNAPSEDX_INTERNAL_SECRET`, `GATEWAY_ROUTES_PATH`,
+`IAM_JWT_SECRET`, `SYNAPSEONE_INTERNAL_SECRET`, `GATEWAY_ROUTES_PATH`,
 `GATEWAY_VERIFY_APIKEY`, `PROXY_TIMEOUT_MS`, `CORS_ORIGIN`, `HSTS_ENABLED`,
 `USAGE_TELEMETRY`.
 
@@ -82,9 +82,9 @@ Migrations seed demo org `acme` and account `prod`; the memory fallback seeds
 `acme` too. Demo users are created on demand (dev login).
 
 **Rules:**
-- Access JWT HS256 `iss=synapsedx-iam`; refresh tokens single-use and rotated
+- Access JWT HS256 `iss=synapseone-iam`; refresh tokens single-use and rotated
   atomically; API keys hashed at rest (optional pepper; legacy hash accepted).
-- Stamped tenant headers are trusted only when `SYNAPSEDX_INTERNAL_SECRET` is
+- Stamped tenant headers are trusted only when `SYNAPSEONE_INTERNAL_SECRET` is
   set; otherwise the credential is verified directly (dev).
 - `canActForAccount`: role/account membership, then same-org fallback for
   bootstrap; service-account tokens are account-bound (no org fallback).
@@ -100,7 +100,7 @@ Migrations seed demo org `acme` and account `prod`; the memory fallback seeds
 **Env:** `PORT`, `DATABASE_URL`, `REDIS_URL` (reserved), `IAM_JWT_SECRET`,
 `IAM_JWT_EXPIRES_IN`, `IAM_REFRESH_EXPIRES_IN`, `IAM_API_KEY_PEPPER`,
 `IAM_ALLOW_DEV_LOGIN`, `IAM_ALLOW_OIDC_DEMO_CALLBACK`,
-`SYNAPSEDX_INTERNAL_SECRET`, `OIDC_*`, `AUDIT_RETENTION_DAYS`,
+`SYNAPSEONE_INTERNAL_SECRET`, `OIDC_*`, `AUDIT_RETENTION_DAYS`,
 `USAGE_RETENTION_DAYS`, `HSTS_ENABLED`, `CORS_ORIGIN`.
 
 ---
@@ -128,9 +128,9 @@ Migrations seed demo org `acme` and account `prod`; the memory fallback seeds
 **Engine:** executes a DAG with a queue/fan-out model; expressions support
 `={{ ... }}` and `{{ ... }}` with `$json`, `$input`, `$now`. Node families:
 - native/aliases: `webhook`, `cron`, `manualTrigger`, `noOp`, `set`, `if`,
-  `httpRequest`, `code`, `decision`, `aiAgent`, `synapsedx.api`;
-- integration nodes: `synapsedx.iam|base|faststore|queue|lds|inference|flow`;
-- `synapsedx.api` operations cover IAM resources (users/roles/policies/
+  `httpRequest`, `code`, `decision`, `aiAgent`, `synapseone.api`;
+- integration nodes: `synapseone.iam|base|faststore|queue|lds|inference|flow`;
+- `synapseone.api` operations cover IAM resources (users/roles/policies/
   authorize/keys/service-accounts), workflows/executions/templates, plus
   `lds.*`, `base.*` (incl. `vector-search`), `faststore.*`, `queue.*` and
   `inference.*` (`chat|embeddings|decision|route`).
@@ -142,12 +142,12 @@ header/TTL; cron scheduler tick (`WORKFLOW_CRON_TICK_MS`, default 15 s) runs
 active cron workflows. Activation gates cron + webhooks, not manual runs.
 
 **Templates (10):** `webhook-to-log`, `cron-etl`, `iam-webhook`,
-`code-transform`, `manual-starter`, `synapsedx-self-check`, `webhook-to-lds`,
+`code-transform`, `manual-starter`, `synapseone-self-check`, `webhook-to-lds`,
 `github-push-to-log`, `ai-triage-ops`, `customer-360-orchestrator`.
 
-**Data:** `synapsedx_workflows` (nodes/connections/settings/active/tenant/
-run_as/revision), `synapsedx_executions` (input/output/node runs/principal/
-trigger), `synapsedx_credentials` (AES-256-GCM envelope, `SYNAPSEDX_CREDENTIAL_KEY`
+**Data:** `synapseone_workflows` (nodes/connections/settings/active/tenant/
+run_as/revision), `synapseone_executions` (input/output/node runs/principal/
+trigger), `synapseone_credentials` (AES-256-GCM envelope, `SYNAPSEONE_CREDENTIAL_KEY`
 32-byte hex required in prod; dev uses an ephemeral key).
 
 **Rules:**
@@ -166,8 +166,8 @@ trigger), `synapsedx_credentials` (AES-256-GCM envelope, `SYNAPSEDX_CREDENTIAL_K
 - `code`/`httpRequest` nodes are powerful: never expose a workflow editor to
   untrusted users without the platform's auth model.
 
-**Env:** `PORT`, `DATABASE_URL`, `IAM_SERVICE_URL`, `SYNAPSEDX_IAM_API_KEY`,
-`SYNAPSEDX_INTERNAL_SECRET`, `SYNAPSEDX_CREDENTIAL_KEY`,
+**Env:** `PORT`, `DATABASE_URL`, `IAM_SERVICE_URL`, `SYNAPSEONE_IAM_API_KEY`,
+`SYNAPSEONE_INTERNAL_SECRET`, `SYNAPSEONE_CREDENTIAL_KEY`,
 `WORKFLOW_CRON_TICK_MS`, `WORKFLOW_TIMEOUT_MS`, `INFERENCE_TIMEOUT_MS`,
 `HSTS_ENABLED`, `CORS_ORIGIN`.
 
@@ -209,7 +209,7 @@ projector comments call the metadata `_core`).
 - Every export sets `X-LDS-License` + `Link rel="license"`.
 - Anonymous callers may only GET public exports/licenses (gateway public routes).
 
-**Env:** `PORT`, `DATABASE_URL`, `SYNAPSEDX_INTERNAL_SECRET`, `HSTS_ENABLED`,
+**Env:** `PORT`, `DATABASE_URL`, `SYNAPSEONE_INTERNAL_SECRET`, `HSTS_ENABLED`,
 `CORS_ORIGIN`.
 
 ---
@@ -254,16 +254,16 @@ validation), `src/query.ts` (filters/order/cursor/vector), `src/store.ts`
 - Limits: document ≤ `BASE_MAX_DOCUMENT_BYTES` (default 256 KB, max 4 MB),
   nesting ≤32, arrays ≤10k; prototype keys rejected.
 
-**Data:** `synapsedx_base_collections` (scope + name unique, mapping),
-`synapsedx_base_documents` (PK collection+id, JSONB, version, GIN index),
-`synapsedx_base_vectors` (collection+document+field, embedding text,
+**Data:** `synapseone_base_collections` (scope + name unique, mapping),
+`synapseone_base_documents` (PK collection+id, JSONB, version, GIN index),
+`synapseone_base_vectors` (collection+document+field, embedding text,
 dimension). Memory backend for dev/tests.
 
 **Rules:** collection visibility = platform all, org-bound same org,
 account-bound same account. Production requires DB + internal secret.
 
 **Env:** `PORT`, `DATABASE_URL`, `BASE_MAX_DOCUMENT_BYTES`,
-`BASE_QUERY_SCAN_LIMIT`, `SYNAPSEDX_INTERNAL_SECRET`, `HSTS_ENABLED`,
+`BASE_QUERY_SCAN_LIMIT`, `SYNAPSEONE_INTERNAL_SECRET`, `HSTS_ENABLED`,
 `CORS_ORIGIN`.
 
 ---
@@ -292,13 +292,13 @@ account-bound same account. Production requires DB + internal secret.
 **Semantics:** TTL max 30 days; key ≤512 chars (no `/` or `\`); field ≤256;
 batch ≤100. Conditional writes `ifNotExists`/`ifExists`. Locks are token-owned
 and must be released/extended with the returned token. Keys live under
-`synapsedx:faststore:v1:<tenant>:`; locks under `...:__lock__:<name>`.
+`synapseone:faststore:v1:<tenant>:`; locks under `...:__lock__:<name>`.
 
 **Rules:** anonymous rejected; platform callers must pass tenant. Redis required
 in production (else split-brain). Memory fallback for tests/dev.
 
 **Env:** `PORT`, `FASTSTORE_REDIS_URL`/`REDIS_URL`,
-`SYNAPSEDX_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
+`SYNAPSEONE_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
 
 ---
 
@@ -328,12 +328,12 @@ leases, retries, DLQ and replay.
 - `maxMessages` ≤100 per consume; batch/receipts ≤100.
 - Payload ≤256 KB (`QUEUE_MAX_PAYLOAD_BYTES`), headers ≤8 KB.
 - Queue names `[A-Za-z][A-Za-z0-9_-]{0,63}`.
-- Keys: `synapsedx:queue:v1:<tenant>:...`.
+- Keys: `synapseone:queue:v1:<tenant>:...`.
 - At-least-once by design → consumers must be idempotent; dedupe keys are the
   tool for duplicate suppression.
 
 **Env:** `PORT`, `QUEUE_REDIS_URL`/`REDIS_URL`, `QUEUE_MAX_PAYLOAD_BYTES`,
-`SYNAPSEDX_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
+`SYNAPSEONE_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
 
 ---
 
@@ -353,7 +353,7 @@ stays server-side. Output is validated against the catalog and fails closed
 
 **Env:** `PORT`, `AI_BASE_URL`, `AI_API_KEY`, `AI_DECISION_MODEL`,
 `AI_LLM_MODEL`, `AI_LLM_FALLBACK_MODEL`, `AI_TIMEOUT_MS`, `AI_RETRIES`,
-`AI_RATE_LIMIT`, `SYNAPSEDX_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
+`AI_RATE_LIMIT`, `SYNAPSEONE_INTERNAL_SECRET`, `HSTS_ENABLED`, `CORS_ORIGIN`.
 
 ---
 
@@ -374,7 +374,7 @@ at `/docs`.
 `liquid/lfm-2.5-2.6b:free`), sentence-transformers `all-MiniLM-L6-v2`
 (384-dim), Decision-2.0-Eos-0.8B. Device auto-detected.
 
-**Rules:** `/v1/*` requires `x-synapsedx-internal` when configured; production
+**Rules:** `/v1/*` requires `x-synapseone-internal` when configured; production
 requires the secret. Not tenant-aware — callers must not send tenant data.
 No auth beyond the internal secret.
 
@@ -382,7 +382,7 @@ No auth beyond the internal secret.
 `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODEL`, `OPENROUTER_TIMEOUT_MS`,
 `OPENROUTER_RETRIES`, `EMBEDDING_MODEL_NAME`, `EMBEDDING_DIM`,
 `DECISION_MODEL_NAME`, `INFERENCE_DEVICE`, `INFERENCE_MOCK_MODELS`,
-`SYNAPSEDX_INTERNAL_SECRET`.
+`SYNAPSEONE_INTERNAL_SECRET`.
 
 ---
 
@@ -396,26 +396,26 @@ SynapseQueue, SynapseFaststore, SynapseInference, LinkedData, Authorize, Audit,
 ApiDocs, Docs, Login, OidcCallback, Landing), `src/lib/api.js` (fetch client +
 single-flight refresh rotation), `src/lib/auth.jsx` (session context),
 `src/components/WorkflowEditor.jsx`, `src/components/Chatbot.jsx`,
-`public/config.js` (runtime `SYNAPSEDX_CONFIG.BASE_URL`), `nginx.conf`,
+`public/config.js` (runtime `SYNAPSEONE_CONFIG.BASE_URL`), `nginx.conf`,
 `docker-entrypoint.sh`.
 
 **Rules:** calls the gateway only; API base URL comes from runtime config
-(`SYNAPSEDX_PUBLIC_BASE_URL` substituted at container start) or
-`VITE_SYNAPSEDX_BASE_URL` in dev. Auth tokens in local storage; 401 triggers one
+(`SYNAPSEONE_PUBLIC_BASE_URL` substituted at container start) or
+`VITE_SYNAPSEONE_BASE_URL` in dev. Auth tokens in local storage; 401 triggers one
 single-flight refresh, then clears session. Dev proxy: `/api` → gateway.
 
 ---
 
 ## SDKs and CLI
 
-- `sdks/sdk-js` — `@synapsedx/sdk`, TypeScript, zero runtime deps; namespaces
+- `sdks/sdk-js` — `@synapseone/sdk`, TypeScript, zero runtime deps; namespaces
   `iam`, `workflow`, `lds`, `base`, `faststore`, `queue`, `inference`; legacy
   flat methods deprecated.
-- `sdks/sdk-python` — `synapsedx-sdk`, Python 3.9+, `requests` only; same
+- `sdks/sdk-python` — `synapseone-sdk`, Python 3.9+, `requests` only; same
   namespaces.
-- `sdks/sdk-go` — `synapsedx-sdk-go`, Go 1.22+, stdlib only; typed
+- `sdks/sdk-go` — `synapseone-sdk-go`, Go 1.22+, stdlib only; typed
   `BaseCollection`; install via `replace` (monorepo path has uppercase letters).
-- `tools/cli` — `@synapsedx/cli`, zero deps, Node 18+, `synapsedx` binary.
+- `tools/cli` — `@synapseone/cli`, zero deps, Node 18+, `synapseone` binary.
   Commands cover auth, orgs/accounts/users/roles/policies/keys/service accounts,
   workflows/executions/templates/webhooks, LDS, and a generic `call` escape
   hatch; there are no first-class Base/Faststore/Queue/Inference commands yet.

@@ -26,7 +26,7 @@ Global: audit_log records every authorize decision (see `GET /v1/audit`).
 ```
 
 - `Action`: `service:Verb`, supports `*` and `prefix:*` (e.g. `workflow:*`, `iam:*`).
-- `Resource`: ARN-ish or `*` (e.g. `arn:synapsedx:acme:prod:workflow:etl-nightly`).
+- `Resource`: ARN-ish or `*` (e.g. `arn:synapseone:acme:prod:workflow:etl-nightly`).
 - Evaluation: **explicit Deny wins → Allow → default Deny**.
 
 ## Condition (AWS subset)
@@ -48,8 +48,8 @@ forces `user/org/email` from the DB so callers can't spoof those keys. Dry-run t
 | Type | Format | Default TTL | Storage |
 |---|---|---|---|
 | Access JWT | Bearer `eyJ...` (HS256) | 3600s | stateless, verified with `IAM_JWT_SECRET` |
-| Refresh | `synapsedx_rt_...` opaque, **rotating** | 30 days | HMAC-SHA256 hash (with `IAM_API_KEY_PEPPER`; legacy SHA-256 still verifies) in `refresh_tokens`; single-use, revoked on logout |
-| API key | `synapsedx_...` | optional/no expiry | HMAC-SHA256 hash (pepper, legacy fallback) in `api_keys` + prefix index, revoke with `DELETE /v1/keys/:id` |
+| Refresh | `synapseone_rt_...` opaque, **rotating** | 30 days | HMAC-SHA256 hash (with `IAM_API_KEY_PEPPER`; legacy SHA-256 still verifies) in `refresh_tokens`; single-use, revoked on logout |
+| API key | `synapseone_...` | optional/no expiry | HMAC-SHA256 hash (pepper, legacy fallback) in `api_keys` + prefix index, revoke with `DELETE /v1/keys/:id` |
 | Service account | Bearer JWT `kind=service-account` | 3600s | stateless, carries the `account` scope |
 
 Notes: access JWTs are stateless so they **can't be individually revoked** — keep a short
@@ -59,7 +59,7 @@ instant revocation: rotate `IAM_JWT_SECRET` (restart iam+gateway, all old JWTs d
 Current detail: API-key `scopes` are stored + returned on verify (`/v1/keys/verify`).
 The gateway only presence-checks at the edge by default (upstream verifies in detail); set
 `GATEWAY_VERIFY_APIKEY=true` for centralized gateway verification (with
-`x-synapsedx-account`, `x-synapsedx-scopes` propagated downstream). Per-route scope
+`x-synapseone-account`, `x-synapseone-scopes` propagated downstream). Per-route scope
 enforcement is a v0.2 item (see `ROADMAP.md`).
 
 ## OIDC (Authentik / Keycloak)

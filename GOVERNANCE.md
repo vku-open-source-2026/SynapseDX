@@ -1,6 +1,6 @@
 # Governance
 
-synapsedx is a community project under Apache-2.0.
+synapseone is a community project under Apache-2.0.
 
 ## Roles
 - **Contributors**: anyone with a merged PR.
@@ -12,4 +12,4 @@ synapsedx is a community project under Apache-2.0.
 - `CHANGELOG.md` updated per release.
 
 ## Trademark
-"synapsedx" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.
+"synapseone" name/logo (if any) are not covered by the code license. Do not imply official endorsement by the maintainers.

@@ -7,7 +7,7 @@ queries, optimistic concurrency, atomic counters, batch writes and a change feed
 - Service: `apps/base-service` · port **4005** · gateway prefix `/v1/base`
 - Storage: Postgres (`DATABASE_URL`) with an in-memory fallback for dev/tests
 - Auth: gateway JWT/API key (`either`); direct calls need
-  `x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` when the secret is configured
+  `x-synapseone-internal: <SYNAPSEONE_INTERNAL_SECRET>` when the secret is configured
 - SDKs: `client.base` (Python/JS), `Client.*Base*` (Go)
 
 ## Why a mapping?
@@ -406,7 +406,7 @@ You can also pass a `vectorSearch` block directly to `POST /v1/base/collections/
 2. **AI Agent Tool in SynapseFlow**:
    - `synapsebase_vector_search`: Built-in agent tool allowing autonomous AI agents to semantically query documents in SynapseBase. The agent can provide natural language `query` (which is automatically embedded via Synapse Inference) or pre-computed `vector` floats, along with optional metadata filter (`where`) and result limit (`limit`).
    - `synapsebase_query`: Also supports `action: "vector_search"` with natural language `query` or `vector`.
-   - **Canvas Node-as-Tool**: A `synapsedx.base` node configured for `vector-search` can be wired into an AI Agent's purple `tools` port. The agent can invoke this canvas tool passing `{ input: { query: "..." } }` dynamically.
+   - **Canvas Node-as-Tool**: A `synapseone.base` node configured for `vector-search` can be wired into an AI Agent's purple `tools` port. The agent can invoke this canvas tool passing `{ input: { query: "..." } }` dynamically.
 
 ### SDK Usage
 
@@ -441,15 +441,15 @@ matches = articles.vector_search([0.1, 0.2, 0.3], limit=5)
 #### Go
 ```go
 // Service level:
-results, err := client.VectorSearchBaseDocuments("articles", synapsedx.BaseVectorSearchOptions{
+results, err := client.VectorSearchBaseDocuments("articles", synapseone.BaseVectorSearchOptions{
     Vector: []float64{0.1, 0.2, 0.3},
     Limit:  5,
     Where:  map[string]any{"category": "ai"},
 })
 
 // Typed collection level:
-articles := synapsedx.NewBaseCollection[Article](client, "articles", mapping)
-matches, err := articles.VectorSearch(synapsedx.BaseVectorSearchOptions{
+articles := synapseone.NewBaseCollection[Article](client, "articles", mapping)
+matches, err := articles.VectorSearch(synapseone.BaseVectorSearchOptions{
     Vector: []float64{0.1, 0.2, 0.3},
     Limit:  5,
 })
@@ -533,7 +533,7 @@ auth_required`). Access is derived from the gateway-stamped principal:
 
 | Caller | Sees | Creates |
 |---|---|---|
-| Org principal (`x-synapsedx-org`) | collections owned by that org | org-bound (`org_id=<org>`), optional `accountId` |
+| Org principal (`x-synapseone-org`) | collections owned by that org | org-bound (`org_id=<org>`), optional `accountId` |
 | Account-only principal | unbound-org collections owned by that account | `org_id=null, account_id=<account>` |
 | Platform caller (internal) | only **unbound** collections by default | unbound unless `orgId`/`accountId` supplied |
 
@@ -543,7 +543,7 @@ auth_required`). Access is derived from the gateway-stamped principal:
 - Cross-tenant creates are rejected with `403 cross_tenant`; foreign collections
   read as `404 not_found`.
 - Direct service calls (port 4005) must also carry the internal secret when
-  `SYNAPSEDX_INTERNAL_SECRET` is set.
+  `SYNAPSEONE_INTERNAL_SECRET` is set.
 
 ## Errors
 
@@ -588,14 +588,14 @@ All errors use `{error, message}`; mapping errors may add `details`.
 
 ```python
 from dataclasses import dataclass
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
 @dataclass
 class Park:
     name: str
     capacity: int | None = None
 
-c = SynapseDXClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient("http://localhost:8080", token=jwt)
 
 # Unbound/dynamic API
 c.base.create_collection(
@@ -639,9 +639,9 @@ Python notes:
 ### JavaScript / TypeScript
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
 
 await c.base.createCollection({
   name: 'parks',
@@ -673,7 +673,7 @@ const changes = await parks.changes({ since: '2026-10-01T00:00:00Z' });
 ### Go
 
 ```go
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 c.SetToken(jwt)
 
 _, err := c.CreateBaseCollection(map[string]any{
@@ -688,14 +688,14 @@ type Park struct {
     Name     string `json:"name"`
     Capacity int    `json:"capacity"`
 }
-parks := synapsedx.NewBaseCollection[Park](c, "parks",
-    synapsedx.NewBaseMapping(map[string]string{"name": "profile.name", "capacity": "profile.capacity"}),
+parks := synapseone.NewBaseCollection[Park](c, "parks",
+    synapseone.NewBaseMapping(map[string]string{"name": "profile.name", "capacity": "profile.capacity"}),
 )
 park, err := parks.Create(Park{Name: "Central", Capacity: 120}, "park-1")
 park, err = parks.Get("park-1")
-page, err := parks.Query(synapsedx.BaseQuery{
+page, err := parks.Query(synapseone.BaseQuery{
     Where: map[string]any{"capacity": map[string]any{"gte": 100}},
-    OrderBy: []synapsedx.BaseOrderBy{{Field: "name", Direction: "asc"}},
+    OrderBy: []synapseone.BaseOrderBy{{Field: "name", Direction: "asc"}},
 })
 park, err = parks.Increment("park-1", "profile.capacity", 10, 0)
 feed, err := parks.Changes("2026-10-01T00:00:00Z", 100)
@@ -709,10 +709,10 @@ match the logical mapping names. `NewBaseMapping` builds the simple
 ## Operations
 
 - `GET /health` → `{status, service:"base", version, db:"postgres"|"memory", collections, time}`
-- `GET /metrics` → `synapsedx_base_up`, `synapsedx_base_collections_total`,
-  `synapsedx_base_http_requests_total{key="METHOD|route|status"}`,
-  `synapsedx_base_process_uptime_seconds`
-- Production requires `SYNAPSEDX_INTERNAL_SECRET` and `DATABASE_URL`; without a
+- `GET /metrics` → `synapseone_base_up`, `synapseone_base_collections_total`,
+  `synapseone_base_http_requests_total{key="METHOD|route|status"}`,
+  `synapseone_base_process_uptime_seconds`
+- Production requires `SYNAPSEONE_INTERNAL_SECRET` and `DATABASE_URL`; without a
   database the service uses an in-memory store (single process, no persistence).
 - Request bodies are limited to 5 MB by the HTTP layer; the document limit is
   enforced separately.

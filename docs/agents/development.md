@@ -1,4 +1,4 @@
-# SynapseDX — Development Playbook
+# SynapseOne — Development Playbook
 
 How to build, test, change, and ship this repo without breaking its invariants.
 Architecture: `docs/agents/architecture.md`. Service map:
@@ -35,12 +35,12 @@ cd apps/inference-service && uvicorn src.main:app --port 4008 --reload
 cd apps/console && npm run dev                  # :3000, /api proxy → :8080
 ```
 
-- Services bind host ports directly in dev; `SYNAPSEDX_INTERNAL_SECRET` is
+- Services bind host ports directly in dev; `SYNAPSEONE_INTERNAL_SECRET` is
   usually empty, so direct calls are allowed and IAM verifies credentials
   instead of trusting stamped headers. Set the same secret on gateway + every
   service (and `NODE_ENV=production`) to exercise the real trust path.
 - With the secret set, direct calls to service `/v1/*` need
-  `x-synapsedx-internal: <secret>`. IAM additionally requires the original
+  `x-synapseone-internal: <secret>`. IAM additionally requires the original
   Bearer/API key on resource routes; only `/v1/auth/*`, `/health`,
   `/v1/keys/verify` (internal-only) and `/v1/usage/ingest` are special.
 - Gateway routes come from `apps/gateway/routes.yaml` relative to the process
@@ -63,11 +63,11 @@ make license-check
 
 ```bash
 make compose-up
-SYNAPSEDX_BASE_URL=http://localhost:8080 bash tests/e2e/api-check.sh
-SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
-SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
-SYNAPSEDX_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
-SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/inference-check.js
+SYNAPSEONE_BASE_URL=http://localhost:8080 bash tests/e2e/api-check.sh
+SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
+SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
+SYNAPSEONE_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
+SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/inference-check.js
 ```
 
 - E2E creates fixed slugs (`e2e`, `sdkacc`, `pyfull`, `ci-workflow`); reset the
@@ -85,10 +85,10 @@ Each Postgres-backed service owns its schema and journal:
 
 | Service | Schema | Journal | Advisory lock key |
 |---|---|---|---|
-| IAM | `apps/iam-service/src/schema.ts` | `__drizzle_migrations_iam` | `synapsedx_iam_migrations` |
-| Workflow | `apps/workflow-service/src/schema.ts` | `__drizzle_migrations_workflow` | `synapsedx_workflow_migrations` |
-| LDS | `apps/lds-service/src/schema.ts` | `__drizzle_migrations_lds` | `synapsedx_lds_migrations` |
-| Base | `apps/base-service/src/schema.ts` | `__drizzle_migrations_base` | `synapsedx_base_migrations` |
+| IAM | `apps/iam-service/src/schema.ts` | `__drizzle_migrations_iam` | `synapseone_iam_migrations` |
+| Workflow | `apps/workflow-service/src/schema.ts` | `__drizzle_migrations_workflow` | `synapseone_workflow_migrations` |
+| LDS | `apps/lds-service/src/schema.ts` | `__drizzle_migrations_lds` | `synapseone_lds_migrations` |
+| Base | `apps/base-service/src/schema.ts` | `__drizzle_migrations_base` | `synapseone_base_migrations` |
 
 Workflow:
 
@@ -136,7 +136,7 @@ by service migrations/startup; do not put business tables in `init.sql`.
 
 - Re-read `docs/agents/architecture.md` §3–§4 and the IAM scoping tests
   (`apps/iam-service/src/scoping.test.ts`).
-- Preserve: header stripping/re-stamping, `x-synapsedx-anon`, internal-secret
+- Preserve: header stripping/re-stamping, `x-synapseone-anon`, internal-secret
   timing-safe check, `TRUST_STAMPED` only with the secret, 404 for cross-tenant
   existence leaks, 403 for known-resource denials.
 - Run `apps/iam-service` and `apps/gateway` tests plus the Compose e2e suite.
@@ -159,8 +159,8 @@ by service migrations/startup; do not put business tables in `init.sql`.
 
 - Plain JSX, React Router, no TypeScript. `src/lib/api.js` is the only HTTP
   layer; use `authStore` for token/refresh handling.
-- Runtime API base URL: `public/config.js` (`window.SYNAPSEDX_CONFIG.BASE_URL`)
-  in production; `VITE_SYNAPSEDX_BASE_URL` in dev; default
+- Runtime API base URL: `public/config.js` (`window.SYNAPSEONE_CONFIG.BASE_URL`)
+  in production; `VITE_SYNAPSEONE_BASE_URL` in dev; default
   `http://localhost:8080`.
 - Tests: `npm run test --workspace=apps/console` (node:test + SSR smoke).
 
@@ -179,10 +179,10 @@ by service migrations/startup; do not put business tables in `init.sql`.
   lengths, nesting depth; reject `__proto__`/`constructor`/`prototype`.
 - **Secrets:** env only. Compare with `crypto.timingSafeEqual`; hash tokens/API
   keys at rest; never log authorization/API-key/password/secret headers.
-- **Headers:** do not trust inbound `x-synapsedx-*`; only the gateway stamps
+- **Headers:** do not trust inbound `x-synapseone-*`; only the gateway stamps
   them. `x-request-id` is sanitized.
 - **Copyright:** new source files start with the Apache-2.0 header used across
-  the repo (`Copyright 2026 SynapseDX Contributors`).
+  the repo (`Copyright 2026 SynapseOne Contributors`).
 - **Comments:** existing code mixes Vietnamese and English; match the file.
   Public docs and these agent notes are English.
 - **Commits:** Conventional Commits (`feat(iam): …`, `fix(gateway): …`,
@@ -212,7 +212,7 @@ Version bumps touch every `package.json`, Compose image tags, SDK versions, and
 | Symptom | Check |
 |---|---|
 | Gateway 404 | route missing/typo in `routes.yaml`; restart gateway |
-| 401 on internal call | missing/wrong `x-synapsedx-internal`; secret mismatch |
+| 401 on internal call | missing/wrong `x-synapseone-internal`; secret mismatch |
 | 403 cross-tenant | expected; verify stamped org/account and service scope |
 | 409 on Base write | `ifVersion`/`If-Match` stale; re-read then retry |
 | 413 Base query | `BASE_QUERY_SCAN_LIMIT` exceeded; narrow filter/index |

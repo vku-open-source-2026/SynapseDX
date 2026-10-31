@@ -1,4 +1,4 @@
-# SynapseDX Console (management UI)
+# SynapseOne Console (management UI)
 
 An AWS-Console-style admin UI for the Tier-1 PaaS: service-based sidebar navigation,
 Org/Account switcher, IAM CRUD, authorize simulator, workflows, audit log.
@@ -20,11 +20,11 @@ docker compose up -d --build postgres redis s3 iam workflow gateway console
 Change the port/backend host:
 
 ```bash
-CONSOLE_HOST_PORT=13000 SYNAPSEDX_PUBLIC_BASE_URL=http://localhost:18080 \
+CONSOLE_HOST_PORT=13000 SYNAPSEONE_PUBLIC_BASE_URL=http://localhost:18080 \
 GATEWAY_HOST_PORT=18080 docker compose up -d --build console gateway ...
 ```
 
-`SYNAPSEDX_PUBLIC_BASE_URL` **must be a browser-reachable URL** (not a docker service
+`SYNAPSEONE_PUBLIC_BASE_URL` **must be a browser-reachable URL** (not a docker service
 name) — the container injects it into `config.js` at startup
 (`apps/console/docker-entrypoint.sh`). `CONSOLE_APP_URL` is the canonical app host used
 for cross-domain sign-in redirects (see multi-domain deploys in `infra/prod/`).

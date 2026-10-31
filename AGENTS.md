@@ -1,11 +1,11 @@
-# AGENTS.md — SynapseDX
+# AGENTS.md — SynapseOne
 
 Agent memory for this repo. Load only the note you need; the deep notes are split
 by concern to keep context small.
 
 ## What this is
 
-SynapseDX v0.6.2 — Apache-2.0 "Tier-1 PaaS": one API gateway, AWS-style IAM,
+SynapseOne v0.7.0 — Apache-2.0 "Tier-1 PaaS": one API gateway, AWS-style IAM,
 Postgres/Redis data plane (S3 is provisioned but not exposed yet), built-in
 workflow engine, NGSI-LD linked data (SynapseLDS), document DB (SynapseBase),
 Redis cache (Synapse Faststore), and at-least-once queue (SynapseQueue).
@@ -20,6 +20,7 @@ Authentik/Keycloak are optional external OIDC IdPs.
 | Service endpoints, files, env vars, invariants | `docs/agents/services.md` |
 | Build/test, migrations, change checklists, CI/conventions | `docs/agents/development.md` |
 | Human documentation index | `docs/README.md` |
+| Upgrade an existing SynapseDX deployment | `docs/migration-synapseone.md` |
 | Full API reference | `docs/api.md` |
 
 Skip: `node_modules/`, `apps/*/dist/`, `.pytest_cache/`, `.ruff_cache/`,
@@ -53,7 +54,7 @@ Skip: `node_modules/`, `apps/*/dist/`, `.pytest_cache/`, `.ruff_cache/`,
 | `apps/inference-service` | Python FastAPI LLM proxy + embeddings + decision | 4008 | local models / OpenRouter |
 | `apps/console` | Admin UI | 3000 (nginx :80) | calls gateway |
 | `sdks/sdk-js`, `sdks/sdk-python`, `sdks/sdk-go` | Client SDKs | — | — |
-| `tools/cli` | `synapsedx` CLI (zero deps, Node 18+) | — | — |
+| `tools/cli` | `synapseone` CLI (zero deps, Node 18+) | — | — |
 
 Infra: Postgres 5432, Redis 6379, S3 9090, Prometheus 9091. In production only
 the gateway (and TLS edge) is public; service ports stay internal.
@@ -66,7 +67,7 @@ Console / CLI / SDK
         ▼
 Gateway :8080 ── route match from apps/gateway/routes.yaml
         │ verify JWT locally (IAM_JWT_SECRET) or API key via IAM
-        │ strip client x-synapsedx-* → re-stamp verified principal
+        │ strip client x-synapseone-* → re-stamp verified principal
         ▼
 IAM / Workflow / LDS / Base / Faststore / Queue / AI / Inference
         │ derive tenant from stamped org/account/user
@@ -77,8 +78,8 @@ Postgres · Redis · S3 (provisioned)
 ## Non-negotiable invariants
 
 1. **Gateway is the only public API in production.** Internal services reject
-   direct traffic when `SYNAPSEDX_INTERNAL_SECRET` is set (required in prod).
-2. **Never trust client-supplied `x-synapsedx-*` headers.** The gateway deletes
+   direct traffic when `SYNAPSEONE_INTERNAL_SECRET` is set (required in prod).
+2. **Never trust client-supplied `x-synapseone-*` headers.** The gateway deletes
    them and re-stamps from the verified principal. IAM only trusts stamped
    tenant headers when the internal secret is configured; otherwise it verifies
    the credential itself.
@@ -97,7 +98,7 @@ Postgres · Redis · S3 (provisioned)
    gate (`make license-check`) fails on GPL/AGPL/LGPL.
 9. **New public paths need a gateway route** in `apps/gateway/routes.yaml`,
    otherwise the gateway returns 404 before the upstream sees the request.
-10. **Keep versions in sync** at `0.6.2` across packages, Compose images, and SDKs.
+10. **Keep versions in sync** at `0.7.0` across packages, Compose images, and SDKs.
 
 ## Commands
 
@@ -118,7 +119,7 @@ npm run db:generate --workspace=apps/base-service   # Drizzle migration
 
 E2E helpers: `bash tests/e2e/api-check.sh`, `node tests/e2e/services-check.js`,
 `node tests/e2e/sdk-check.js`, `python tests/e2e/sdk-check.py`,
-`node tests/e2e/inference-check.js`. Set `SYNAPSEDX_BASE_URL` when not using
+`node tests/e2e/inference-check.js`. Set `SYNAPSEONE_BASE_URL` when not using
 `http://localhost:8080`. Inference unit tests: `npm run test:inference`.
 
 ## Gotchas
@@ -130,9 +131,13 @@ E2E helpers: `bash tests/e2e/api-check.sh`, `node tests/e2e/services-check.js`,
 - **E2E scripts create fixed slugs** (`e2e`, `sdkacc`, `pyfull`); they are not
   rerunnable against a dirty database.
 - **Workflow node types are n8n-compatible** (`n8n-nodes-base.*`) plus
-  `synapsedx.*` nodes and `synapsedx.api` operations across IAM, Workflow,
+  `synapseone.*` nodes and `synapseone.api` operations across IAM, Workflow,
   LDS, Base, Faststore, Queue and Inference. Preserve aliases when touching
   the engine.
+- **Rebrand compatibility window:** services mirror `SYNAPSEDX_*` env vars,
+  the gateway accepts/strips/mirrors `x-synapsedx-*` headers, JWT verification
+  accepts the `synapsedx-iam` issuer, and the engine/Console normalize
+  `synapsedx.*` node types. Keep these fallbacks until the next major version.
 - **Docs can lag code.** `docs/architecture.md` still calls workflows a global
   namespace and `docs/configuration.md` mentions Redis gateway rate limiting;
   the code is tenant-scoped and uses an in-memory edge limiter. Prefer source.

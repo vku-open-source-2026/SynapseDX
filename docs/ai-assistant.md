@@ -35,7 +35,7 @@ retried model calls outlast the 30s global default.
 ## Not a public API
 
 - The route is `auth: either` (signed-in session required; anonymous gets 401)
-  plus the standard `x-synapsedx-internal` service gate — there is intentionally
+  plus the standard `x-synapseone-internal` service gate — there is intentionally
   NO catalog entry in `apps/console/src/lib/endpoints.js` and NO section in
   `docs/api.md`.
 - The agent catalog excludes `/v1/ai/*` (the bot cannot call itself).

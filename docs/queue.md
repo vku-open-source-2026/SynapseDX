@@ -9,7 +9,7 @@ acknowledge, retry or dead-letter each delivery. It is designed for
 - Storage: Redis (`QUEUE_REDIS_URL` / `REDIS_URL`) with an in-memory fallback
   for dev/tests
 - Auth: gateway JWT/API key (`either`); direct calls need
-  `x-synapsedx-internal: <SYNAPSEDX_INTERNAL_SECRET>` when configured
+  `x-synapseone-internal: <SYNAPSEONE_INTERNAL_SECRET>` when configured
 - SDKs: `client.queue` (Python/JS), `Client.*Queue*` (Go)
 
 ## Delivery model
@@ -53,15 +53,15 @@ Every queue, message and receipt is namespaced by the caller's tenant:
 
 | Principal | Namespace |
 |---|---|
-| Org (`x-synapsedx-org`) | `org:<org>` |
-| Account only (`x-synapsedx-account`) | `account:<account>` |
+| Org (`x-synapseone-org`) | `org:<org>` |
+| Account only (`x-synapseone-account`) | `account:<account>` |
 | User only | `user:<sub>` |
-| Platform caller | `tenant:<x-synapsedx-tenant>` or `?tenant=<name>` |
+| Platform caller | `tenant:<x-synapseone-tenant>` or `?tenant=<name>` |
 
 - Tenant names provided by platform callers must be 1..128 chars (no control
   characters).
 - The gateway strips client-supplied identity headers but forwards
-  `x-synapsedx-tenant`; for principal callers the verified principal always
+  `x-synapseone-tenant`; for principal callers the verified principal always
   wins, so a client cannot choose another tenant by sending it.
 - Platform callers (internal calls with no principal and no anonymous marker)
   **must** pass a tenant, otherwise `400 tenant_required`.
@@ -516,9 +516,9 @@ All errors use `{error, message}`.
 ### Python
 
 ```python
-from synapsedx_sdk import SynapseDXClient
+from synapseone_sdk import SynapseOneClient
 
-c = SynapseDXClient("http://localhost:8080", token=jwt)
+c = SynapseOneClient("http://localhost:8080", token=jwt)
 
 c.queue.create_queue("emails", max_attempts=5, visibility_timeout_seconds=60)
 
@@ -556,9 +556,9 @@ for dead in c.queue.dead_letters("emails")["messages"]:
 ### JavaScript / TypeScript
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080', token: jwt });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080', token: jwt });
 
 await c.queue.createQueue('emails', { maxAttempts: 5, visibilityTimeoutSeconds: 60 });
 
@@ -596,11 +596,11 @@ await c.queue.replayDead('emails', dead.messages[0].id, { resetAttempts: true })
 ### Go
 
 ```go
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 c.SetToken(jwt)
-// Platform callers: c.SetTenant("acme") -> x-synapsedx-tenant
+// Platform callers: c.SetTenant("acme") -> x-synapseone-tenant
 
-_, err := c.CreateQueue("emails", synapsedx.QueueConfig{
+_, err := c.CreateQueue("emails", synapseone.QueueConfig{
     MaxAttempts: 5, VisibilityTimeoutSeconds: 60,
 })
 if err != nil {
@@ -609,17 +609,17 @@ if err != nil {
 
 published, err := c.PublishMessage("emails",
     map[string]any{"to": "alice@acme.test", "template": "welcome"},
-    synapsedx.QueuePublishOptions{DedupeKey: "welcome:alice"})
+    synapseone.QueuePublishOptions{DedupeKey: "welcome:alice"})
 id := published["id"].(string)
 
-batch, err := c.ConsumeMessages("emails", synapsedx.QueueConsumeOptions{
+batch, err := c.ConsumeMessages("emails", synapseone.QueueConsumeOptions{
     MaxMessages: 10, Consumer: "mailer-1",
 })
 for _, raw := range batch["messages"].([]any) {
     msg := raw.(map[string]any)
     receipt := msg["receipt"].(string)
     if err := send(msg["payload"]); err != nil {
-        _, _ = c.NackMessage("emails", receipt, synapsedx.QueueNackOptions{
+        _, _ = c.NackMessage("emails", receipt, synapseone.QueueNackOptions{
             DelaySeconds: 30, Error: err.Error(),
         })
         continue
@@ -636,14 +636,14 @@ _, err = c.ReplayDeadMessage("emails", id, 0, true)
 ## Operations
 
 - `GET /health` → `{status, service:"queue", version, backend:"redis"|"memory", time}`
-- `GET /metrics` → `synapsedx_queue_up`,
-  `synapsedx_queue_backend_info{backend="redis"|"memory"}`,
-  `synapsedx_queue_http_requests_total{key="METHOD|route|status"}`,
-  `synapsedx_queue_process_uptime_seconds`
-- Production requires `SYNAPSEDX_INTERNAL_SECRET` and `QUEUE_REDIS_URL` (or
+- `GET /metrics` → `synapseone_queue_up`,
+  `synapseone_queue_backend_info{backend="redis"|"memory"}`,
+  `synapseone_queue_http_requests_total{key="METHOD|route|status"}`,
+  `synapseone_queue_process_uptime_seconds`
+- Production requires `SYNAPSEONE_INTERNAL_SECRET` and `QUEUE_REDIS_URL` (or
   `REDIS_URL`). Without Redis the service uses a per-process in-memory store —
   fine for local development, but replicas would not share messages.
-- Redis keys live under `synapsedx:queue:v1:<tenant>:`; do not write that
+- Redis keys live under `synapseone:queue:v1:<tenant>:`; do not write that
   namespace directly. Queue metadata and messages are separate hashes/sorted
   sets, so `DEL`-ing a queue prefix by hand can corrupt in-flight leases.
 - Scale consumers freely: consume is atomic per message and leases guarantee

@@ -1,6 +1,6 @@
 # Third-party components
 
-SynapseDX itself is Apache-2.0 (see `LICENSE`, `NOTICE`). This file inventories the
+SynapseOne itself is Apache-2.0 (see `LICENSE`, `NOTICE`). This file inventories the
 significant third-party components it integrates with or bundles, with their licenses
 and how they are consumed. It is informational — the authoritative license is always
 the upstream project's own `LICENSE` file.
@@ -9,7 +9,7 @@ the upstream project's own `LICENSE` file.
 
 | Component | License | Consumed as | Notes |
 |---|---|---|---|
-| Workflow engine | SynapseDX's own code (Apache-2.0, `apps/workflow-service/src/engine.ts`) | Built-in, no external image | Former n8n integration removed in 0.4.0 for license + usability reasons (SUL barred end-user-editable workflows). No SUL/AGPL engine remains in the default stack. |
+| Workflow engine | SynapseOne's own code (Apache-2.0, `apps/workflow-service/src/engine.ts`) | Built-in, no external image | Former n8n integration removed in 0.4.0 for license + usability reasons (SUL barred end-user-editable workflows). No SUL/AGPL engine remains in the default stack. |
 | Authentik (`ghcr.io/goauthentik/server`) | MIT | Container image + OIDC | Optional external IdP (default). |
 | Keycloak | Apache-2.0 | OIDC (alternative IdP) | Supported as alternative upstream IdP; no image pinned in compose. |
 | PostgreSQL (`postgres:16-alpine`) | PostgreSQL Licence (permissive) | Container image + `pg` driver (MIT) | System of record for IAM. |
@@ -52,6 +52,6 @@ CI re-verifies on every push (`license-check.cjs` + SBOM artifact, `pip-licenses
 
 ## License headers
 
-Every source file owned by this repo carries an `Apache-2.0 / SynapseDX Contributors`
+Every source file owned by this repo carries an `Apache-2.0 / SynapseOne Contributors`
 header. Generated artifacts (`dist/`, `*.egg-info/`, `.pytest_cache/`) are build output,
 not source, and are not expected to carry headers (they are git-ignored where practical).

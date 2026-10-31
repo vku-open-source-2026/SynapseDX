@@ -1,10 +1,10 @@
 # Monitoring (Prometheus)
 
-SynapseDX ships with metrics out of the box: the gateway exposes Prometheus
+SynapseOne ships with metrics out of the box: the gateway exposes Prometheus
 metrics at `GET /metrics` (`gateway_requests_total` + Node runtime metrics),
-`lds-service` exposes `synapsedx_lds_http_requests_total` +
-`synapsedx_lds_datasources_total` / `synapsedx_lds_records_total`,
-`workflow-service` exposes `synapsedx_workflow_runs_total`, and compose adds
+`lds-service` exposes `synapseone_lds_http_requests_total` +
+`synapseone_lds_datasources_total` / `synapseone_lds_records_total`,
+`workflow-service` exposes `synapseone_workflow_runs_total`, and compose adds
 Prometheus (scrape + graph/alerts UI) + PG/Redis exporters.
 
 ## Run
@@ -42,7 +42,7 @@ Requests** tab through `GET /v1/usage/summary` + `GET /v1/usage/events`.
 |---|---|---|
 | `USAGE_TELEMETRY` | `true` | Gateway: `false` stops recording/flushing usage events |
 | `USAGE_RETENTION_DAYS` | `30` | IAM: hourly sweep drops events older than N days (`0` = keep forever) |
-| `SYNAPSEDX_INTERNAL_SECRET` | — | Required so only the gateway can call the ingest endpoint |
+| `SYNAPSEONE_INTERNAL_SECRET` | — | Required so only the gateway can call the ingest endpoint |
 
 Usage reads are org-scoped and never include another tenant. `/v1/usage/*` is
 excluded from telemetry, so refreshing the dashboard does not record itself.

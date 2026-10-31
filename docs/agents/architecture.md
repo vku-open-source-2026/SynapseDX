@@ -1,4 +1,4 @@
-# SynapseDX — Architecture Notes
+# SynapseOne — Architecture Notes
 
 Deep design notes for agents. Service-level API/file details live in
 `docs/agents/services.md`; change workflows in `docs/agents/development.md`.
@@ -27,7 +27,7 @@ Browser / CLI / SDK
   inside). It calls the gateway using a runtime `config.js` base URL.
 - In production only the gateway (behind nginx/TLS) is exposed. Internal
   services must not publish host ports; each rejects direct `/v1/*` calls
-  without `x-synapsedx-internal` when the secret is configured (IAM keeps
+  without `x-synapseone-internal` when the secret is configured (IAM keeps
   `/v1/auth/*` reachable for login/OIDC).
 - Inference (`:4008`, Python) is proxied by the gateway for `/v1/inference`.
   It is not part of IAM/tenancy: it is a model runtime with internal-secret
@@ -54,9 +54,9 @@ Browser / CLI / SDK
 
 | Kind | Shape / TTL | Notes |
 |---|---|---|
-| Access JWT | HS256, `iss=synapsedx-iam`, `sub/org/account/scopes/kind`, default 1 h | Shared `IAM_JWT_SECRET` with gateway; weak/default secret aborts boot in prod |
-| Refresh token | opaque `synapsedx_rt_...`, default 30 d, stored as hash | Single-use atomic rotation (`consumeAndRevokeRefresh`); reuse/race fails closed |
-| API key | `synapsedx_` + random, prefix stored, hash at rest | Optional `IAM_API_KEY_PEPPER` (HMAC); legacy plain SHA-256 still verifies |
+| Access JWT | HS256, `iss=synapseone-iam`, `sub/org/account/scopes/kind`, default 1 h | Shared `IAM_JWT_SECRET` with gateway; weak/default secret aborts boot in prod |
+| Refresh token | opaque `synapseone_rt_...`, default 30 d, stored as hash | Single-use atomic rotation (`consumeAndRevokeRefresh`); reuse/race fails closed |
+| API key | `synapseone_` + random, prefix stored, hash at rest | Optional `IAM_API_KEY_PEPPER` (HMAC); legacy plain SHA-256 still verifies |
 | Service-account JWT | `kind=service-account`, account-bound, scopes | No org claim; cannot use the org fallback |
 
 ### Gateway auth modes (`routes.yaml`)
@@ -69,13 +69,13 @@ Browser / CLI / SDK
   and forbidden in production.
 - `either` — JWT first, then API key.
 
-After auth, the gateway **deletes every inbound `x-synapsedx-*` header** and
+After auth, the gateway **deletes every inbound `x-synapseone-*` header** and
 re-stamps:
 
 ```
-x-synapsedx-user / -org / -account / -scopes / -kind
-x-synapsedx-internal   (shared service secret, when configured)
-x-synapsedx-anon: 1    (public route with no principal)
+x-synapseone-user / -org / -account / -scopes / -kind
+x-synapseone-internal   (shared service secret, when configured)
+x-synapseone-anon: 1    (public route with no principal)
 ```
 
 Downstream services treat these as trusted only because direct access is blocked
@@ -101,7 +101,7 @@ headers and are dev/test-only in that mode.
 
 - AWS-style JSON policies: explicit `Deny` wins, then `Allow`, default deny.
 - Action strings like `workflow:Execute`; resources like
-  `arn:synapsedx:<org>:<account>:<service>:<id>` or `*`.
+  `arn:synapseone:<org>:<account>:<service>:<id>` or `*`.
 - `*` wildcard matcher keeps `:` literal, so `workflow:*` does not match
   `workflowEvil:x`; conditions support `StringEquals` / `StringLike`
   (`IfExists` variants). Policy docs are validated and size-capped on write.
@@ -133,9 +133,9 @@ else                     -> "user:<sub>"
 ```
 
 - **Platform callers** (no principal, no anon marker) must pass
-  `x-synapsedx-tenant` or `?tenant=` for Faststore/Queue; Base accepts
+  `x-synapseone-tenant` or `?tenant=` for Faststore/Queue; Base accepts
   `?orgId=`/`?accountId=`; LDS gets full read.
-- **Anonymous callers** (public route, `x-synapsedx-anon: 1`) are rejected by
+- **Anonymous callers** (public route, `x-synapseone-anon: 1`) are rejected by
   Base, Faststore, Queue and LDS management routes. LDS permits only public
   NGSI-LD export/license reads.
 - **Base collections** are org-bound, optionally account-bound. Visibility:
@@ -154,25 +154,25 @@ else                     -> "user:<sub>"
 
 ### Postgres
 
-One database (`synapsedx`), one Postgres instance; each service owns its tables
+One database (`synapseone`), one Postgres instance; each service owns its tables
 and migrations. `infra/postgres/init.sql` only installs extensions and creates
 the `drizzle` schema; services create tables at startup.
 
 | Service | Tables | Migration journal |
 |---|---|---|
 | IAM | `organizations`, `accounts`, `users`, `roles`, `policies`, `role_policies`, `user_roles`, `api_keys`, `service_accounts`, `refresh_tokens`, `workflows` (legacy), `usage_events`, `audit_log` | `__drizzle_migrations_iam` |
-| Workflow | `synapsedx_workflows`, `synapsedx_executions`, `synapsedx_credentials` | `__drizzle_migrations_workflow` |
+| Workflow | `synapseone_workflows`, `synapseone_executions`, `synapseone_credentials` | `__drizzle_migrations_workflow` |
 | LDS | `lds_datasources`, `lds_attributes`, `lds_records` | `__drizzle_migrations_lds` |
-| Base | `synapsedx_base_collections`, `synapsedx_base_documents`, `synapsedx_base_vectors` | `__drizzle_migrations_base` |
+| Base | `synapseone_base_collections`, `synapseone_base_documents`, `synapseone_base_vectors` | `__drizzle_migrations_base` |
 
 Migrations run on startup under a per-service PostgreSQL advisory lock. Never
 edit an applied migration; add a new one.
 
 ### Redis
 
-- Faststore keys: `synapsedx:faststore:v1:<tenant>:...`; locks use
+- Faststore keys: `synapseone:faststore:v1:<tenant>:...`; locks use
   `...:__lock__:<name>` and token-owned release/extend.
-- Queue keys: `synapsedx:queue:v1:<tenant>:...`; sorted sets + hashes + Lua make
+- Queue keys: `synapseone:queue:v1:<tenant>:...`; sorted sets + hashes + Lua make
   consume/ack/nack atomic. One Redis can back both services.
 - Gateway does **not** currently use Redis (edge limiting is in-memory).
 
@@ -231,7 +231,7 @@ headers; `_core` is never read.
 
 1. Edge verifies identity; services enforce tenancy. Never add a service route
    that trusts a tenant id from the body without checking the caller's scope.
-2. `x-synapsedx-internal` is compared with `timingSafeEqual`; it is a shared
+2. `x-synapseone-internal` is compared with `timingSafeEqual`; it is a shared
    secret, not a user credential.
 3. Public routes must be explicit in `routes.yaml`; everything else defaults to
    authenticated.

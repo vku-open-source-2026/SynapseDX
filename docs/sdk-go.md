@@ -1,6 +1,6 @@
-# `synapsedx-sdk-go` — SynapseDX SDK for Go
+# `synapseone-sdk-go` — SynapseOne SDK for Go
 
-Apache-2.0. Part of [SynapseDX](../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseOne](../README.md) Tier-1 PaaS.
 
 Zero external dependencies (standard library only). Requires Go >= 1.22.
 
@@ -9,19 +9,19 @@ Zero external dependencies (standard library only). Requires Go >= 1.22.
 ### From the monorepo (replace directive)
 
 ```bash
-go mod edit -replace github.com/synapsedx/synapsedx-sdk-go=./sdks/sdk-go
+go mod edit -replace github.com/synapseone/synapseone-sdk-go=./sdks/sdk-go
 go mod tidy
 ```
 
 ### As a published module
 
 ```bash
-go get github.com/synapsedx/synapsedx-sdk-go@latest
+go get github.com/synapseone/synapseone-sdk-go@latest
 ```
 
 ### Forks
 
-Change the `github.com/synapsedx/synapsedx-sdk-go` module path in `go.mod` to your repo (Go resolves packages via git tags, no separate registry publish needed).
+Change the `github.com/synapseone/synapseone-sdk-go` module path in `go.mod` to your repo (Go resolves packages via git tags, no separate registry publish needed).
 
 ## Quick start
 
@@ -30,11 +30,11 @@ package main
 
 import (
     "fmt"
-    synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+    synapseone "github.com/synapseone/synapseone-sdk-go"
 )
 
 func main() {
-    c := synapsedx.New("http://localhost:8080")
+    c := synapseone.New("http://localhost:8080")
 
     // Login (dev login or seed)
     out, err := c.Login("demo@acme.local", "acme")
@@ -58,14 +58,14 @@ func main() {
 Creates a client with a 15-second timeout.
 
 ```go
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 ```
 
 ### `NewWithClient(baseURL string, httpClient *http.Client) *Client`
 Allows custom timeout / transport (tests, mTLS, tracing, etc.).
 
 ```go
-c := synapsedx.NewWithClient("http://localhost:8080", &http.Client{
+c := synapseone.NewWithClient("http://localhost:8080", &http.Client{
     Timeout: 30 * time.Second,
 })
 ```
@@ -75,7 +75,7 @@ c := synapsedx.NewWithClient("http://localhost:8080", &http.Client{
 ```go
 c.SetToken(jwt)      // set/replace Bearer token
 c.SetAPIKey(key)     // set/replace API key
-c.SetTenant("acme")  // set/replace x-synapsedx-tenant ("" clears)
+c.SetTenant("acme")  // set/replace x-synapseone-tenant ("" clears)
 ```
 
 Both credentials can be set at any time. When both are present, both headers are
@@ -650,24 +650,24 @@ _, err := c.CreateBaseCollection(map[string]any{
 })
 
 // Untyped API
-_, err = c.CreateBaseDocument("parks", synapsedx.BaseDocumentInput{
+_, err = c.CreateBaseDocument("parks", synapseone.BaseDocumentInput{
     ID: "park-1", Object: map[string]any{"name": "Central", "capacity": 120},
 })
 doc, err := c.GetBaseDocument("parks", "park-1", "object")
-page, err := c.QueryBaseDocuments("parks", synapsedx.BaseQuery{
+page, err := c.QueryBaseDocuments("parks", synapseone.BaseQuery{
     Where:   map[string]any{"capacity": map[string]any{"gte": 100}},
-    OrderBy: []synapsedx.BaseOrderBy{{Field: "name", Direction: "asc"}},
+    OrderBy: []synapseone.BaseOrderBy{{Field: "name", Direction: "asc"}},
     As:      "object",
 })
 feed, err := c.BaseChanges("parks", "2026-10-01T00:00:00Z", 100, "object")
 
 // Typed collection (generics + encoding/json)
-parks := synapsedx.NewBaseCollection[Park](c, "parks",
-    synapsedx.NewBaseMapping(map[string]string{"name": "profile.name", "capacity": "profile.capacity"}),
+parks := synapseone.NewBaseCollection[Park](c, "parks",
+    synapseone.NewBaseMapping(map[string]string{"name": "profile.name", "capacity": "profile.capacity"}),
 )
 park, err := parks.Create(Park{Name: "Central", Capacity: 120}, "park-1")
 park, err = parks.Get("park-1")
-res, err := parks.Query(synapsedx.BaseQuery{
+res, err := parks.Query(synapseone.BaseQuery{
     Where: map[string]any{"capacity": map[string]any{"gte": 100}},
 })
 park, err = parks.Increment("park-1", "profile.capacity", 10, 0)
@@ -695,7 +695,7 @@ and distributed locks. Full guide: [faststore.md](faststore.md).
 c.SetTenant("acme") // platform callers only; principals use their own scope
 
 _, err := c.FaststoreSet("cache:park:1", map[string]any{"name": "Central"},
-    synapsedx.FaststoreSetOptions{TTLSeconds: 300, IfNotExists: true})
+    synapseone.FaststoreSetOptions{TTLSeconds: 300, IfNotExists: true})
 entry, err := c.FaststoreGet("cache:park:1")
 _, err = c.FaststoreIncr("visits", 1, 60)
 _, err = c.FaststoreTTL("cache:park:1")
@@ -703,15 +703,15 @@ _, err = c.FaststoreTTL("cache:park:1")
 _, err = c.FaststoreHashSet("user:1", map[string]any{"name": "Alice"}, 3600)
 _, err = c.FaststoreHashIncr("user:1", "logins", 1, 0)
 _, err = c.FaststoreListPush("jobs", []any{map[string]any{"id": 1}},
-    synapsedx.FaststoreListPushOptions{Side: "left"})
+    synapseone.FaststoreListPushOptions{Side: "left"})
 popped, err := c.FaststoreListPop("jobs", "left", 10)
 
 _, err = c.FaststoreSetAdd("tags", []any{"a", "b"}, 0)
 _, err = c.FaststoreZSetAdd("scores",
-    []synapsedx.FaststoreZSetMember{{Member: "alice", Score: 10}}, 0)
+    []synapseone.FaststoreZSetMember{{Member: "alice", Score: 10}}, 0)
 top, err := c.FaststoreZSetRange("scores", 0, -1, true, true)
 
-lock, err := c.FaststoreLockAcquire("report", synapsedx.FaststoreLockOptions{
+lock, err := c.FaststoreLockAcquire("report", synapseone.FaststoreLockOptions{
     TTLSeconds: 60, WaitMS: 500,
 })
 if acquired, _ := lock["acquired"].(bool); acquired {
@@ -732,25 +732,25 @@ ack/nack/heartbeat, retries, dead letters and replay. Full guide:
 ```go
 c.SetTenant("acme") // platform callers only
 
-_, err := c.CreateQueue("emails", synapsedx.QueueConfig{
+_, err := c.CreateQueue("emails", synapseone.QueueConfig{
     MaxAttempts: 5, VisibilityTimeoutSeconds: 60,
 })
 published, err := c.PublishMessage("emails",
     map[string]any{"to": "alice@acme.test"},
-    synapsedx.QueuePublishOptions{DedupeKey: "welcome:alice"})
+    synapseone.QueuePublishOptions{DedupeKey: "welcome:alice"})
 _, err = c.PublishMessages("emails", []any{
     map[string]any{"payload": map[string]any{"n": 1}},
     map[string]any{"payload": map[string]any{"n": 2}, "delaySeconds": 30},
 })
 
-batch, err := c.ConsumeMessages("emails", synapsedx.QueueConsumeOptions{
+batch, err := c.ConsumeMessages("emails", synapseone.QueueConsumeOptions{
     MaxMessages: 10, Consumer: "mailer-1",
 })
 for _, raw := range batch["messages"].([]any) {
     msg := raw.(map[string]any)
     receipt := msg["receipt"].(string)
     if err := send(msg["payload"]); err != nil {
-        _, _ = c.NackMessage("emails", receipt, synapsedx.QueueNackOptions{
+        _, _ = c.NackMessage("emails", receipt, synapseone.QueueNackOptions{
             DelaySeconds: 30, Error: err.Error(),
         })
         continue
@@ -778,19 +778,19 @@ OpenRouter-backed LLM chat completion proxy, self-hosted lightweight embeddings 
 health, err := c.InferenceHealth()
 
 // 2. Chat Completions (OpenRouter proxy)
-chat, err := c.InferenceChat([]synapsedx.ChatMessage{
-    {Role: "user", Content: "Hello SynapseDX!"},
-}, synapsedx.ChatCompletionOptions{
+chat, err := c.InferenceChat([]synapseone.ChatMessage{
+    {Role: "user", Content: "Hello SynapseOne!"},
+}, synapseone.ChatCompletionOptions{
     Model:       "liquid/lfm-2.5-2.6b:free",
     Temperature: 0.7,
     MaxTokens:   100,
 })
 
 // 3. Text Embeddings (384-dim normalized vector)
-emb, err := c.InferenceEmbeddings([]string{"Hello world", "SynapseDX AI"})
+emb, err := c.InferenceEmbeddings([]string{"Hello world", "SynapseOne AI"})
 
 // 4. Decision-2.0-Eos-0.8B structured question evaluation (system_one)
-dec, err := c.InferenceDecision("User reported invoice overcharge", map[string]synapsedx.DecisionQuestion{
+dec, err := c.InferenceDecision("User reported invoice overcharge", map[string]synapseone.DecisionQuestion{
     "department": {
         Type:         "choice",
         Instructions: "Choose the right department to handle this case",
@@ -818,7 +818,7 @@ workflow-service origin directly (e.g. `http://localhost:4002`).
 
 ```go
 // Copy-paste: fire the code-transform template's webhook after activating it.
-out, err := synapsedx.TriggerWebhook("http://localhost:4002", "transform", map[string]any{"value": 21})
+out, err := synapseone.TriggerWebhook("http://localhost:4002", "transform", map[string]any{"value": 21})
 fmt.Println(out["output"])
 ```
 
@@ -838,7 +838,7 @@ All methods return `error` as the second return value. Errors include the HTTP s
 result, err := c.Authorize(userID, "workflow:Execute", "*", nil)
 if err != nil {
     log.Fatalf("authorize failed: %v", err)
-    // e.g. "synapsedx 403 /v1/authorize: ..."
+    // e.g. "synapseone 403 /v1/authorize: ..."
 }
 ```
 
@@ -853,11 +853,11 @@ import (
     "fmt"
     "log"
 
-    synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+    synapseone "github.com/synapseone/synapseone-sdk-go"
 )
 
 func main() {
-    c := synapsedx.New("http://localhost:8080")
+    c := synapseone.New("http://localhost:8080")
 
     // 1. Login
     login, err := c.Login("demo@acme.local", "acme")
