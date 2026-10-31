@@ -1,4 +1,4 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Offline tests for the split service SDKs — stdlib echo server, no platform.
 
@@ -12,11 +12,11 @@ import threading
 import warnings
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from synapsedx_sdk import (
+from synapseone_sdk import (
     BaseCollection,
     QueryResult,
-    SynapseDXClient,
-    SynapseDXError,
+    SynapseOneClient,
+    SynapseOneError,
     data_to_object,
     object_to_data,
     trigger_webhook,
@@ -174,7 +174,7 @@ class Echo(BaseHTTPRequestHandler):
     def _send(self):
         _seen["auth"] = self.headers.get("Authorization")
         _seen["key"] = self.headers.get("X-API-Key")
-        _seen["tenant"] = self.headers.get("x-synapsedx-tenant")
+        _seen["tenant"] = self.headers.get("x-synapseone-tenant")
         _seen["path"] = self.path
         _seen["method"] = self.command
         length = int(self.headers.get("Content-Length") or 0)
@@ -227,7 +227,7 @@ def _server():
 
 
 def _client(srv):
-    return SynapseDXClient(f"http://127.0.0.1:{srv.server_port}")
+    return SynapseOneClient(f"http://127.0.0.1:{srv.server_port}")
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ def _client(srv):
 
 
 def test_facade_exposes_service_namespaces():
-    c = SynapseDXClient("http://localhost:8080/")
+    c = SynapseOneClient("http://localhost:8080/")
     assert c.base_url == "http://localhost:8080"
     for name in ("iam", "workflow", "lds", "base", "faststore", "queue"):
         assert getattr(c, name) is not None, name
@@ -786,11 +786,11 @@ def test_http_error_carries_status_and_body():
         c = _client(srv)
         try:
             c.base.get_collection("parks")
-            raise AssertionError("expected SynapseDXError")
-        except SynapseDXError as e:
+            raise AssertionError("expected SynapseOneError")
+        except SynapseOneError as e:
             assert e.status == 404, e
             assert e.body == {"error": "boom"}, e
-            assert "synapsedx 404" in str(e), e
+            assert "synapseone 404" in str(e), e
     finally:
         srv.shutdown()
 

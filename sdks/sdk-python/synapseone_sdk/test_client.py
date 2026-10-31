@@ -1,4 +1,4 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Offline SDK tests — stdlib echo server, no platform needed."""
 
@@ -6,9 +6,11 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from synapsedx_sdk import (
+from synapseone_sdk import (
     SynapseDXClient,
     SynapseDXError,
+    SynapseOneClient,
+    SynapseOneError,
     trigger_webhook,
     unwrap_executions,
 )
@@ -98,13 +100,13 @@ def test_trim_and_headers():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base + "/")
+        c = SynapseOneClient(base + "/")
         assert c.base_url == base
         c.token = "t1"
         c.list_orgs()
         assert _seen["auth"] == "Bearer t1", _seen
         assert _seen["path"] == "/v1/orgs"
-        c2 = SynapseDXClient(base, api_key="k1")
+        c2 = SynapseOneClient(base, api_key="k1")
         c2.list_templates()
         assert _seen["key"] == "k1", _seen
     finally:
@@ -112,27 +114,36 @@ def test_trim_and_headers():
 
 
 def test_network_error_wrapped():
-    c = SynapseDXClient("http://127.0.0.1:1", timeout=2)
+    c = SynapseOneClient("http://127.0.0.1:1", timeout=2)
     try:
         c.list_orgs()
-    except SynapseDXError as e:
-        assert "synapsedx" in str(e)
+    except SynapseOneError as e:
+        assert "synapseone" in str(e)
         return
-    raise AssertionError("expected SynapseDXError")
+    raise AssertionError("expected SynapseOneError")
 
 
 def test_import():
-    from synapsedx_sdk import SynapseDXClient
+    from synapseone_sdk import SynapseOneClient
 
-    c = SynapseDXClient("http://localhost:8080")
+    c = SynapseOneClient("http://localhost:8080")
     assert c.base_url == "http://localhost:8080"
+
+
+def test_synapsedx_aliases():
+    # Rebrand window: old class names and old import path keep working.
+    assert SynapseDXClient is SynapseOneClient
+    assert SynapseDXError is SynapseOneError
+    from synapsedx_sdk import SynapseDXClient as ShimClient
+
+    assert ShimClient is SynapseOneClient
 
 
 def test_full_coverage_paths():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.login("a@b.c")
         assert _seen["path"] == "/v1/auth/login"
         c.refresh("rt")
@@ -191,7 +202,7 @@ def test_service_account_token_omits_scopes_unless_given():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.service_account_token("sa1")
         assert _seen["path"] == "/v1/service-accounts/sa1/token"
         assert json.loads(_seen["body"]) == {}
@@ -207,7 +218,7 @@ def test_test_run_posts_definition_and_input():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         definition = {"nodes": [], "connections": {}}
         c.test_run(definition, {"value": 21})
         assert _seen["path"] == "/v1/workflows/test-run"
@@ -224,7 +235,7 @@ def test_list_executions_dict_and_envelope():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.list_executions(
             {"workflowId": "w1", "status": "error", "limit": 20, "includeData": True}
         )
@@ -263,7 +274,7 @@ def test_call_passes_any_method_path_body_through():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.call("POST", "/v1/accounts/a1/credentials", {"name": "x"})
         assert _seen["path"] == "/v1/accounts/a1/credentials", _seen
         assert _seen["method"] == "POST", _seen
@@ -279,7 +290,7 @@ def test_credentials_crud_proposed_contract():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.create_credential("a1", "stripe-live", "bearer", "s3cr3t")
         assert _seen["path"] == "/v1/credentials", _seen
         assert _seen["method"] == "POST", _seen
@@ -309,7 +320,7 @@ def test_ai_agent_post_question_and_history():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.ai.agent(
             "how to create a workflow",
             [{"role": "user", "text": "hello"}],
@@ -328,7 +339,7 @@ def test_lds_list_licenses_returns_array():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         assert c.list_lds_licenses() == [], _seen
         assert _seen["path"] == "/v1/lds/licenses", _seen
         assert _seen["method"] == "GET", _seen
@@ -340,7 +351,7 @@ def test_lds_create_datasource_body():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.create_lds_datasource("parks", "Park", "CC-BY-4.0")
         assert _seen["path"] == "/v1/lds/datasources", _seen
         assert _seen["method"] == "POST", _seen
@@ -382,7 +393,7 @@ def test_lds_datasource_crud_paths():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         assert c.list_lds_datasources() == [], _seen
         assert _seen["path"] == "/v1/lds/datasources", _seen
         c.list_lds_datasources(org_id="o1", account_id="a1")
@@ -411,7 +422,7 @@ def test_lds_set_attributes_puts_attribute_list():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         assert c.get_lds_datasource_attributes("d1") == [], _seen
         assert _seen["path"] == "/v1/lds/datasources/d1/attributes", _seen
         assert _seen["method"] == "GET", _seen
@@ -431,7 +442,7 @@ def test_lds_ingest_records_single_list_and_envelope():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         c.ingest_lds_records("d1", {"id": "Park:1", "name": "Central"})
         assert _seen["path"] == "/v1/lds/datasources/d1/records", _seen
         assert _seen["method"] == "POST", _seen
@@ -450,7 +461,7 @@ def test_lds_entities_with_query_params():
     srv = _server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         out = c.list_lds_entities("d1", limit=5, offset=10, visibility="public")
         assert isinstance(out, list), out
         assert (
@@ -475,12 +486,12 @@ def test_lds_http_error_mapping():
     srv = _failing_server()
     try:
         base = f"http://127.0.0.1:{srv.server_port}"
-        c = SynapseDXClient(base)
+        c = SynapseOneClient(base)
         try:
             c.list_lds_licenses()
-        except SynapseDXError as e:
+        except SynapseOneError as e:
             assert "500" in str(e) and "boom" in str(e), e
             return
-        raise AssertionError("expected SynapseDXError")
+        raise AssertionError("expected SynapseOneError")
     finally:
         srv.shutdown()

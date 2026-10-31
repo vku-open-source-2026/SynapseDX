@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseStream API tests on in-memory engine.
  */
@@ -16,9 +16,9 @@ let base = '';
 function headers(org = 'tenant-a', sub = 'user-1'): Record<string, string> {
   return {
     'content-type': 'application/json',
-    'x-synapsedx-user': sub,
-    'x-synapsedx-org': org,
-    'x-synapsedx-kind': 'user',
+    'x-synapseone-user': sub,
+    'x-synapseone-org': org,
+    'x-synapseone-kind': 'user',
   };
 }
 
@@ -62,7 +62,7 @@ test('health and metrics endpoints', async () => {
   const metrics = await fetch(`${base}/metrics`);
   assert.equal(metrics.status, 200);
   const mText = await metrics.text();
-  assert.match(mText, /synapsedx_stream_up 1/);
+  assert.match(mText, /synapseone_stream_up 1/);
 });
 
 test('topic lifecycle: create, get, list, stats and delete', async () => {

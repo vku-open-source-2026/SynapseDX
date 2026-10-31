@@ -1,8 +1,8 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // SynapseStream: topics, publish (single & batch), consumer groups,
 // non-destructive reads, time-range queries and retention trimming.
-package synapsedx
+package synapseone
 
 import (
 	"net/url"

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Request/feature usage store: batched ingest from the gateway, tenant-scoped
  * summary + raw event queries, and retention. Works on Postgres (Drizzle) with

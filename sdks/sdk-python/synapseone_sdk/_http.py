@@ -1,11 +1,11 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
-"""Shared HTTP plumbing for the synapsedx SDK.
+"""Shared HTTP plumbing for the synapseone SDK.
 
 Every service module (iam, workflow, lds, base, faststore, queue) talks to the
 platform through one :class:`HttpClient`, which adds auth headers, the optional
 platform tenant header and maps every failure (network or HTTP) to
-:class:`SynapseDXError`.
+:class:`SynapseOneError`.
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ import requests
 UNSET = object()
 
 
-class SynapseDXError(Exception):
-    """All SDK errors surface as SynapseDXError (network or HTTP).
+class SynapseOneError(Exception):
+    """All SDK errors surface as SynapseOneError (network or HTTP).
 
     ``status`` carries the HTTP status code when the failure came from a JSON
     response (None for network errors) and ``body`` carries the parsed error
@@ -41,12 +41,12 @@ class SynapseDXError(Exception):
 
 
 class HttpClient:
-    """Thin request layer shared by all SynapseDX services.
+    """Thin request layer shared by all SynapseOne services.
 
     ``base_url`` points at the gateway (``http://localhost:8080``) or directly
     at a service origin. ``tenant`` is only needed by platform callers of the
     tenant-scoped services (faststore/queue) and is sent as
-    ``x-synapsedx-tenant``.
+    ``x-synapseone-tenant``.
     """
 
     def __init__(
@@ -70,7 +70,7 @@ class HttpClient:
         if self.api_key:
             h["X-API-Key"] = self.api_key
         if self.tenant:
-            h["x-synapsedx-tenant"] = self.tenant
+            h["x-synapseone-tenant"] = self.tenant
         return h
 
     def request(self, method: str, path: str, body: Any | None = None) -> Any:
@@ -83,10 +83,10 @@ class HttpClient:
                 timeout=self.timeout,
             )
         except Exception as e:  # network, DNS, timeout...
-            raise SynapseDXError(f"synapsedx network {path}: {e}") from e
+            raise SynapseOneError(f"synapseone network {path}: {e}") from e
         if r.status_code >= 400:
-            raise SynapseDXError(
-                f"synapsedx {r.status_code} {path}: {r.text[:500]}",
+            raise SynapseOneError(
+                f"synapseone {r.status_code} {path}: {r.text[:500]}",
                 status=r.status_code,
                 body=_try_json(r),
             )

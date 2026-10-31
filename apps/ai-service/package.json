@@ -1,8 +1,8 @@
 {
-  "name": "@synapsedx/ai-service",
-  "version": "0.6.2",
+  "name": "@synapseone/ai-service",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "synapsedx AI agent - LLM-assisted API testing (decision model picks the endpoint, LLM generates the call)",
+  "description": "synapseone AI agent - LLM-assisted API testing (decision model picks the endpoint, LLM generates the call)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0;
  */
 import { describe, it, before, after } from 'node:test';
@@ -15,11 +15,11 @@ describe('ai agent http layer', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        for (const k of ['AI_API_KEY', 'SYNAPSEDX_INTERNAL_SECRET', 'NODE_ENV', 'CORS_ORIGIN', 'HSTS_ENABLED', 'AI_RATE_LIMIT']) {
+        for (const k of ['AI_API_KEY', 'SYNAPSEONE_INTERNAL_SECRET', 'NODE_ENV', 'CORS_ORIGIN', 'HSTS_ENABLED', 'AI_RATE_LIMIT']) {
           saved[k] = process.env[k];
         }
         delete process.env.AI_API_KEY; // app A: key chưa cấu hình
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
           const a = server!.address();
@@ -58,7 +58,7 @@ describe('ai agent http layer', () => {
   it('gateway credential passes the gate; missing key → 503', async () => {
     const r = await fetch(`${base}/v1/ai/agent`, {
       method: 'POST',
-      headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+      headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'list orgs' }),
     });
     assert.equal(r.status, 503);
@@ -68,7 +68,7 @@ describe('ai agent http layer', () => {
   it('oversized body → 413 payload_too_large (not 500)', async () => {
     const r = await fetch(`${base}/v1/ai/agent`, {
       method: 'POST',
-      headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+      headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'x'.repeat(3 * 1024 * 1024) }),
     });
     assert.equal(r.status, 413);
@@ -84,11 +84,11 @@ describe('ai agent http layer (configured)', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        for (const k of ['AI_API_KEY', 'SYNAPSEDX_INTERNAL_SECRET', 'AI_RATE_LIMIT']) {
+        for (const k of ['AI_API_KEY', 'SYNAPSEONE_INTERNAL_SECRET', 'AI_RATE_LIMIT']) {
           saved[k] = process.env[k];
         }
         process.env.AI_API_KEY = 'test-key';
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
           const a = server!.address();
@@ -112,7 +112,7 @@ describe('ai agent http layer (configured)', () => {
   it('invalid question → 400 before any LLM call', async () => {
     const r = await fetch(`${base}/v1/ai/agent`, {
       method: 'POST',
-      headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+      headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: '' }),
     });
     assert.equal(r.status, 400);
@@ -122,7 +122,7 @@ describe('ai agent http layer (configured)', () => {
   it('missing question field → 400', async () => {
     const r = await fetch(`${base}/v1/ai/agent`, {
       method: 'POST',
-      headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+      headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
     assert.equal(r.status, 400);
@@ -131,7 +131,7 @@ describe('ai agent http layer (configured)', () => {
   it('non-array history → 400 before any LLM call', async () => {
     const r = await fetch(`${base}/v1/ai/agent`, {
       method: 'POST',
-      headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+      headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'hi', history: 'nope' }),
     });
     assert.equal(r.status, 400);
@@ -150,7 +150,7 @@ describe('ai agent http layer (configured)', () => {
       for (let i = 0; i < 7; i++) {
         const r = await fetch(`${b}/v1/ai/agent`, {
           method: 'POST',
-          headers: { 'x-synapsedx-internal': 'test-secret-123', 'Content-Type': 'application/json' },
+          headers: { 'x-synapseone-internal': 'test-secret-123', 'Content-Type': 'application/json' },
           body: JSON.stringify({ question: '' }),
         });
         statuses.push(r.status);

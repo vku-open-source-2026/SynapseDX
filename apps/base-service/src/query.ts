@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseBase query engine: filter tree, ordering, pagination and projection.
  * Queries are evaluated over the collection's documents by the service; the

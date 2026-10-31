@@ -86,8 +86,8 @@ async def call_chat_completion(
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://synapsedx.dev",
-        "X-Title": "SynapseDX Inference Engine",
+        "HTTP-Referer": "https://synapseone.dev",
+        "X-Title": "SynapseOne Inference Engine",
     }
 
     target_model = req.model or config.OPENROUTER_MODEL
@@ -152,8 +152,8 @@ async def stream_chat_completion(
     headers = {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://synapsedx.dev",
-        "X-Title": "SynapseDX Inference Engine",
+        "HTTP-Referer": "https://synapseone.dev",
+        "X-Title": "SynapseOne Inference Engine",
     }
 
     target_model = req.model or config.OPENROUTER_MODEL

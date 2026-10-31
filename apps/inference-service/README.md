@@ -1,6 +1,6 @@
-# Synapse Inference Engine (`@synapsedx/inference-service`)
+# Synapse Inference Engine (`@synapseone/inference-service`)
 
-Multi-model inference microservice for the SynapseDX ecosystem. Provides:
+Multi-model inference microservice for the SynapseOne ecosystem. Provides:
 1. **LLM Proxy**: OpenAI-compatible chat completions endpoint (streaming + non-streaming) backed by OpenRouter.
 2. **Embedding**: Self-hosted lightweight text embedding model (`sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions).
 3. **Decision Model**: Self-hosted `vllm-sr/Decision-2.0-Eos-0.8B` model (0.8B parameters) for single-forward-pass routing and structured evaluations (`system_one`).
@@ -67,7 +67,7 @@ Multi-model inference microservice for the SynapseDX ecosystem. Provides:
 * `POST /v1/decision/route` (Workflow-friendly simple branch router):
   ```json
   {
-    "input": "How do I create a new API key in SynapseDX?",
+    "input": "How do I create a new API key in SynapseOne?",
     "instruction": "Pick the right service for this query.",
     "choices": {
       "iam": "Identity, user management, and API credentials",
@@ -105,4 +105,4 @@ Multi-model inference microservice for the SynapseDX ecosystem. Provides:
 | `DECISION_MODEL_NAME` | `vllm-sr/Decision-2.0-Eos-0.8B` | Self-hosted 0.8B decision model |
 | `INFERENCE_DEVICE` | `auto` | `cpu` or `cuda` |
 | `INFERENCE_MOCK_MODELS` | `false` | Enable deterministic fallback for test/offline environments |
-| `SYNAPSEDX_INTERNAL_SECRET` | `""` | Shared secret required on `/v1/*` when set |
+| `SYNAPSEONE_INTERNAL_SECRET` | `""` | Shared secret required on `/v1/*` when set |

@@ -41,7 +41,7 @@ class Settings:
     PORT: int = _get_env_int(["PORT", "INFERENCE_PORT"], 4008, 1024, 65535)
     HOST: str = _get_env_str(["INFERENCE_HOST", "HOST"], "0.0.0.0")
     ENVIRONMENT: str = _get_env_str(["NODE_ENV", "ENVIRONMENT", "ENV"], "development")
-    SYNAPSEDX_INTERNAL_SECRET: str = _get_env_str(["SYNAPSEDX_INTERNAL_SECRET"], "")
+    SYNAPSEONE_INTERNAL_SECRET: str = _get_env_str(["SYNAPSEONE_INTERNAL_SECRET"], "")
 
     # LLM (OpenRouter)
     OPENROUTER_BASE_URL: str = _get_env_str(

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * IAM persistence layer — Drizzle ORM on Postgres with in-memory fallback
  * (dev/test). Tables/indexes live in ./schema.ts and are applied by versioned
@@ -39,14 +39,14 @@ export async function ensureTables(): Promise<void> {
       // Hold the advisory lock on the same dedicated session that runs the
       // migration (pool connections are not guaranteed to be reused).
       const migrationDb = drizzle(client, { schema });
-      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_iam_migrations'))`);
+      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapseone_iam_migrations'))`);
       try {
         await migrate(migrationDb, {
           migrationsFolder: path.join(__dirname, '..', 'drizzle'),
           migrationsTable: '__drizzle_migrations_iam',
         });
       } finally {
-        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapsedx_iam_migrations'))`).catch(() => undefined);
+        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapseone_iam_migrations'))`).catch(() => undefined);
       }
     } finally {
       client.release();

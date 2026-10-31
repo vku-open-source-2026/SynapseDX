@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# synapsedx full API check — bao phu toan bo IAM + workflow templates qua gateway.
-# Yeu cau: gateway dang chay; SYNAPSEDX_BASE_URL (mac dinh http://localhost:8080).
+# synapseone full API check — bao phu toan bo IAM + workflow templates qua gateway.
+# Yeu cau: gateway dang chay; SYNAPSEONE_BASE_URL (mac dinh http://localhost:8080).
 # Tra ve exit 0 neu tat ca pass.
 set -uo pipefail
-BASE="${SYNAPSEDX_BASE_URL:-http://localhost:8080}"
+BASE="${SYNAPSEONE_BASE_URL:-http://localhost:8080}"
 pass=0; fail=0
 ok()   { pass=$((pass+1)); echo "PASS $1"; }
 bad()  { fail=$((fail+1)); echo "FAIL $1 -- $2"; }
@@ -17,9 +17,9 @@ done
 LOGIN=$(curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d'{"email":"e2e@acme.local","orgSlug":"acme"}')
 TOK=$(echo "$LOGIN" | jq -r .accessToken)
 E2E_UID=$(echo "$LOGIN" | jq -r .user.id)
-if [ -n "${SYNAPSEDX_E2E_TOKEN:-}" ]; then
+if [ -n "${SYNAPSEONE_E2E_TOKEN:-}" ]; then
   # External mode (prod): dev login is disabled there, the caller mints a JWT.
-  TOK="$SYNAPSEDX_E2E_TOKEN"; E2E_UID="external"
+  TOK="$SYNAPSEONE_E2E_TOKEN"; E2E_UID="external"
   ok login-external
 else
   [ -n "$TOK" ] && [ "$TOK" != "null" ] && ok login || { bad login "$LOGIN"; exit 1; }

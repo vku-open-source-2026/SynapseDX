@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import { describe, it, before, after } from 'node:test';
@@ -78,51 +78,67 @@ describe('wildcard routes (LDS public export surface)', () => {
 
 describe('propagatePrincipal: anonymous marker', () => {
   it('stamps anon marker only for auth:none routes without a principal', () => {
-    const pub: any = { headers: { 'x-synapsedx-anon': 'spoof' }, synapsedxRoute: { auth: 'none' } };
+    const pub: any = { headers: { 'x-synapseone-anon': 'spoof' }, synapseoneRoute: { auth: 'none' } };
     propagatePrincipal(pub);
-    assert.equal(pub.headers['x-synapsedx-anon'], '1');
-    const authed: any = { headers: { 'x-synapsedx-anon': 'spoof' }, synapsedxRoute: { auth: 'either' } };
+    assert.equal(pub.headers['x-synapseone-anon'], '1');
+    const authed: any = { headers: { 'x-synapseone-anon': 'spoof' }, synapseoneRoute: { auth: 'either' } };
     propagatePrincipal(authed);
-    assert.equal(authed.headers['x-synapsedx-anon'], undefined);
-    const withP: any = { headers: {}, principal: { type: 'jwt', sub: 'u' }, synapsedxRoute: { auth: 'either' } };
+    assert.equal(authed.headers['x-synapseone-anon'], undefined);
+    const withP: any = { headers: {}, principal: { type: 'jwt', sub: 'u' }, synapseoneRoute: { auth: 'either' } };
     propagatePrincipal(withP);
-    assert.equal(withP.headers['x-synapsedx-anon'], undefined);
-    const platformDirect: any = { headers: {}, synapsedxRoute: undefined };
+    assert.equal(withP.headers['x-synapseone-anon'], undefined);
+    const platformDirect: any = { headers: {}, synapseoneRoute: undefined };
     propagatePrincipal(platformDirect);
-    assert.equal(platformDirect.headers['x-synapsedx-anon'], undefined);
+    assert.equal(platformDirect.headers['x-synapseone-anon'], undefined);
   });
 });
 
 describe('propagatePrincipal', () => {
   it('strips spoofed headers when no principal', () => {
-    const req: any = { headers: { 'x-synapsedx-user': 'mallory', 'x-synapsedx-kind': 'user', 'x-synapsedx-internal': 'forged' } };
+    const req: any = { headers: { 'x-synapseone-user': 'mallory', 'x-synapseone-kind': 'user', 'x-synapseone-internal': 'forged' } };
     propagatePrincipal(req);
-    assert.equal(req.headers['x-synapsedx-user'], undefined);
-    assert.equal(req.headers['x-synapsedx-kind'], undefined);
-    // Without SYNAPSEDX_INTERNAL_SECRET (test env), nothing is (re-)set.
-    assert.equal(req.headers['x-synapsedx-internal'], undefined);
+    assert.equal(req.headers['x-synapseone-user'], undefined);
+    assert.equal(req.headers['x-synapseone-kind'], undefined);
+    // Without SYNAPSEONE_INTERNAL_SECRET (test env), nothing is (re-)set.
+    assert.equal(req.headers['x-synapseone-internal'], undefined);
   });
   it('writes verified jwt principal', () => {
     const req: any = {
-      headers: { 'x-synapsedx-user': 'mallory' },
+      headers: { 'x-synapseone-user': 'mallory' },
       principal: { type: 'jwt', sub: 'u1', org: 'o1', scopes: ['a', 'b'] },
     };
     propagatePrincipal(req);
-    assert.equal(req.headers['x-synapsedx-user'], 'u1');
-    assert.equal(req.headers['x-synapsedx-org'], 'o1');
-    assert.equal(req.headers['x-synapsedx-scopes'], 'a,b');
-    assert.equal(req.headers['x-synapsedx-kind'], 'user');
+    assert.equal(req.headers['x-synapseone-user'], 'u1');
+    assert.equal(req.headers['x-synapseone-org'], 'o1');
+    assert.equal(req.headers['x-synapseone-scopes'], 'a,b');
+    assert.equal(req.headers['x-synapseone-kind'], 'user');
   });
   it('writes apikey kind', () => {
     const req: any = { headers: {}, principal: { type: 'apikey' } };
     propagatePrincipal(req);
-    assert.equal(req.headers['x-synapsedx-kind'], 'apikey');
+    assert.equal(req.headers['x-synapseone-kind'], 'apikey');
   });
   it('writes verified apikey account+scopes', () => {
     const req: any = { headers: {}, principal: { type: 'apikey', account: 'a1', scopes: ['x', 'y'] } };
     propagatePrincipal(req);
-    assert.equal(req.headers['x-synapsedx-account'], 'a1');
-    assert.equal(req.headers['x-synapsedx-scopes'], 'x,y');
+    assert.equal(req.headers['x-synapseone-account'], 'a1');
+    assert.equal(req.headers['x-synapseone-scopes'], 'x,y');
+  });
+  it('drops spoofed legacy headers, keeps legacy tenant and mirrors the verified principal', () => {
+    const req: any = {
+      headers: {
+        'x-synapsedx-user': 'mallory',
+        'x-synapsedx-org': 'spoofed',
+        'x-synapsedx-tenant': 'acme',
+      },
+      principal: { type: 'jwt', sub: 'u1', org: 'o1' },
+    };
+    propagatePrincipal(req);
+    assert.equal(req.headers['x-synapseone-user'], 'u1');
+    assert.equal(req.headers['x-synapseone-tenant'], 'acme');
+    // Legacy copies are re-stamped from the verified principal, never trusted.
+    assert.equal(req.headers['x-synapsedx-user'], 'u1');
+    assert.equal(req.headers['x-synapsedx-org'], 'o1');
   });
 });
 
@@ -155,10 +171,10 @@ describe('usage telemetry helpers', () => {
 
 describe('expandEnv', () => {
   it('uses env when set, default otherwise', () => {
-    process.env.SYNAPSEDX_TEST_VAR = 'from-env';
-    assert.equal(expandEnv('${SYNAPSEDX_TEST_VAR:http://default}'), 'from-env');
-    delete process.env.SYNAPSEDX_TEST_VAR;
-    assert.equal(expandEnv('${SYNAPSEDX_TEST_VAR:http://default}'), 'http://default');
+    process.env.SYNAPSEONE_TEST_VAR = 'from-env';
+    assert.equal(expandEnv('${SYNAPSEONE_TEST_VAR:http://default}'), 'from-env');
+    delete process.env.SYNAPSEONE_TEST_VAR;
+    assert.equal(expandEnv('${SYNAPSEONE_TEST_VAR:http://default}'), 'http://default');
   });
 });
 
@@ -198,7 +214,7 @@ describe('gateway hardening (live boot)', () => {  let base = '';
 describe('verifyApiKeyUpstream', () => {  it('forwards the internal secret so IAM accepts the check', async () => {
     let seenInternal: string | null = null;
     const iam = (await import('node:http')).createServer((req, res) => {
-      seenInternal = (req.headers['x-synapsedx-internal'] as string) || null;
+      seenInternal = (req.headers['x-synapseone-internal'] as string) || null;
       let body = '';
       req.on('data', (c) => (body += c));
       req.on('end', () => {

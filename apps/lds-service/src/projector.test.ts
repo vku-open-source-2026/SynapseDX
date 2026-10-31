@@ -1,8 +1,8 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Security tests for the NGSI-LD projection layer. These assert the three
- * design rules from docs/specs/synapsedx-lds.md: structural allowlist,
+ * design rules from docs/specs/synapseone-lds.md: structural allowlist,
  * default deny, and reserved-name rejection.
  */
 import { test } from 'node:test';

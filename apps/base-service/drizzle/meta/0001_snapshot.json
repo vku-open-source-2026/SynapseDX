@@ -4,8 +4,8 @@
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.synapsedx_base_collections": {
-      "name": "synapsedx_base_collections",
+    "public.synapseone_base_collections": {
+      "name": "synapseone_base_collections",
       "schema": "",
       "columns": {
         "id": {
@@ -138,7 +138,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"synapsedx_base_collections\".\"org_id\" is not null",
+          "where": "\"synapseone_base_collections\".\"org_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -160,7 +160,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"synapsedx_base_collections\".\"org_id\" is null and \"synapsedx_base_collections\".\"account_id\" is not null",
+          "where": "\"synapseone_base_collections\".\"org_id\" is null and \"synapseone_base_collections\".\"account_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -176,7 +176,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"synapsedx_base_collections\".\"org_id\" is null and \"synapsedx_base_collections\".\"account_id\" is null",
+          "where": "\"synapseone_base_collections\".\"org_id\" is null and \"synapseone_base_collections\".\"account_id\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -189,8 +189,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.synapsedx_base_documents": {
-      "name": "synapsedx_base_documents",
+    "public.synapseone_base_documents": {
+      "name": "synapseone_base_documents",
       "schema": "",
       "columns": {
         "collection_id": {
@@ -301,10 +301,10 @@
         }
       },
       "foreignKeys": {
-        "synapsedx_base_documents_collection_id_synapsedx_base_collections_id_fk": {
-          "name": "synapsedx_base_documents_collection_id_synapsedx_base_collections_id_fk",
-          "tableFrom": "synapsedx_base_documents",
-          "tableTo": "synapsedx_base_collections",
+        "synapseone_base_documents_collection_id_synapseone_base_collections_id_fk": {
+          "name": "synapseone_base_documents_collection_id_synapseone_base_collections_id_fk",
+          "tableFrom": "synapseone_base_documents",
+          "tableTo": "synapseone_base_collections",
           "columnsFrom": [
             "collection_id"
           ],
@@ -316,8 +316,8 @@
         }
       },
       "compositePrimaryKeys": {
-        "synapsedx_base_documents_collection_id_id_pk": {
-          "name": "synapsedx_base_documents_collection_id_id_pk",
+        "synapseone_base_documents_collection_id_id_pk": {
+          "name": "synapseone_base_documents_collection_id_id_pk",
           "columns": [
             "collection_id",
             "id"

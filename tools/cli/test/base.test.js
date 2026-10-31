@@ -1,7 +1,7 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * synapsedx base command tests — stub gateway, no platform needed.
+ * synapseone base command tests — stub gateway, no platform needed.
  */
 'use strict';
 
@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('path');
 
-const BIN = path.join(__dirname, '..', 'bin', 'synapsedx.js');
+const BIN = path.join(__dirname, '..', 'bin', 'synapseone.js');
 
 function run(...args) {
   return new Promise((resolve) => {
@@ -128,11 +128,11 @@ before(
 
 after(() => new Promise((resolve) => stub.close(resolve)));
 
-describe('synapsedx base', () => {
+describe('synapseone base', () => {
   it('base without a subcommand explains usage', async () => {
     const r = await run('--base', stubBase, 'base');
     assert.equal(r.code, 1);
-    assert.ok(r.stderr.includes('usage: synapsedx base'));
+    assert.ok(r.stderr.includes('usage: synapseone base'));
   });
 
   it('base collections list fetches collections', async () => {

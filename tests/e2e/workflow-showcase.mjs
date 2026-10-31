@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict';
 
-const BASE = (process.env.SYNAPSEDX_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
+const BASE = (process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080').replace(/\/$/, '');
 const EMAIL = process.env.SHOWCASE_EMAIL || 'ci@acme.local';
 const ORG = process.env.SHOWCASE_ORG || 'acme';
 const RUN_AI = process.env.SHOWCASE_RUN_AI === '1';
@@ -74,7 +74,7 @@ async function runCase(name, payload, expectedRoute, expectedNodes, expectedTerm
   }
   assert.ok((exec.nodeRuns || []).length >= minNodes, `${name}: only ${(exec.nodeRuns || []).length} nodeRuns`);
   const integrations = [...new Set((exec.nodeRuns || [])
-    .filter((n) => n.status === 'success' && String(n.type || '').startsWith('synapsedx.'))
+    .filter((n) => n.status === 'success' && String(n.type || '').startsWith('synapseone.'))
     .map((n) => n.type))].sort();
   console.log(`PASS ${name}: route=${expectedRoute} nodeRuns=${exec.nodeRuns.length} terminal=${expectedTerminal}`);
   console.log(`     integrations=${integrations.join(',')}`);
@@ -115,7 +115,7 @@ async function main() {
   assert.equal(collection.name, 'customer360_events');
   await api('/v1/base/collections/customer360_events/documents', {
     method: 'POST',
-    body: JSON.stringify({ id: 'kb-seed-status', data: { topic: 'status-page', title: 'Public status page', body: 'Use status.synapsedx.sbs for customer updates.' } }),
+    body: JSON.stringify({ id: 'kb-seed-status', data: { topic: 'status-page', title: 'Public status page', body: 'Use status.synapseone.space for customer updates.' } }),
   }).catch((e) => { if (!String(e.message).includes('409')) throw e; });
 
   // LDS datasource for the timeline side-effect.

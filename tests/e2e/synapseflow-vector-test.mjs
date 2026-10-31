@@ -1,22 +1,22 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  *
  * SynapseFlow Pipeline E2E Verification:
  * Verifies SynapseBase Vector Search integration in SynapseFlow workflows.
  * Tests both:
- * 1. Visual pipeline execution with `synapsedx.base` node (`vector-search`) -> transform
+ * 1. Visual pipeline execution with `synapseone.base` node (`vector-search`) -> transform
  * 2. Execution of persistent saved workflow via gateway API
  */
 import assert from 'node:assert/strict';
-import { SynapseDXClient } from '../../sdks/sdk-js/dist/index.js';
+import { SynapseOneClient } from '../../sdks/sdk-js/dist/index.js';
 
-const baseUrl = process.env.SYNAPSEDX_BASE_URL || 'http://localhost:8080';
+const baseUrl = process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080';
 const stamp = Date.now().toString(36);
 
 async function main() {
   console.log('--- STARTING SYNAPSEFLOW VECTOR PIPELINE VERIFICATION ---');
-  const c = new SynapseDXClient({ baseUrl });
+  const c = new SynapseOneClient({ baseUrl });
   const login = await c.iam.login(`flow-e2e-${stamp}@acme.local`);
   c.setToken(login.accessToken);
 
@@ -68,7 +68,7 @@ async function main() {
 
   // 3. Construct a SynapseFlow DAG:
   // Node 1: ManualTrigger (trigger)
-  // Node 2: VectorSearch (synapsedx.base) -> queries collection for query vector [0.95, 0.05, 0]
+  // Node 2: VectorSearch (synapseone.base) -> queries collection for query vector [0.95, 0.05, 0]
   // Node 3: ResultFormatter (n8n-nodes-base.code) -> formats and extracts top match
   console.log('[3] Constructing SynapseFlow DAG...');
   const workflowDefinition = {
@@ -85,7 +85,7 @@ async function main() {
       {
         id: 'node-vector-search',
         name: 'VectorSearch',
-        type: 'synapsedx.base',
+        type: 'synapseone.base',
         typeVersion: 1,
         position: [350, 300],
         parameters: {
@@ -174,7 +174,7 @@ async function main() {
       {
         id: 'node-vec-h',
         name: 'VectorSearch',
-        type: 'synapsedx.base',
+        type: 'synapseone.base',
         typeVersion: 1,
         position: [350, 300],
         parameters: {

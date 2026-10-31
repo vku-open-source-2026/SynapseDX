@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# synapsedx quickstart for Windows PowerShell (equivalent of examples/quickstart/demo.sh)
+# synapseone quickstart for Windows PowerShell (equivalent of examples/quickstart/demo.sh)
 param([string]$Base = "http://localhost:8080")
 $OrgSlug = if ($env:DEMO_ORG_SLUG) { $env:DEMO_ORG_SLUG } else { "acme" }
 $AccSlug = if ($env:DEMO_ACCOUNT_SLUG) { $env:DEMO_ACCOUNT_SLUG } else { "prod" }

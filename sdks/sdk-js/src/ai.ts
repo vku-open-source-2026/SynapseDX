@@ -1,9 +1,9 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Synapse AI client: the guidance-only API assistant (`POST /v1/ai/agent`).
  *
- * The agent maps a natural-language question to one catalogued SynapseDX
+ * The agent maps a natural-language question to one catalogued SynapseOne
  * endpoint and returns the method/path plus a ready-to-try body. It never
  * executes the call itself — callers decide whether to run it.
  */

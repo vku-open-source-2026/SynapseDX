@@ -1,9 +1,10 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Local workflow engine — DAG runner + sandboxed code/set/if/httpRequest.
  * Apache-2.0, dependency-free (Node vm + fetch only).
  */
+import './env-compat';
 import vm from 'vm';
 import fs from 'fs';
 import { spawn } from 'child_process';
@@ -139,8 +140,8 @@ export function isBlockedUrl(raw: string): boolean {
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return true;
   if (u.username || u.password) return true;
   // P0-1: deliberate self-call allowlist. Operators who need workflows to
-  // call SynapseDX itself (e.g. http://gateway:8080/v1/orgs) set
-  // SYNAPSEDX_SELF_BASE_URLS="http://gateway:8080,http://iam:4001" — exact
+  // call SynapseOne itself (e.g. http://gateway:8080/v1/orgs) set
+  // SYNAPSEONE_SELF_BASE_URLS="http://gateway:8080,http://iam:4001" — exact
   // origin match only, read dynamically so tests can scope it per case.
   if (isAllowedSelfUrl(u)) return false;
   return isBlockedHost(u.hostname);
@@ -181,7 +182,7 @@ export async function assertUrlAllowed(raw: string, resolveHost: HostResolver = 
 
 /** Exact-origin allowlist for first-party calls (P0-1). */
 export function selfAllowlist(): string[] {
-  return String(process.env.SYNAPSEDX_SELF_BASE_URLS || '')
+  return String(process.env.SYNAPSEONE_SELF_BASE_URLS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -248,9 +249,9 @@ export interface RunPrincipal {
   kind?: string;
 }
 
-/** Resolves a first-party SynapseDX call (wired by index.ts to IAM + the
+/** Resolves a first-party SynapseOne call (wired by index.ts to IAM + the
  *  local store; tests inject fakes). Runs as the run principal. */
-export interface SynapseDXCall {
+export interface SynapseOneCall {
   (resource: string, operation: string, args: Record<string, any>, principal?: RunPrincipal | null): Promise<any>;
 }
 
@@ -265,7 +266,7 @@ export interface RunOpts {
   timeoutMs?: number;
   principal?: RunPrincipal | null;
   credentialResolver?: CredentialResolver;
-  synapsedxCall?: SynapseDXCall;
+  synapseoneCall?: SynapseOneCall;
 }
 
 /** Audit actor for an execution: workflow:<id> principal:<sub|anonymous> (P0-2). */
@@ -274,70 +275,88 @@ export function actorFor(workflowId: string, principal?: RunPrincipal | null): s
   return `workflow:${workflowId} principal:${sub}`;
 }
 
+/** Map legacy `synapsedx.*` node types onto the canonical `synapseone.*` namespace. */
+export function normalizeNodeType(type: unknown): unknown {
+  if (typeof type !== 'string' || !type.startsWith('synapsedx.')) return type;
+  return `synapseone.${type.slice('synapsedx.'.length)}`;
+}
+
 export function isWebhookType(type: unknown): boolean {
-  return type === 'webhook' || type === 'n8n-nodes-base.webhook' || type === 'synapsedx.webhook';
+  const t = normalizeNodeType(type);
+  return t === 'webhook' || t === 'n8n-nodes-base.webhook' || t === 'synapseone.webhook';
 }
 export function isCronType(type: unknown): boolean {
-  return type === 'cron' || type === 'n8n-nodes-base.cron' || type === 'synapsedx.cron';
+  const t = normalizeNodeType(type);
+  return t === 'cron' || t === 'n8n-nodes-base.cron' || t === 'synapseone.cron';
 }
 export function isManualTriggerType(type: unknown): boolean {
-  return type === 'manualTrigger' || type === 'n8n-nodes-base.manualTrigger' || type === 'synapsedx.manualTrigger';
+  const t = normalizeNodeType(type);
+  return t === 'manualTrigger' || t === 'n8n-nodes-base.manualTrigger' || t === 'synapseone.manualTrigger';
 }
 export function isTriggerType(type: unknown): boolean {
   return isWebhookType(type) || isCronType(type) || isManualTriggerType(type);
 }
 export function isCodeType(type: unknown): boolean {
-  return type === 'code' || type === 'n8n-nodes-base.code' || type === 'synapsedx.code';
+  const t = normalizeNodeType(type);
+  return t === 'code' || t === 'n8n-nodes-base.code' || t === 'synapseone.code';
 }
 export function isHttpRequestType(type: unknown): boolean {
-  return type === 'httpRequest' || type === 'n8n-nodes-base.httpRequest' || type === 'synapsedx.httpRequest';
+  const t = normalizeNodeType(type);
+  return t === 'httpRequest' || t === 'n8n-nodes-base.httpRequest' || t === 'synapseone.httpRequest';
 }
 export function isSetType(type: unknown): boolean {
-  return type === 'set' || type === 'n8n-nodes-base.set' || type === 'synapsedx.set';
+  const t = normalizeNodeType(type);
+  return t === 'set' || t === 'n8n-nodes-base.set' || t === 'synapseone.set';
 }
 export function isIfType(type: unknown): boolean {
-  return type === 'if' || type === 'n8n-nodes-base.if' || type === 'synapsedx.if';
+  const t = normalizeNodeType(type);
+  return t === 'if' || t === 'n8n-nodes-base.if' || t === 'synapseone.if';
 }
 export function isDecisionType(type: unknown): boolean {
+  const t = normalizeNodeType(type);
   return (
-    type === 'decision' ||
-    type === 'decision.route' ||
-    type === 'synapseflow.decision' ||
-    type === 'synapsedx.decision' ||
-    type === 'n8n-nodes-base.decision'
+    t === 'decision' ||
+    t === 'decision.route' ||
+    t === 'synapseflow.decision' ||
+    t === 'synapseone.decision' ||
+    t === 'n8n-nodes-base.decision'
   );
 }
 export function isAiAgentType(type: unknown): boolean {
+  const t = normalizeNodeType(type);
   return (
-    type === 'ai.agent' ||
-    type === 'synapseflow.aiAgent' ||
-    type === 'synapsedx.aiAgent' ||
-    type === 'agent' ||
-    type === 'n8n-nodes-base.aiAgent'
+    t === 'ai.agent' ||
+    t === 'synapseflow.aiAgent' ||
+    t === 'synapseone.aiAgent' ||
+    t === 'agent' ||
+    t === 'n8n-nodes-base.aiAgent'
   );
 }
 export function isModelType(type: unknown): boolean {
-  return type === 'synapseflow.model' || type === 'synapsedx.model';
+  const t = normalizeNodeType(type);
+  return t === 'synapseflow.model' || t === 'synapseone.model';
 }
 export function isBranchingType(type: unknown): boolean {
   return isIfType(type) || isDecisionType(type);
 }
 export function isNoOpType(type: unknown): boolean {
-  return type === 'noOp' || type === 'n8n-nodes-base.noOp' || type === 'synapsedx.noOp';
+  const t = normalizeNodeType(type);
+  return t === 'noOp' || t === 'n8n-nodes-base.noOp' || t === 'synapseone.noOp';
 }
 
 /** First-party service node types (split per service in the editor). */
 export const INTEGRATION_NODE_TYPES: Record<string, { resource: string; label: string }> = {
-  'synapsedx.iam': { resource: 'iam', label: 'Synapse IAM' },
-  'synapsedx.base': { resource: 'base', label: 'SynapseBase' },
-  'synapsedx.faststore': { resource: 'faststore', label: 'Faststore' },
-  'synapsedx.queue': { resource: 'queue', label: 'SynapseQueue' },
-  'synapsedx.lds': { resource: 'lds', label: 'SynapseLDS' },
-  'synapsedx.inference': { resource: 'inference', label: 'Synapse Inference' },
-  'synapsedx.flow': { resource: 'flow', label: 'SynapseFlow' },
+  'synapseone.iam': { resource: 'iam', label: 'Synapse IAM' },
+  'synapseone.base': { resource: 'base', label: 'SynapseBase' },
+  'synapseone.faststore': { resource: 'faststore', label: 'Faststore' },
+  'synapseone.queue': { resource: 'queue', label: 'SynapseQueue' },
+  'synapseone.lds': { resource: 'lds', label: 'SynapseLDS' },
+  'synapseone.inference': { resource: 'inference', label: 'Synapse Inference' },
+  'synapseone.flow': { resource: 'flow', label: 'SynapseFlow' },
 };
 export function isIntegrationType(type: unknown): boolean {
-  return type === 'synapsedx.api' || (typeof type === 'string' && INTEGRATION_NODE_TYPES[type] !== undefined);
+  const t = normalizeNodeType(type);
+  return t === 'synapseone.api' || (typeof t === 'string' && INTEGRATION_NODE_TYPES[t] !== undefined);
 }
 
 /** Auxiliary sockets never participate in execution. */
@@ -359,9 +378,9 @@ const TRIGGER_TYPES = new Set([
   'webhook',
   'cron',
   'manualTrigger',
-  'synapsedx.webhook',
-  'synapsedx.cron',
-  'synapsedx.manualTrigger',
+  'synapseone.webhook',
+  'synapseone.cron',
+  'synapseone.manualTrigger',
 ]);
 
 const MAX_CODE_BYTES = 50 * 1024;
@@ -743,7 +762,7 @@ function execIfCondition(node: EngineNode, input: any): boolean {
 export async function execDecisionNode(
   node: EngineNode,
   input: any,
-  ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall }
+  ctx?: { principal?: RunPrincipal | null; synapseoneCall?: SynapseOneCall }
 ): Promise<{ output: any; branch: number }> {
   const p = node.parameters || {};
   let text = '';
@@ -796,8 +815,8 @@ export async function execDecisionNode(
   let probabilities: Record<string, number> = {};
 
   try {
-    if (ctx?.synapsedxCall) {
-      const res = await ctx.synapsedxCall(
+    if (ctx?.synapseoneCall) {
+      const res = await ctx.synapseoneCall(
         'inference',
         'route',
         { input: text, choices: choicesMap, instruction: p.instruction },
@@ -935,10 +954,10 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
   try {
     const u = new URL(url);
     if (ctx?.principal?.sub && isAllowedSelfUrl(u)) {
-      if (!hasHeader(headers, 'x-synapsedx-kind')) headers['X-SynapseDX-Kind'] = String(ctx.principal.kind || 'user');
-      if (!hasHeader(headers, 'x-synapsedx-user')) headers['X-SynapseDX-User'] = String(ctx.principal.sub);
-      if (ctx.principal.org && !hasHeader(headers, 'x-synapsedx-org')) headers['X-SynapseDX-Org'] = String(ctx.principal.org);
-      if (ctx.principal.account && !hasHeader(headers, 'x-synapsedx-account')) headers['X-SynapseDX-Account'] = String(ctx.principal.account);
+      if (!hasHeader(headers, 'x-synapseone-kind')) headers['X-SynapseOne-Kind'] = String(ctx.principal.kind || 'user');
+      if (!hasHeader(headers, 'x-synapseone-user')) headers['X-SynapseOne-User'] = String(ctx.principal.sub);
+      if (ctx.principal.org && !hasHeader(headers, 'x-synapseone-org')) headers['X-SynapseOne-Org'] = String(ctx.principal.org);
+      if (ctx.principal.account && !hasHeader(headers, 'x-synapseone-account')) headers['X-SynapseOne-Account'] = String(ctx.principal.account);
     }
   } catch { /* url already validated above */ }
   let body: string | undefined;
@@ -1019,12 +1038,12 @@ async function execHttp(node: EngineNode, input: any, ctx?: { principal?: RunPri
   }
 }
 
-/** First-party SynapseDX integrations (visible as the "SynapseDX API" palette
+/** First-party SynapseOne integrations (visible as the "SynapseOne API" palette
  *  block). Strict resource→operation allowlist — no arbitrary paths, so a
- *  workflow can call SynapseDX itself without SSRF exceptions. Runs as the
+ *  workflow can call SynapseOne itself without SSRF exceptions. Runs as the
  *  run principal (manual/test-run = the caller; webhook/cron = anonymous
  *  unless a runAs principal is stored — see index.ts). */
-export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
+export const SYNAPSEONE_API_RESOURCES: Record<string, string[]> = {
   orgs: ['list'],
   users: ['list'],
   roles: ['list'],
@@ -1044,7 +1063,7 @@ export const SYNAPSEDX_API_RESOURCES: Record<string, string[]> = {
 };
 
 /** Required args per resource.operation (values may be ={{ }} templates). */
-const SYNAPSEDX_API_REQUIRED: Record<string, string[]> = {
+const SYNAPSEONE_API_REQUIRED: Record<string, string[]> = {
   'users.list': ['orgId'],
   'roles.list': ['accountId'],
   'policies.list': ['accountId'],
@@ -1086,47 +1105,47 @@ export function extractEmbeddingVector(emb: any): number[] | null {
   return null;
 }
 
-/** Save-time validation for synapsedx.api node params. Required args must be
+/** Save-time validation for synapseone.api node params. Required args must be
  *  present here too (values may be `={{ }}` templates — emptiness is
  *  re-checked at run time after resolution). */
-export function validateSynapseDXParams(params: any): string | null {
+export function validateSynapseOneParams(params: any): string | null {
   const p = params && typeof params === 'object' ? params : {};
   const resource = typeof p.resource === 'string' ? p.resource : '';
   const operation = typeof p.operation === 'string' ? p.operation : '';
-  if (!resource) return "synapsedx.api: 'resource' is required (e.g. orgs, audit, workflows)";
-  const ops = SYNAPSEDX_API_RESOURCES[resource];
-  if (!ops) return `synapsedx.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapsedx-self-check)`;
-  if (!operation) return `synapsedx.api: 'operation' is required for '${resource}' (${ops.join(', ')})`;
-  if (!ops.includes(operation)) return `synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`;
+  if (!resource) return "synapseone.api: 'resource' is required (e.g. orgs, audit, workflows)";
+  const ops = SYNAPSEONE_API_RESOURCES[resource];
+  if (!ops) return `synapseone.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapseone-self-check)`;
+  if (!operation) return `synapseone.api: 'operation' is required for '${resource}' (${ops.join(', ')})`;
+  if (!ops.includes(operation)) return `synapseone.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`;
   const input = p.input && typeof p.input === 'object' && !Array.isArray(p.input) ? p.input : {};
-  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+  for (const f of SYNAPSEONE_API_REQUIRED[`${resource}.${operation}`] || []) {
     if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
       const v = (input as any).vector ?? (input as any).embedding;
       const q = (input as any).query ?? (input as any).text ?? (input as any).prompt;
       const hasV = v !== undefined && v !== null && String(v).trim() !== '';
       const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
       if (!hasV && !hasQ) {
-        return `synapsedx.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`;
+        return `synapseone.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`;
       }
       continue;
     }
     const v = (input as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
-      return `synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
+      return `synapseone.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`;
     }
   }
   return null;
 }
 
-/** Resolve a split service node (synapsedx.base, synapsedx.iam, …) to the
- *  canonical resource/operation pair understood by synapsedxCall.
+/** Resolve a split service node (synapseone.base, synapseone.iam, …) to the
+ *  canonical resource/operation pair understood by synapseoneCall.
  *  IAM and Flow operations are prefixed (`orgs.list`, `workflows.execute`)
  *  because they span several API resources; the other services are 1:1. */
 export function resolveIntegrationCall(
   type: string,
   params: any,
 ): { resource: string; operation: string; input: Record<string, any> } | null {
-  const service = INTEGRATION_NODE_TYPES[type];
+  const service = INTEGRATION_NODE_TYPES[normalizeNodeType(type) as string];
   if (!service) return null;
   const p = params && typeof params === 'object' ? params : {};
   let operation = String(p.operation || '').trim();
@@ -1147,18 +1166,18 @@ export function resolveIntegrationCall(
 
 /** Save-time validation for the split service nodes. */
 export function validateIntegrationParams(type: string, params: any): string | null {
-  const service = INTEGRATION_NODE_TYPES[type];
+  const service = INTEGRATION_NODE_TYPES[normalizeNodeType(type) as string];
   if (!service) return null;
   const p = params && typeof params === 'object' ? params : {};
   const resolved = resolveIntegrationCall(type, p);
   if (!resolved) return `${type}: 'operation' is required`;
   const { resource, operation, input } = resolved;
-  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  const ops = SYNAPSEONE_API_RESOURCES[resource];
   if (!ops) return `${type}: unknown operation '${p.operation}'`;
   if (!ops.includes(operation)) {
     return `${type}: unknown operation '${p.operation}' (${resource}: ${ops.join(', ')})`;
   }
-  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+  for (const f of SYNAPSEONE_API_REQUIRED[`${resource}.${operation}`] || []) {
     if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
       const v = (input as any).vector ?? (input as any).embedding;
       const q = (input as any).query ?? (input as any).text ?? (input as any).prompt;
@@ -1189,15 +1208,15 @@ function deepResolve(v: any, input: any, depth = 0): any {
   return v;
 }
 
-async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall }): Promise<any> {
+async function execSynapseOne(node: EngineNode, input: any, ctx?: { principal?: RunPrincipal | null; synapseoneCall?: SynapseOneCall }): Promise<any> {
   const p = node.parameters || {};
   const resource = String(p.resource || '');
   const operation = String(p.operation || '');
-  if (!resource) throw new Error("synapsedx.api: 'resource' is required (e.g. orgs, audit, workflows)");
-  const ops = SYNAPSEDX_API_RESOURCES[resource];
-  if (!ops) throw new Error(`synapsedx.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapsedx-self-check)`);
-  if (!operation) throw new Error(`synapsedx.api: 'operation' is required for '${resource}' (${ops.join(', ')})`);
-  if (!ops.includes(operation)) throw new Error(`synapsedx.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`);
+  if (!resource) throw new Error("synapseone.api: 'resource' is required (e.g. orgs, audit, workflows)");
+  const ops = SYNAPSEONE_API_RESOURCES[resource];
+  if (!ops) throw new Error(`synapseone.api: unknown resource '${resource.slice(0, 64)}' (see GET /v1/templates/synapseone-self-check)`);
+  if (!operation) throw new Error(`synapseone.api: 'operation' is required for '${resource}' (${ops.join(', ')})`);
+  if (!ops.includes(operation)) throw new Error(`synapseone.api: unknown operation '${operation.slice(0, 64)}' for '${resource}' (${ops.join(', ')})`);
   const rawArgs = p.input !== undefined ? p.input : {};
   const args = (rawArgs && typeof rawArgs === 'object' && !Array.isArray(rawArgs) ? deepResolve(rawArgs, input) : {}) as Record<string, any>;
   if (resource === 'base' && operation === 'vector-search') {
@@ -1208,7 +1227,7 @@ async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: R
       if (fallbackV) args.vector = fallbackV;
     }
   }
-  const required = SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || [];
+  const required = SYNAPSEONE_API_REQUIRED[`${resource}.${operation}`] || [];
   for (const f of required) {
     if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
       const v = (args as any).vector ?? (args as any).embedding;
@@ -1216,33 +1235,33 @@ async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: R
       const hasV = v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : String(v).trim() !== '');
       const hasQ = q !== undefined && q !== null && String(q).trim() !== '';
       if (!hasV && !hasQ) {
-        throw new Error(`synapsedx.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`);
+        throw new Error(`synapseone.api: 'base.vector-search' needs 'vector' or 'query' (put it in input or use ={{ $json.query }})`);
       }
       continue;
     }
     const v = (args as any)[f];
     if (v === undefined || v === null || String(v).trim() === '') {
-      throw new Error(`synapsedx.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
+      throw new Error(`synapseone.api: '${resource}.${operation}' needs '${f}' (put it in input or use ={{ $json.${f} }})`);
     }
   }
   if (resource === 'base' && operation === 'vector-search') {
     let vec = args.vector ?? args.embedding;
     const q = args.query ?? args.text ?? args.prompt;
-    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapseoneCall) {
       try {
-        const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+        const emb: any = await ctx.synapseoneCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
         const rawVec = extractEmbeddingVector(emb);
         if (rawVec && rawVec.length > 0) {
           args.vector = rawVec;
         }
       } catch (e: any) {
-        throw new Error(`synapsedx.api: failed to generate embedding for vector search: ${e?.message || e}`);
+        throw new Error(`synapseone.api: failed to generate embedding for vector search: ${e?.message || e}`);
       }
     }
   }
-  if (!ctx?.synapsedxCall) throw new Error('synapsedx.api: server does not expose a SynapseDX caller (server wiring)');
-  const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
-  if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error('synapsedx.api: response exceeds 500KB');
+  if (!ctx?.synapseoneCall) throw new Error('synapseone.api: server does not expose a SynapseOne caller (server wiring)');
+  const out = await ctx.synapseoneCall(resource, operation, args, ctx.principal);
+  if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error('synapseone.api: response exceeds 500KB');
   if (resource === 'base' && operation === 'vector-search' && out && typeof out === 'object' && !Array.isArray(out) && input && typeof input === 'object' && !Array.isArray(input)) {
     return { ...clone(input), ...clone(out) };
   }
@@ -1252,12 +1271,12 @@ async function execSynapseDX(node: EngineNode, input: any, ctx?: { principal?: R
 async function execIntegrationNode(
   node: EngineNode,
   input: any,
-  ctx?: { principal?: RunPrincipal | null; synapsedxCall?: SynapseDXCall },
+  ctx?: { principal?: RunPrincipal | null; synapseoneCall?: SynapseOneCall },
 ): Promise<any> {
   const resolved = resolveIntegrationCall(node.type, node.parameters || {});
   if (!resolved) throw new Error(`${node.type}: invalid operation configuration`);
   const { resource, operation } = resolved;
-  const ops = SYNAPSEDX_API_RESOURCES[resource];
+  const ops = SYNAPSEONE_API_RESOURCES[resource];
   if (!ops) throw new Error(`${node.type}: unknown operation '${(node.parameters || {}).operation}'`);
   if (!ops.includes(operation)) {
     throw new Error(`${node.type}: unknown operation '${(node.parameters || {}).operation}' (${resource}: ${ops.join(', ')})`);
@@ -1271,7 +1290,7 @@ async function execIntegrationNode(
       if (fallbackV) args.vector = fallbackV;
     }
   }
-  for (const f of SYNAPSEDX_API_REQUIRED[`${resource}.${operation}`] || []) {
+  for (const f of SYNAPSEONE_API_REQUIRED[`${resource}.${operation}`] || []) {
     if (resource === 'base' && operation === 'vector-search' && f === 'vector') {
       const v = (args as any).vector ?? (args as any).embedding;
       const q = (args as any).query ?? (args as any).text ?? (args as any).prompt;
@@ -1290,9 +1309,9 @@ async function execIntegrationNode(
   if (resource === 'base' && operation === 'vector-search') {
     let vec = args.vector ?? args.embedding;
     const q = args.query ?? args.text ?? args.prompt;
-    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+    if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapseoneCall) {
       try {
-        const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+        const emb: any = await ctx.synapseoneCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
         const rawVec = extractEmbeddingVector(emb);
         if (rawVec && rawVec.length > 0) {
           args.vector = rawVec;
@@ -1302,8 +1321,8 @@ async function execIntegrationNode(
       }
     }
   }
-  if (!ctx?.synapsedxCall) throw new Error(`${node.type}: server does not expose a SynapseDX caller (server wiring)`);
-  const out = await ctx.synapsedxCall(resource, operation, args, ctx.principal);
+  if (!ctx?.synapseoneCall) throw new Error(`${node.type}: server does not expose a SynapseOne caller (server wiring)`);
+  const out = await ctx.synapseoneCall(resource, operation, args, ctx.principal);
   if (safeJsonSize(out) > MAX_OUTPUT_BYTES) throw new Error(`${node.type}: response exceeds 500KB`);
   if (resource === 'base' && operation === 'vector-search' && out && typeof out === 'object' && !Array.isArray(out) && input && typeof input === 'object' && !Array.isArray(input)) {
     return { ...clone(input), ...clone(out) };
@@ -1477,7 +1496,7 @@ export const AGENT_TOOL_ALIASES: Record<string, string[]> = {
   decision_model: ['decision_eval'],
   faststore_get: ['faststore_cache'],
   faststore_set: ['faststore_cache'],
-  synapsedx_api: ['queue_publish', 'iam_check_permission', 'workflow_run', 'workflow_list', 'lds_publish', 'inference_chat'],
+  synapseone_api: ['queue_publish', 'iam_check_permission', 'workflow_run', 'workflow_list', 'lds_publish', 'inference_chat'],
 };
 
 export const DEFAULT_AGENT_TOOL_IDS = [
@@ -1547,7 +1566,7 @@ export async function execAiAgentNode(
   ctx?: {
     principal?: RunPrincipal | null;
     credentialResolver?: CredentialResolver;
-    synapsedxCall?: SynapseDXCall;
+    synapseoneCall?: SynapseOneCall;
     /** Nodes wired into the agent's Tools socket — callable as tools. */
     toolNodes?: EngineNode[];
     /** Node wired into the agent's Model socket — overrides core/model. */
@@ -1558,7 +1577,7 @@ export async function execAiAgentNode(
 ): Promise<any> {
   const p = node.parameters || {};
   const mp = ctx?.modelNode?.parameters || {};
-  const modelNodeIsInference = ctx?.modelNode?.type === 'synapsedx.inference';
+  const modelNodeIsInference = ctx?.modelNode?.type === 'synapseone.inference';
   const core = String(mp.core || p.core || (modelNodeIsInference ? 'synapse-inference' : 'synapse-inference'));
   const model = String(
     mp.model ||
@@ -1700,8 +1719,8 @@ export async function execAiAgentNode(
           for (const [k, v] of Object.entries(toolArgs.choices)) choicesMap[k] = String(v);
         }
         if (!Object.keys(choicesMap).length) return { error: 'choices are required' };
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall(
+        if (ctx?.synapseoneCall) {
+          return await ctx.synapseoneCall(
             'inference',
             'route',
             { input: String(toolArgs.input ?? ''), choices: choicesMap, instruction: toolArgs.instruction },
@@ -1712,12 +1731,12 @@ export async function execAiAgentNode(
       }
       case 'synapsebase_query': {
         const action = String(toolArgs.action || 'query');
-        if (!ctx?.synapsedxCall) return action === 'query' ? { items: [], total: 0 } : { ok: true };
+        if (!ctx?.synapseoneCall) return action === 'query' ? { items: [], total: 0 } : { ok: true };
         if (action === 'get') {
-          return await ctx.synapsedxCall('base', 'get-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
+          return await ctx.synapseoneCall('base', 'get-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
         }
         if (action === 'create') {
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'base',
             'create-document',
             { collection: toolArgs.collection, id: toolArgs.id, data: toolArgs.data ?? toolArgs.value ?? {} },
@@ -1725,14 +1744,14 @@ export async function execAiAgentNode(
           );
         }
         if (action === 'delete') {
-          return await ctx.synapsedxCall('base', 'delete-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
+          return await ctx.synapseoneCall('base', 'delete-document', { collection: toolArgs.collection, id: toolArgs.id }, ctx.principal);
         }
         if (action === 'vector_search' || action === 'vectorSearch') {
           let vec = toolArgs.vector ?? toolArgs.embedding;
           const q = toolArgs.query ?? toolArgs.text ?? toolArgs.input ?? toolArgs.prompt;
-          if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+          if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapseoneCall) {
             try {
-              const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+              const emb: any = await ctx.synapseoneCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
               const rawVec = extractEmbeddingVector(emb);
               if (rawVec && rawVec.length > 0) {
                 vec = rawVec;
@@ -1741,7 +1760,7 @@ export async function execAiAgentNode(
               return { error: `failed to generate embedding for vector search: ${e?.message || e}` };
             }
           }
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'base',
             'vector-search',
             {
@@ -1756,7 +1775,7 @@ export async function execAiAgentNode(
             ctx.principal,
           );
         }
-        return await ctx.synapsedxCall(
+        return await ctx.synapseoneCall(
           'base',
           'query-documents',
           {
@@ -1769,12 +1788,12 @@ export async function execAiAgentNode(
         );
       }
       case 'synapsebase_vector_search': {
-        if (!ctx?.synapsedxCall) return { items: [], total: 0 };
+        if (!ctx?.synapseoneCall) return { items: [], total: 0 };
         let vec = toolArgs.vector ?? toolArgs.embedding;
         const q = toolArgs.query ?? toolArgs.text ?? toolArgs.input ?? toolArgs.prompt;
-        if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapsedxCall) {
+        if ((!Array.isArray(vec) || !vec.length) && q && ctx?.synapseoneCall) {
           try {
-            const emb: any = await ctx.synapsedxCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
+            const emb: any = await ctx.synapseoneCall('inference', 'embeddings', { input: String(q) }, ctx.principal);
             const rawVec = extractEmbeddingVector(emb);
             if (rawVec && rawVec.length > 0) {
               vec = rawVec;
@@ -1783,7 +1802,7 @@ export async function execAiAgentNode(
             return { error: `failed to generate embedding for vector search: ${e?.message || e}` };
           }
         }
-        return await ctx.synapsedxCall(
+        return await ctx.synapseoneCall(
           'base',
           'vector-search',
           {
@@ -1800,9 +1819,9 @@ export async function execAiAgentNode(
       }
       case 'faststore_cache': {
         const action = String(toolArgs.action || (toolArgs.value !== undefined ? 'set' : 'get'));
-        if (!ctx?.synapsedxCall) return action === 'get' ? { key: toolArgs.key, value: null } : { ok: true };
+        if (!ctx?.synapseoneCall) return action === 'get' ? { key: toolArgs.key, value: null } : { ok: true };
         if (action === 'set') {
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'faststore',
             'set',
             { key: toolArgs.key, value: toolArgs.value, ttlSeconds: toolArgs.ttlSeconds || 3600 },
@@ -1810,25 +1829,25 @@ export async function execAiAgentNode(
           );
         }
         if (action === 'incr') {
-          return await ctx.synapsedxCall('faststore', 'incr', { key: toolArgs.key, by: toolArgs.by || 1 }, ctx.principal);
+          return await ctx.synapseoneCall('faststore', 'incr', { key: toolArgs.key, by: toolArgs.by || 1 }, ctx.principal);
         }
         if (action === 'delete') {
-          return await ctx.synapsedxCall('faststore', 'delete', { key: toolArgs.key }, ctx.principal);
+          return await ctx.synapseoneCall('faststore', 'delete', { key: toolArgs.key }, ctx.principal);
         }
         if (action === 'hash-get') {
-          return await ctx.synapsedxCall('faststore', 'hash-get', { key: toolArgs.key, field: toolArgs.field }, ctx.principal);
+          return await ctx.synapseoneCall('faststore', 'hash-get', { key: toolArgs.key, field: toolArgs.field }, ctx.principal);
         }
         if (action === 'hash-set') {
-          return await ctx.synapsedxCall('faststore', 'hash-set', { key: toolArgs.key, values: toolArgs.values || {} }, ctx.principal);
+          return await ctx.synapseoneCall('faststore', 'hash-set', { key: toolArgs.key, values: toolArgs.values || {} }, ctx.principal);
         }
-        return await ctx.synapsedxCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
+        return await ctx.synapseoneCall('faststore', 'get', { key: toolArgs.key }, ctx.principal);
       }
       case 'queue_publish': {
         const action = String(toolArgs.action || 'publish');
-        if (!ctx?.synapsedxCall) return { ok: true, id: 'mock-msg' };
-        if (action === 'list') return await ctx.synapsedxCall('queue', 'list', {}, ctx.principal);
+        if (!ctx?.synapseoneCall) return { ok: true, id: 'mock-msg' };
+        if (action === 'list') return await ctx.synapseoneCall('queue', 'list', {}, ctx.principal);
         if (action === 'consume') {
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'queue',
             'consume',
             { queue: toolArgs.queue, maxMessages: toolArgs.maxMessages || 10, consumer: toolArgs.consumer || 'ai-agent' },
@@ -1836,9 +1855,9 @@ export async function execAiAgentNode(
           );
         }
         if (action === 'ack') {
-          return await ctx.synapsedxCall('queue', 'ack', { queue: toolArgs.queue, receipt: toolArgs.receipt }, ctx.principal);
+          return await ctx.synapseoneCall('queue', 'ack', { queue: toolArgs.queue, receipt: toolArgs.receipt }, ctx.principal);
         }
-        return await ctx.synapsedxCall(
+        return await ctx.synapseoneCall(
           'queue',
           'publish',
           { queue: toolArgs.queue, payload: toolArgs.payload, priority: toolArgs.priority, delaySeconds: toolArgs.delaySeconds },
@@ -1846,8 +1865,8 @@ export async function execAiAgentNode(
         );
       }
       case 'iam_check_permission': {
-        if (ctx?.synapsedxCall) {
-          return await ctx.synapsedxCall(
+        if (ctx?.synapseoneCall) {
+          return await ctx.synapseoneCall(
             'authorize',
             'check',
             { userId: toolArgs.userId, action: toolArgs.action, resource: toolArgs.resource, scope: toolArgs.scope },
@@ -1857,17 +1876,17 @@ export async function execAiAgentNode(
         return { allowed: true };
       }
       case 'workflow_run': {
-        if (!ctx?.synapsedxCall) throw new Error('workflow execution is not wired');
+        if (!ctx?.synapseoneCall) throw new Error('workflow execution is not wired');
         let id = String(toolArgs.id || '');
         if (!id && toolArgs.name) {
-          const listed: any = await ctx.synapsedxCall('workflows', 'list', {}, ctx.principal);
+          const listed: any = await ctx.synapseoneCall('workflows', 'list', {}, ctx.principal);
           const arr = Array.isArray(listed) ? listed : listed?.workflows || listed?.items || [];
           const hit = arr.find((w: any) => w && (w.name === toolArgs.name || w.id === toolArgs.name));
           if (!hit) throw new Error(`workflow '${String(toolArgs.name).slice(0, 80)}' not found`);
           id = String(hit.id);
         }
         if (!id) throw new Error('workflow_run needs id or name');
-        return await ctx.synapsedxCall(
+        return await ctx.synapseoneCall(
           'workflows',
           'execute',
           { id, input: toolArgs.input && typeof toolArgs.input === 'object' ? toolArgs.input : {} },
@@ -1875,14 +1894,14 @@ export async function execAiAgentNode(
         );
       }
       case 'workflow_list': {
-        if (!ctx?.synapsedxCall) return [];
-        return await ctx.synapsedxCall('workflows', 'list', {}, ctx.principal);
+        if (!ctx?.synapseoneCall) return [];
+        return await ctx.synapseoneCall('workflows', 'list', {}, ctx.principal);
       }
       case 'lds_publish': {
         const action = String(toolArgs.action || (toolArgs.record ? 'publish-record' : 'list-datasources'));
-        if (!ctx?.synapsedxCall) return action === 'list-datasources' ? [] : { ok: true };
+        if (!ctx?.synapseoneCall) return action === 'list-datasources' ? [] : { ok: true };
         if (action === 'publish-record') {
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'lds',
             'publish-record',
             { datasourceId: toolArgs.datasourceId, record: toolArgs.record ?? toolArgs.payload },
@@ -1890,24 +1909,24 @@ export async function execAiAgentNode(
           );
         }
         if (action === 'get-entity') {
-          return await ctx.synapsedxCall(
+          return await ctx.synapseoneCall(
             'lds',
             'get-entity',
             { datasourceId: toolArgs.datasourceId, entityId: toolArgs.entityId },
             ctx.principal,
           );
         }
-        return await ctx.synapsedxCall('lds', 'list-datasources', {}, ctx.principal);
+        return await ctx.synapseoneCall('lds', 'list-datasources', {}, ctx.principal);
       }
       case 'inference_chat': {
-        if (!ctx?.synapsedxCall) throw new Error('inference is not wired');
+        if (!ctx?.synapseoneCall) throw new Error('inference is not wired');
         const msgs = Array.isArray(toolArgs.messages)
           ? toolArgs.messages
           : [
               ...(toolArgs.system ? [{ role: 'system', content: String(toolArgs.system) }] : []),
               { role: 'user', content: String(toolArgs.prompt || toolArgs.input || userPrompt) },
             ];
-        const raw: any = await ctx.synapsedxCall(
+        const raw: any = await ctx.synapseoneCall(
           'inference',
           'chat',
           { messages: msgs, model: toolArgs.model || model, temperature: 0.2, max_tokens: 512 },
@@ -1941,8 +1960,8 @@ export async function execAiAgentNode(
   }
 
   async function callLlm(msgs: any[], includeTools = true): Promise<any> {
-    if (core === 'synapse-inference' && ctx?.synapsedxCall) {
-      return await ctx.synapsedxCall(
+    if (core === 'synapse-inference' && ctx?.synapseoneCall) {
+      return await ctx.synapseoneCall(
         'inference',
         'chat',
         {
@@ -1971,9 +1990,9 @@ export async function execAiAgentNode(
     // The internal secret is a master service-to-service credential. Only
     // send it to an explicitly allowlisted first-party origin — never to an
     // arbitrary baseUrl saved in a workflow.
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     if (INTERNAL && core === 'synapse-inference' && isAllowedSelfUrl(new URL(url))) {
-      headers['x-synapsedx-internal'] = INTERNAL;
+      headers['x-synapseone-internal'] = INTERNAL;
     }
 
     const payload: any = {
@@ -2026,7 +2045,7 @@ export async function execAiAgentNode(
           if (new URL(next).origin !== new URL(curUrl).origin) {
             // Credentials never cross an origin boundary.
             delete headers['Authorization'];
-            delete headers['x-synapsedx-internal'];
+            delete headers['x-synapseone-internal'];
           }
           if (resp.status === 303 || ((resp.status === 301 || resp.status === 302) && curMethod === 'POST')) {
             curMethod = 'GET';
@@ -2304,6 +2323,12 @@ export async function runWorkflow(
   opts?: RunOpts,
 ): Promise<RunResult> {
   const nodes = Array.isArray(definition?.nodes) ? definition.nodes : [];
+  // Accept workflows saved before the rebrand: normalise legacy node types
+  // once at the boundary so every downstream switch sees `synapseone.*`.
+  for (const node of nodes) {
+    const canonical = normalizeNodeType((node as any).type);
+    if (typeof canonical === 'string' && canonical !== (node as any).type) (node as any).type = canonical;
+  }
   const connections: Connections = definition?.connections && typeof definition.connections === 'object' ? definition.connections : {};
   const continueOnError = (definition as any)?.settings?.onError === 'continue';
   const byName = new Map(nodes.map((n) => [n.name, n]));
@@ -2329,7 +2354,7 @@ export async function runWorkflow(
   let failed: string | null = null;
 
   async function runNodeWithRetry(
-    kind: 'http' | 'code' | 'synapsedx' | 'integration',
+    kind: 'http' | 'code' | 'synapseone' | 'integration',
     node: EngineNode,
     data: any,
   ): Promise<{ output: any; attempts: number }> {
@@ -2340,10 +2365,10 @@ export async function runWorkflow(
         const output =
           kind === 'http'
             ? await execHttp(node, data, { principal: opts?.principal, credentialResolver: opts?.credentialResolver })
-            : kind === 'synapsedx'
-              ? await execSynapseDX(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
+            : kind === 'synapseone'
+              ? await execSynapseOne(node, data, { principal: opts?.principal, synapseoneCall: opts?.synapseoneCall })
               : kind === 'integration'
-                ? await execIntegrationNode(node, data, { principal: opts?.principal, synapsedxCall: opts?.synapsedxCall })
+                ? await execIntegrationNode(node, data, { principal: opts?.principal, synapseoneCall: opts?.synapseoneCall })
                 : await execCodeSandbox(node, data);
         return { output, attempts: a };
       } catch (e) {
@@ -2398,7 +2423,7 @@ export async function runWorkflow(
     const agentCtx = {
       principal: opts?.principal,
       credentialResolver: opts?.credentialResolver,
-      synapsedxCall: opts?.synapsedxCall,
+      synapseoneCall: opts?.synapseoneCall,
       toolNodes,
       modelNode: modelNode ? byName.get(modelNode) || null : null,
       runToolNode: execToolNode,
@@ -2406,34 +2431,34 @@ export async function runWorkflow(
     switch (node.type) {
       case 'webhook':
       case 'n8n-nodes-base.webhook':
-      case 'synapsedx.webhook':
+      case 'synapseone.webhook':
       case 'cron':
       case 'n8n-nodes-base.cron':
-      case 'synapsedx.cron':
+      case 'synapseone.cron':
       case 'manualTrigger':
       case 'n8n-nodes-base.manualTrigger':
-      case 'synapsedx.manualTrigger':
+      case 'synapseone.manualTrigger':
         output = await execTrigger(node, data);
         break;
       case 'noOp':
       case 'n8n-nodes-base.noOp':
-      case 'synapsedx.noOp':
+      case 'synapseone.noOp':
         output = await execNoOp(node, data);
         break;
       case 'set':
       case 'n8n-nodes-base.set':
-      case 'synapsedx.set':
+      case 'synapseone.set':
         output = execSet(node, data);
         break;
       case 'if':
       case 'n8n-nodes-base.if':
-      case 'synapsedx.if': {
+      case 'synapseone.if': {
         output = clone(data);
         return { output, branch: execIfCondition(node, output) ? 0 : 1 };
       }
       case 'httpRequest':
       case 'n8n-nodes-base.httpRequest':
-      case 'synapsedx.httpRequest': {
+      case 'synapseone.httpRequest': {
         const r = await runNodeWithRetry('http', node, data);
         output = r.output;
         attempts = r.attempts;
@@ -2441,14 +2466,14 @@ export async function runWorkflow(
       }
       case 'code':
       case 'n8n-nodes-base.code':
-      case 'synapsedx.code': {
+      case 'synapseone.code': {
         const r = await runNodeWithRetry('code', node, data);
         output = r.output;
         attempts = r.attempts;
         break;
       }
-      case 'synapsedx.api': {
-        const r = await runNodeWithRetry('synapsedx', node, data);
+      case 'synapseone.api': {
+        const r = await runNodeWithRetry('synapseone', node, data);
         output = r.output;
         attempts = r.attempts;
         break;
@@ -2456,24 +2481,24 @@ export async function runWorkflow(
       case 'decision':
       case 'decision.route':
       case 'synapseflow.decision':
-      case 'synapsedx.decision':
+      case 'synapseone.decision':
       case 'n8n-nodes-base.decision': {
         const dec = await execDecisionNode(node, data, {
           principal: opts?.principal,
-          synapsedxCall: opts?.synapsedxCall,
+          synapseoneCall: opts?.synapseoneCall,
         });
         return { output: dec.output, branch: dec.branch };
       }
       case 'ai.agent':
       case 'synapseflow.aiAgent':
-      case 'synapsedx.aiAgent':
+      case 'synapseone.aiAgent':
       case 'agent':
       case 'n8n-nodes-base.aiAgent': {
         output = await execAiAgentNode(node, data, agentCtx);
         break;
       }
       case 'synapseflow.model':
-      case 'synapsedx.model':
+      case 'synapseone.model':
         // Configuration-only node: pass through when it is also used in flow.
         output = clone(data);
         break;

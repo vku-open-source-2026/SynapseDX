@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Cross-tenant scoping: attach/assign/SA-mint must not bleed across
  * accounts/orgs. Runs against the in-memory DB (no DATABASE_URL here).
@@ -17,7 +17,7 @@ describe('iam cross-tenant scoping', () => {
   const H = (token: string) => ({
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
-    'x-synapsedx-internal': 'test-secret-123',
+    'x-synapseone-internal': 'test-secret-123',
   });
 
   async function post(path: string, body: any, token: string) {
@@ -43,10 +43,10 @@ describe('iam cross-tenant scoping', () => {
   before(
     () =>
       new Promise<void>((resolve, reject) => {
-        for (const k of ['SYNAPSEDX_INTERNAL_SECRET', 'NODE_ENV', 'DATABASE_URL', 'IAM_ALLOW_DEV_LOGIN']) {
+        for (const k of ['SYNAPSEONE_INTERNAL_SECRET', 'NODE_ENV', 'DATABASE_URL', 'IAM_ALLOW_DEV_LOGIN']) {
           saved[k] = process.env[k];
         }
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         delete process.env.DATABASE_URL;
         delete process.env.NODE_ENV;
         (async () => {
@@ -322,7 +322,7 @@ describe('iam cross-tenant scoping', () => {
   it('limited API key cannot mint wildcard SA token (derived scopes, no stamp)', async () => {
     const kk = await post(`/v1/accounts/${acc1}/keys`, { name: 'limited', scopes: ['workflow:Execute'] }, token);
     assert.equal(kk.status, 201);
-    const KH = { 'Content-Type': 'application/json', 'X-API-Key': kk.json.apiKey, 'x-synapsedx-internal': 'test-secret-123' };
+    const KH = { 'Content-Type': 'application/json', 'X-API-Key': kk.json.apiKey, 'x-synapseone-internal': 'test-secret-123' };
     const sa = await post(`/v1/accounts/${acc1}/service-accounts`, { slug: 'sa-scope' }, token);
     assert.equal(sa.status, 201);
     const wild = await fetch(`${base}/v1/service-accounts/${sa.json.id}/token`, {
@@ -392,10 +392,10 @@ describe('iam cross-tenant scoping', () => {
     const stamped = {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-      'x-synapsedx-internal': 'test-secret-123',
-      'x-synapsedx-account': accX,
-      'x-synapsedx-org': org2,
-      'x-synapsedx-kind': 'user',
+      'x-synapseone-internal': 'test-secret-123',
+      'x-synapseone-account': accX,
+      'x-synapseone-org': org2,
+      'x-synapseone-kind': 'user',
     };
     const list = await fetch(`${base}/v1/accounts/${accX}/keys`, { headers: stamped });
     assert.equal(list.status, 200);
@@ -408,8 +408,8 @@ describe('iam cross-tenant scoping', () => {
   });
 
   it('stamped headers are ignored without the secret (no spoofing in dev)', async () => {
-    const savedSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    const savedSecret = process.env.SYNAPSEONE_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     const app2 = createApp();
     const srv: Server = await new Promise((resolve) => {
       const s = app2.listen(0, '127.0.0.1', () => resolve(s as unknown as Server));
@@ -421,13 +421,13 @@ describe('iam cross-tenant scoping', () => {
       const spoofed = {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        'x-synapsedx-account': accX,
-        'x-synapsedx-org': org2,
+        'x-synapseone-account': accX,
+        'x-synapseone-org': org2,
       };
       const list = await fetch(`${b2}/v1/accounts/${accX}/keys`, { headers: spoofed });
       assert.equal(list.status, 403);
     } finally {
-      if (savedSecret !== undefined) process.env.SYNAPSEDX_INTERNAL_SECRET = savedSecret;
+      if (savedSecret !== undefined) process.env.SYNAPSEONE_INTERNAL_SECRET = savedSecret;
       await new Promise<void>((resolve) => srv.close(() => resolve()));
     }
   });

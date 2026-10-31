@@ -1,21 +1,21 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  *
  * End-to-end check for the v0.5 services (SynapseBase, Synapse Faststore,
  * SynapseQueue) through the gateway and the JavaScript SDK. Requires a
  * running gateway and Redis/Postgres (the Docker stack is enough).
  *
- *   SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
+ *   SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
  */
 const assert = require('node:assert/strict');
-const { SynapseDXClient } = require('../../sdks/sdk-js/dist/index.js');
+const { SynapseOneClient } = require('../../sdks/sdk-js/dist/index.js');
 
-const baseUrl = process.env.SYNAPSEDX_BASE_URL || 'http://localhost:8080';
+const baseUrl = process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080';
 const stamp = Date.now().toString(36);
 
 async function main() {
-  const c = new SynapseDXClient({ baseUrl });
+  const c = new SynapseOneClient({ baseUrl });
   const login = await c.iam.login(`svc-e2e-${stamp}@acme.local`);
   c.setToken(login.accessToken);
 

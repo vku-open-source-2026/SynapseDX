@@ -8,6 +8,13 @@
       "when": 1792554130734,
       "tag": "0000_brainy_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794000000000,
+      "tag": "0001_rebrand_synapseone",
+      "breakpoints": true
     }
   ]
 }

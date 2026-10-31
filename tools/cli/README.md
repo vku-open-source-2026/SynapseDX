@@ -1,41 +1,41 @@
-# `synapsedx` CLI — zero-dependency command line (Node 18+)
+# `synapseone` CLI — zero-dependency command line (Node 18+)
 
-Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS. No `npm install` needed —
+Apache-2.0. Part of [SynapseOne](../../README.md) Tier-1 PaaS. No `npm install` needed —
 single file, only Node's built-in `fetch`.
 
 ## Install
 
 ```bash
-# one-line installer (installs @synapsedx/cli@latest globally)
-curl -fsSL https://synapsedx.sbs/install.sh | sh
+# one-line installer (installs @synapseone/cli@latest globally)
+curl -fsSL https://synapseone.space/install.sh | sh
 
 # ..or from the registry directly:
-npm install -g @synapsedx/cli@latest
+npm install -g @synapseone/cli@latest
 
 # ..or run without installing anything:
-npx -y @synapsedx/cli@latest --help
+npx -y @synapseone/cli@latest --help
 
 # ..or from source:
-node tools/cli/bin/synapsedx.js --help
+node tools/cli/bin/synapseone.js --help
 # or link globally:
-npm link ./tools/cli   # then call `synapsedx ...` anywhere
+npm link ./tools/cli   # then call `synapseone ...` anywhere
 ```
 
 ## Quick start
 
 ```bash
-export SYNAPSEDX_BASE_URL=http://localhost:8080
-synapsedx login --email demo@acme.local
-synapsedx orgs
-synapsedx accounts create prod Production
-synapsedx authz <user-id> workflow:Execute "*" --context team=etl
-synapsedx workflows create --template webhook-to-log --name demo
-synapsedx audit --limit 20
+export SYNAPSEONE_BASE_URL=http://localhost:8080
+synapseone login --email demo@acme.local
+synapseone orgs
+synapseone accounts create prod Production
+synapseone authz <user-id> workflow:Execute "*" --context team=etl
+synapseone workflows create --template webhook-to-log --name demo
+synapseone audit --limit 20
 ```
 
-Against the live demo: add `--base https://api.synapsedx.sbs` (or
-`export SYNAPSEDX_BASE_URL=https://api.synapsedx.sbs`) and sign in with an API key
-(`synapsedx use-key <key>`).
+Against the live demo: add `--base https://api.synapseone.space` (or
+`export SYNAPSEONE_BASE_URL=https://api.synapseone.space`) and sign in with an API key
+(`synapseone use-key <key>`).
 
 ## Full documentation
 

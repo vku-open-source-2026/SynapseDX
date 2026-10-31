@@ -1,7 +1,7 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * synapsedx JavaScript SDK — works in Node 18+ and browsers (fetch-based).
+ * synapseone JavaScript SDK — works in Node 18+ and browsers (fetch-based).
  *
  * The SDK is split per service:
  *   client.iam        auth/OIDC, orgs/accounts/users, roles, policies,
@@ -20,7 +20,7 @@
  * `client.workflow.listTemplates()`).
  */
 
-import { HttpClient, SynapseDXClientOptions, warnDeprecated } from './_http';
+import { HttpClient, SynapseOneClientOptions, warnDeprecated } from './_http';
 import { IamService } from './iam';
 import { WorkflowService } from './workflow';
 import { LdsAttributeInput, LdsDatasourceInput, LdsEntitiesQuery, LdsIngestResult, LdsService } from './lds';
@@ -58,7 +58,7 @@ export interface LdsLegacyMethods {
   ldsStats(id: string): Promise<any>;
 }
 
-export class SynapseDXClient {
+export class SynapseOneClient {
   readonly http: HttpClient;
   readonly iam: IamService;
   readonly workflow: WorkflowService;
@@ -70,7 +70,7 @@ export class SynapseDXClient {
   readonly stream: StreamService;
   readonly inference: InferenceService;
 
-  constructor(opts: SynapseDXClientOptions) {
+  constructor(opts: SynapseOneClientOptions) {
     this.http = new HttpClient(opts);
     this.iam = new IamService(this.http);
     this.workflow = new WorkflowService(this.http);
@@ -96,7 +96,7 @@ export class SynapseDXClient {
 
 // The legacy flat methods are installed at runtime; this merge teaches the
 // type system about them so existing call sites keep compiling.
-export interface SynapseDXClient extends Pick<IamService, keyof IamService>, Pick<WorkflowService, keyof WorkflowService>, LdsLegacyMethods {}
+export interface SynapseOneClient extends Pick<IamService, keyof IamService>, Pick<WorkflowService, keyof WorkflowService>, LdsLegacyMethods {}
 
 const IAM_METHODS = [
   'login', 'refresh', 'logout', 'logoutAll', 'verify', 'me',
@@ -137,7 +137,7 @@ const LDS_METHODS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 function defineLegacy(service: 'iam' | 'workflow' | 'lds', legacy: string, target: string): void {
-  Object.defineProperty(SynapseDXClient.prototype, legacy, {
+  Object.defineProperty(SynapseOneClient.prototype, legacy, {
     value: function (this: any, ...args: unknown[]) {
       warnDeprecated(`client.${legacy}`, `client.${service}.${target}`);
       return this[service][target](...args);
@@ -150,3 +150,9 @@ function defineLegacy(service: 'iam' | 'workflow' | 'lds', legacy: string, targe
 for (const name of IAM_METHODS) defineLegacy('iam', name, name);
 for (const name of WORKFLOW_METHODS) defineLegacy('workflow', name, name);
 for (const [legacy, target] of LDS_METHODS) defineLegacy('lds', legacy, target);
+
+/**
+ * @deprecated Use {@link SynapseOneClient}. Kept for the SynapseDX -> SynapseOne
+ * rebrand window; this is the same class, not a subclass.
+ */
+export { SynapseOneClient as SynapseDXClient };

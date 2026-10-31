@@ -1,4 +1,4 @@
--- SynapseDX database bootstrap.
+-- SynapseOne database bootstrap.
 --
 -- Table and index DDL is owned by each service's versioned Drizzle migrations
 -- (apps/*/drizzle). Services apply their own migrations on startup using a

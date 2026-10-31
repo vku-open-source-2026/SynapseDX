@@ -1,7 +1,7 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
-// SynapseDX Go SDK — gateway + IAM + workflow client (net/http only, no deps).
-package synapsedx
+// SynapseOne Go SDK — gateway + IAM + workflow client (net/http only, no deps).
+package synapseone
 
 import (
 	"bytes"
@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-// Client talks to the SynapseDX gateway (e.g. http://localhost:8080).
+// Client talks to the SynapseOne gateway (e.g. http://localhost:8080).
 type Client struct {
 	BaseURL string
 	Token   string // Bearer JWT (user or service-account token)
 	APIKey  string // X-API-Key
-	Tenant  string // x-synapsedx-tenant (platform callers of faststore/queue)
+	Tenant  string // x-synapseone-tenant (platform callers of faststore/queue)
 	HTTP    *http.Client
 }
 
@@ -42,7 +42,7 @@ func (c *Client) SetToken(t string) { c.Token = t }
 // SetAPIKey sets the X-API-Key for subsequent calls.
 func (c *Client) SetAPIKey(k string) { c.APIKey = k }
 
-// SetTenant sets the x-synapsedx-tenant header used by platform callers of
+// SetTenant sets the x-synapseone-tenant header used by platform callers of
 // Synapse Faststore and SynapseQueue. An empty string clears it.
 func (c *Client) SetTenant(t string) { c.Tenant = t }
 
@@ -51,13 +51,13 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 	if body != nil {
 		b, err := json.Marshal(body)
 		if err != nil {
-			return nil, fmt.Errorf("synapsedx encode %s: %w", path, err)
+			return nil, fmt.Errorf("synapseone encode %s: %w", path, err)
 		}
 		r = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, c.BaseURL+path, r)
 	if err != nil {
-		return nil, fmt.Errorf("synapsedx request %s: %w", path, err)
+		return nil, fmt.Errorf("synapseone request %s: %w", path, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.Token != "" {
@@ -67,16 +67,16 @@ func (c *Client) do(method, path string, body any) ([]byte, error) {
 		req.Header.Set("X-API-Key", c.APIKey)
 	}
 	if c.Tenant != "" {
-		req.Header.Set("x-synapsedx-tenant", c.Tenant)
+		req.Header.Set("x-synapseone-tenant", c.Tenant)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("synapsedx network %s: %w", path, err)
+		return nil, fmt.Errorf("synapseone network %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("synapsedx %d %s: %s", resp.StatusCode, path, truncate(string(b), 500))
+		return nil, fmt.Errorf("synapseone %d %s: %s", resp.StatusCode, path, truncate(string(b), 500))
 	}
 	return b, nil
 }
@@ -89,7 +89,7 @@ func unmarshal(b []byte, out any) error {
 		return nil
 	}
 	if err := json.Unmarshal(b, out); err != nil {
-		return fmt.Errorf("synapsedx decode: %w", err)
+		return fmt.Errorf("synapseone decode: %w", err)
 	}
 	return nil
 }
@@ -1086,7 +1086,7 @@ func UnwrapExecutions(b []byte) ([]any, error) {
 		Data []any `json:"data"`
 	}
 	if err := json.Unmarshal(b, &env); err != nil {
-		return nil, fmt.Errorf("synapsedx decode: %w", err)
+		return nil, fmt.Errorf("synapseone decode: %w", err)
 	}
 	if env.Data == nil {
 		return []any{}, nil
@@ -1152,7 +1152,7 @@ func TriggerWebhookWithMethod(webhookBaseURL, path string, payload any, method s
 	base := strings.TrimRight(webhookBaseURL, "/")
 	clean := strings.Trim(strings.SplitN(strings.Trim(path, "/"), "?", 2)[0], "/")
 	if clean == "" {
-		return nil, fmt.Errorf("synapsedx webhook: path required")
+		return nil, fmt.Errorf("synapseone webhook: path required")
 	}
 	if method == "" {
 		method = "POST"
@@ -1166,13 +1166,13 @@ func TriggerWebhookWithMethod(webhookBaseURL, path string, payload any, method s
 	if payload != nil && method != "GET" && method != "HEAD" {
 		b, err := json.Marshal(payload)
 		if err != nil {
-			return nil, fmt.Errorf("synapsedx encode /webhook/%s: %w", clean, err)
+			return nil, fmt.Errorf("synapseone encode /webhook/%s: %w", clean, err)
 		}
 		r = bytes.NewReader(b)
 	}
 	req, err := http.NewRequest(method, url, r)
 	if err != nil {
-		return nil, fmt.Errorf("synapsedx request /webhook/%s: %w", clean, err)
+		return nil, fmt.Errorf("synapseone request /webhook/%s: %w", clean, err)
 	}
 	if r != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -1180,19 +1180,19 @@ func TriggerWebhookWithMethod(webhookBaseURL, path string, payload any, method s
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("synapsedx network /webhook/%s: %w", clean, err)
+		return nil, fmt.Errorf("synapseone network /webhook/%s: %w", clean, err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("synapsedx %d /webhook/%s: %s", resp.StatusCode, clean, truncate(string(b), 500))
+		return nil, fmt.Errorf("synapseone %d /webhook/%s: %s", resp.StatusCode, clean, truncate(string(b), 500))
 	}
 	if len(b) == 0 {
 		return map[string]any{}, nil
 	}
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("synapsedx decode: %w", err)
+		return nil, fmt.Errorf("synapseone decode: %w", err)
 	}
 	return out, nil
 }

@@ -1,12 +1,13 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseLDS — Linked Data Service (NGSI-LD open data gateway).
  * Datasources with licensed, policy-filtered NGSI-LD exports built by a
  * structural-allowlist projector (see ./projector). Postgres persistence
  * with in-memory fallback (dev/test). Internal-service auth like the rest
- * of the platform (SYNAPSEDX_INTERNAL_SECRET + gateway-stamped principal).
+ * of the platform (SYNAPSEONE_INTERNAL_SECRET + gateway-stamped principal).
  */
+import './env-compat';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -60,23 +61,25 @@ export interface Caller {
 
 export function principalFromHeaders(req: express.Request): Principal | null {
   const h = (n: string): string => {
-    const v = req.headers[n];
+    // Accept the legacy x-synapsedx-* prefix during the rebrand window.
+    const legacy = n.startsWith('x-synapseone-') ? n.replace('x-synapseone-', 'x-synapsedx-') : n;
+    const v = req.headers[n] ?? req.headers[legacy];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
-  const user = h('x-synapsedx-user');
+  const user = h('x-synapseone-user');
   if (user) {
     if (user.length > 128) return null;
-    return { sub: user, org: clean(h('x-synapsedx-org')), account: clean(h('x-synapsedx-account')), kind: clean(h('x-synapsedx-kind')) };
+    return { sub: user, org: clean(h('x-synapseone-org')), account: clean(h('x-synapseone-account')), kind: clean(h('x-synapseone-kind')) };
   }
   // API keys are machine identities: the gateway stamps kind=apikey + account
   // but no user (keys carry no user claim). Without this fallback they would
   // look unauthenticated and fall through to `platform` — a cross-tenant
   // superuser. Any tenant marker means "authenticated principal", never
   // internal/platform; synthesize a non-user subject so scoping applies.
-  const kind = clean(h('x-synapsedx-kind'));
-  const account = clean(h('x-synapsedx-account'));
-  const org = clean(h('x-synapsedx-org'));
+  const kind = clean(h('x-synapseone-kind'));
+  const account = clean(h('x-synapseone-account'));
+  const org = clean(h('x-synapseone-org'));
   if (kind || account || org) {
     return { sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`, org, account, kind: kind || 'apikey' };
   }
@@ -86,7 +89,7 @@ export function principalFromHeaders(req: express.Request): Principal | null {
 export function resolveCaller(req: express.Request): Caller {
   const p = principalFromHeaders(req);
   if (p) return { kind: 'principal', principal: p };
-  const raw = req.headers['x-synapsedx-anon'];
+  const raw = (req.headers['x-synapseone-anon'] ?? req.headers['x-synapsedx-anon']);
   // The marker is stamped by the gateway for public routes; clients cannot
   // spoof it past the gateway (stripped) and a principal always wins.
   const anon = (Array.isArray(raw) ? raw[0] : raw) === '1';
@@ -185,8 +188,8 @@ function cleanLicense(id: unknown, url: unknown): { ok: true; license: string; l
 
 export function createApp(): express.Express {
   if (IS_PROD) {
-    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      throw new Error('[lds] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+    if (!process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      throw new Error('[lds] SYNAPSEONE_INTERNAL_SECRET must be set in production');
     }
     if (!process.env.DATABASE_URL) {
       throw new Error('[lds] DATABASE_URL must be set in production (in-memory fallback would split-brain)');
@@ -247,15 +250,15 @@ export function createApp(): express.Express {
   }) as any);
   app.get('/metrics', async (_req, res) => {
     const lines: string[] = [
-      '# HELP synapsedx_lds_up LDS service up.',
-      '# TYPE synapsedx_lds_up gauge',
-      'synapsedx_lds_up 1',
-      '# HELP synapsedx_lds_process_uptime_seconds Process uptime in seconds.',
-      '# TYPE synapsedx_lds_process_uptime_seconds gauge',
-      `synapsedx_lds_process_uptime_seconds ${Math.floor(process.uptime())}`,
-      '# HELP synapsedx_lds_http_requests_total HTTP requests by key = method|route|status.',
-      '# TYPE synapsedx_lds_http_requests_total counter',
-      ...[...METRIC_REQUESTS.entries()].map(([k, v]) => `synapsedx_lds_http_requests_total{key="${k}"} ${v}`),
+      '# HELP synapseone_lds_up LDS service up.',
+      '# TYPE synapseone_lds_up gauge',
+      'synapseone_lds_up 1',
+      '# HELP synapseone_lds_process_uptime_seconds Process uptime in seconds.',
+      '# TYPE synapseone_lds_process_uptime_seconds gauge',
+      `synapseone_lds_process_uptime_seconds ${Math.floor(process.uptime())}`,
+      '# HELP synapseone_lds_http_requests_total HTTP requests by key = method|route|status.',
+      '# TYPE synapseone_lds_http_requests_total counter',
+      ...[...METRIC_REQUESTS.entries()].map(([k, v]) => `synapseone_lds_http_requests_total{key="${k}"} ${v}`),
     ];
     try {
       const all = await listDatasourceRecs();
@@ -264,12 +267,12 @@ export function createApp(): express.Express {
         try { records += (await datasourceStatsRec(d.id)).records || 0; } catch { /* best-effort */ }
       }
       lines.push(
-        '# HELP synapsedx_lds_datasources_total Datasource count.',
-        '# TYPE synapsedx_lds_datasources_total gauge',
-        `synapsedx_lds_datasources_total ${all.length}`,
-        '# HELP synapsedx_lds_records_total Stored records across all datasources.',
-        '# TYPE synapsedx_lds_records_total gauge',
-        `synapsedx_lds_records_total ${records}`,
+        '# HELP synapseone_lds_datasources_total Datasource count.',
+        '# TYPE synapseone_lds_datasources_total gauge',
+        `synapseone_lds_datasources_total ${all.length}`,
+        '# HELP synapseone_lds_records_total Stored records across all datasources.',
+        '# TYPE synapseone_lds_records_total gauge',
+        `synapseone_lds_records_total ${records}`,
       );
     } catch { /* scrape never fails on db blips */ }
     res.type('text/plain').send(`${lines.join('\n')}\n`);
@@ -277,16 +280,16 @@ export function createApp(): express.Express {
 
   // Service-to-service gate: when the internal secret is set, every /v1/*
   // call must carry it (the gateway stamps it after verifying the caller).
-  const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   if (!INTERNAL_SECRET) {
-    console.warn('[lds][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default).');
+    console.warn('[lds][security] SYNAPSEONE_INTERNAL_SECRET not set — service-to-service auth disabled (dev default).');
   }
   app.use('/v1/' as any, ((req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!INTERNAL_SECRET) {
       if (IS_PROD) return res.status(500).json({ error: 'misconfigured', message: 'internal secret required in production' });
       return next();
     }
-    const raw = req.headers['x-synapsedx-internal'] as string | string[] | undefined;
+    const raw = (req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as string | string[] | undefined;
     const got = Array.isArray(raw) ? (raw[0] || '') : (raw || '');
     const a = Buffer.from(got);
     const b = Buffer.from(INTERNAL_SECRET);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useEffect, useState } from 'react';
@@ -56,8 +56,8 @@ export default function SynapseInference() {
   const [embLoading, setEmbLoading] = useState(false);
 
   // Tab 3: LLM
-  const [llmSystem, setLlmSystem] = useState('You are an expert AI assistant on the SynapseDX cloud platform.');
-  const [llmPrompt, setLlmPrompt] = useState('Explain how workflows and queues communicate in SynapseDX in two concise sentences.');
+  const [llmSystem, setLlmSystem] = useState('You are an expert AI assistant on the SynapseOne cloud platform.');
+  const [llmPrompt, setLlmPrompt] = useState('Explain how workflows and queues communicate in SynapseOne in two concise sentences.');
   const [llmModel, setLlmModel] = useState('liquid/lfm-2.5-2.6b:free');
   const [llmTemp, setLlmTemp] = useState(0.7);
   const [llmMaxTokens, setLlmMaxTokens] = useState(256);

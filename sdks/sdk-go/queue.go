@@ -1,4 +1,4 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // SynapseQueue: queues, publish (delay + dedupe), at-least-once consumption
 // with visibility-timeout leases, ack/nack/heartbeat, retry, dead letters and
@@ -10,8 +10,8 @@
 // consumers must be idempotent.
 //
 // Every operation is scoped to the caller's tenant (org / account / user).
-// Platform callers set Client.Tenant (x-synapsedx-tenant).
-package synapsedx
+// Platform callers set Client.Tenant (x-synapseone-tenant).
+package synapseone
 
 import (
 	"net/url"

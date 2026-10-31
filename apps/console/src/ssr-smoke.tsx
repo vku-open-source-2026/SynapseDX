@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // SSR smoke test: render every route's default state to a string (no browser).
@@ -41,7 +41,7 @@ const ROUTES = [
 
 const SESSIONS = {
   anon: null,
-  key: { apiKey: 'synapsedx_test' },
+  key: { apiKey: 'synapseone_test' },
 };
 
 const GUARDED = new Set([
@@ -65,7 +65,7 @@ const GUARDED = new Set([
 let failures = 0;
 for (const [label, session] of Object.entries(SESSIONS)) {
   (globalThis as any).localStorage = {
-    getItem: (k: string) => (k === 'synapsedx.console.auth' && session ? JSON.stringify(session) : null),
+    getItem: (k: string) => (k === 'synapseone.console.auth' && session ? JSON.stringify(session) : null),
     setItem: () => undefined,
     removeItem: () => undefined,
   };

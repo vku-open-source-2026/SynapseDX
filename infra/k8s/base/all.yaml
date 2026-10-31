@@ -1,13 +1,13 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: synapsedx
+  name: synapseone
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: iam
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 2
   selector:
@@ -18,17 +18,17 @@ spec:
     spec:
       containers:
         - name: iam
-          image: ghcr.io/synapsedx/iam:0.6.2
+          image: ghcr.io/synapseone/iam:0.7.0
           ports: [{ containerPort: 4001 }]
           env:
-            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: database-url } } }
-            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
-            - { name: IAM_API_KEY_PEPPER, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: api-key-pepper } } }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: database-url } } }
+            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: iam-jwt-secret } } }
+            - { name: IAM_API_KEY_PEPPER, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: api-key-pepper } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: REDIS_URL, value: "redis://redis:6379" }
-            - { name: OIDC_ISSUER, value: "https://auth.example.com/application/o/synapsedx/" }
-            - { name: OIDC_CLIENT_ID, value: "synapsedx-platform" }
-            - { name: OIDC_CLIENT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: oidc-client-secret } } }
+            - { name: OIDC_ISSUER, value: "https://auth.example.com/application/o/synapseone/" }
+            - { name: OIDC_CLIENT_ID, value: "synapseone-platform" }
+            - { name: OIDC_CLIENT_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: oidc-client-secret } } }
             - { name: OIDC_REDIRECT_URI, value: "https://console.example.com/oidc/callback" }
             - { name: IAM_JWT_EXPIRES_IN, value: "3600" }
             # Production hardening (flip from dev defaults):
@@ -45,7 +45,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: iam
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: iam }
   ports: [{ port: 4001, targetPort: 4001 }]
@@ -54,7 +54,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: gateway
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 2
   selector:
@@ -65,7 +65,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: ghcr.io/synapsedx/gateway:0.6.2
+          image: ghcr.io/synapseone/gateway:0.7.0
           ports: [{ containerPort: 8080 }]
           env:
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
@@ -76,8 +76,8 @@ spec:
             - { name: FASTSTORE_SERVICE_URL, value: "http://faststore:4006" }
             - { name: QUEUE_SERVICE_URL, value: "http://queue:4007" }
             # Gateway MUST share the JWT secret or every Bearer check fails closed.
-            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: iam-jwt-secret } } }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: IAM_JWT_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: iam-jwt-secret } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -95,7 +95,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: gateway
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   type: LoadBalancer
   selector: { app: gateway }
@@ -105,7 +105,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: workflow
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 1
   selector:
@@ -116,10 +116,10 @@ spec:
     spec:
       containers:
         - name: workflow
-          image: ghcr.io/synapsedx/workflow:0.6.2
+          image: ghcr.io/synapseone/workflow:0.7.0
           ports: [{ containerPort: 4002 }]
           env:
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: IAM_SERVICE_URL, value: "http://iam:4001" }
             - { name: WORKFLOW_TIMEOUT_MS, value: "60000" }
             - { name: INFERENCE_TIMEOUT_MS, value: "120000" }
@@ -135,7 +135,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: workflow
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: workflow }
   ports: [{ port: 4002, targetPort: 4002 }]
@@ -144,7 +144,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ai
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 1
   selector:
@@ -155,18 +155,18 @@ spec:
     spec:
       containers:
         - name: ai
-          image: ghcr.io/synapsedx/ai:0.6.2
+          image: ghcr.io/synapseone/ai:0.7.0
           ports: [{ containerPort: 4003 }]
           env:
             - { name: AI_BASE_URL, value: "https://openrouter.ai/api/v1" }
-            - { name: AI_API_KEY, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: ai-api-key } } }
+            - { name: AI_API_KEY, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: ai-api-key } } }
             - { name: AI_DECISION_MODEL, value: "inception/mercury-2.5" }
             - { name: AI_LLM_MODEL, value: "liquid/lfm-2.5-2.6b:free" }
             - { name: AI_LLM_FALLBACK_MODEL, value: "inception/mercury-2.5" }
             - { name: AI_TIMEOUT_MS, value: "20000" }
             - { name: AI_RATE_LIMIT, value: "30" }
             - { name: AI_RETRIES, value: "2" }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -179,7 +179,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ai
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: ai }
   ports: [{ port: 4003, targetPort: 4003 }]
@@ -188,7 +188,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: base
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 2
   selector:
@@ -199,11 +199,11 @@ spec:
     spec:
       containers:
         - name: base
-          image: ghcr.io/synapsedx/base:0.6.2
+          image: ghcr.io/synapseone/base:0.7.0
           ports: [{ containerPort: 4005 }]
           env:
-            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: database-url } } }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: database-url } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -216,7 +216,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: base
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: base }
   ports: [{ port: 4005, targetPort: 4005 }]
@@ -225,7 +225,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: faststore
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 2
   selector:
@@ -236,11 +236,11 @@ spec:
     spec:
       containers:
         - name: faststore
-          image: ghcr.io/synapsedx/faststore:0.6.2
+          image: ghcr.io/synapseone/faststore:0.7.0
           ports: [{ containerPort: 4006 }]
           env:
             - { name: FASTSTORE_REDIS_URL, value: "redis://redis:6379" }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -253,7 +253,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: faststore
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: faststore }
   ports: [{ port: 4006, targetPort: 4006 }]
@@ -262,7 +262,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: queue
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 2
   selector:
@@ -273,11 +273,11 @@ spec:
     spec:
       containers:
         - name: queue
-          image: ghcr.io/synapsedx/queue:0.6.2
+          image: ghcr.io/synapseone/queue:0.7.0
           ports: [{ containerPort: 4007 }]
           env:
             - { name: QUEUE_REDIS_URL, value: "redis://redis:6379" }
-            - { name: SYNAPSEDX_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapsedx-secrets, key: internal-secret } } }
+            - { name: SYNAPSEONE_INTERNAL_SECRET, valueFrom: { secretKeyRef: { name: synapseone-secrets, key: internal-secret } } }
             - { name: NODE_ENV, value: "production" }
             - { name: HSTS_ENABLED, value: "true" }
             - { name: CORS_ORIGIN, value: "https://console.example.com" }
@@ -290,7 +290,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: queue
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: queue }
   ports: [{ port: 4007, targetPort: 4007 }]
@@ -299,7 +299,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: console
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   replicas: 1
   selector:
@@ -310,11 +310,11 @@ spec:
     spec:
       containers:
         - name: console
-          image: ghcr.io/synapsedx/console:0.6.2
+          image: ghcr.io/synapseone/console:0.7.0
           ports: [{ containerPort: 80 }]
           env:
             # URL gateway ma TRINH DUYET goi toi (Ingress/TLS ben ngoai) - doi theo domain that.
-            - { name: SYNAPSEDX_PUBLIC_BASE_URL, value: "https://gateway.example.com" }
+            - { name: SYNAPSEONE_PUBLIC_BASE_URL, value: "https://gateway.example.com" }
             - { name: CONSOLE_APP_URL, value: "https://console.example.com" }
           securityContext: { runAsNonRoot: true, runAsUser: 101, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } }
           resources: { requests: { cpu: "50m", memory: "64Mi" }, limits: { cpu: "250m", memory: "256Mi" } }
@@ -325,7 +325,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: console
-  namespace: synapsedx
+  namespace: synapseone
 spec:
   selector: { app: console }
   ports: [{ port: 80, targetPort: 80 }]

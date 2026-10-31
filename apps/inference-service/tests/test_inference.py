@@ -18,8 +18,8 @@ TEST_SECRET = "test-internal-secret-999"
 
 
 def auth_headers():
-    secret = settings.SYNAPSEDX_INTERNAL_SECRET or TEST_SECRET
-    return {"x-synapsedx-internal": secret, "Content-Type": "application/json"}
+    secret = settings.SYNAPSEONE_INTERNAL_SECRET or TEST_SECRET
+    return {"x-synapseone-internal": secret, "Content-Type": "application/json"}
 
 
 def test_health():
@@ -35,7 +35,7 @@ def test_health():
 
 
 def test_internal_secret_auth():
-    with patch.object(settings, "SYNAPSEDX_INTERNAL_SECRET", "super_secret_test_123"):
+    with patch.object(settings, "SYNAPSEONE_INTERNAL_SECRET", "super_secret_test_123"):
         # /health should still be public
         res_health = client.get("/health")
         assert res_health.status_code == 200
@@ -49,7 +49,7 @@ def test_internal_secret_auth():
         res_bad_auth = client.post(
             "/v1/embeddings",
             json={"input": "hello"},
-            headers={"x-synapsedx-internal": "wrong_secret"},
+            headers={"x-synapseone-internal": "wrong_secret"},
         )
         assert res_bad_auth.status_code == 401
 
@@ -57,7 +57,7 @@ def test_internal_secret_auth():
         res_ok = client.post(
             "/v1/embeddings",
             json={"input": "hello"},
-            headers={"x-synapsedx-internal": "super_secret_test_123"},
+            headers={"x-synapseone-internal": "super_secret_test_123"},
         )
         assert res_ok.status_code == 200
 
@@ -172,7 +172,7 @@ async def test_chat_completions_mocked():
         "choices": [
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": "I am SynapseDX AI."},
+                "message": {"role": "assistant", "content": "I am SynapseOne AI."},
                 "finish_reason": "stop",
             }
         ],
@@ -193,4 +193,4 @@ async def test_chat_completions_mocked():
             assert res.status_code == 200
             data = res.json()
             assert data["id"] == "gen-12345"
-            assert data["choices"][0]["message"]["content"] == "I am SynapseDX AI."
+            assert data["choices"][0]["message"]["content"] == "I am SynapseOne AI."

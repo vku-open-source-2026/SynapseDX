@@ -1,8 +1,8 @@
 {
-  "name": "@synapsedx/iam-service",
-  "version": "0.6.2",
+  "name": "@synapseone/iam-service",
+  "version": "0.7.0",
   "license": "Apache-2.0",
-  "description": "synapsedx IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
+  "description": "synapseone IAM - AWS-style Organization/Account/Role/Policy + token management + OIDC (Authentik/Keycloak)",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",

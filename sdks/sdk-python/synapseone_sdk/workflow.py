@@ -1,10 +1,10 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """Workflow service client: templates, workflow CRUD/lifecycle, executions,
 test runs and public inbound webhooks.
 
-Access it through ``SynapseDXClient(...).workflow`` or build it directly with a
-:class:`~synapsedx_sdk._http.HttpClient`.
+Access it through ``SynapseOneClient(...).workflow`` or build it directly with a
+:class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from urllib.parse import quote, urlencode
 
 import requests
 
-from ._http import HttpClient, SynapseDXError
+from ._http import HttpClient, SynapseOneError
 
 
 def unwrap_executions(payload: Any) -> list:
@@ -209,7 +209,7 @@ class WorkflowService:
         """Fire a public inbound webhook through the gateway: ANY /webhook/:path."""
         clean = str(path or "").strip("/").split("?")[0]
         if not clean:
-            raise SynapseDXError("synapsedx webhook: path required")
+            raise SynapseOneError("synapseone webhook: path required")
         verb = (method or ("GET" if payload is None else "POST")).upper()
         return self._http.request(verb, f"/webhook/{clean}", payload)
 
@@ -229,7 +229,7 @@ def trigger_webhook(
     """
     clean = str(path or "").strip("/").split("?")[0]
     if not clean:
-        raise SynapseDXError("synapsedx webhook: path required")
+        raise SynapseOneError("synapseone webhook: path required")
     verb = (method or ("GET" if payload is None else "POST")).upper()
     url = webhook_base_url.rstrip("/") + "/webhook/" + clean
     try:
@@ -244,12 +244,12 @@ def trigger_webhook(
                 timeout=timeout,
             )
     except Exception as e:
-        raise SynapseDXError(f"synapsedx network /webhook/{clean}: {e}") from e
+        raise SynapseOneError(f"synapseone network /webhook/{clean}: {e}") from e
     try:
         r.raise_for_status()
     except Exception as e:
-        raise SynapseDXError(
-            f"synapsedx {r.status_code} /webhook/{clean}: {r.text[:500]}",
+        raise SynapseOneError(
+            f"synapseone {r.status_code} /webhook/{clean}: {r.text[:500]}",
             status=r.status_code,
         ) from e
     if not r.text:

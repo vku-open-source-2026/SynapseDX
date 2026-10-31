@@ -1,13 +1,13 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // Canonical app host helpers (multi-domain deploy).
-// Prod: @ (synapsedx.sbs) la web chinh/landing, cloud.* la frontend app chinh.
+// Prod: @ (synapseone.space) la web chinh/landing, cloud.* la frontend app chinh.
 // Nut Dang nhap / Mo Console o domain phu phai tro ve canonical APP_URL theo env.
 export function appUrl() {
-  if (typeof window !== 'undefined' && window.SYNAPSEDX_CONFIG?.APP_URL) {
-    return String(window.SYNAPSEDX_CONFIG.APP_URL).replace(/\/$/, '');
+  if (typeof window !== 'undefined' && window.SYNAPSEONE_CONFIG?.APP_URL) {
+    return String(window.SYNAPSEONE_CONFIG.APP_URL).replace(/\/$/, '');
   }
   return (import.meta.env?.VITE_CONSOLE_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
 }

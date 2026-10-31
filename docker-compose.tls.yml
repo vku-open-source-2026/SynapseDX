@@ -1,10 +1,10 @@
 # TLS terminator (dev): 1 nginx SNI tren 443 —
-#   https://gateway.synapsedx.local -> gateway:8080 (API)
-#   https://synapsedx.local         -> console:80   (UI)
+#   https://gateway.synapseone.local -> gateway:8080 (API)
+#   https://synapseone.local         -> console:80   (UI)
 # Dung kem compose chinh:
 #   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build tls
 # Yeu cau: bash infra/tls/gen-cert.sh truoc, them vao hosts:
-#   127.0.0.1 synapsedx.local gateway.synapsedx.local
+#   127.0.0.1 synapseone.local gateway.synapseone.local
 # Production: thay cert self-signed bang LE/ACME, giu nguyen khoi tls nay.
 
 services:
@@ -19,7 +19,7 @@ services:
     depends_on:
       - gateway
       - console
-    networks: [synapsedx-net]
+    networks: [synapseone-net]
 
   # HSTS on gateway responses (TLS edge serves https to clients).
   gateway:

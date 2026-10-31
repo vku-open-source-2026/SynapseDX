@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Isolated code-sandbox runner (P0-1). Spawned by engine.execCodeSandbox as
  * a throwaway process with an empty env, the permission model and

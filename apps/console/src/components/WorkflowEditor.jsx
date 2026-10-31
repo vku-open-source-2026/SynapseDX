@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -99,14 +99,14 @@ const NODE_ICONS = {
   'synapseflow.decision': { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
   decision: { icon: faBrain, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
   'synapseflow.model': { icon: faMicrochip, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
-  'synapsedx.model': { icon: faMicrochip, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
-  'synapsedx.iam': { icon: faShieldHalved, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
-  'synapsedx.base': { icon: faDatabase, color: 'text-cyan-700', bg: 'bg-cyan-50 border-cyan-200' },
-  'synapsedx.faststore': { icon: faBolt, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
-  'synapsedx.queue': { icon: faInbox, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200' },
-  'synapsedx.lds': { icon: faDiagramProject, color: 'text-teal-700', bg: 'bg-teal-50 border-teal-200' },
-  'synapsedx.inference': { icon: faMicrochip, color: 'text-fuchsia-600', bg: 'bg-fuchsia-50 border-fuchsia-200' },
-  'synapsedx.flow': { icon: faGears, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
+  'synapseone.model': { icon: faMicrochip, color: 'text-indigo-600', bg: 'bg-indigo-50 border-indigo-200' },
+  'synapseone.iam': { icon: faShieldHalved, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
+  'synapseone.base': { icon: faDatabase, color: 'text-cyan-700', bg: 'bg-cyan-50 border-cyan-200' },
+  'synapseone.faststore': { icon: faBolt, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
+  'synapseone.queue': { icon: faInbox, color: 'text-orange-600', bg: 'bg-orange-50 border-orange-200' },
+  'synapseone.lds': { icon: faDiagramProject, color: 'text-teal-700', bg: 'bg-teal-50 border-teal-200' },
+  'synapseone.inference': { icon: faMicrochip, color: 'text-fuchsia-600', bg: 'bg-fuchsia-50 border-fuchsia-200' },
+  'synapseone.flow': { icon: faGears, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
   'n8n-nodes-base.httpRequest': { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
   httpRequest: { icon: faGlobe, color: 'text-sky-600', bg: 'bg-sky-50 border-sky-200' },
   'n8n-nodes-base.code': { icon: faCode, color: 'text-blue-600', bg: 'bg-blue-50 border-blue-200' },
@@ -115,7 +115,7 @@ const NODE_ICONS = {
   set: { icon: faSliders, color: 'text-teal-600', bg: 'bg-teal-50 border-teal-200' },
   'n8n-nodes-base.if': { icon: faCodeBranch, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
   if: { icon: faCodeBranch, color: 'text-amber-600', bg: 'bg-amber-50 border-amber-200' },
-  'synapsedx.api': { icon: faCube, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
+  'synapseone.api': { icon: faCube, color: 'text-rose-600', bg: 'bg-rose-50 border-rose-200' },
   'n8n-nodes-base.noOp': { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' },
   noOp: { icon: faCircleDot, color: 'text-slate-500', bg: 'bg-slate-50 border-slate-200' },
 };
@@ -146,7 +146,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const [testOut, setTestOut] = useState(null);
   const [testHist, setTestHist] = useState(() => {
     try {
-      const raw = localStorage.getItem(`synapsedx.testrun.${workflowId}`);
+      const raw = localStorage.getItem(`synapseone.testrun.${workflowId}`);
       const arr = raw ? JSON.parse(raw) : [];
       return Array.isArray(arr) ? arr.slice(0, 5) : [];
     } catch {
@@ -161,7 +161,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
   const [wireCursor, setWireCursor] = useState(null);
   const [dropActive, setDropActive] = useState(false);
   const [paletteDrag, setPaletteDrag] = useState(null);
-  const draftKey = `synapsedx.editor.${workflowId}`;
+  const draftKey = `synapseone.editor.${workflowId}`;
   // Autosave drafts: a session expiry mid-edit must never eat work.
   // Draft restores explicitly via banner (never silently).
   const [draft, setDraft] = useState(() => {
@@ -799,7 +799,7 @@ export default function WorkflowEditor({ workflowId, initial, headers, onClose, 
     setTestHist((hs) => {
       const next = [entry, ...hs].slice(0, 5);
       try {
-        localStorage.setItem(`synapsedx.testrun.${workflowId}`, JSON.stringify(next));
+        localStorage.setItem(`synapseone.testrun.${workflowId}`, JSON.stringify(next));
       } catch { /* ignore */ }
       return next;
     });
@@ -1858,7 +1858,7 @@ function NodeForm({
     case 'decision':
     case 'decision.route':
     case 'synapseflow.decision':
-    case 'synapsedx.decision':
+    case 'synapseone.decision':
     case 'n8n-nodes-base.decision':
       return (
         <DecisionForm
@@ -1873,7 +1873,7 @@ function NodeForm({
       );
     case 'ai.agent':
     case 'synapseflow.aiAgent':
-    case 'synapsedx.aiAgent':
+    case 'synapseone.aiAgent':
     case 'agent':
     case 'n8n-nodes-base.aiAgent':
       return (
@@ -1890,18 +1890,18 @@ function NodeForm({
         />
       );
     case 'synapseflow.model':
-    case 'synapsedx.model':
+    case 'synapseone.model':
       return <ModelForm params={p} onPatch={onPatch} />;
-    case 'synapsedx.iam':
-    case 'synapsedx.base':
-    case 'synapsedx.faststore':
-    case 'synapsedx.queue':
-    case 'synapsedx.lds':
-    case 'synapsedx.inference':
-    case 'synapsedx.flow':
+    case 'synapseone.iam':
+    case 'synapseone.base':
+    case 'synapseone.faststore':
+    case 'synapseone.queue':
+    case 'synapseone.lds':
+    case 'synapseone.inference':
+    case 'synapseone.flow':
       return <IntegrationForm type={node.type} params={p} onPatch={onPatch} />;
-    case 'synapsedx.api':
-      return <SynapseDXApiForm params={p} onPatch={onPatch} />;
+    case 'synapseone.api':
+      return <SynapseOneApiForm params={p} onPatch={onPatch} />;
     case 'webhook':
     case 'n8n-nodes-base.webhook':
       return <WebhookForm params={p} onPatch={onPatch} headers={headers} />;
@@ -1933,7 +1933,7 @@ function CodeForm({ params, onPatch }) {
  *  credentialId — secrets never touch node params or the browser history. */
 function CredentialPicker({ headers, value, onChange, allowKinds }) {
   const [accountId, setAccountId] = useState(() => {
-    try { return localStorage.getItem('synapsedx.credAccount') || ''; } catch { return ''; }
+    try { return localStorage.getItem('synapseone.credAccount') || ''; } catch { return ''; }
   });
   const [items, setItems] = useState(null);
   const [err, setErr] = useState(null);
@@ -1958,7 +1958,7 @@ function CredentialPicker({ headers, value, onChange, allowKinds }) {
   useEffect(() => { load(accountId); }, [accountId]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveAcc = (v) => {
     setAccountId(v);
-    try { localStorage.setItem('synapsedx.credAccount', v); } catch { /* ignore */ }
+    try { localStorage.setItem('synapseone.credAccount', v); } catch { /* ignore */ }
   };
   const create = async () => {
     if (busy || !nm.trim() || !secret) return;
@@ -2180,7 +2180,7 @@ function SetForm({ params, onPatch }) {
   );
 }
 
-const SYNAPSEDX_API = {
+const SYNAPSEONE_API = {
   // IAM
   orgs: { ops: ['list'], fields: { list: [] }, hint: 'All organizations you can see' },
   users: { ops: ['list'], fields: { list: ['orgId'] }, hint: 'Users in an org (orgId required)' },
@@ -2570,7 +2570,7 @@ function ModelForm({ params, onPatch }) {
 }
 
 const INTEGRATION_UI = {
-  'synapsedx.iam': {
+  'synapseone.iam': {
     label: 'Synapse IAM', hint: 'Identity & authorization. Operation names are prefixed with the resource.',
     operations: [
       { op: 'orgs.list', required: [], optional: [] },
@@ -2583,7 +2583,7 @@ const INTEGRATION_UI = {
       { op: 'service-accounts.list', required: ['accountId'], optional: [] },
     ],
   },
-  'synapsedx.base': {
+  'synapseone.base': {
     label: 'SynapseBase', hint: 'JSON document store.',
     operations: [
       { op: 'list-collections', required: [], optional: [] },
@@ -2594,7 +2594,7 @@ const INTEGRATION_UI = {
       { op: 'delete-document', required: ['collection', 'id'], optional: [] },
     ],
   },
-  'synapsedx.faststore': {
+  'synapseone.faststore': {
     label: 'Faststore', hint: 'Low-latency cache and key/value store.',
     operations: [
       { op: 'get', required: ['key'], optional: [] },
@@ -2605,7 +2605,7 @@ const INTEGRATION_UI = {
       { op: 'hash-set', required: ['key', 'values'], optional: [] },
     ],
   },
-  'synapsedx.queue': {
+  'synapseone.queue': {
     label: 'SynapseQueue', hint: 'Reliable message queue.',
     operations: [
       { op: 'list', required: [], optional: ['queue'] },
@@ -2614,7 +2614,7 @@ const INTEGRATION_UI = {
       { op: 'ack', required: ['queue', 'receipt'], optional: [] },
     ],
   },
-  'synapsedx.lds': {
+  'synapseone.lds': {
     label: 'SynapseLDS', hint: 'Linked Data Store (NGSI-LD).',
     operations: [
       { op: 'list-datasources', required: [], optional: [] },
@@ -2622,7 +2622,7 @@ const INTEGRATION_UI = {
       { op: 'get-entity', required: ['datasourceId', 'entityId'], optional: [] },
     ],
   },
-  'synapsedx.inference': {
+  'synapseone.inference': {
     label: 'Synapse Inference', hint: 'LLM chat, embeddings and semantic routing.',
     operations: [
       { op: 'chat', required: ['messages'], optional: ['model', 'temperature', 'max_tokens', 'tools'] },
@@ -2631,7 +2631,7 @@ const INTEGRATION_UI = {
       { op: 'route', required: ['input', 'choices'], optional: ['instruction'] },
     ],
   },
-  'synapsedx.flow': {
+  'synapseone.flow': {
     label: 'SynapseFlow', hint: 'Workflows and execution history. Operation names are prefixed with the resource.',
     operations: [
       { op: 'workflows.list', required: [], optional: [] },
@@ -2649,13 +2649,13 @@ const JSON_INPUT_FIELDS = new Set(['where', 'orderBy', 'data', 'values', 'payloa
 
 function defaultIntegrationInput(type, op) {
   const defaults = {
-    'synapsedx.base': { collection: 'documents', id: '={{ $json.id }}', data: '={{ $json }}', where: {}, limit: 10, query: '={{ $json.query }}', vector: '={{ $json.embedding }}' },
-    'synapsedx.faststore': { key: '={{ $json.key }}', value: '={{ $json.value }}', ttlSeconds: 3600, by: 1 },
-    'synapsedx.queue': { queue: 'demo-queue', payload: '={{ $json }}', maxMessages: 10, consumer: 'workflow', receipt: '={{ $json.receipt }}' },
-    'synapsedx.iam': { orgId: '={{ $json.orgId }}', accountId: '={{ $json.accountId }}', userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket', limit: 50 },
-    'synapsedx.lds': { datasourceId: '={{ $json.datasourceId }}', entityId: '={{ $json.entityId }}', record: '={{ $json }}' },
-    'synapsedx.inference': { messages: [{ role: 'user', content: '={{ $json.query }}' }], input: '={{ $json.query }}', model: 'liquid/lfm-2.5-2.6b:free', choices: { support: 'support request', billing: 'billing question' }, state: {}, questions: [], instruction: 'Choose the best route' },
-    'synapsedx.flow': { id: '={{ $json.id }}', name: '{{ $json.name }}', workflowId: '={{ $json.workflowId }}', input: '={{ $json }}', limit: 20 },
+    'synapseone.base': { collection: 'documents', id: '={{ $json.id }}', data: '={{ $json }}', where: {}, limit: 10, query: '={{ $json.query }}', vector: '={{ $json.embedding }}' },
+    'synapseone.faststore': { key: '={{ $json.key }}', value: '={{ $json.value }}', ttlSeconds: 3600, by: 1 },
+    'synapseone.queue': { queue: 'demo-queue', payload: '={{ $json }}', maxMessages: 10, consumer: 'workflow', receipt: '={{ $json.receipt }}' },
+    'synapseone.iam': { orgId: '={{ $json.orgId }}', accountId: '={{ $json.accountId }}', userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket', limit: 50 },
+    'synapseone.lds': { datasourceId: '={{ $json.datasourceId }}', entityId: '={{ $json.entityId }}', record: '={{ $json }}' },
+    'synapseone.inference': { messages: [{ role: 'user', content: '={{ $json.query }}' }], input: '={{ $json.query }}', model: 'liquid/lfm-2.5-2.6b:free', choices: { support: 'support request', billing: 'billing question' }, state: {}, questions: [], instruction: 'Choose the best route' },
+    'synapseone.flow': { id: '={{ $json.id }}', name: '{{ $json.name }}', workflowId: '={{ $json.workflowId }}', input: '={{ $json }}', limit: 20 },
   };
   const d = defaults[type] || {};
   const spec = INTEGRATION_UI[type];
@@ -2786,12 +2786,12 @@ function IntegrationField({ name, value, json, onCommit }) {
   return json ? <textarea rows={name === 'messages' || name === 'payload' || name === 'where' ? 3 : 2} {...common} /> : <input {...common} />;
 }
 
-function SynapseDXApiForm({ params, onPatch }) {
-  const res = typeof params.resource === 'string' && SYNAPSEDX_API[params.resource] ? params.resource : '';
-  const ops = res ? SYNAPSEDX_API[res].ops : [];
+function SynapseOneApiForm({ params, onPatch }) {
+  const res = typeof params.resource === 'string' && SYNAPSEONE_API[params.resource] ? params.resource : '';
+  const ops = res ? SYNAPSEONE_API[res].ops : [];
   const op = typeof params.operation === 'string' && ops.includes(params.operation) ? params.operation : '';
   const input = params.input && typeof params.input === 'object' && !Array.isArray(params.input) ? params.input : {};
-  const fields = res && op ? (SYNAPSEDX_API[res].fields[op] || []) : [];
+  const fields = res && op ? (SYNAPSEONE_API[res].fields[op] || []) : [];
   const setField = (k, v) => onPatch({ input: { ...input, [k]: v } });
   return (
     <div className="space-y-2">
@@ -2799,7 +2799,7 @@ function SynapseDXApiForm({ params, onPatch }) {
         <label className="block text-xs text-normal-text mb-1">Resource</label>
         <select value={res} onChange={(e) => onPatch({ resource: e.target.value || undefined, operation: undefined, input: {} })} className={rowInputCls()}>
           <option value="">Pick a resource…</option>
-          {Object.keys(SYNAPSEDX_API).map((r) => <option key={r} value={r}>{r}</option>)}
+          {Object.keys(SYNAPSEONE_API).map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </div>
       {res && (
@@ -2809,7 +2809,7 @@ function SynapseDXApiForm({ params, onPatch }) {
             <option value="">Pick an operation…</option>
             {ops.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
-          <p className="text-[11px] text-normal-text mt-1">{SYNAPSEDX_API[res].hint} Runs as <b>you</b> (your login).</p>
+          <p className="text-[11px] text-normal-text mt-1">{SYNAPSEONE_API[res].hint} Runs as <b>you</b> (your login).</p>
         </div>
       )}
       {fields.map((f) => (

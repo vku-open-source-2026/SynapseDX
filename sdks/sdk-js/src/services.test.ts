@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Offline tests for the split service SDKs — local mock gateway, no platform.
  *
@@ -13,8 +13,8 @@ import {
   BaseCollection,
   BaseDocument,
   BaseQueryResult,
-  SynapseDXClient,
-  SynapseDXError,
+  SynapseOneClient,
+  SynapseOneError,
   dataToObject,
   objectToData,
 } from './index';
@@ -179,7 +179,7 @@ after(() => {
 
 describe('service facade', () => {
   it('exposes every service namespace and the baseUrl getter', () => {
-    const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080/' });
+    const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080/' });
     assert.equal(c.baseUrl, 'http://localhost:8080');
     for (const name of ['iam', 'workflow', 'lds', 'base', 'faststore', 'queue'] as const) {
       assert.ok(c[name], name);
@@ -188,7 +188,7 @@ describe('service facade', () => {
   });
 
   it('deprecated wrappers warn and forward to the service namespace', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const messages: string[] = [];
     const original = process.emitWarning;
     (process as any).emitWarning = (warning: string | Error) => {
@@ -209,7 +209,7 @@ describe('service facade', () => {
 
 describe('SynapseBase', () => {
   it('collection lifecycle paths and bodies', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.base.createCollection({
       name: 'parks',
       description: 'city parks',
@@ -237,7 +237,7 @@ describe('SynapseBase', () => {
   });
 
   it('documents accept exactly one of data or object', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.base.createDocument('parks', { object: { name: 'Central' }, id: 'p1' });
     assert.equal(lastPath, '/v1/base/collections/parks/documents');
     assert.deepEqual(JSON.parse(lastBody), { object: { name: 'Central' }, id: 'p1' });
@@ -277,7 +277,7 @@ describe('SynapseBase', () => {
   });
 
   it('query, increment, batch and changes', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const result = await c.base.queryDocuments('parks', {
       where: { status: 'active' },
       orderBy: [{ field: 'name', direction: 'desc' }],
@@ -339,7 +339,7 @@ describe('SynapseBase', () => {
     class Park {
       constructor(readonly name: string, readonly capacity: number) {}
     }
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const col = c.base.collection<Park>('parks', {
       model: (obj) => new Park(String(obj.name), Number(obj.capacity)),
       mapping: { name: 'profile.name', capacity: 'profile.capacity' },
@@ -412,12 +412,12 @@ describe('SynapseBase', () => {
 
 describe('Synapse Faststore', () => {
   it('key/value bodies and the tenant header', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     c.setTenant('acme');
     await c.faststore.set('user:1', { a: 1 }, { ttlSeconds: 60, ifNotExists: true });
     assert.equal(lastPath, '/v1/faststore/keys/user%3A1');
     assert.equal(lastMethod, 'PUT');
-    assert.equal(lastHeaders['x-synapsedx-tenant'], 'acme');
+    assert.equal(lastHeaders['x-synapseone-tenant'], 'acme');
     assert.deepEqual(JSON.parse(lastBody), {
       value: { a: 1 },
       ttlSeconds: 60,
@@ -448,7 +448,7 @@ describe('Synapse Faststore', () => {
   });
 
   it('collections and locks', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
 
     await c.faststore.hashSet('h1', { a: 1 }, { ttlSeconds: 10 });
     assert.equal(lastPath, '/v1/faststore/hashes/h1');
@@ -503,7 +503,7 @@ describe('Synapse Faststore', () => {
 
 describe('SynapseQueue', () => {
   it('queue config and publish', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.queue.createQueue('emails', { maxAttempts: 7, visibilityTimeoutSeconds: 45 });
     assert.equal(lastPath, '/v1/queue/queues/emails');
     assert.equal(lastMethod, 'PUT');
@@ -547,7 +547,7 @@ describe('SynapseQueue', () => {
   });
 
   it('consume, ack, nack and heartbeat', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const out = await c.queue.consume('emails', {
       maxMessages: 5,
       visibilityTimeoutSeconds: 20,
@@ -585,7 +585,7 @@ describe('SynapseQueue', () => {
   });
 
   it('inspection and dead letters', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.queue.peek('emails', { limit: 10, ready: true });
     assert.equal(lastPath, '/v1/queue/queues/emails/messages?limit=10&ready=true');
     await c.queue.deadLetters('emails', { limit: 5 });
@@ -601,7 +601,7 @@ describe('SynapseQueue', () => {
 
 describe('SynapseStream', () => {
   it('topics, publish, read, consumer groups and range', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.stream.createTopic('telemetry', { maxLen: 5000 });
     assert.equal(lastPath, '/v1/stream/topics/telemetry');
     assert.equal(lastMethod, 'PUT');
@@ -685,7 +685,7 @@ describe('Synapse Inference Engine', () => {
     const a = server.address();
     const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
     try {
-      const c = new SynapseDXClient({ baseUrl: url });
+      const c = new SynapseOneClient({ baseUrl: url });
       const h = await c.inference.health();
       assert.equal(h.service, 'inference');
 
@@ -724,14 +724,14 @@ describe('error mapping', () => {
     const a = server.address();
     const url = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
     try {
-      const c = new SynapseDXClient({ baseUrl: url });
+      const c = new SynapseOneClient({ baseUrl: url });
       await assert.rejects(
         () => c.base.getCollection('parks'),
         (err: unknown) => {
-          assert.ok(err instanceof SynapseDXError);
+          assert.ok(err instanceof SynapseOneError);
           assert.equal(err.status, 404);
           assert.deepEqual(err.body, { error: 'boom' });
-          assert.match(String(err.message), /synapsedx 404/);
+          assert.match(String(err.message), /synapseone 404/);
           return true;
         },
       );

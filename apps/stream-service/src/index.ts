@@ -1,9 +1,10 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseStream — Tenant-scoped distributed event streaming log with pluggable engines.
  * Production default: Redis Streams (Redis 7). Dev/Test: In-memory fallback.
  */
+import './env-compat';
 
 import express from 'express';
 import cors from 'cors';
@@ -45,25 +46,27 @@ export interface Caller {
 
 export function principalFromHeaders(req: express.Request): Principal | null {
   const h = (n: string): string => {
-    const v = req.headers[n];
+    // Accept the legacy x-synapsedx-* prefix during the rebrand window.
+    const legacy = n.startsWith('x-synapseone-') ? n.replace('x-synapseone-', 'x-synapsedx-') : n;
+    const v = req.headers[n] ?? req.headers[legacy];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
 
-  const user = h('x-synapsedx-user');
+  const user = h('x-synapseone-user');
   if (user) {
     if (user.length > 128) return null;
     return {
       sub: user,
-      org: clean(h('x-synapsedx-org')),
-      account: clean(h('x-synapsedx-account')),
-      kind: clean(h('x-synapsedx-kind')),
+      org: clean(h('x-synapseone-org')),
+      account: clean(h('x-synapseone-account')),
+      kind: clean(h('x-synapseone-kind')),
     };
   }
 
-  const kind = clean(h('x-synapsedx-kind'));
-  const account = clean(h('x-synapsedx-account'));
-  const org = clean(h('x-synapsedx-org'));
+  const kind = clean(h('x-synapseone-kind'));
+  const account = clean(h('x-synapseone-account'));
+  const org = clean(h('x-synapseone-org'));
   if (kind || account || org) {
     return {
       sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`,
@@ -79,7 +82,7 @@ export function principalFromHeaders(req: express.Request): Principal | null {
 export function resolveCaller(req: express.Request): Caller {
   const p = principalFromHeaders(req);
   if (p) return { kind: 'principal', principal: p };
-  const raw = req.headers['x-synapsedx-anon'];
+  const raw = (req.headers['x-synapseone-anon'] ?? req.headers['x-synapsedx-anon']);
   const anon = (Array.isArray(raw) ? raw[0] : raw) === '1';
   return anon ? { kind: 'anon', principal: null } : { kind: 'platform', principal: null };
 }
@@ -91,7 +94,7 @@ export function resolveTenant(req: express.Request, caller: Caller): string {
   if (p?.sub) return `user:${p.sub}`;
 
   // Platform internal calls can specify tenant
-  const explicit = (req.headers['x-synapsedx-tenant'] || req.query.tenant || '') as string;
+  const explicit = ((req.headers['x-synapseone-tenant'] ?? req.headers['x-synapsedx-tenant']) || req.query.tenant || '') as string;
   if (explicit && /^[A-Za-z0-9_:-]{1,128}$/.test(explicit)) {
     return explicit;
   }
@@ -99,9 +102,9 @@ export function resolveTenant(req: express.Request, caller: Caller): string {
 }
 
 function verifyInternal(req: express.Request): boolean {
-  const secret = process.env.SYNAPSEDX_INTERNAL_SECRET;
+  const secret = process.env.SYNAPSEONE_INTERNAL_SECRET;
   if (!secret) return true; // dev mode
-  const h = req.headers['x-synapsedx-internal'];
+  const h = (req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']);
   const val = (Array.isArray(h) ? h[0] : h || '').trim();
   if (!val || val.length !== secret.length) return false;
   try {
@@ -141,15 +144,15 @@ export function createApp(): express.Express {
       const engine = await getStreamEngine();
       res.setHeader('content-type', 'text/plain; version=0.0.4');
       res.send(
-        `# HELP synapsedx_stream_up Service up status\n` +
-        `# TYPE synapsedx_stream_up gauge\n` +
-        `synapsedx_stream_up 1\n` +
-        `# HELP synapsedx_stream_engine Active backend engine\n` +
-        `# TYPE synapsedx_stream_engine gauge\n` +
-        `synapsedx_stream_engine{engine="${engine.name}"} 1\n`
+        `# HELP synapseone_stream_up Service up status\n` +
+        `# TYPE synapseone_stream_up gauge\n` +
+        `synapseone_stream_up 1\n` +
+        `# HELP synapseone_stream_engine Active backend engine\n` +
+        `# TYPE synapseone_stream_engine gauge\n` +
+        `synapseone_stream_engine{engine="${engine.name}"} 1\n`
       );
     } catch {
-      res.status(503).send('synapsedx_stream_up 0\n');
+      res.status(503).send('synapseone_stream_up 0\n');
     }
   });
 

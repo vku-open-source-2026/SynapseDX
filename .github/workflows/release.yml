@@ -44,8 +44,8 @@ jobs:
       # Idempotent: skip when this exact version already exists (re-runs stay green).
       - run: |
           PKG_VER=$(node -p "require('./sdks/sdk-js/package.json').version")
-          if npm view "@synapsedx/sdk@$PKG_VER" version >/dev/null 2>&1; then
-            echo "npm: @synapsedx/sdk@$PKG_VER already published — skipping."
+          if npm view "@synapseone/sdk@$PKG_VER" version >/dev/null 2>&1; then
+            echo "npm: @synapseone/sdk@$PKG_VER already published — skipping."
           else
             npm publish --workspace=sdks/sdk-js --access public
           fi
@@ -63,8 +63,8 @@ jobs:
       # Idempotent: skip when this exact version already exists (re-runs stay green).
       - run: |
           PKG_VER=$(node -p "require('./tools/cli/package.json').version")
-          if npm view "@synapsedx/cli@$PKG_VER" version >/dev/null 2>&1; then
-            echo "npm: @synapsedx/cli@$PKG_VER already published — skipping."
+          if npm view "@synapseone/cli@$PKG_VER" version >/dev/null 2>&1; then
+            echo "npm: @synapseone/cli@$PKG_VER already published — skipping."
           else
             npm publish --workspace=tools/cli --access public
           fi
@@ -106,11 +106,11 @@ jobs:
       - run: |
           OWNER="${{ github.repository_owner }}"
           TAG="${GITHUB_REF_NAME#v}"
-          docker build -t "ghcr.io/$OWNER/synapsedx-gateway:$TAG" -t "ghcr.io/$OWNER/synapsedx-gateway:latest" apps/gateway
-          docker build -t "ghcr.io/$OWNER/synapsedx-iam:$TAG" -t "ghcr.io/$OWNER/synapsedx-iam:latest" apps/iam-service
-          docker build -t "ghcr.io/$OWNER/synapsedx-workflow:$TAG" -t "ghcr.io/$OWNER/synapsedx-workflow:latest" apps/workflow-service
-          docker build -t "ghcr.io/$OWNER/synapsedx-console:$TAG" -t "ghcr.io/$OWNER/synapsedx-console:latest" apps/console
-          docker push "ghcr.io/$OWNER/synapsedx-gateway:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-gateway:latest"
-          docker push "ghcr.io/$OWNER/synapsedx-iam:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-iam:latest"
-          docker push "ghcr.io/$OWNER/synapsedx-workflow:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-workflow:latest"
-          docker push "ghcr.io/$OWNER/synapsedx-console:$TAG" && docker push "ghcr.io/$OWNER/synapsedx-console:latest"
+          docker build -t "ghcr.io/$OWNER/synapseone-gateway:$TAG" -t "ghcr.io/$OWNER/synapseone-gateway:latest" apps/gateway
+          docker build -t "ghcr.io/$OWNER/synapseone-iam:$TAG" -t "ghcr.io/$OWNER/synapseone-iam:latest" apps/iam-service
+          docker build -t "ghcr.io/$OWNER/synapseone-workflow:$TAG" -t "ghcr.io/$OWNER/synapseone-workflow:latest" apps/workflow-service
+          docker build -t "ghcr.io/$OWNER/synapseone-console:$TAG" -t "ghcr.io/$OWNER/synapseone-console:latest" apps/console
+          docker push "ghcr.io/$OWNER/synapseone-gateway:$TAG" && docker push "ghcr.io/$OWNER/synapseone-gateway:latest"
+          docker push "ghcr.io/$OWNER/synapseone-iam:$TAG" && docker push "ghcr.io/$OWNER/synapseone-iam:latest"
+          docker push "ghcr.io/$OWNER/synapseone-workflow:$TAG" && docker push "ghcr.io/$OWNER/synapseone-workflow:latest"
+          docker push "ghcr.io/$OWNER/synapseone-console:$TAG" && docker push "ghcr.io/$OWNER/synapseone-console:latest"

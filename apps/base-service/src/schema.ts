@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseBase Drizzle schema — the single source of truth for tables/indexes.
  */
@@ -8,7 +8,7 @@ import { index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueInde
 import type { BaseMapping } from './mapping';
 
 export const baseCollections = pgTable(
-  'synapsedx_base_collections',
+  'synapseone_base_collections',
   {
     id: text('id').primaryKey(),
     name: text('name').notNull(),
@@ -38,7 +38,7 @@ export const baseCollections = pgTable(
 );
 
 export const baseDocuments = pgTable(
-  'synapsedx_base_documents',
+  'synapseone_base_documents',
   {
     collectionId: text('collection_id')
       .notNull()
@@ -59,7 +59,7 @@ export const baseDocuments = pgTable(
 );
 
 export const baseVectors = pgTable(
-  'synapsedx_base_vectors',
+  'synapseone_base_vectors',
   {
     collectionId: text('collection_id')
       .notNull()

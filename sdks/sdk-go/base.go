@@ -1,8 +1,8 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // SynapseBase: collections, documents, queries, batch writes, atomic counters,
 // the change feed and typed object<->data mapping.
-package synapsedx
+package synapseone
 
 import (
 	"encoding/json"
@@ -149,11 +149,11 @@ func (in BaseDocumentInput) body(requireValue, includeID bool) (map[string]any, 
 	hasObject := in.Object != nil
 	switch {
 	case hasData && hasObject:
-		return nil, fmt.Errorf("synapsedx base: provide exactly one of data or object")
+		return nil, fmt.Errorf("synapseone base: provide exactly one of data or object")
 	case requireValue && !hasData && !hasObject:
-		return nil, fmt.Errorf("synapsedx base: provide exactly one of data or object")
+		return nil, fmt.Errorf("synapseone base: provide exactly one of data or object")
 	case !requireValue && !hasData && !hasObject && len(in.Unset) == 0:
-		return nil, fmt.Errorf("synapsedx base: provide data/object and/or unset")
+		return nil, fmt.Errorf("synapseone base: provide data/object and/or unset")
 	}
 	body := map[string]any{}
 	if hasData {
@@ -525,8 +525,8 @@ func (c *Client) BaseChanges(collection, since string, limit int, as string) (ma
 //	    Name     string `json:"name"`
 //	    Capacity int    `json:"capacity"`
 //	}
-//	parks := synapsedx.NewBaseCollection[Park](c, "parks",
-//	    synapsedx.NewBaseMapping(map[string]string{"name": "profile.name"}))
+//	parks := synapseone.NewBaseCollection[Park](c, "parks",
+//	    synapseone.NewBaseMapping(map[string]string{"name": "profile.name"}))
 type BaseCollection[T any] struct {
 	Client  *Client
 	Name    string
@@ -542,11 +542,11 @@ func NewBaseCollection[T any](client *Client, name string, mapping BaseMapping) 
 func (c *BaseCollection[T]) ToObject(value T) (map[string]any, error) {
 	b, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("synapsedx base: encode object: %w", err)
+		return nil, fmt.Errorf("synapseone base: encode object: %w", err)
 	}
 	var out map[string]any
 	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, fmt.Errorf("synapsedx base: encode object: %w", err)
+		return nil, fmt.Errorf("synapseone base: encode object: %w", err)
 	}
 	return out, nil
 }
@@ -559,10 +559,10 @@ func (c *BaseCollection[T]) FromObject(obj map[string]any) (T, error) {
 	}
 	b, err := json.Marshal(obj)
 	if err != nil {
-		return out, fmt.Errorf("synapsedx base: decode object: %w", err)
+		return out, fmt.Errorf("synapseone base: decode object: %w", err)
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
-		return out, fmt.Errorf("synapsedx base: decode object: %w", err)
+		return out, fmt.Errorf("synapseone base: decode object: %w", err)
 	}
 	return out, nil
 }

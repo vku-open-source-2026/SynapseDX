@@ -2,15 +2,15 @@
 # Quickstart end-to-end: login -> org/account -> role/policy -> authorize -> workflow template
 # Idempotent: re-running is safe (reuses existing resources on 409).
 set -euo pipefail
-BASE="${SYNAPSEDX_BASE_URL:-http://localhost:8080}"
+BASE="${SYNAPSEONE_BASE_URL:-http://localhost:8080}"
 ORGSLUG="${DEMO_ORG_SLUG:-acme}"
 ACCSLUG="${DEMO_ACCOUNT_SLUG:-prod}"
 auth_h() { echo "Authorization: Bearer $TOK"; }
 
 echo "== login =="
-curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d"{\"email\":\"demo@${ORGSLUG}.local\",\"orgSlug\":\"${ORGSLUG}\"}" | tee /tmp/synapsedx-login.json
-TOK=$(jq -r .accessToken /tmp/synapsedx-login.json)
-USER_ID=$(jq -r .user.id /tmp/synapsedx-login.json)
+curl -s -XPOST "$BASE/v1/auth/login" -H'Content-Type: application/json' -d"{\"email\":\"demo@${ORGSLUG}.local\",\"orgSlug\":\"${ORGSLUG}\"}" | tee /tmp/synapseone-login.json
+TOK=$(jq -r .accessToken /tmp/synapseone-login.json)
+USER_ID=$(jq -r .user.id /tmp/synapseone-login.json)
 echo; echo "== orgs =="
 curl -s "$BASE/v1/orgs" -H"$(auth_h)" | tee /tmp/orgs.json; echo
 ORG=$(jq -r '.[0].id' /tmp/orgs.json)

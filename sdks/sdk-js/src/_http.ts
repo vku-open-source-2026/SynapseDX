@@ -1,19 +1,19 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * Shared fetch-based HTTP plumbing for the synapsedx JavaScript SDK.
+ * Shared fetch-based HTTP plumbing for the synapseone JavaScript SDK.
  */
 
-export interface SynapseDXClientOptions {
+export interface SynapseOneClientOptions {
   baseUrl: string; // gateway, e.g. http://localhost:8080
   token?: string; // Bearer JWT
   apiKey?: string; // X-API-Key
-  tenant?: string; // x-synapsedx-tenant (platform callers of faststore/queue)
+  tenant?: string; // x-synapseone-tenant (platform callers of faststore/queue)
   timeoutMs?: number; // per-request timeout (default 15000)
 }
 
-/** All SDK failures surface as SynapseDXError (network or HTTP). */
-export class SynapseDXError extends Error {
+/** All SDK failures surface as SynapseOneError (network or HTTP). */
+export class SynapseOneError extends Error {
   /** HTTP status code when the failure came from a response, undefined for network errors. */
   status?: number;
   /** Parsed error body when the response carried JSON. */
@@ -21,15 +21,24 @@ export class SynapseDXError extends Error {
 
   constructor(message: string, opts: { status?: number; body?: unknown } = {}) {
     super(message);
-    this.name = 'SynapseDXError';
+    this.name = 'SynapseOneError';
     this.status = opts.status;
     this.body = opts.body;
   }
 }
 
+/**
+ * @deprecated Use {@link SynapseOneError}. Kept for the SynapseDX -> SynapseOne
+ * rebrand window; identical class (so `instanceof` works across both names).
+ */
+export { SynapseOneError as SynapseDXError };
+
+/** @deprecated Use {@link SynapseOneClientOptions}. */
+export type SynapseDXClientOptions = SynapseOneClientOptions;
+
 /** Emit a deprecation notice through Node's warning channel (console fallback). */
 export function warnDeprecated(name: string, replacement: string): void {
-  const message = `synapsedx: ${name}() is deprecated; use ${replacement}() instead`;
+  const message = `synapseone: ${name}() is deprecated; use ${replacement}() instead`;
   if (typeof process !== 'undefined' && typeof process.emitWarning === 'function') {
     process.emitWarning(message, { type: 'DeprecationWarning' });
   } else if (typeof console !== 'undefined' && console.warn) {
@@ -44,7 +53,7 @@ export class HttpClient {
   tenant?: string;
   timeoutMs: number;
 
-  constructor(opts: SynapseDXClientOptions) {
+  constructor(opts: SynapseOneClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/$/, '');
     this.token = opts.token;
     this.apiKey = opts.apiKey;
@@ -60,7 +69,7 @@ export class HttpClient {
     const h: Record<string, string> = { 'Content-Type': 'application/json', ...extra };
     if (this.token) h['Authorization'] = `Bearer ${this.token}`;
     if (this.apiKey) h['X-API-Key'] = this.apiKey;
-    if (this.tenant) h['x-synapsedx-tenant'] = this.tenant;
+    if (this.tenant) h['x-synapseone-tenant'] = this.tenant;
     return h;
   }
 
@@ -75,7 +84,7 @@ export class HttpClient {
         headers: this.headers((init?.headers as Record<string, string>) || {}),
       });
     } catch (e: any) {
-      throw new SynapseDXError(`synapsedx network ${path}: ${e?.message || e}`);
+      throw new SynapseOneError(`synapseone network ${path}: ${e?.message || e}`);
     } finally {
       clearTimeout(to);
     }
@@ -87,7 +96,7 @@ export class HttpClient {
       } catch {
         body = undefined;
       }
-      throw new SynapseDXError(`synapsedx ${r.status} ${path}: ${text}`, { status: r.status, body });
+      throw new SynapseOneError(`synapseone ${r.status} ${path}: ${text}`, { status: r.status, body });
     }
     const text = await r.text();
     if (!text) return null as T;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // Offline tests for the visual-editor graph operations (pure logic, no DOM).
@@ -273,7 +273,7 @@ describe('agent tool/model sockets', () => {
 
   it('tool and model edges are auxiliary and never create execution cycles', async () => {
     const { connect: c, detectCycle, validateGraph: vg, toolEdgesForAgent, modelEdgeForAgent } = await import('./workflow-graph.js');
-    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapsedx.base' }), model('Model'), N('Done')];
+    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapseone.base' }), model('Model'), N('Done')];
     let conns = c({}, 'Hook', 'Agent');
     conns = c(conns, 'KB', 'Agent', { targetPort: 'tools' });
     conns = c(conns, 'Model', 'Agent', { targetPort: 'model' });
@@ -289,7 +289,7 @@ describe('agent tool/model sockets', () => {
 
   it('validates aux targets and only one model source', async () => {
     const { validateGraph: vg } = await import('./workflow-graph.js');
-    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapsedx.base' }), model('M1'), model('M2')];
+    const nodes = [N('Hook', { type: 'n8n-nodes-base.webhook' }), agent('Agent'), N('KB', { type: 'synapseone.base' }), model('M1'), model('M2')];
     const badTarget = { Hook: { main: [[{ node: 'Agent' }]] }, KB: { main: [[{ node: 'Hook', type: 'tools', targetPort: 'tools' }]] } };
     assert.match(vg(nodes, badTarget), /can only target an AI Agent/);
     const twoModels = {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import express from 'express';
@@ -46,14 +46,16 @@ function jwtSecret(): string {
   return s || 'change_me_super_secret_32chars_min';
 }
 const JWT_SECRET = jwtSecret();
+/** Accept both issuers during the SynapseDX -> SynapseOne rebrand window. */
+const JWT_ISSUERS: [string, ...string[]] = ['synapseone-iam', 'synapsedx-iam'];
 
 /** Shared service-to-service credential (gateway → iam/workflow). Empty = dev mode (warn). */
-const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
 if (!INTERNAL_SECRET) {
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('[gateway] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+    throw new Error('[gateway] SYNAPSEONE_INTERNAL_SECRET must be set in production');
   }
-  console.warn('[gateway][security] SYNAPSEDX_INTERNAL_SECRET not set — downstream services cannot tell gateway traffic apart (dev default). Set it in production.');
+  console.warn('[gateway][security] SYNAPSEONE_INTERNAL_SECRET not set — downstream services cannot tell gateway traffic apart (dev default). Set it in production.');
 }
 
 /** Fail-closed API-key verification: default true; explicit false only allowed in dev. */
@@ -172,7 +174,7 @@ function authMiddleware(mode: RouteRule['auth']) {
       const h = String(Array.isArray(req.headers.authorization) ? req.headers.authorization[0] : (req.headers.authorization || ''));
       if (h.startsWith('Bearer ')) {
         try {
-          const decoded: any = jwt.verify(h.slice(7), JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
+          const decoded: any = jwt.verify(h.slice(7), JWT_SECRET, { issuer: JWT_ISSUERS, algorithms: ['HS256'] });
           (req as any).principal = {
             type: 'jwt',
             kind: decoded.kind || 'user',
@@ -193,7 +195,7 @@ function authMiddleware(mode: RouteRule['auth']) {
       if (hasBearer) {
         const token = h.slice(7);
         try {
-          const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: 'synapsedx-iam', algorithms: ['HS256'] });
+          const decoded: any = jwt.verify(token, JWT_SECRET, { issuer: JWT_ISSUERS, algorithms: ['HS256'] });
           (req as any).principal = {
             type: 'jwt',
             kind: decoded.kind || 'user',
@@ -204,7 +206,7 @@ function authMiddleware(mode: RouteRule['auth']) {
           };
           return next();
         } catch (e) {
-          (req as any).synapsedxError = 'invalid_token';
+          (req as any).synapseoneError = 'invalid_token';
           if (mode === 'jwt') return res.status(401).json({ error: 'invalid_token', message: 'JWT invalid or expired' });
           // fallthrough to apikey check for 'either'
         }
@@ -218,14 +220,14 @@ function authMiddleware(mode: RouteRule['auth']) {
           verifyApiKeyUpstream(apiKey).then(
             (info) => {
               if (!info) {
-                (req as any).synapsedxError = 'invalid_api_key';
+                (req as any).synapseoneError = 'invalid_api_key';
                 return res.status(401).json({ error: 'invalid_api_key' });
               }
               (req as any).principal = { type: 'apikey', account: info.account_id, scopes: info.scopes };
               return next();
             },
             () => {
-              (req as any).synapsedxError = 'iam_unavailable';
+              (req as any).synapseoneError = 'iam_unavailable';
               return res.status(503).json({ error: 'iam_unavailable' });
             },
           );
@@ -239,11 +241,11 @@ function authMiddleware(mode: RouteRule['auth']) {
         return next();
       }
       if (mode === 'apikey') {
-        (req as any).synapsedxError = 'missing_api_key';
+        (req as any).synapseoneError = 'missing_api_key';
         return res.status(401).json({ error: 'missing_api_key', message: 'X-API-Key required' });
       }
     }
-    (req as any).synapsedxError = 'unauthorized';
+    (req as any).synapseoneError = 'unauthorized';
     return res.status(401).json({ error: 'unauthorized', message: 'Provide Bearer JWT and/or X-API-Key' });
   };
 }
@@ -261,10 +263,10 @@ export async function verifyApiKeyUpstream(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // IAM requires this when SYNAPSEDX_INTERNAL_SECRET is set (same value
+        // IAM requires this when SYNAPSEONE_INTERNAL_SECRET is set (same value
         // propagatePrincipal attaches to proxied traffic). Without it,
         // GATEWAY_VERIFY_APIKEY=true + internal secret would fail-closed always.
-        ...(internalSecret ? { 'x-synapsedx-internal': internalSecret } : {}),
+        ...(internalSecret ? { 'x-synapseone-internal': internalSecret } : {}),
       },
       body: JSON.stringify({ apiKey }),
       signal: ctl.signal,
@@ -280,41 +282,56 @@ export async function verifyApiKeyUpstream(
   }
 }
 
-/** Xóa x-synapsedx-* do client gửi (chống spoof), ghi lại từ principal đã verify.
- *  Auth:none routes: đánh dấu `x-synapsedx-anon: 1` để upstream phân biệt
+/** Xóa x-synapseone-* do client gửi (chống spoof), ghi lại từ principal đã verify.
+ *  Auth:none routes: đánh dấu `x-synapseone-anon: 1` để upstream phân biệt
  *  khách ẩn danh công khai (public LDS export) với platform context nội bộ —
  *  cả hai đều không có principal. Marker chỉ do gateway gắn, client gửi thêm
  *  sẽ bị xóa trước. */
 export function propagatePrincipal(req: express.Request): void {
   const h = req.headers as Record<string, string | string[] | undefined>;
-  delete h['x-synapsedx-user'];
-  delete h['x-synapsedx-org'];
-  delete h['x-synapsedx-account'];
-  delete h['x-synapsedx-scopes'];
-  delete h['x-synapsedx-kind'];
-  delete h['x-synapsedx-internal'];
-  delete h['x-synapsedx-anon'];
+  delete h['x-synapseone-user'];
+  delete h['x-synapseone-org'];
+  delete h['x-synapseone-account'];
+  delete h['x-synapseone-scopes'];
+  delete h['x-synapseone-kind'];
+  delete h['x-synapseone-internal'];
+  delete h['x-synapseone-anon'];
+  // Never let a client smuggle the legacy prefix past the new canonical names.
+  // x-synapsedx-tenant is the one exception: platform callers (no principal)
+  // have always selected a tenant with it, so it is normalised below.
+  const legacyTenant = h['x-synapsedx-tenant'];
+  for (const key of Object.keys(h)) {
+    if (key.toLowerCase().startsWith('x-synapsedx-') && key.toLowerCase() !== 'x-synapsedx-tenant') delete h[key];
+  }
+  if (legacyTenant && !h['x-synapseone-tenant']) h['x-synapseone-tenant'] = legacyTenant;
   // Service-to-service credential: downstream (iam/workflow) requires this header
-  // when SYNAPSEDX_INTERNAL_SECRET is configured. Set AFTER stripping client input
+  // when SYNAPSEONE_INTERNAL_SECRET is configured. Set AFTER stripping client input
   // but BEFORE the principal check — unauthenticated routes (/v1/auth/*) need it too.
-  if (INTERNAL_SECRET) h['x-synapsedx-internal'] = INTERNAL_SECRET;
+  if (INTERNAL_SECRET) h['x-synapseone-internal'] = INTERNAL_SECRET;
   const p = (req as any).principal;
   if (p?.type === 'jwt') {
-    if (p.sub) h['x-synapsedx-user'] = String(p.sub);
-    if (p.org) h['x-synapsedx-org'] = String(p.org);
-    if (p.account) h['x-synapsedx-account'] = String(p.account);
-    if (Array.isArray(p.scopes) && p.scopes.length) h['x-synapsedx-scopes'] = p.scopes.join(',');
-    h['x-synapsedx-kind'] = 'user';
+    if (p.sub) h['x-synapseone-user'] = String(p.sub);
+    if (p.org) h['x-synapseone-org'] = String(p.org);
+    if (p.account) h['x-synapseone-account'] = String(p.account);
+    if (Array.isArray(p.scopes) && p.scopes.length) h['x-synapseone-scopes'] = p.scopes.join(',');
+    h['x-synapseone-kind'] = 'user';
   } else if (p?.type === 'apikey') {
-    h['x-synapsedx-kind'] = 'apikey';
-    if ((p as any).account) h['x-synapsedx-account'] = String((p as any).account);
+    h['x-synapseone-kind'] = 'apikey';
+    if ((p as any).account) h['x-synapseone-account'] = String((p as any).account);
     if (Array.isArray((p as any).scopes) && (p as any).scopes.length) {
-      h['x-synapsedx-scopes'] = (p as any).scopes.join(',');
+      h['x-synapseone-scopes'] = (p as any).scopes.join(',');
     }
-  } else if ((req as any).synapsedxRoute?.auth === 'none') {
+  } else if ((req as any).synapseoneRoute?.auth === 'none') {
     // Unauthenticated call on a public route → anonymous visitor marker.
     // Platform context (internal ops, no marker) stays marker-less.
-    h['x-synapsedx-anon'] = '1';
+    h['x-synapseone-anon'] = '1';
+  }
+  // Mirror canonical headers onto the legacy prefix so a rolling deploy can
+  // keep older upstream images working. Values are set only after the strip
+  // above, so this can never amplify client-supplied identity.
+  for (const name of ['user', 'org', 'account', 'scopes', 'kind', 'internal', 'anon']) {
+    const value = h[`x-synapseone-${name}`];
+    if (value !== undefined) h[`x-synapsedx-${name}`] = value;
   }
 }
 
@@ -358,7 +375,7 @@ export function createApp(): express.Express {
   app.use(((req: express.Request, res: express.Response, next: express.NextFunction) => {
     const t0 = process.hrtime.bigint();
     res.on('finish', () => {
-      const route = (req as any).synapsedxRoute as RouteRule | undefined;
+      const route = (req as any).synapseoneRoute as RouteRule | undefined;
       if (!route || isUsageExcluded(req.path)) return;
       const p = (req as any).principal;
       let authKind = 'unauthenticated';
@@ -382,7 +399,7 @@ export function createApp(): express.Express {
         accountId: p?.account || null,
         userId: isUser ? p.sub || null : null,
         error:
-          (req as any).synapsedxError ||
+          (req as any).synapseoneError ||
           (res.statusCode >= 500 ? 'server_error' : res.statusCode >= 400 ? 'client_error' : null),
       });
     });
@@ -404,7 +421,7 @@ export function createApp(): express.Express {
       if (!cur || cur.reset < now) { hits.set(ip + ':' + max, { n: 1, reset: now + WINDOW_MS }); return next(); }
       cur.n++;
       if (cur.n > max) {
-        (req as any).synapsedxError = 'rate_limited';
+        (req as any).synapseoneError = 'rate_limited';
         return res.status(429).json({ error: 'rate_limited', message: 'Too many requests, slow down' });
       }
       return next();
@@ -480,7 +497,7 @@ export function createApp(): express.Express {
 
   app.get('/', (_req, res) =>
     res.json({
-      name: 'SynapseDX Gateway (Tier-1 PaaS)',
+      name: 'SynapseOne Gateway (Tier-1 PaaS)',
       version: VERSION,
       docs: ['/health', '/ready', '/metrics'],
       auth: 'Bearer JWT | X-API-Key (except /v1/auth/*)',
@@ -491,7 +508,7 @@ export function createApp(): express.Express {
   // Auth resolver toàn cục. KHÔNG dùng app.use(path, proxy): Express strips
   // mount-prefix khỏi req.url (bookkeeping slashAdded/removed); gán lại req.url
   // sẽ tạo URL rác với exact-path. Dùng pathFilter của proxy v3 + mount ở root.
-  // Sau khi xác thực, gateway XÓA header x-synapsedx-* do client gửi (chống spoof) và
+  // Sau khi xác thực, gateway XÓA header x-synapseone-* do client gửi (chống spoof) và
   // GHI header từ principal đã verify để upstream tin dùng mà không cần re-verify JWT.
   // Auth endpoints (/v1/auth/*) đi thẳng nhưng vẫn giới hạn brute-force.
   app.use('/v1/auth/' as any, edgeLimit(120) as any);
@@ -500,7 +517,7 @@ export function createApp(): express.Express {
     if (urlPath === '/' || urlPath === '/health' || urlPath === '/metrics' || urlPath === '/ready') return next();
     const route = findRoute(routes, urlPath);
     if (!route) return res.status(404).json({ error: 'not_found', message: 'No gateway route matched' });
-    (req as any).synapsedxRoute = route;
+    (req as any).synapseoneRoute = route;
     httpCounter.inc({ route: route.path, status: 'incoming' });
     return authMiddleware(route.auth)(req, res, (err?: any) => {
       if (err) return next(err);
@@ -533,7 +550,7 @@ export function createApp(): express.Express {
       // thay vì trang 504 mặc định của proxy.
       on: {
         error: (err: any, _req: any, res: any) => {
-          (_req as any).synapsedxError = 'upstream_unavailable';
+          (_req as any).synapseoneError = 'upstream_unavailable';
           console.error(`[gateway] proxy ${r.path}->${target} failed:`, err?.message || err);
           try {
             if (!res.headersSent && !res.writableEnded) {

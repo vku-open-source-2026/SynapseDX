@@ -1,6 +1,6 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
-package synapsedx
+package synapseone
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ func serviceServer(t *testing.T, seen map[string]string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen["auth"] = r.Header.Get("Authorization")
 		seen["key"] = r.Header.Get("X-API-Key")
-		seen["tenant"] = r.Header.Get("x-synapsedx-tenant")
+		seen["tenant"] = r.Header.Get("x-synapseone-tenant")
 		seen["path"] = r.URL.RequestURI()
 		seen["method"] = r.Method
 		seen["body"] = ""

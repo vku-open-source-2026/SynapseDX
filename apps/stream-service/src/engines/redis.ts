@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * Redis Streams backend — High-throughput event streaming engine using Redis 7 native streams.
  */
@@ -41,7 +41,7 @@ export class RedisStreamsEngine implements StreamEngine {
   }
 
   private tPrefix(tenant: string): string {
-    return `synapsedx:stream:v1:${tenant}:`;
+    return `synapseone:stream:v1:${tenant}:`;
   }
 
   private streamKey(tenant: string, topic: string): string {

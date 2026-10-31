@@ -11,9 +11,9 @@ DC="sudo docker compose -f docker-compose.yml -f docker-compose.prod.yml"
 if [ "$(id -u)" = "0" ]; then DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"; fi
 if groups 2>/dev/null | grep -q '\bdocker\b'; then DC="docker compose -f docker-compose.yml -f docker-compose.prod.yml"; fi
 
-EMAIL="${1:-admin@synapsedx.sbs}"
+EMAIL="${1:-admin@synapseone.space}"
 ORG="${2:-${DEMO_ORG_SLUG:-acme}}"
-INTERNAL="${SYNAPSEDX_INTERNAL_SECRET:?SYNAPSEDX_INTERNAL_SECRET rong — kiem tra .env}"
+INTERNAL="${SYNAPSEONE_INTERNAL_SECRET:?SYNAPSEONE_INTERNAL_SECRET rong — kiem tra .env}"
 # Hex-only secret (da verify luc tao .env) -> noi vao JS an toan, khong can -e (tranh lo qua environ).
 case "$INTERNAL$EMAIL$ORG" in
   *[\''"\\$`']*) echo "bootstrap: ky tu dac biet trong input — dung lai de kiem tra" >&2; exit 1 ;;
@@ -22,7 +22,7 @@ esac
 # Goi truc tiep iam qua network noi bo (khong qua gateway), kem internal credential.
 $DC exec -T iam node -e "
 (async () => {
-  const H = { 'Content-Type': 'application/json', 'x-synapsedx-internal': '${INTERNAL}' };
+  const H = { 'Content-Type': 'application/json', 'x-synapseone-internal': '${INTERNAL}' };
   const base = 'http://localhost:4001';
   const email = '${EMAIL}', orgSlug = '${ORG}';
   let orgs = await (await fetch(base + '/v1/orgs', { headers: H })).json();

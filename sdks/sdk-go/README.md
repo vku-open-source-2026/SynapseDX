@@ -1,6 +1,6 @@
-# `synapsedx-sdk-go` — SynapseDX SDK for Go (full API coverage)
+# `synapseone-sdk-go` — SynapseOne SDK for Go (full API coverage)
 
-Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseOne](../../README.md) Tier-1 PaaS.
 
 Zero external dependencies (standard library only). Requires Go >= 1.22.
 
@@ -8,19 +8,19 @@ Zero external dependencies (standard library only). Requires Go >= 1.22.
 
 ```bash
 # via the monorepo replace directive
-go mod edit -replace github.com/synapsedx/synapsedx-sdk-go=./sdks/sdk-go
+go mod edit -replace github.com/synapseone/synapseone-sdk-go=./sdks/sdk-go
 go mod tidy
 
 # or from the registry
-go get github.com/synapsedx/synapsedx-sdk-go@latest
+go get github.com/synapseone/synapseone-sdk-go@latest
 ```
 
 ## Quick start
 
 ```go
-import synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+import synapseone "github.com/synapseone/synapseone-sdk-go"
 
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 out, err := c.Login("demo@acme.local", "acme")
 if err != nil { panic(err) }
 c.SetToken(out["accessToken"].(string))
@@ -47,7 +47,7 @@ Data services & AI:
 Platform callers of Faststore/Queue set the tenant explicitly:
 
 ```go
-c.SetTenant("acme") // x-synapsedx-tenant
+c.SetTenant("acme") // x-synapseone-tenant
 ```
 
 ## Full documentation
@@ -55,5 +55,5 @@ c.SetTenant("acme") // x-synapsedx-tenant
 See **[docs/sdk-go.md](../../docs/sdk-go.md)** for the complete API reference —
 client construction, auth, all methods with signatures, parameters, return types, and examples.
 
-Forks: change the `github.com/synapsedx/synapsedx-sdk-go` module path in `go.mod` to your repo
+Forks: change the `github.com/synapseone/synapseone-sdk-go` module path in `go.mod` to your repo
 (Go resolves packages via git tags, no separate registry publish needed).

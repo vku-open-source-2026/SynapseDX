@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // SynapseLDS console — licensed NGSI-LD datasources. Users create a
@@ -472,7 +472,7 @@ export default function LinkedData() {
 
       <p className="mt-3 text-xs text-normal-text">
         <Badge>Tip</Badge> Pipeline: connector → <code className="font-mono">POST …/records</code> → schema registry filters → NGSI-LD projector → <code className="font-mono">GET …/entities</code>.
-        Wire it into automations with a Workflow <code className="font-mono">synapsedx.api → lds.publish-record</code> node (template <code className="font-mono">webhook-to-lds</code>).
+        Wire it into automations with a Workflow <code className="font-mono">synapseone.api → lds.publish-record</code> node (template <code className="font-mono">webhook-to-lds</code>).
       </p>
     </>
   );

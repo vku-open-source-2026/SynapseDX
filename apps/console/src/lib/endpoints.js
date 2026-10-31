@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // API catalog for the in-console API docs (mirrors docs/api.md). Apache-2.0.
@@ -67,7 +67,7 @@ export const GROUPS = [
     endpoints: [
       { method: 'GET', path: '/v1/usage/summary', auth: 'either', desc: 'Org-scoped request/feature aggregates (?from, ?to, ?feature, ?statusClass=2xx..5xx, ?method, ?q, ?accountId)' },
       { method: 'GET', path: '/v1/usage/events', auth: 'either', desc: 'Raw request log, newest first (?from, ?to, ?limit 1..200, ?offset + same filters) — drill-down for the dashboard' },
-      { method: 'POST', path: '/v1/usage/ingest', auth: 'internal', desc: 'Gateway telemetry batch ingest (service-to-service: X-SynapseDX-Internal)' },
+      { method: 'POST', path: '/v1/usage/ingest', auth: 'internal', desc: 'Gateway telemetry batch ingest (service-to-service: X-SynapseOne-Internal)' },
     ],
   },
   {

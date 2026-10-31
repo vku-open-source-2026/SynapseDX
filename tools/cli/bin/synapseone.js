@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
- * synapsedx CLI — zero dependencies, Node 18+ (global fetch).
+ * synapseone CLI — zero dependencies, Node 18+ (global fetch).
  */
 'use strict';
 
@@ -17,16 +17,21 @@ const VERSION = (() => {
     return '0.0.0';
   }
 })();
-const CONF_DIR = path.join(os.homedir(), '.synapsedx');
+const CONF_DIR = path.join(os.homedir(), '.synapseone');
 const CONF_FILE = path.join(CONF_DIR, 'config.json');
+// Pre-rebrand config location; read-only fallback so existing logins survive.
+const LEGACY_CONF_FILE = path.join(os.homedir(), '.synapsedx', 'config.json');
 
 // ---------- config ----------
 function loadConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(CONF_FILE, 'utf8'));
-  } catch {
-    return {};
+  for (const file of [CONF_FILE, LEGACY_CONF_FILE]) {
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    } catch {
+      /* try next location */
+    }
   }
+  return {};
 }
 function saveConfig(cfg) {
   fs.mkdirSync(CONF_DIR, { recursive: true, mode: 0o700 });
@@ -36,12 +41,12 @@ function saveConfig(cfg) {
   try { fs.chmodSync(CONF_FILE, 0o600); } catch { /* non-POSIX (win) */ }
 }
 function baseUrl(opts) {
-  return (opts.base || process.env.SYNAPSEDX_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+  return (opts.base || process.env.SYNAPSEONE_BASE_URL || process.env.SYNAPSEDX_BASE_URL || loadConfig().baseUrl || 'http://localhost:8080').replace(/\/$/, '');
 }
 function authHeaders(opts) {
   const cfg = loadConfig();
-  const token = opts.token || process.env.SYNAPSEDX_TOKEN || cfg.token;
-  const apiKey = opts.apikey || process.env.SYNAPSEDX_API_KEY || cfg.apiKey;
+  const token = opts.token || process.env.SYNAPSEONE_TOKEN || process.env.SYNAPSEDX_TOKEN || cfg.token;
+  const apiKey = opts.apikey || process.env.SYNAPSEONE_API_KEY || process.env.SYNAPSEDX_API_KEY || cfg.apiKey;
   const h = { 'Content-Type': 'application/json', Connection: 'close' };
   if (token) h.Authorization = `Bearer ${token}`;
   if (apiKey) h['X-API-Key'] = apiKey;
@@ -345,8 +350,8 @@ async function cmdUsers(o) {
 }
 async function cmdRefresh(o) {
   const cfg = loadConfig();
-  const rt = o._[0] || process.env.SYNAPSEDX_REFRESH_TOKEN || cfg.refreshToken;
-  need(rt, 'refresh-token (arg | $SYNAPSEDX_REFRESH_TOKEN)');
+  const rt = o._[0] || (process.env.SYNAPSEONE_REFRESH_TOKEN || process.env.SYNAPSEDX_REFRESH_TOKEN) || cfg.refreshToken;
+  need(rt, 'refresh-token (arg | $SYNAPSEONE_REFRESH_TOKEN)');
   const r = await POST('/v1/auth/refresh', { refreshToken: rt }, o);
   cfg.baseUrl = baseUrl(o);
   cfg.token = r.accessToken;
@@ -358,8 +363,8 @@ async function cmdRefresh(o) {
 }
 async function cmdLogoutAll(o) {
   const cfg = loadConfig();
-  const rt = o._[0] || process.env.SYNAPSEDX_REFRESH_TOKEN || cfg.refreshToken;
-  need(rt, 'refresh-token (arg | $SYNAPSEDX_REFRESH_TOKEN)');
+  const rt = o._[0] || (process.env.SYNAPSEONE_REFRESH_TOKEN || process.env.SYNAPSEDX_REFRESH_TOKEN) || cfg.refreshToken;
+  need(rt, 'refresh-token (arg | $SYNAPSEONE_REFRESH_TOKEN)');
   const r = await POST('/v1/auth/logout-all', { refreshToken: rt }, o);
   delete cfg.refreshToken;
   saveConfig(cfg);
@@ -482,7 +487,7 @@ async function cmdWorkflows(o) {
     if (o.file) {
       const raw = readJson(o.file);
       // Accept either a full body ({template|definition, name}) or a bare definition.
-      const body = raw && (raw.template || raw.definition) ? raw : { name: o.name || 'synapsedx-workflow', definition: raw };
+      const body = raw && (raw.template || raw.definition) ? raw : { name: o.name || 'synapseone-workflow', definition: raw };
       if (o.name && !body.name) body.name = o.name;
       return out(await POST('/v1/workflows', body, o), o);
     }
@@ -606,8 +611,9 @@ function credentialSecret(o) {
   // Prefer --secret-file / env over --secret (flags leak via ps + shell history).
   if (o.secretFile) return fs.readFileSync(o.secretFile, 'utf8').trim();
   if (o.secret) return o.secret;
+  if (process.env.SYNAPSEONE_CREDENTIAL_SECRET) return process.env.SYNAPSEONE_CREDENTIAL_SECRET;
   if (process.env.SYNAPSEDX_CREDENTIAL_SECRET) return process.env.SYNAPSEDX_CREDENTIAL_SECRET;
-  throw new Error('missing credential secret (use --secret-file <path>, --secret <S>, or $SYNAPSEDX_CREDENTIAL_SECRET)');
+  throw new Error('missing credential secret (use --secret-file <path>, --secret <S>, or $SYNAPSEONE_CREDENTIAL_SECRET)');
 }
 async function cmdCredentials(o) {
   // Account-scoped secrets; PROPOSED contract (backend in progress): secrets are
@@ -647,7 +653,7 @@ async function cmdCredentials(o) {
 }
 async function cmdCall(o) {
   // Generic escape hatch: call any gateway endpoint directly.
-  // Example: synapsedx call GET /v1/accounts/acc123/credentials
+  // Example: synapseone call GET /v1/accounts/acc123/credentials
   const [method, rawPath, ...extra] = o._;
   need(method, 'METHOD (GET|POST|PUT|PATCH|DELETE|HEAD)');
   need(rawPath, 'path (e.g. /v1/workflows)');
@@ -691,7 +697,7 @@ async function cmdLds(o) {
   if (sub === 'entities') return ldsEntities(o, rest);
   if (sub === 'entity') return ldsEntity(o, rest);
   if (sub === 'stats') return ldsStats(o, rest);
-  throw new Error(`usage: synapsedx lds licenses | lds datasources [list|create|get|update|delete] | lds attributes [list|set] <id> | lds ingest <id> | lds entities <id> | lds entity <id> <entity-id> | lds stats <id>`);
+  throw new Error(`usage: synapseone lds licenses | lds datasources [list|create|get|update|delete] | lds attributes [list|set] <id> | lds ingest <id> | lds entities <id> | lds entity <id> <entity-id> | lds stats <id>`);
 }
 async function ldsDatasources(o, args) {
   const [sub, ...rest] = args;
@@ -789,7 +795,7 @@ async function cmdBase(o) {
   if (sub === 'documents') return baseDocuments(o, rest);
   if (sub === 'vector-search' || sub === 'vectorSearch') return baseVectorSearch(o, rest);
   if (sub === 'query') return baseQuery(o, rest);
-  throw new Error(`usage: synapsedx base collections [list|create|get|delete] | base documents [list|insert|get|delete] <collection> | base vector-search <collection> | base query <collection>`);
+  throw new Error(`usage: synapseone base collections [list|create|get|delete] | base documents [list|insert|get|delete] <collection> | base vector-search <collection> | base query <collection>`);
 }
 
 async function baseCollections(o, args) {
@@ -932,28 +938,28 @@ const COMMANDS = {
 };
 
 function help() {
-  console.log(`synapsedx v${VERSION} — SynapseDX CLI (Apache-2.0)
+  console.log(`synapseone v${VERSION} — SynapseOne CLI (Apache-2.0)
 
-Usage: synapsedx [--base URL] [--token T | --apikey K] [--json] <command> [args]
+Usage: synapseone [--base URL] [--token T | --apikey K] [--json] <command> [args]
 
-Auth defaults: --base > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://localhost:8080
+Auth defaults: --base > $SYNAPSEONE_BASE_URL > ~/.synapseone/config.json > http://localhost:8080
 `);
   const names = Object.keys(COMMANDS);
   const w = Math.max(...names.map((n) => n.length));
-  for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: synapsedx ${COMMANDS[n].use}`);
-  console.log('\nExamples:\n  synapsedx login --email demo@acme.local\n  synapsedx orgs create acme2 "ACME 2"\n  synapsedx authz <uid> workflow:Execute "*" --context team=etl\n  synapsedx --json workflows list\n  synapsedx workflows create --template code-transform --name demo-transform\n  synapsedx workflows test-run --file def.json --input input.json\n  synapsedx workflows exec wf_abc123 --data \'{"value":21}\'\n  synapsedx executions list --workflow-id wf_abc123 --status success --limit 20\n  synapsedx webhook synapsedx-event --data \'{"value":21}\' --base http://localhost:4002\n  synapsedx base collections create kb --mapping \'{"fields":{"vec":{"path":"embedding","type":"vector","dimension":384}}}\'\n  synapsedx base vector-search kb --query "authentication guide" --limit 5\n  synapsedx lds licenses\n  synapsedx lds datasources create --name buildings --entity-type Building --license CC-BY-4.0\n  synapsedx lds entities ds_123 --limit 20 --visibility public');
+  for (const n of names) console.log(`  ${n.padEnd(w)}  ${COMMANDS[n].doc}\n    usage: synapseone ${COMMANDS[n].use}`);
+  console.log('\nExamples:\n  synapseone login --email demo@acme.local\n  synapseone orgs create acme2 "ACME 2"\n  synapseone authz <uid> workflow:Execute "*" --context team=etl\n  synapseone --json workflows list\n  synapseone workflows create --template code-transform --name demo-transform\n  synapseone workflows test-run --file def.json --input input.json\n  synapseone workflows exec wf_abc123 --data \'{"value":21}\'\n  synapseone executions list --workflow-id wf_abc123 --status success --limit 20\n  synapseone webhook synapseone-event --data \'{"value":21}\' --base http://localhost:4002\n  synapseone base collections create kb --mapping \'{"fields":{"vec":{"path":"embedding","type":"vector","dimension":384}}}\'\n  synapseone base vector-search kb --query "authentication guide" --limit 5\n  synapseone lds licenses\n  synapseone lds datasources create --name buildings --entity-type Building --license CC-BY-4.0\n  synapseone lds entities ds_123 --limit 20 --visibility public');
 }
 
 async function main() {
   const { args, opts } = parse(process.argv.slice(2));
   const [cmd, ...rest] = args;
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h' || cmd === 'version' || cmd === '--version') {
-    if (cmd === 'version' || cmd === '--version') return console.log(`synapsedx v${VERSION}`);
+    if (cmd === 'version' || cmd === '--version') return console.log(`synapseone v${VERSION}`);
     return help();
   }
   const c = COMMANDS[cmd];
   if (!c) {
-    console.error(`unknown command '${cmd}' — try: synapsedx help`);
+    console.error(`unknown command '${cmd}' — try: synapseone help`);
     process.exit(2);
   }
   try {

@@ -1,6 +1,6 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
-package synapsedx
+package synapseone
 
 import (
 	"encoding/json"
@@ -294,7 +294,7 @@ func TestWorkflowCoverage(t *testing.T) {
 func TestErrorWrapping(t *testing.T) {
 	c := New("http://127.0.0.1:1")
 	_, err := c.ListOrgs()
-	if err == nil || !strings.Contains(err.Error(), "synapsedx") {
+	if err == nil || !strings.Contains(err.Error(), "synapseone") {
 		t.Fatalf("expected wrapped error, got %v", err)
 	}
 }
@@ -722,7 +722,7 @@ func TestLDSSetAttributesReservedError(t *testing.T) {
 	defer srv.Close()
 	c := New(srv.URL)
 	_, err := c.SetLDSAttributes("ds1", []any{map[string]any{"name": "id"}})
-	if err == nil || !strings.Contains(err.Error(), "synapsedx 400") || !strings.Contains(err.Error(), "reserved_attribute") {
+	if err == nil || !strings.Contains(err.Error(), "synapseone 400") || !strings.Contains(err.Error(), "reserved_attribute") {
 		t.Fatalf("expected reserved_attribute error, got %v", err)
 	}
 }

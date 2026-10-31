@@ -1,18 +1,18 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * End-to-end verification of the complex SynapseBase Vector RAG Orchestrator workflow.
  */
 import assert from 'node:assert/strict';
-import { SynapseDXClient } from '../../sdks/sdk-js/dist/index.js';
+import { SynapseOneClient } from '../../sdks/sdk-js/dist/index.js';
 
-const BASE_URL = process.env.SYNAPSEDX_BASE_URL || 'http://localhost:8080';
+const BASE_URL = process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080';
 const WF_BASE = process.env.WORKFLOW_SERVICE_URL || 'http://localhost:4002';
 
 console.log('--- STARTING COMPLEX SYNAPSEBASE VECTOR WORKFLOW VERIFICATION ---');
 console.log(`Connecting to Gateway: ${BASE_URL}`);
 
-const c = new SynapseDXClient({ baseUrl: BASE_URL });
+const c = new SynapseOneClient({ baseUrl: BASE_URL });
 const stamp = Date.now().toString(36);
 const login = await c.iam.login(`vector-sre-${stamp}@acme.local`);
 c.setToken(login.accessToken);
@@ -228,7 +228,7 @@ try {
   assert.ok(escObj.similarity < 0.50, `Expected low similarity for coffee query, got ${escObj.similarity}`);
 
   // Step 8: Test Case 3 - Direct SDK vector search and CLI base vector-search
-  console.log('[8] Testing direct SDK vector search & CLI synapsedx base vector-search...');
+  console.log('[8] Testing direct SDK vector search & CLI synapseone base vector-search...');
   const dbQuery = 'Database connection pool exhausted postgres deadlock connection timeout too many clients.';
   const dbEmb = await c.inference.embeddings(dbQuery);
   const searchDirect = await c.base.vectorSearch(kbCollection, {
@@ -247,7 +247,7 @@ try {
   const cliOutput = execFileSync(
     process.execPath,
     [
-      'tools/cli/bin/synapsedx.js',
+      'tools/cli/bin/synapseone.js',
       '--base', BASE_URL,
       '--token', login.accessToken,
       '--json',

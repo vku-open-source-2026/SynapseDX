@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
@@ -121,7 +121,7 @@ export function Err({ e }) {
   const [show, setShow] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
   if (!e) return null;
-  // SynapseDXError packs `status path: bodyJSON` into one message (api.js) —
+  // SynapseOneError packs `status path: bodyJSON` into one message (api.js) —
   // a full JSON body would stretch the banner for pages. Show one short line,
   // expand + copy on demand.
   const full = e.message || String(e);

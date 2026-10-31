@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * Synapse Faststore persistence — Redis in production, in-memory fallback for
  * development and tests. Keys are always tenant-scoped by the caller.
@@ -99,7 +99,7 @@ export async function closeStore(): Promise<void> {
 }
 
 function tPrefix(tenant: string): string {
-  return `synapsedx:faststore:v1:${tenant}:`;
+  return `synapseone:faststore:v1:${tenant}:`;
 }
 
 function rk(tenant: string, key: string): string {
@@ -107,7 +107,7 @@ function rk(tenant: string, key: string): string {
 }
 
 function lockKey(tenant: string, name: string): string {
-  return `synapsedx:faststore:v1:${tenant}:__lock__:${name}`;
+  return `synapseone:faststore:v1:${tenant}:__lock__:${name}`;
 }
 
 function enc(value: unknown): string {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
@@ -317,9 +317,9 @@ const QUEUE_SEMANTICS = `# Delivery contract
 # - consume/ack/publish batch <=100 | payload <= QUEUE_MAX_PAYLOAD_BYTES (256 KiB)
 # - delay <=7 days | maxAttempts 1..100 (default 5) | visibility 1..3600s (default 30)`;
 
-const JS_QUICKSTART = `import { SynapseDXClient } from '@synapsedx/sdk';
+const JS_QUICKSTART = `import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
 
 const { accessToken } = await c.iam.login('demo@acme.local', 'acme');
 c.setToken(accessToken);
@@ -333,11 +333,11 @@ await c.queue.publish('emails', { to: 'demo@acme.local' });
 // Legacy flat methods still work, but emit a DeprecationWarning:
 //   c.listOrgs() -> c.iam.listOrgs()`;
 
-const JS_AUTH = `const c = new SynapseDXClient({
+const JS_AUTH = `const c = new SynapseOneClient({
   baseUrl: 'http://localhost:8080',
   token: jwt,                 // Bearer JWT
   apiKey: key,                // or X-API-Key (use one auth mode)
-  tenant: 'org:acme',         // x-synapsedx-tenant (platform callers)
+  tenant: 'org:acme',         // x-synapseone-tenant (platform callers)
   timeoutMs: 15000,
 });
 
@@ -455,12 +455,12 @@ for (const m of messages) {
 const dead = await c.queue.deadLetters('emails', { limit: 50 });
 await c.queue.replayDead('emails', dead.messages[0].id, { resetAttempts: true });`;
 
-const JS_ERRORS = `import { SynapseDXError } from '@synapsedx/sdk';
+const JS_ERRORS = `import { SynapseOneError } from '@synapseone/sdk';
 
 try {
   await c.base.getDocument('parks', 'missing');
 } catch (e) {
-  if (e instanceof SynapseDXError) {
+  if (e instanceof SynapseOneError) {
     console.error(e.status, e.body);   // status is undefined for network errors
   }
 }
@@ -468,9 +468,9 @@ try {
 // c.call(method, path, body) is the forward-compat escape hatch.
 await c.call('GET', '/v1/base/collections');`;
 
-const PYTHON_QUICKSTART = `from synapsedx_sdk import SynapseDXClient
+const PYTHON_QUICKSTART = `from synapseone_sdk import SynapseOneClient
 
-c = SynapseDXClient("http://localhost:8080")
+c = SynapseOneClient("http://localhost:8080")
 login = c.iam.login("demo@acme.local", "acme")
 c.set_token(login["accessToken"])
 
@@ -482,11 +482,11 @@ c.queue.publish("emails", {"to": "demo@acme.local"})
 # Legacy flat methods still work but emit DeprecationWarning:
 #   c.list_orgs() -> c.iam.list_orgs()`;
 
-const PYTHON_AUTH = `c = SynapseDXClient(
+const PYTHON_AUTH = `c = SynapseOneClient(
     "http://localhost:8080",
     token=jwt,                 # Bearer JWT
     api_key=key,               # or X-API-Key (use one auth mode)
-    tenant="org:acme",         # x-synapsedx-tenant (platform callers)
+    tenant="org:acme",         # x-synapseone-tenant (platform callers)
     timeout=15,
 )
 c.set_token(jwt)
@@ -596,19 +596,19 @@ for m in result["messages"]:
 dead = c.queue.dead_letters("emails", limit=50)
 c.queue.replay_dead("emails", dead["messages"][0]["id"], reset_attempts=True)`;
 
-const PYTHON_ERRORS = `from synapsedx_sdk import SynapseDXError
+const PYTHON_ERRORS = `from synapseone_sdk import SynapseOneError
 
 try:
     c.base.get_document("parks", "missing")
-except SynapseDXError as e:
+except SynapseOneError as e:
     print(e.status, e.body)   # status is None for network errors
 
 # Forward-compat escape hatch:
 c.call("GET", "/v1/base/collections")`;
 
-const GO_QUICKSTART = `import synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+const GO_QUICKSTART = `import synapseone "github.com/synapseone/synapseone-sdk-go"
 
-c := synapsedx.New("http://localhost:8080")
+c := synapseone.New("http://localhost:8080")
 
 login, err := c.Login("demo@acme.local", "acme")
 if err != nil { log.Fatal(err) }
@@ -618,15 +618,15 @@ _, err = c.ListOrgs()
 _, err = c.CreateWorkflowFromTemplate("webhook-to-log", "demo")
 _, err = c.CreateBaseCollection(map[string]any{"name": "parks"})
 _, err = c.FaststoreSet("cache:demo", map[string]any{"ok": true},
-    synapsedx.FaststoreSetOptions{TTLSeconds: 300})
+    synapseone.FaststoreSetOptions{TTLSeconds: 300})
 _, err = c.PublishMessage("emails", map[string]any{"to": "demo@acme.local"},
-    synapsedx.QueuePublishOptions{})
+    synapseone.QueuePublishOptions{})
 if err != nil { log.Fatal(err) }`;
 
-const GO_AUTH = `c := synapsedx.New("http://localhost:8080")
+const GO_AUTH = `c := synapseone.New("http://localhost:8080")
 c.SetToken(jwt)        // Bearer JWT
 c.SetAPIKey(key)       // or X-API-Key (use one auth mode)
-c.SetTenant("org:acme") // x-synapsedx-tenant (platform callers; "" clears)
+c.SetTenant("org:acme") // x-synapseone-tenant (platform callers; "" clears)
 
 login, err := c.Login("demo@acme.local", "acme")
 refreshed, err := c.Refresh(login["refreshToken"].(string))
@@ -686,15 +686,15 @@ const GO_BASE = `type Park struct {
     Capacity int    \`json:"capacity"\`
 }
 
-mapping := synapsedx.NewBaseMapping(map[string]string{
+mapping := synapseone.NewBaseMapping(map[string]string{
     "name": "profile.name", "capacity": "profile.capacity",
 })
-parks := synapsedx.NewBaseCollection[Park](c, "parks", mapping)
+parks := synapseone.NewBaseCollection[Park](c, "parks", mapping)
 
 park, err := parks.Create(Park{Name: "Central", Capacity: 120}, "park-1")
-page, err := parks.Query(synapsedx.BaseQuery{
+page, err := parks.Query(synapseone.BaseQuery{
     Where:   map[string]any{"capacity": map[string]any{"gte": 100}},
-    OrderBy: []synapsedx.BaseOrderBy{{Field: "name", Direction: "asc"}},
+    OrderBy: []synapseone.BaseOrderBy{{Field: "name", Direction: "asc"}},
     Limit:   20,
 })
 park, err = parks.Set("park-1", Park{Name: "Central Park", Capacity: 200}, 1, false)
@@ -704,7 +704,7 @@ fmt.Println(park.Name, page.Total, changes["nextSince"])
 if err != nil { log.Fatal(err) }`;
 
 const GO_FASTSTORE = `_, err := c.FaststoreSet("session:42", map[string]any{"userId": 42},
-    synapsedx.FaststoreSetOptions{TTLSeconds: 900})
+    synapseone.FaststoreSetOptions{TTLSeconds: 900})
 item, err := c.FaststoreGet("session:42")
 fmt.Println(item["value"])
 _, err = c.FaststoreIncr("visits", 1, 0)
@@ -712,27 +712,27 @@ _, err = c.FaststoreExpire("visits", 3600)
 
 _, err = c.FaststoreHashSet("user:42", map[string]any{"name": "Alice"}, 600)
 _, err = c.FaststoreListPush("events", []any{"login"},
-    synapsedx.FaststoreListPushOptions{Side: "right"})
+    synapseone.FaststoreListPushOptions{Side: "right"})
 _, err = c.FaststoreSetAdd("roles", []any{"admin", "editor"}, 0)
 _, err = c.FaststoreZSetAdd("leaderboard",
-    []synapsedx.FaststoreZSetMember{{Member: "alice", Score: 100}}, 0)
+    []synapseone.FaststoreZSetMember{{Member: "alice", Score: 100}}, 0)
 
 lock, err := c.FaststoreLockAcquire("cron:nightly",
-    synapsedx.FaststoreLockOptions{TTLSeconds: 60, WaitMS: 5000})
+    synapseone.FaststoreLockOptions{TTLSeconds: 60, WaitMS: 5000})
 if acquired, _ := lock["acquired"].(bool); acquired {
     defer c.FaststoreLockRelease("cron:nightly", lock["token"].(string))
     // critical section
 }
 if err != nil { log.Fatal(err) }`;
 
-const GO_QUEUE = `_, err := c.CreateQueue("emails", synapsedx.QueueConfig{
+const GO_QUEUE = `_, err := c.CreateQueue("emails", synapseone.QueueConfig{
     MaxAttempts: 5, VisibilityTimeoutSeconds: 30,
 })
 msg, err := c.PublishMessage("emails", map[string]any{"to": "alice@acme.test"},
-    synapsedx.QueuePublishOptions{DedupeKey: "welcome:alice"})
+    synapseone.QueuePublishOptions{DedupeKey: "welcome:alice"})
 fmt.Println(msg["id"])
 
-out, err := c.ConsumeMessages("emails", synapsedx.QueueConsumeOptions{
+out, err := c.ConsumeMessages("emails", synapseone.QueueConsumeOptions{
     MaxMessages: 10, VisibilityTimeoutSeconds: 30, Consumer: "mailer-1",
 })
 // handle is your message processor: func handle(payload any) error
@@ -740,7 +740,7 @@ for _, raw := range out["messages"].([]any) {
     m := raw.(map[string]any)
     if err := handle(m["payload"]); err != nil {
         _, _ = c.NackMessage("emails", m["receipt"].(string),
-            synapsedx.QueueNackOptions{Error: err.Error()})
+            synapseone.QueueNackOptions{Error: err.Error()})
         continue
     }
     _, _ = c.AckMessage("emails", m["receipt"].(string))
@@ -762,25 +762,25 @@ result, err = c.Call("GET", "/v1/base/collections", nil)
 fmt.Println(result)`;
 
 const CLI_INSTALL = `# one-line installer (recommended)
-curl -fsSL https://synapsedx.sbs/install.sh | sh
+curl -fsSL https://synapseone.space/install.sh | sh
 
 # the Docker Console serves the same installer locally
 curl -fsSL http://localhost:3000/install.sh | sh
 
 # npm registry
-npm install -g @synapsedx/cli@latest
+npm install -g @synapseone/cli@latest
 
 # run without installing
-npx -y @synapsedx/cli@latest --help
+npx -y @synapseone/cli@latest --help
 
 # from source
-node tools/cli/bin/synapsedx.js --help`;
+node tools/cli/bin/synapseone.js --help`;
 
 const CLI_CONFIG = `# Base URL resolution (first match wins):
-#   --base <URL> > $SYNAPSEDX_BASE_URL > ~/.synapsedx/config.json > http://localhost:8080
+#   --base <URL> > $SYNAPSEONE_BASE_URL > ~/.synapseone/config.json > http://localhost:8080
 #
 # Auth resolution (first match wins):
-#   --token/--apikey > $SYNAPSEDX_TOKEN/$SYNAPSEDX_API_KEY > config file
+#   --token/--apikey > $SYNAPSEONE_TOKEN/$SYNAPSEONE_API_KEY > config file
 #
 # Global flags:
 #   --base URL   --token T   --apikey K   --json
@@ -788,91 +788,91 @@ const CLI_CONFIG = `# Base URL resolution (first match wins):
 #   --limit N   --actor ID   --name N   --template T
 #   --email E   --org SLUG   --label L`;
 
-const CLI_AUTH = `synapsedx login --email demo@acme.local [--org acme]
-synapsedx refresh [refresh-token]
-synapsedx logout-all [refresh-token]
-synapsedx logout
-synapsedx verify
-synapsedx use-key <api-key>
-synapsedx whoami
-synapsedx config`;
+const CLI_AUTH = `synapseone login --email demo@acme.local [--org acme]
+synapseone refresh [refresh-token]
+synapseone logout-all [refresh-token]
+synapseone logout
+synapseone verify
+synapseone use-key <api-key>
+synapseone whoami
+synapseone config`;
 
-const CLI_IAM = `synapsedx orgs
-synapsedx orgs create <slug> [name]
-synapsedx accounts [org]
-synapsedx accounts create [org] <slug> [name]
-synapsedx users [org]
-synapsedx users create <org> <email> [name]
+const CLI_IAM = `synapseone orgs
+synapseone orgs create <slug> [name]
+synapseone accounts [org]
+synapseone accounts create [org] <slug> [name]
+synapseone users [org]
+synapseone users create <org> <email> [name]
 
-synapsedx roles <account>
-synapsedx roles create <account> <slug>
-synapsedx policies <account>
-synapsedx policies create <account> <slug> --file policy.json
-synapsedx attach <role-id> <policy-id>
-synapsedx detach <role-id> <policy-id>
-synapsedx assign <user-id> <role-id>
-synapsedx unassign <user-id> <role-id>
-synapsedx roles delete <id>
-synapsedx policies delete <id>
-synapsedx authz <user-id> <action> <resource> [--context k=v]
-synapsedx sim --file policy.json <action> <resource> [--context k=v]
-synapsedx audit [--limit N] [--actor ID]`;
+synapseone roles <account>
+synapseone roles create <account> <slug>
+synapseone policies <account>
+synapseone policies create <account> <slug> --file policy.json
+synapseone attach <role-id> <policy-id>
+synapseone detach <role-id> <policy-id>
+synapseone assign <user-id> <role-id>
+synapseone unassign <user-id> <role-id>
+synapseone roles delete <id>
+synapseone policies delete <id>
+synapseone authz <user-id> <action> <resource> [--context k=v]
+synapseone sim --file policy.json <action> <resource> [--context k=v]
+synapseone audit [--limit N] [--actor ID]`;
 
-const CLI_ACCESS = `synapsedx keys create <account> [--name N]
-synapsedx keys list <account>
-synapsedx keys revoke <key-id>
-synapsedx keys verify <api-key>
+const CLI_ACCESS = `synapseone keys create <account> [--name N]
+synapseone keys list <account>
+synapseone keys revoke <key-id>
+synapseone keys verify <api-key>
 
-synapsedx sa <account>
-synapsedx sa create <account> <slug>
-synapsedx sa token <sa-id>
+synapseone sa <account>
+synapseone sa create <account> <slug>
+synapseone sa token <sa-id>
 
 # Account credentials are secret-write-only.
-synapsedx credentials create <account> --name N --type bearer|basic|apiKey|oauth2 \\
+synapseone credentials create <account> --name N --type bearer|basic|apiKey|oauth2 \\
   (--secret S | --secret-file F) [--expires-at ISO]
-synapsedx credentials list <account>
-synapsedx credentials get|delete <id>
-synapsedx credentials rotate <id> (--secret S | --secret-file F)`;
+synapseone credentials list <account>
+synapseone credentials get|delete <id>
+synapseone credentials rotate <id> (--secret S | --secret-file F)`;
 
-const CLI_WORKFLOWS = `synapsedx workflows
-synapsedx workflows create --template <name> [--name N]
-synapsedx workflows create --file definition.json [--name N]
-synapsedx workflows get <id>
-synapsedx workflows activate <id>
-synapsedx workflows deactivate <id>
-synapsedx workflows exec <id> [--data '{...}']
-synapsedx workflows test-run --file def.json --input input.json
+const CLI_WORKFLOWS = `synapseone workflows
+synapseone workflows create --template <name> [--name N]
+synapseone workflows create --file definition.json [--name N]
+synapseone workflows get <id>
+synapseone workflows activate <id>
+synapseone workflows deactivate <id>
+synapseone workflows exec <id> [--data '{...}']
+synapseone workflows test-run --file def.json --input input.json
 
-synapsedx templates
-synapsedx templates <name>
-synapsedx executions list [--limit N] [--workflow-id ID] [--status success|error]
-synapsedx executions <id> [--include-data]`;
+synapseone templates
+synapseone templates <name>
+synapseone executions list [--limit N] [--workflow-id ID] [--status success|error]
+synapseone executions <id> [--include-data]`;
 
-const CLI_LDS = `synapsedx lds licenses
-synapsedx lds datasources [list] [--org <orgId>] [--account <accountId>]
-synapsedx lds datasources create --name N --entity-type T --license SPDX
-synapsedx lds datasources get|delete <id>
-synapsedx lds attributes list <id>
-synapsedx lds attributes set <id> --file attrs.json
-synapsedx lds ingest <id> --file record.json
-synapsedx lds entities <id> [--limit N] [--visibility public|restricted]
-synapsedx lds entity <id> <entity-id>
-synapsedx lds stats <id>`;
+const CLI_LDS = `synapseone lds licenses
+synapseone lds datasources [list] [--org <orgId>] [--account <accountId>]
+synapseone lds datasources create --name N --entity-type T --license SPDX
+synapseone lds datasources get|delete <id>
+synapseone lds attributes list <id>
+synapseone lds attributes set <id> --file attrs.json
+synapseone lds ingest <id> --file record.json
+synapseone lds entities <id> [--limit N] [--visibility public|restricted]
+synapseone lds entity <id> <entity-id>
+synapseone lds stats <id>`;
 
 const CLI_CALL = `# Base, Faststore and Queue are available through the generic gateway call:
-synapsedx call POST /v1/base/collections --data '{"name":"parks"}'
-synapsedx call GET /v1/base/collections
-synapsedx call PUT /v1/faststore/keys/cache:demo --data '{"value":{"ok":true},"ttlSeconds":300}'
-synapsedx call POST /v1/queue/queues/emails/messages --data '{"payload":{"to":"a@b.c"}}'
+synapseone call POST /v1/base/collections --data '{"name":"parks"}'
+synapseone call GET /v1/base/collections
+synapseone call PUT /v1/faststore/keys/cache:demo --data '{"value":{"ok":true},"ttlSeconds":300}'
+synapseone call POST /v1/queue/queues/emails/messages --data '{"payload":{"to":"a@b.c"}}'
 
 # Raw paths include gateway prefixes; use --file for larger JSON payloads.`;
 
-const JS_INSTALL = `npm install @synapsedx/sdk
-# or: yarn add @synapsedx/sdk
-# or: pnpm add @synapsedx/sdk
+const JS_INSTALL = `npm install @synapseone/sdk
+# or: yarn add @synapseone/sdk
+# or: pnpm add @synapseone/sdk
 
 # The package exposes per-service subpaths:
-#   @synapsedx/sdk/base, /faststore, /queue, /iam, /workflow, /lds`;
+#   @synapseone/sdk/base, /faststore, /queue, /iam, /workflow, /lds`;
 
 const JS_SECTIONS = [
   { title: 'Install', code: JS_INSTALL },
@@ -887,17 +887,17 @@ const JS_SECTIONS = [
   { title: 'Errors, escape hatch & deprecations', code: JS_ERRORS },
 ];
 
-const PYTHON_INSTALL = `pip install synapsedx-sdk
+const PYTHON_INSTALL = `pip install synapseone-sdk
 
 # or with a virtualenv
 python -m venv .venv
 source .venv/bin/activate
-pip install synapsedx-sdk
+pip install synapseone-sdk
 
 # Optional per-service imports:
-from synapsedx_sdk.base import BaseService, BaseCollection
-from synapsedx_sdk.faststore import FaststoreService
-from synapsedx_sdk.queue import QueueService`;
+from synapseone_sdk.base import BaseService, BaseCollection
+from synapseone_sdk.faststore import FaststoreService
+from synapseone_sdk.queue import QueueService`;
 
 const PYTHON_SECTIONS = [
   { title: 'Install', code: PYTHON_INSTALL },
@@ -912,10 +912,10 @@ const PYTHON_SECTIONS = [
   { title: 'Errors, escape hatch & deprecations', code: PYTHON_ERRORS },
 ];
 
-const GO_INSTALL = `go get github.com/synapsedx/synapsedx-sdk-go@latest
+const GO_INSTALL = `go get github.com/synapseone/synapseone-sdk-go@latest
 
 # then import it:
-#   import synapsedx "github.com/synapsedx/synapsedx-sdk-go"
+#   import synapseone "github.com/synapseone/synapseone-sdk-go"
 
 # Go 1.22+; the client is a thin wrapper over net/http.`;
 
@@ -1039,7 +1039,7 @@ function Overview({ setTab }) {
   return (
     <div className="space-y-4">
       <Card className="bg-gradient-to-br from-main-start to-main-end text-white">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/70 mb-2">SynapseDX platform</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-white/70 mb-2">SynapseOne platform</p>
         <h3 className="text-2xl font-semibold mb-2">Documents, cache and messaging — self-managed.</h3>
         <p className="text-sm text-white/85 max-w-3xl">
           SynapseBase, Synapse Faststore and SynapseQueue run next to IAM, the workflow engine and SynapseLDS.
@@ -1083,8 +1083,8 @@ function Overview({ setTab }) {
         </Table>
         <Text>
           Only the gateway is public in production. Direct service calls additionally require
-          <code className="mx-1 text-main-text">x-synapsedx-internal</code>
-          when <code className="text-main-text">SYNAPSEDX_INTERNAL_SECRET</code> is configured.
+          <code className="mx-1 text-main-text">x-synapseone-internal</code>
+          when <code className="text-main-text">SYNAPSEONE_INTERNAL_SECRET</code> is configured.
         </Text>
       </DocSection>
 
@@ -1117,9 +1117,9 @@ function Overview({ setTab }) {
         <Bullets
           items={[
             'Call the gateway with Authorization: Bearer <JWT> or X-API-Key. /v1/auth/* and the public LDS export routes are the only unauthenticated endpoints.',
-            'The gateway strips client-sent x-synapsedx-* headers and re-stamps them from the verified principal, so services never re-verify the JWT.',
+            'The gateway strips client-sent x-synapseone-* headers and re-stamps them from the verified principal, so services never re-verify the JWT.',
             'Principal callers are scoped automatically: org → org:<id>, otherwise account → account:<id>, otherwise user → user:<sub>.',
-            'Platform callers (no principal) select a tenant with x-synapsedx-tenant or ?tenant=. Missing tenant is 400 tenant_required.',
+            'Platform callers (no principal) select a tenant with x-synapseone-tenant or ?tenant=. Missing tenant is 400 tenant_required.',
             'SDKs expose the same switch: tenant in the constructor (JavaScript/Python) or SetTenant (Go).',
             'Never send the internal secret from a browser; it is for service-to-service calls only.',
           ]}
@@ -1251,7 +1251,7 @@ function FaststoreDoc() {
         <Bullets
           items={[
             'Keys are strings of 1..512 characters and may not contain "/" or "\\".',
-            'Tenant scoping comes from the principal; platform callers pass x-synapsedx-tenant or ?tenant=.',
+            'Tenant scoping comes from the principal; platform callers pass x-synapseone-tenant or ?tenant=.',
             'Reads return ttlSeconds:null when the key has no expiry; /ttl returns -1 for no expiry and 404 when absent.',
             '0 TTL clears an existing expiry; valid TTLs are 1..2,592,000 seconds (30 days).',
           ]}
@@ -1299,7 +1299,7 @@ function QueueDoc() {
             'publish → ready or delayed → consume creates a lease and increments attempts.',
             'ack deletes the message; nack requeues it or moves it to the dead-letter set.',
             'Expired leases are reclaimed to pending regardless of attempts, so consumers must be idempotent.',
-            'Queues are tenant-scoped; platform callers pass x-synapsedx-tenant or ?tenant=.',
+            'Queues are tenant-scoped; platform callers pass x-synapseone-tenant or ?tenant=.',
           ]}
         />
       </DocSection>

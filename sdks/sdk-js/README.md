@@ -1,21 +1,21 @@
-# `@synapsedx/sdk` — SynapseDX SDK for JavaScript/TypeScript
+# `@synapseone/sdk` — SynapseOne SDK for JavaScript/TypeScript
 
-Apache-2.0. Part of [SynapseDX](../../README.md) Tier-1 PaaS.
+Apache-2.0. Part of [SynapseOne](../../README.md) Tier-1 PaaS.
 
 Zero runtime dependencies. Works in Node 18+ and browsers (fetch-based).
 
 ## Install
 
 ```bash
-npm install @synapsedx/sdk
+npm install @synapseone/sdk
 ```
 
 ## Quick start
 
 ```ts
-import { SynapseDXClient } from '@synapsedx/sdk';
+import { SynapseOneClient } from '@synapseone/sdk';
 
-const c = new SynapseDXClient({ baseUrl: 'http://localhost:8080' });
+const c = new SynapseOneClient({ baseUrl: 'http://localhost:8080' });
 const { accessToken, user } = await c.iam.login('demo@acme.local');
 c.setToken(accessToken);
 
@@ -26,7 +26,7 @@ await c.workflow.createWorkflowFromTemplate('webhook-to-log', 'demo');
 
 Auth: `setToken(jwt)` (Bearer) or `setApiKey(key)` (`X-API-Key`).
 Optional `timeoutMs` (default 15000) and `tenant` (platform callers of
-Faststore/Queue, sent as `x-synapsedx-tenant`; change with `setTenant()`).
+Faststore/Queue, sent as `x-synapseone-tenant`; change with `setTenant()`).
 
 ## Services
 
@@ -34,14 +34,14 @@ The SDK is split per service, with matching subpath exports:
 
 | Namespace | Service | Subpath |
 | --- | --- | --- |
-| `c.iam` | Synapse IAM | `@synapsedx/sdk/iam` |
-| `c.workflow` | Workflow | `@synapsedx/sdk/workflow` |
-| `c.ai` | AI Assistant | `@synapsedx/sdk/ai` |
-| `c.lds` | SynapseLDS | `@synapsedx/sdk/lds` |
-| `c.base` | SynapseBase | `@synapsedx/sdk/base` |
-| `c.faststore` | Synapse Faststore | `@synapsedx/sdk/faststore` |
-| `c.queue` | SynapseQueue | `@synapsedx/sdk/queue` |
-| `c.inference` | Inference Engine | `@synapsedx/sdk/inference` |
+| `c.iam` | Synapse IAM | `@synapseone/sdk/iam` |
+| `c.workflow` | Workflow | `@synapseone/sdk/workflow` |
+| `c.ai` | AI Assistant | `@synapseone/sdk/ai` |
+| `c.lds` | SynapseLDS | `@synapseone/sdk/lds` |
+| `c.base` | SynapseBase | `@synapseone/sdk/base` |
+| `c.faststore` | Synapse Faststore | `@synapseone/sdk/faststore` |
+| `c.queue` | SynapseQueue | `@synapseone/sdk/queue` |
+| `c.inference` | Inference Engine | `@synapseone/sdk/inference` |
 
 ```ts
 await c.base.createCollection({ name: 'parks', mapping: { name: 'profile.name' } });

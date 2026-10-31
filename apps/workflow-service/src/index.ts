@@ -1,11 +1,12 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Workflow service: local built-in engine (Apache-2.0, no external engine).
  * Stores workflows + executions in Postgres (DATABASE_URL) with in-memory
  * fallback for dev/test. Executes webhook/cron/manual/httpRequest/code/
  * set/if/noOp DAGs via ./engine (sandboxed code).
  */
+import './env-compat';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -20,8 +21,8 @@ import {
   toPublicCredential, decryptSecret,
 } from './store';
 import type { Principal } from './store';
-import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseDXParams, validateIntegrationParams, validateAgentToolIds, extractEmbeddingVector, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType, isAiAgentType, isDecisionType, isModelType, isIntegrationType, edgeTargetPort, auxiliaryEdges } from './engine';
-import type { CredentialResolver, RunPrincipal, SynapseDXCall, EngineNode, Connections } from './engine';
+import { runWorkflow, detectCycle, workflowCronIntervalMs, workflowCronNextRunAt, validateCronParams, validateSynapseOneParams, validateIntegrationParams, validateAgentToolIds, extractEmbeddingVector, isBlockedUrl as engineIsBlockedUrl, isAllowedSelfUrl, selfAllowlist, actorFor, isWebhookType, isCronType, isTriggerType, isCodeType, isHttpRequestType, isIfType, isSetType, isNoOpType, isAiAgentType, isDecisionType, isModelType, isIntegrationType, normalizeNodeType, edgeTargetPort, auxiliaryEdges } from './engine';
+import type { CredentialResolver, RunPrincipal, SynapseOneCall, EngineNode, Connections } from './engine';
 
 /** May this credential be resolved for this run principal? (P0-4/#5)
  *  - org-bound credentials: only inside their org, or by their owning account;
@@ -89,15 +90,15 @@ function canAccessExecution(e: { principal?: Principal | null }, p: Principal | 
 const workflowRunContext = new AsyncLocalStorage<{ depth: number }>();
 const MAX_WORKFLOW_NESTING = 3;
 
-/** First-party SynapseDX caller for synapsedx.api nodes: IAM resources go to
+/** First-party SynapseOne caller for synapseone.api nodes: IAM resources go to
  *  IAM over the service network with the run principal stamped (IAM enforces
  *  its own canActFor tenant checks on it); workflow-local resources are read
  *  straight from the store, scoped by canAccessWorkflow. No arbitrary paths —
- *  only the engine's SYNAPSEDX_API_RESOURCES table can reach here. */
-export const synapsedxCall: SynapseDXCall = async (resource, operation, args, principal) => {
+ *  only the engine's SYNAPSEONE_API_RESOURCES table can reach here. */
+export const synapseoneCall: SynapseOneCall = async (resource, operation, args, principal) => {
   const cleanId = (v: unknown, field: string, max = 256): string => {
     const s = String(v ?? '');
-    if (!s || s.length > max || /[\r\n]/.test(s)) throw new Error(`synapsedx.api: '${resource}.${operation}' needs a valid '${field}'`);
+    if (!s || s.length > max || /[\r\n]/.test(s)) throw new Error(`synapseone.api: '${resource}.${operation}' needs a valid '${field}'`);
     return s;
   };
   const a = args && typeof args === 'object' ? args : {};
@@ -108,15 +109,15 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       return all.filter((w) => canAccessWorkflow(w, principal)).map(toApiWorkflow);
     }
     const w = await getWorkflowRec(cleanId(a.id, 'id', 128));
-    if (!w || !canAccessWorkflow(w, principal)) throw new Error(`synapsedx.api: workflows.${operation} -> 404 (not found)`);
+    if (!w || !canAccessWorkflow(w, principal)) throw new Error(`synapseone.api: workflows.${operation} -> 404 (not found)`);
     if (operation === 'get') return toApiWorkflow(w);
     if (operation === 'execute') {
       const depth = workflowRunContext.getStore()?.depth || 0;
       if (depth >= MAX_WORKFLOW_NESTING) {
-        throw new Error(`synapsedx.api: workflows.execute nesting limit (${MAX_WORKFLOW_NESTING}) reached`);
+        throw new Error(`synapseone.api: workflows.execute nesting limit (${MAX_WORKFLOW_NESTING}) reached`);
       }
       const input = a.input && typeof a.input === 'object' && !Array.isArray(a.input) ? a.input : {};
-      if (JSON.stringify(input).length > 200 * 1024) throw new Error('synapsedx.api: workflows.execute input exceeds 200KB');
+      if (JSON.stringify(input).length > 200 * 1024) throw new Error('synapseone.api: workflows.execute input exceeds 200KB');
       const runPrincipal = principal || workflowRunPrincipal(w);
       const startedAt = new Date().toISOString();
       const r = await workflowRunContext.run({ depth: depth + 1 }, () =>
@@ -127,7 +128,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
             triggeredBy: 'workflow',
             principal: runPrincipal,
             credentialResolver: makeCredentialResolver(runPrincipal),
-            synapsedxCall,
+            synapseoneCall,
           },
         ),
       );
@@ -147,11 +148,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         finishedAt,
       });
       if (r.status !== 'success') {
-        throw new Error(`synapsedx.api: workflows.execute '${w.name}' failed: ${String((r as any).error || 'unknown error').slice(0, 300)}`);
+        throw new Error(`synapseone.api: workflows.execute '${w.name}' failed: ${String((r as any).error || 'unknown error').slice(0, 300)}`);
       }
       return { ok: true, executionId: exec.id, workflow: { id: w.id, name: w.name }, output: r.output };
     }
-    throw new Error(`synapsedx.api: unsupported call 'workflows.${operation}'`);
+    throw new Error(`synapseone.api: unsupported call 'workflows.${operation}'`);
   }
   if (resource === 'executions') {
     if (operation === 'list') {
@@ -165,13 +166,13 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       return { data: items.map((e) => toApiExecution(e, false)) };
     }
     const e = await getExecutionRec(cleanId(a.id, 'id', 128));
-    if (!e || !canAccessExecution(e, principal)) throw new Error('synapsedx.api: executions.get -> 404 (not found)');
+    if (!e || !canAccessExecution(e, principal)) throw new Error('synapseone.api: executions.get -> 404 (not found)');
     return toApiExecution(e, true);
   }
   if (resource === 'templates') {
     if (operation === 'list') return listTemplates();
     const t = buildTemplate(cleanId(a.name, 'name', 64), cleanId(a.name, 'name', 64));
-    if (!t) throw new Error('synapsedx.api: templates.get -> 404 (template_not_found)');
+    if (!t) throw new Error('synapseone.api: templates.get -> 404 (template_not_found)');
     return t;
   }
   // SynapseLDS (linked data) over the service network as the run principal.
@@ -180,17 +181,17 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   // dynamic fields default-deny out of every NGSI-LD export.
   if (resource === 'lds') {
     const LDS_BASE = (process.env.LDS_SERVICE_URL || 'http://lds:4004').replace(/\/$/, '');
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 20000);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
       }
       let method = 'GET';
       let path = '';
@@ -202,17 +203,17 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         path = `/v1/lds/datasources/${encodeURIComponent(cleanId(a.datasourceId, 'datasourceId', 128))}/records`;
         const record = a.record !== undefined ? a.record : a.data;
         if (record === undefined || record === null) {
-          throw new Error("synapsedx.api: lds.publish-record needs 'record' (an object — put it in input, e.g. ={{ $json }})");
+          throw new Error("synapseone.api: lds.publish-record needs 'record' (an object — put it in input, e.g. ={{ $json }})");
         }
         if (typeof record !== 'object' || Array.isArray(record)) {
-          throw new Error("synapsedx.api: lds.publish-record 'record' must be a JSON object");
+          throw new Error("synapseone.api: lds.publish-record 'record' must be a JSON object");
         }
         body = { record };
       } else if (operation === 'get-entity') {
         method = 'GET';
         path = `/v1/lds/datasources/${encodeURIComponent(cleanId(a.datasourceId, 'datasourceId', 128))}/entities/${encodeURIComponent(cleanId(a.entityId, 'entityId', 256))}`;
       } else {
-        throw new Error(`synapsedx.api: unsupported call 'lds.${operation}'`);
+        throw new Error(`synapseone.api: unsupported call 'lds.${operation}'`);
       }
       const r = await fetch(`${LDS_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -223,11 +224,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: SynapseLDS timed out after 20000ms');
+      if (e?.name === 'AbortError') throw new Error('synapseone.api: SynapseLDS timed out after 20000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -237,17 +238,17 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   // Base service
   if (resource === 'base') {
     const BASE_BASE = (process.env.BASE_SERVICE_URL || 'http://base:4005').replace(/\/$/, '');
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 20000);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
       }
       let method = 'GET';
       let path = '';
@@ -290,13 +291,13 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         const queryText = a.query ?? a.text ?? a.prompt ?? (typeof a.input === 'string' ? a.input : undefined);
         if ((!Array.isArray(vector) || vector.length === 0) && queryText) {
           try {
-            const embRes = await synapsedxCall('inference', 'embeddings', { input: String(queryText) }, principal);
+            const embRes = await synapseoneCall('inference', 'embeddings', { input: String(queryText) }, principal);
             const rawVec = extractEmbeddingVector(embRes);
             if (rawVec && rawVec.length > 0) {
               vector = rawVec;
             }
           } catch (e: any) {
-            throw new Error(`synapsedx.api: base.vector-search embedding failed: ${e?.message || e}`);
+            throw new Error(`synapseone.api: base.vector-search embedding failed: ${e?.message || e}`);
           }
         }
         method = 'POST';
@@ -310,7 +311,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
           as: a.as,
         };
       } else {
-        throw new Error(`synapsedx.api: unsupported call 'base.${operation}'`);
+        throw new Error(`synapseone.api: unsupported call 'base.${operation}'`);
       }
       const r = await fetch(`${BASE_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -321,11 +322,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Base service timed out after 20000ms');
+      if (e?.name === 'AbortError') throw new Error('synapseone.api: Base service timed out after 20000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -335,20 +336,20 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   // Faststore service
   if (resource === 'faststore') {
     const FASTSTORE_BASE = (process.env.FASTSTORE_SERVICE_URL || 'http://faststore:4006').replace(/\/$/, '');
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 15000);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
-        headers['X-SynapseDX-Tenant'] = String(principal.org || principal.account || principal.sub);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
+        headers['X-SynapseOne-Tenant'] = String(principal.org || principal.account || principal.sub);
       } else {
-        headers['X-SynapseDX-Tenant'] = 'platform';
+        headers['X-SynapseOne-Tenant'] = 'platform';
       }
       let method = 'GET';
       let path = '';
@@ -373,7 +374,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         path = `/v1/faststore/hashes/${encodeURIComponent(cleanId(a.key, 'key', 256))}`;
         body = { values: a.values || a.fields || (a.field && a.value !== undefined ? { [a.field]: a.value } : {}), ttlSeconds: a.ttlSeconds };
       } else {
-        throw new Error(`synapsedx.api: unsupported call 'faststore.${operation}'`);
+        throw new Error(`synapseone.api: unsupported call 'faststore.${operation}'`);
       }
       const r = await fetch(`${FASTSTORE_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -389,11 +390,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Faststore service timed out after 15000ms');
+      if (e?.name === 'AbortError') throw new Error('synapseone.api: Faststore service timed out after 15000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -403,20 +404,20 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   // Queue service
   if (resource === 'queue') {
     const QUEUE_BASE = (process.env.QUEUE_SERVICE_URL || 'http://queue:4007').replace(/\/$/, '');
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 15000);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
-        headers['X-SynapseDX-Tenant'] = String(principal.org || principal.account || principal.sub);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
+        headers['X-SynapseOne-Tenant'] = String(principal.org || principal.account || principal.sub);
       } else {
-        headers['X-SynapseDX-Tenant'] = 'platform';
+        headers['X-SynapseOne-Tenant'] = 'platform';
       }
       let method = 'GET';
       let path = '';
@@ -446,7 +447,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         path = `/v1/queue/queues/${encodeURIComponent(cleanId(a.queue, 'queue', 128))}/ack`;
         body = { receipt: a.receipt || a.receiptHandle };
       } else {
-        throw new Error(`synapsedx.api: unsupported call 'queue.${operation}'`);
+        throw new Error(`synapseone.api: unsupported call 'queue.${operation}'`);
       }
       const r = await fetch(`${QUEUE_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -457,11 +458,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: Queue service timed out after 15000ms');
+      if (e?.name === 'AbortError') throw new Error('synapseone.api: Queue service timed out after 15000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -471,19 +472,19 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   // Inference service
   if (resource === 'inference') {
     const INF_BASE = (process.env.INFERENCE_SERVICE_URL || 'http://inference:4008').replace(/\/$/, '');
-    const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+    const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
     const rawInferenceTimeout = Number(process.env.INFERENCE_TIMEOUT_MS || 120000);
     const inferenceTimeoutMs = Math.min(Math.max(Number.isFinite(rawInferenceTimeout) ? rawInferenceTimeout : 120000, 1000), 300000);
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), inferenceTimeoutMs);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
       }
       let method = 'POST';
       let path = '';
@@ -512,7 +513,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
         path = '/v1/inference/decision/route';
         body = { input: a.input, choices: a.choices, instruction: a.instruction };
       } else {
-        throw new Error(`synapsedx.api: unsupported call 'inference.${operation}'`);
+        throw new Error(`synapseone.api: unsupported call 'inference.${operation}'`);
       }
       const r = await fetch(`${INF_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -523,11 +524,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error(`synapsedx.api: Inference service timed out after ${inferenceTimeoutMs}ms`);
+      if (e?.name === 'AbortError') throw new Error(`synapseone.api: Inference service timed out after ${inferenceTimeoutMs}ms`);
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -535,26 +536,26 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
   }
   // IAM resources over the service network as the run principal.
   const IAM_BASE = (process.env.IAM_SERVICE_URL || 'http://iam:4001').replace(/\/$/, '');
-  const INTERNAL = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const INTERNAL = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   // #10: the IAM middleware requires a real caller credential even when the
   // internal secret is present (the secret proves gateway-origin, not identity).
   // Use a dedicated service API key — never the run user's JWT (workflow runs
   // outlive tokens and webhook/cron runs hold no user credential at all).
-  const IAM_API_KEY = (process.env.SYNAPSEDX_IAM_API_KEY || '').trim();
+  const IAM_API_KEY = (process.env.SYNAPSEONE_IAM_API_KEY || '').trim();
   const iamFetch = async (method: string, path: string, body?: any): Promise<any> => {
     if (!IAM_API_KEY) {
-      throw new Error('synapsedx.api: IAM calls need SYNAPSEDX_IAM_API_KEY (service credential) — see docs/configuration.md');
+      throw new Error('synapseone.api: IAM calls need SYNAPSEONE_IAM_API_KEY (service credential) — see docs/configuration.md');
     }
     const ctl = new AbortController();
     const to = setTimeout(() => ctl.abort(), 15000);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-API-Key': IAM_API_KEY };
-      if (INTERNAL) headers['x-synapsedx-internal'] = INTERNAL;
+      if (INTERNAL) headers['x-synapseone-internal'] = INTERNAL;
       if (principal?.sub) {
-        headers['X-SynapseDX-Kind'] = String(principal.kind || 'user');
-        headers['X-SynapseDX-User'] = String(principal.sub);
-        if (principal.org) headers['X-SynapseDX-Org'] = String(principal.org);
-        if (principal.account) headers['X-SynapseDX-Account'] = String(principal.account);
+        headers['X-SynapseOne-Kind'] = String(principal.kind || 'user');
+        headers['X-SynapseOne-User'] = String(principal.sub);
+        if (principal.org) headers['X-SynapseOne-Org'] = String(principal.org);
+        if (principal.account) headers['X-SynapseOne-Account'] = String(principal.account);
       }
       const r = await fetch(`${IAM_BASE}${path}`, {
         method, headers, signal: ctl.signal,
@@ -565,11 +566,11 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
       try { parsed = text ? JSON.parse(text) : null; } catch { /* keep text */ }
       if (!r.ok) {
         const detail = parsed && typeof parsed === 'object' ? (parsed.error || parsed.message || '') : '';
-        throw new Error(`synapsedx.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
+        throw new Error(`synapseone.api: ${method} ${path} -> ${r.status}${detail ? ` (${String(detail).slice(0, 120)})` : ''}`);
       }
       return parsed;
     } catch (e: any) {
-      if (e?.name === 'AbortError') throw new Error('synapsedx.api: IAM timed out after 15000ms');
+      if (e?.name === 'AbortError') throw new Error('synapseone.api: IAM timed out after 15000ms');
       throw e instanceof Error ? e : new Error(String(e));
     } finally {
       clearTimeout(to);
@@ -602,7 +603,7 @@ export const synapsedxCall: SynapseDXCall = async (resource, operation, args, pr
     case 'service-accounts.list':
       return iamFetch('GET', `/v1/accounts/${enc(cleanId(a.accountId, 'accountId'))}/service-accounts`);
     default:
-      throw new Error(`synapsedx.api: unsupported call '${resource}.${operation}'`);
+      throw new Error(`synapseone.api: unsupported call '${resource}.${operation}'`);
   }
 };
 
@@ -643,7 +644,7 @@ export function __resetMetrics(): void {
 
 /** SSRF guard: block workflow definitions that make the engine fetch internal targets.
  *  Single implementation lives in ./engine (isBlockedUrl honors the
- *  SYNAPSEDX_SELF_BASE_URLS allowlist); re-exported here for tests. */
+ *  SYNAPSEONE_SELF_BASE_URLS allowlist); re-exported here for tests. */
 const isBlockedUrl = engineIsBlockedUrl;
 function findSsrfUrl(definition: any): string | null {
   // Recursive scan (depth-capped) so nested options (headers, bodyParameters,
@@ -687,6 +688,11 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
   if (nodes !== undefined) {
     if (!Array.isArray(nodes)) return 'definition.nodes must be an array';
     if (nodes.length > 50) return 'definition.nodes exceeds 50 nodes';
+    for (const n of nodes) {
+      if (!n || typeof n !== 'object') continue;
+      const type = normalizeNodeType((n as any).type);
+      if (type !== (n as any).type) (n as any).type = type;
+    }
     const names = new Set<string>();
     for (const n of nodes) {
       if (!n || typeof n !== 'object') return 'definition.nodes[] must be objects';
@@ -783,14 +789,14 @@ function validateDefinition(definition: any, opts: { requireTrigger?: boolean } 
           }
         }
       }
-      // First-party SynapseDX block: resource/operation must be known.
-      if ((n as any).type === 'synapsedx.api' && params && typeof params === 'object') {
-        const perr = validateSynapseDXParams(params);
+      // First-party SynapseOne block: resource/operation must be known.
+      if ((n as any).type === 'synapseone.api' && params && typeof params === 'object') {
+        const perr = validateSynapseOneParams(params);
         if (perr) return `definition.nodes['${nm}']: ${perr}`;
       }
       // Split per-service integration nodes (IAM/Base/Faststore/Queue/LDS/
       // Inference/Flow) — validate their operation + required input fields.
-      if (isIntegrationType((n as any).type) && (n as any).type !== 'synapsedx.api' && params && typeof params === 'object') {
+      if (isIntegrationType((n as any).type) && (n as any).type !== 'synapseone.api' && params && typeof params === 'object') {
         const perr = validateIntegrationParams((n as any).type, params);
         if (perr) return `definition.nodes['${nm}']: ${perr}`;
       }
@@ -999,22 +1005,24 @@ function toApiExecution(e: any, includeData: boolean): any {
 }
 
 /** Caller principal from gateway-stamped headers (P0-2). The gateway strips
- *  client-sent x-synapsedx-* and re-stamps from the verified identity, so
+ *  client-sent x-synapseone-* and re-stamps from the verified identity, so
  *  these are trusted here. Direct calls carry no principal → anonymous. */
 export function principalFromHeaders(req: express.Request): import('./store').Principal | null {
   const h = (n: string): string => {
-    const v = req.headers[n];
+    // Accept the legacy x-synapsedx-* prefix during the rebrand window.
+    const legacy = n.startsWith('x-synapseone-') ? n.replace('x-synapseone-', 'x-synapsedx-') : n;
+    const v = req.headers[n] ?? req.headers[legacy];
     return (Array.isArray(v) ? v[0] : v || '').trim();
   };
   const clean = (v: string): string | undefined => (v && v.length <= 128 ? v : undefined);
-  const user = h('x-synapsedx-user');
+  const user = h('x-synapseone-user');
   if (user) {
     if (user.length > 128) return null;
     return {
       sub: user,
-      org: clean(h('x-synapsedx-org')),
-      account: clean(h('x-synapsedx-account')),
-      kind: clean(h('x-synapsedx-kind')),
+      org: clean(h('x-synapseone-org')),
+      account: clean(h('x-synapseone-account')),
+      kind: clean(h('x-synapseone-kind')),
     };
   }
   // API keys are machine identities: the gateway stamps kind=apikey + account
@@ -1022,9 +1030,9 @@ export function principalFromHeaders(req: express.Request): import('./store').Pr
   // look like an internal/direct call — workflow scoping would treat them as
   // tenant-free (global list, arbitrary tenant binding). Any tenant marker
   // means "authenticated principal"; synthesize a non-user subject.
-  const kind = clean(h('x-synapsedx-kind'));
-  const account = clean(h('x-synapsedx-account'));
-  const org = clean(h('x-synapsedx-org'));
+  const kind = clean(h('x-synapseone-kind'));
+  const account = clean(h('x-synapseone-account'));
+  const org = clean(h('x-synapseone-org'));
   if (kind || account || org) {
     return {
       sub: account ? `apikey:${account}` : `${kind || 'principal'}:unknown`,
@@ -1050,8 +1058,8 @@ export function workflowRunPrincipal(wf: {
 
 export function createApp(): express.Express {
   if (IS_PROD_WF) {
-    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      throw new Error('[workflow] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+    if (!process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      throw new Error('[workflow] SYNAPSEONE_INTERNAL_SECRET must be set in production');
     }
     if (!process.env.DATABASE_URL) {
       throw new Error('[workflow] DATABASE_URL must be set in production (in-memory fallback would split-brain)');
@@ -1247,7 +1255,7 @@ export function createApp(): express.Express {
       const r = await runWorkflow(
         { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
         input,
-        { triggeredBy: 'webhook', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapsedxCall },
+        { triggeredBy: 'webhook', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapseoneCall },
       );
       const finishedAt = new Date().toISOString();
       recordRun('webhook', r.status, r.nodeRuns);
@@ -1269,20 +1277,20 @@ export function createApp(): express.Express {
     return handleInboundWebhook(req, res);
   }) as any);
 
-  // Defense-in-depth: workflow KHÔNG tin gateway mù quáng. Khi SYNAPSEDX_INTERNAL_SECRET
+  // Defense-in-depth: workflow KHÔNG tin gateway mù quáng. Khi SYNAPSEONE_INTERNAL_SECRET
   // được set (cùng giá trị ở gateway), mọi /v1/* (trừ /health) phải mang header
-  // x-synapsedx-internal khớp — chặn truy cập trực tiếp :4002 vượt mặt gateway.
+  // x-synapseone-internal khớp — chặn truy cập trực tiếp :4002 vượt mặt gateway.
   // Client KHÔNG bao giờ được gửi header này (gateway strip + set lại sau khi verify).
-  const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   if (!INTERNAL_SECRET) {
-    console.warn('[workflow][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production.');
+    console.warn('[workflow][security] SYNAPSEONE_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production.');
   }
   app.use('/v1/' as any, ((req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!INTERNAL_SECRET) {
       if (IS_PROD_WF) return res.status(500).json({ error: 'misconfigured', message: 'internal secret required in production' });
       return next();
     }
-    const raw = req.headers['x-synapsedx-internal'] as string | string[] | undefined;
+    const raw = (req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as string | string[] | undefined;
     const got = Array.isArray(raw) ? (raw[0] || '') : (raw || '');
     // Constant-time compare to avoid leaking secret prefix via timing.
     const a = Buffer.from(got);
@@ -1500,7 +1508,7 @@ function tenantBinding(
     const tenant = tenantBinding(req, req.body || {});
     if (!tenant.ok) return res.status(tenant.status).json({ error: tenant.error, message: tenant.message });
     const w = await createWorkflowRec({
-      name: String(name || payload.name || 'synapsedx-workflow').slice(0, 200),
+      name: String(name || payload.name || 'synapseone-workflow').slice(0, 200),
       nodes: payload.nodes || [],
       connections: payload.connections || {},
       settings: settingsOut,
@@ -1571,7 +1579,7 @@ function tenantBinding(
     const r = await runWorkflow(
       { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
       input,
-      { triggeredBy: 'manual', principal, credentialResolver: makeCredentialResolver(principal), synapsedxCall },
+      { triggeredBy: 'manual', principal, credentialResolver: makeCredentialResolver(principal), synapseoneCall },
     );
     const finishedAt = new Date().toISOString();
     recordRun('manual', r.status, r.nodeRuns);
@@ -1857,15 +1865,15 @@ function tenantBinding(
   // ---------- /metrics (P2): Prometheus exposition ----------
   app.get('/metrics', async (_req, res) => {
     const lines = [
-      '# HELP synapsedx_workflow_runs_total Workflow executions by trigger and status.',
-      '# TYPE synapsedx_workflow_runs_total counter',
+      '# HELP synapseone_workflow_runs_total Workflow executions by trigger and status.',
+      '# TYPE synapseone_workflow_runs_total counter',
       ...[...metricRuns.entries()].map(([k, v]) => {
         const [triggeredBy, status] = k.split('|');
-        return `synapsedx_workflow_runs_total{triggered_by="${triggeredBy}",status="${status}"} ${v}`;
+        return `synapseone_workflow_runs_total{triggered_by="${triggeredBy}",status="${status}"} ${v}`;
       }),
-      '# HELP synapsedx_workflow_webhook_rejected_total Rejected inbound webhook calls by reason.',
-      '# TYPE synapsedx_workflow_webhook_rejected_total counter',
-      ...[...metricWebhookRejected.entries()].map(([reason, v]) => `synapsedx_workflow_webhook_rejected_total{reason="${reason}"} ${v}`),
+      '# HELP synapseone_workflow_webhook_rejected_total Rejected inbound webhook calls by reason.',
+      '# TYPE synapseone_workflow_webhook_rejected_total counter',
+      ...[...metricWebhookRejected.entries()].map(([reason, v]) => `synapseone_workflow_webhook_rejected_total{reason="${reason}"} ${v}`),
     ];
     res.type('text/plain').send(`${lines.join('\n')}\n`);
   });
@@ -1896,7 +1904,7 @@ function tenantBinding(
     }
     const principal = principalFromHeaders(req);
     const startedAt = new Date().toISOString();
-    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver: makeCredentialResolver(principal), synapsedxCall });
+    const r = await runWorkflow(definition, input ?? {}, { triggeredBy: 'test', principal, credentialResolver: makeCredentialResolver(principal), synapseoneCall });
     const finishedAt = new Date().toISOString();
     recordRun('test', r.status, r.nodeRuns);
     const wfId = attach ? attach.id : `test-${randomUUID().slice(0, 8)}`;
@@ -1944,7 +1952,7 @@ export function listTemplates() {
     { name: 'iam-webhook', description: 'Receives IAM events (user.created) -> calls back into the API' },
     { name: 'code-transform', description: 'Webhook -> sandboxed JS transform -> conditional branch -> set fields' },
     { name: 'manual-starter', description: 'Manual trigger -> code transform -> set fields (click Execute to try)' },
-    { name: 'synapsedx-self-check', description: 'Manual -> SynapseDX API (list orgs) -> count -> summary (first-party integration demo)' },
+    { name: 'synapseone-self-check', description: 'Manual -> SynapseOne API (list orgs) -> count -> summary (first-party integration demo)' },
     { name: 'webhook-to-lds', description: 'Webhook -> SynapseLDS: publish the payload as an NGSI-LD record (payload carries datasourceId)' },
     { name: 'github-push-to-log', description: 'GitHub push webhook (HMAC verified) -> normalize commits -> summary' },
     { name: 'ai-triage-ops', description: 'AI triage showcase: webhook -> Decision (4 routes) -> 3 AI Agents with canvas Tools/Model sockets + Base/Faststore/IAM/HTTP tools -> aggregate -> escalation queue' },
@@ -2013,7 +2021,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
     return {
       name: wname,
       nodes: [
-        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'synapsedx-event', httpMethod: 'POST' } },
+        { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'synapseone-event', httpMethod: 'POST' } },
         { id: wid(), name: 'Log', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [400, 300], parameters: {} },
       ],
       connections: { Webhook: { main: [[{ node: 'Log', type: 'main', index: 0 }]] } },
@@ -2071,12 +2079,12 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       },
     };
   }
-  if (name === 'synapsedx-self-check') {
+  if (name === 'synapseone-self-check') {
     return {
       name: wname,
       nodes: [
         { id: wid(), name: 'Manual', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [200, 300], parameters: {} },
-        { id: wid(), name: 'GetOrgs', type: 'synapsedx.api', typeVersion: 1, position: [400, 300], parameters: { resource: 'orgs', operation: 'list', input: {} } },
+        { id: wid(), name: 'GetOrgs', type: 'synapseone.api', typeVersion: 1, position: [400, 300], parameters: { resource: 'orgs', operation: 'list', input: {} } },
         { id: wid(), name: 'Count', type: 'n8n-nodes-base.code', typeVersion: 1, position: [600, 300], parameters: { code: 'const list = Array.isArray($input) ? $input : []; return { count: list.length, at: $now };' } },
         { id: wid(), name: 'Summary', type: 'n8n-nodes-base.set', typeVersion: 1, position: [800, 300], parameters: { values: { checked: true } } },
       ],
@@ -2092,7 +2100,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
       name: wname,
       nodes: [
         { id: wid(), name: 'Webhook', type: 'n8n-nodes-base.webhook', typeVersion: 2, webhookId: wid(), position: [200, 300], parameters: { path: 'lds-publish', httpMethod: 'POST' } },
-        { id: wid(), name: 'PublishToLDS', type: 'synapsedx.api', typeVersion: 1, position: [440, 300], parameters: { resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } } },
+        { id: wid(), name: 'PublishToLDS', type: 'synapseone.api', typeVersion: 1, position: [440, 300], parameters: { resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } } },
         { id: wid(), name: 'Done', type: 'n8n-nodes-base.noOp', typeVersion: 1, position: [680, 300], parameters: {} },
       ],
       connections: {
@@ -2151,14 +2159,14 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
           fallbackBranch: 3,
           minConfidence: 0.25,
         }),
-        node('FlowCatalog', 'synapsedx.flow', 840, 40, {
+        node('FlowCatalog', 'synapseone.flow', 840, 40, {
           operation: 'workflows.list',
           input: {},
         }),
         node('HasLDS', 'n8n-nodes-base.if', 840, 200, {
           condition: '={{ !!$json.datasourceId }}',
         }),
-        node('PublishTimeline', 'synapsedx.lds', 1100, 120, {
+        node('PublishTimeline', 'synapseone.lds', 1100, 120, {
           operation: 'publish-record',
           input: {
             datasourceId: '={{ $json.datasourceId }}',
@@ -2186,11 +2194,11 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
             'const credit = Math.round(amount * discount * 100) / 100;' +
             'return { ...$input, billing: { amount, credit, currency: "USD", tier, discount, decision: credit > 0 ? "credit_approved" : "no_credit", calculatedAt: $now } };',
         }),
-        node('BillingCache', 'synapsedx.faststore', 1120, 320, {
+        node('BillingCache', 'synapseone.faststore', 1120, 320, {
           operation: 'set',
           input: { key: 'billing:{{ $json.eventId }}', value: '={{ $json.billing }}', ttlSeconds: 3600 },
         }),
-        node('BillingRecord', 'synapsedx.base', 1120, 440, {
+        node('BillingRecord', 'synapseone.base', 1120, 440, {
           operation: 'create-document',
           input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
         }),
@@ -2225,18 +2233,18 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
 
         // Account lane: permission check + cache snapshot in parallel, then audit.
         node('AccountPrep', 'n8n-nodes-base.noOp', 840, 820, {}),
-        node('AccountAuth', 'synapsedx.iam', 1120, 740, {
+        node('AccountAuth', 'synapseone.iam', 1120, 740, {
           operation: 'authorize.check',
           input: { userId: '={{ $json.userId }}', action: 'read', resource: 'customer360' },
         }),
-        node('AccountSnapshot', 'synapsedx.faststore', 1120, 840, {
+        node('AccountSnapshot', 'synapseone.faststore', 1120, 840, {
           operation: 'hash-set',
           input: {
             key: 'account:{{ $json.customerId }}',
             values: { tier: '={{ $json.tier }}', riskScore: '={{ $json.riskScore }}', lastRoute: 'account', checkedAt: '={{ $now }}' },
           },
         }),
-        node('AccountRecord', 'synapsedx.base', 1120, 940, {
+        node('AccountRecord', 'synapseone.base', 1120, 940, {
           operation: 'create-document',
           input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
         }),
@@ -2252,7 +2260,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
             'const plan = amount >= 5000 ? "enterprise-expansion" : amount > 0 ? "growth-nurture" : "community";' +
             'return { ...$input, growth: { plan, tier, nextStep: plan === "enterprise-expansion" ? "executive-business-review" : "self-serve-nurture", createdAt: $now } };',
         }),
-        node('GrowthRecord', 'synapsedx.base', 1120, 1080, {
+        node('GrowthRecord', 'synapseone.base', 1120, 1080, {
           operation: 'create-document',
           input: { collection: 'customer360_events', id: '={{ $json.eventId }}', data: '={{ $json }}' },
         }),
@@ -2273,33 +2281,33 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
             'eventId: p.eventId || payload.eventId || ("evt-" + Date.now()), amount: Number(p.amount ?? payload.amount ?? 0), ' +
             'priority: p.priority || payload.priority || "normal", processedAt: $now };',
         }),
-        node('Metrics', 'synapsedx.faststore', 1960, 500, {
+        node('Metrics', 'synapseone.faststore', 1960, 500, {
           operation: 'incr',
           input: { key: 'customer360:processed', by: 1 },
         }),
         node('RiskGate', 'n8n-nodes-base.if', 1960, 640, {
           condition: '={{ ($json.confidence ?? 1) < 0.55 || $json.priority === "urgent" || ($json.amount ?? 0) >= 1000 }}',
         }),
-        node('Escalate', 'synapsedx.queue', 2240, 560, {
+        node('Escalate', 'synapseone.queue', 2240, 560, {
           operation: 'publish',
           input: { queue: 'customer360-escalations', payload: '={{ $json }}', priority: 8 },
         }),
         node('Done', 'n8n-nodes-base.noOp', 2240, 740, {}),
 
         // Canvas tools (purple Tools sockets) + Model socket.
-        node('KBLookup', 'synapsedx.base', 840, 1360, {
+        node('KBLookup', 'synapseone.base', 840, 1360, {
           operation: 'query-documents',
           input: { collection: 'customer360_events', limit: 3 },
         }),
-        node('TraceCache', 'synapsedx.faststore', 1060, 1360, {
+        node('TraceCache', 'synapseone.faststore', 1060, 1360, {
           operation: 'get',
           input: { key: 'customer360:{{ $json.customerId }}' },
         }),
-        node('PermissionProbe', 'synapsedx.iam', 1280, 1360, {
+        node('PermissionProbe', 'synapseone.iam', 1280, 1360, {
           operation: 'authorize.check',
           input: { userId: '={{ $json.userId }}', action: 'read', resource: 'customer360' },
         }),
-        node('FlowProbe', 'synapsedx.flow', 1500, 1360, {
+        node('FlowProbe', 'synapseone.flow', 1500, 1360, {
           operation: 'workflows.list',
           input: {},
         }),
@@ -2402,7 +2410,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         node('SalesReply', 'n8n-nodes-base.set', 900, 800, {
           values: {
             department: 'sales',
-            reply: 'Thanks for your interest in SynapseDX! Our sales team will reach out shortly with pricing and the right plan for your team.',
+            reply: 'Thanks for your interest in SynapseOne! Our sales team will reach out shortly with pricing and the right plan for your team.',
           },
         }),
         node('Aggregate', 'n8n-nodes-base.code', 1240, 340, {
@@ -2414,21 +2422,21 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         node('NeedsEscalation', 'n8n-nodes-base.if', 1500, 340, {
           condition: '={{ ($json.confidence ?? 1) < 0.55 || $json.priority === "urgent" }}',
         }),
-        node('Escalate', 'synapsedx.queue', 1780, 220, {
+        node('Escalate', 'synapseone.queue', 1780, 220, {
           operation: 'publish',
           input: { queue: 'support-escalations', payload: '={{ $json }}', priority: 5 },
         }),
         node('Done', 'n8n-nodes-base.noOp', 1780, 460, {}),
         // ---- Canvas tools (connect to agents' Tools sockets) ----
-        node('KBLookup', 'synapsedx.base', 620, 980, {
+        node('KBLookup', 'synapseone.base', 620, 980, {
           operation: 'query-documents',
           input: { collection: 'support_kb', limit: 5 },
         }),
-        node('CustomerCache', 'synapsedx.faststore', 620, 1120, {
+        node('CustomerCache', 'synapseone.faststore', 620, 1120, {
           operation: 'get',
           input: { key: 'customer:={{ $json.customerId }}' },
         }),
-        node('PermissionCheck', 'synapsedx.iam', 620, 1260, {
+        node('PermissionCheck', 'synapseone.iam', 620, 1260, {
           operation: 'authorize.check',
           input: { userId: '={{ $json.userId }}', action: 'read', resource: 'support_ticket' },
         }),
@@ -2480,7 +2488,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         node('Normalize', 'n8n-nodes-base.code', 300, 360, {
           code: 'const p = $input || {}; const query = String(p.query || p.message || p.question || "How to configure SSO").trim(); const incidentId = p.incidentId || ("inc-" + Date.now()); const category = p.category || "knowledge"; const urgency = /(urgent|critical|outage|down)/i.test(query) ? "high" : "normal"; return { ...p, query, incidentId, category, urgency, timestamp: $now };',
         }),
-        node('KBVectorSearch', 'synapsedx.base', 540, 360, {
+        node('KBVectorSearch', 'synapseone.base', 540, 360, {
           operation: 'vector-search',
           input: {
             collection: 'kb_articles',
@@ -2512,7 +2520,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         node('AgentFormat', 'n8n-nodes-base.code', 1540, 360, {
           code: 'const p = $input || {}; return { status: "resolved", resolutionType: "agent_assisted_rag", incidentId: p.incidentId, query: p.query, similarity: p.similarity, solution: p.output || p.result || "Agent verified resolution from KB context", resolvedAt: $now };',
         }),
-        node('EscalateQueue', 'synapsedx.queue', 1300, 520, {
+        node('EscalateQueue', 'synapseone.queue', 1300, 520, {
           operation: 'publish',
           input: {
             queue: 'incident-escalations',
@@ -2522,7 +2530,7 @@ export function buildTemplate(name: string, workflowName?: string): any | null {
         node('EscalateFormat', 'n8n-nodes-base.code', 1540, 520, {
           code: 'const p = $input || {}; const incidentId = p.incidentId || p.message?.payload?.incidentId || p.payload?.incidentId; const query = p.query || p.message?.payload?.query || ""; const similarity = p.similarity ?? p.message?.payload?.similarity ?? 0; return { status: "escalated", resolutionType: "human_sre_queue", incidentId, query, similarity, queueId: p.id || p.messageId || "queued", actionTaken: "Dispatched to Tier-2 SRE queue", escalatedAt: $now };',
         }),
-        node('CacheResult', 'synapsedx.faststore', 1800, 360, {
+        node('CacheResult', 'synapseone.faststore', 1800, 360, {
           operation: 'set',
           input: {
             key: '={{ "rag:incident:" + $json.incidentId }}',
@@ -2580,7 +2588,7 @@ function startCronLoop(): void {
           const r = await runWorkflow(
             { nodes: wf.nodes as any, connections: wf.connections as any, name: wf.name, settings: wf.settings as any },
             { scheduledAt: startedAt },
-            { triggeredBy: 'cron', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapsedxCall },
+            { triggeredBy: 'cron', principal: runPrincipal, credentialResolver: makeCredentialResolver(runPrincipal), synapseoneCall },
           );
           const finishedAt = new Date().toISOString();
           recordRun('cron', r.status, r.nodeRuns);

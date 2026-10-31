@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS "synapsedx_credentials" (
+CREATE TABLE IF NOT EXISTS "synapseone_credentials" (
 	"id" text PRIMARY KEY NOT NULL,
 	"account_id" text NOT NULL,
 	"org_id" text,
@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS "synapsedx_credentials" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "synapsedx_executions" (
+CREATE TABLE IF NOT EXISTS "synapseone_executions" (
 	"id" text PRIMARY KEY NOT NULL,
 	"workflow_id" text NOT NULL,
 	"workflow_name" text DEFAULT '' NOT NULL,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS "synapsedx_executions" (
 	"finished_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE IF NOT EXISTS "synapsedx_workflows" (
+CREATE TABLE IF NOT EXISTS "synapseone_workflows" (
 	"id" text PRIMARY KEY NOT NULL,
 	"name" text NOT NULL,
 	"nodes" jsonb DEFAULT '[]'::jsonb NOT NULL,
@@ -41,22 +41,22 @@ CREATE TABLE IF NOT EXISTS "synapsedx_workflows" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE synapsedx_workflows ADD COLUMN IF NOT EXISTS org_id TEXT;
-ALTER TABLE synapsedx_workflows ADD COLUMN IF NOT EXISTS account_id TEXT;
-ALTER TABLE synapsedx_workflows ADD COLUMN IF NOT EXISTS owner_sub TEXT;
-ALTER TABLE synapsedx_workflows ADD COLUMN IF NOT EXISTS run_as TEXT;
-ALTER TABLE synapsedx_workflows ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE synapsedx_executions ADD COLUMN IF NOT EXISTS principal JSONB;
-ALTER TABLE synapsedx_executions ADD COLUMN IF NOT EXISTS actor TEXT;
-ALTER TABLE synapsedx_credentials ADD COLUMN IF NOT EXISTS org_id TEXT;
+ALTER TABLE synapseone_workflows ADD COLUMN IF NOT EXISTS org_id TEXT;
+ALTER TABLE synapseone_workflows ADD COLUMN IF NOT EXISTS account_id TEXT;
+ALTER TABLE synapseone_workflows ADD COLUMN IF NOT EXISTS owner_sub TEXT;
+ALTER TABLE synapseone_workflows ADD COLUMN IF NOT EXISTS run_as TEXT;
+ALTER TABLE synapseone_workflows ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE synapseone_executions ADD COLUMN IF NOT EXISTS principal JSONB;
+ALTER TABLE synapseone_executions ADD COLUMN IF NOT EXISTS actor TEXT;
+ALTER TABLE synapseone_credentials ADD COLUMN IF NOT EXISTS org_id TEXT;
 --> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "synapsedx_credentials_account_id_name_key" ON "synapsedx_credentials" USING btree ("account_id","name");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_credentials_account" ON "synapsedx_credentials" USING btree ("account_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_credentials_org" ON "synapsedx_credentials" USING btree ("org_id");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_exec_workflow" ON "synapsedx_executions" USING btree ("workflow_id","started_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_exec_status" ON "synapsedx_executions" USING btree ("status","started_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_exec_time" ON "synapsedx_executions" USING btree ("started_at" DESC NULLS LAST);--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_exec_principal_org" ON "synapsedx_executions" USING btree (("principal"->>'org')) WHERE "synapsedx_executions"."principal" is not null;--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_exec_principal_account" ON "synapsedx_executions" USING btree (("principal"->>'account')) WHERE "synapsedx_executions"."principal" is not null;--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_workflows_active" ON "synapsedx_workflows" USING btree ("active");--> statement-breakpoint
-CREATE INDEX IF NOT EXISTS "idx_synapsedx_workflows_tenant" ON "synapsedx_workflows" USING btree ("org_id","account_id");
+CREATE UNIQUE INDEX IF NOT EXISTS "synapseone_credentials_account_id_name_key" ON "synapseone_credentials" USING btree ("account_id","name");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_credentials_account" ON "synapseone_credentials" USING btree ("account_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_credentials_org" ON "synapseone_credentials" USING btree ("org_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_exec_workflow" ON "synapseone_executions" USING btree ("workflow_id","started_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_exec_status" ON "synapseone_executions" USING btree ("status","started_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_exec_time" ON "synapseone_executions" USING btree ("started_at" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_exec_principal_org" ON "synapseone_executions" USING btree (("principal"->>'org')) WHERE "synapseone_executions"."principal" is not null;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_exec_principal_account" ON "synapseone_executions" USING btree (("principal"->>'account')) WHERE "synapseone_executions"."principal" is not null;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_workflows_active" ON "synapseone_workflows" USING btree ("active");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_synapseone_workflows_tenant" ON "synapseone_workflows" USING btree ("org_id","account_id");

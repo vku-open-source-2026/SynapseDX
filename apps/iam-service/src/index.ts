@@ -1,7 +1,8 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
+import './env-compat';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -65,11 +66,11 @@ function noStore(res: express.Response): void {
 /** Tenant membership of the caller: account ids they may act for.
  *  Prefers the gateway-stamped header (verified principal) — but ONLY when
  *  the internal secret is configured (prod): without it, direct callers could
- *  spoof any x-synapsedx-* header, so stamped values are ignored and the
+ *  spoof any x-synapseone-* header, so stamped values are ignored and the
  *  presented credential is always verified directly. Null = unresolvable. */
 async function resolveCallerAccounts(req: express.Request, trustStamped: boolean): Promise<string[] | null> {
   if (trustStamped) {
-    const stamped = firstHeader(req.headers['x-synapsedx-account'] as any);
+    const stamped = firstHeader((req.headers['x-synapseone-account'] ?? req.headers['x-synapsedx-account']) as any);
     if (stamped) return [stamped];
   }
   const h = firstHeader(req.headers.authorization as any);
@@ -99,7 +100,7 @@ async function resolveCallerAccounts(req: express.Request, trustStamped: boolean
  *  Service-account (machine) tokens are strictly account-bound → null. */
 async function resolveCallerOrg(req: express.Request, trustStamped: boolean): Promise<string | null> {
   if (trustStamped) {
-    const so = firstHeader(req.headers['x-synapsedx-org'] as any);
+    const so = firstHeader((req.headers['x-synapseone-org'] ?? req.headers['x-synapsedx-org']) as any);
     if (so) return so;
   }
   const h = firstHeader(req.headers.authorization as any);
@@ -132,7 +133,7 @@ async function resolveCallerOrg(req: express.Request, trustStamped: boolean): Pr
  *  tokens and API keys are machine identities → null. */
 async function resolveCallerUser(req: express.Request, trustStamped: boolean): Promise<string | null> {
   if (trustStamped) {
-    const su = firstHeader(req.headers['x-synapsedx-user'] as any);
+    const su = firstHeader((req.headers['x-synapseone-user'] ?? req.headers['x-synapsedx-user']) as any);
     if (su) return su;
   }
   const h = firstHeader(req.headers.authorization as any);
@@ -319,8 +320,8 @@ export function createApp(): express.Express {
     if ((process.env.IAM_ALLOW_OIDC_DEMO_CALLBACK || 'false') === 'true') {
       throw new Error('[iam] IAM_ALLOW_OIDC_DEMO_CALLBACK=true is forbidden in production (impersonation). Set false.');
     }
-    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      throw new Error('[iam] SYNAPSEDX_INTERNAL_SECRET must be set in production (else :4001 is reachable directly).');
+    if (!process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      throw new Error('[iam] SYNAPSEONE_INTERNAL_SECRET must be set in production (else :4001 is reachable directly).');
     }
     if (!process.env.DATABASE_URL) {
       throw new Error('[iam] DATABASE_URL must be set in production (in-memory fallback would split-brain).');
@@ -360,15 +361,15 @@ export function createApp(): express.Express {
   app.use(express.json({ limit: '1mb' }));
 
   // Defense-in-depth: IAM KHÔNG tin gateway một cách mù quáng.
-  // - SYNAPSEDX_INTERNAL_SECRET (khi được set ở cả gateway + iam): mọi /v1/* (trừ
-  //   /health và /v1/auth/*) phải mang header x-synapsedx-internal khớp secret.
+  // - SYNAPSEONE_INTERNAL_SECRET (khi được set ở cả gateway + iam): mọi /v1/* (trừ
+  //   /health và /v1/auth/*) phải mang header x-synapseone-internal khớp secret.
   //   Chặn truy cập trực tiếp vào :4001 vượt mặt gateway khi secret đã cấu hình.
   // - Kể cả khi secret chưa set (dev), các route còn lại vẫn tự verify Bearer/API key.
-  const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   if (!INTERNAL_SECRET) {
-    console.warn('[iam][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production so only the gateway can reach IAM.');
+    console.warn('[iam][security] SYNAPSEONE_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production so only the gateway can reach IAM.');
   }
-  // Stamped x-synapsedx-* headers are trusted ONLY when the secret is set:
+  // Stamped x-synapseone-* headers are trusted ONLY when the secret is set:
   // without it, direct callers could spoof any tenant header (dev default).
   const TRUST_STAMPED = INTERNAL_SECRET.length > 0;
   // Audit retention (opt-in): hourly purge of rows older than N days.
@@ -415,7 +416,7 @@ export function createApp(): express.Express {
     // the handler itself (it has no end-user Bearer/API key to present).
     if (p === '/v1/usage/ingest') return next();
     if (INTERNAL_SECRET) {
-      const got = firstHeader(req.headers['x-synapsedx-internal'] as any);
+      const got = firstHeader((req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as any);
       if (!got || !secretsEqual(got, INTERNAL_SECRET)) {
         return res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid internal credential' });
       }
@@ -1083,7 +1084,7 @@ export function createApp(): express.Express {
     // Caller scopes: stamped header only when trusted — otherwise derive from
     // the verified credential itself (dev callers can't spoof their way to '*').
     let callerScopes: string[] = [];
-    const stamped = firstHeader(req.headers['x-synapsedx-scopes'] as any);
+    const stamped = firstHeader((req.headers['x-synapseone-scopes'] ?? req.headers['x-synapsedx-scopes']) as any);
     if (TRUST_STAMPED && stamped) {
       callerScopes = stamped.split(',').map((s) => s.trim()).filter(Boolean);
     } else {
@@ -1178,7 +1179,7 @@ export function createApp(): express.Express {
   });
   app.post('/v1/usage/ingest', async (req, res) => {
     if (INTERNAL_SECRET) {
-      const got = firstHeader(req.headers['x-synapsedx-internal'] as any);
+      const got = firstHeader((req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as any);
       if (!got || !secretsEqual(got, INTERNAL_SECRET)) {
         return res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid internal credential' });
       }

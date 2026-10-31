@@ -1,12 +1,12 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Offline SDK tests — local echo server, no platform needed.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { SynapseDXClient, unwrapExecutions, triggerWebhook } from './index';
+import { SynapseOneClient, SynapseDXClient, SynapseOneError, SynapseDXError, unwrapExecutions, triggerWebhook } from './index';
 
 let base = '';
 let lastHeaders: Record<string, string | string[] | undefined> = {};
@@ -41,14 +41,19 @@ before(
 
 after(() => new Promise<void>((resolve) => server.close(() => resolve())));
 
-describe('SynapseDXClient', () => {
+describe('SynapseOneClient', () => {
+  it('keeps the SynapseDX alias identical during the rebrand window', () => {
+    assert.equal(SynapseDXClient, SynapseOneClient);
+    assert.equal(SynapseDXError, SynapseOneError);
+  });
+
   it('trims trailing slash', () => {
-    const c = new SynapseDXClient({ baseUrl: 'http://x:8080/' });
+    const c = new SynapseOneClient({ baseUrl: 'http://x:8080/' });
     assert.equal((c as any).baseUrl, 'http://x:8080');
   });
 
   it('sends Bearer token', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     c.setToken('tok123');
     await c.listOrgs();
     assert.equal(lastHeaders['authorization'], 'Bearer tok123');
@@ -56,24 +61,24 @@ describe('SynapseDXClient', () => {
   });
 
   it('sends X-API-Key', async () => {
-    const c = new SynapseDXClient({ baseUrl: base, apiKey: 'k1' });
+    const c = new SynapseOneClient({ baseUrl: base, apiKey: 'k1' });
     await c.listTemplates();
     assert.equal(lastHeaders['x-api-key'], 'k1');
   });
 
   it('throws rich error on non-2xx', async () => {
-    const bad = new SynapseDXClient({ baseUrl: 'http://127.0.0.1:1' });
-    await assert.rejects(() => bad.listOrgs(), /synapsedx/);
+    const bad = new SynapseOneClient({ baseUrl: 'http://127.0.0.1:1' });
+    await assert.rejects(() => bad.listOrgs(), /synapseone/);
   });
 
   it('encodes ids in paths', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.getWorkflow('a/b');
     assert.equal(lastPath, '/v1/workflows/a%2Fb');
   });
 
   it('covers new endpoints', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.userPolicies('u1');
     assert.equal(lastPath, '/v1/users/u1/policies');
     await c.getTemplate('webhook-to-log');
@@ -103,7 +108,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('serviceAccountToken omits scopes unless explicitly given', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.serviceAccountToken('sa1');
     assert.equal(lastPath, '/v1/service-accounts/sa1/token');
     assert.deepEqual(JSON.parse(lastBody), {});
@@ -114,7 +119,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('testRun posts definition+input', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const def = { nodes: [], connections: {} };
     await c.testRun(def, { value: 21 });
     assert.equal(lastPath, '/v1/workflows/test-run');
@@ -123,7 +128,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('listExecutions accepts the allowlisted dict form', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.listExecutions({ workflowId: 'w1', status: 'error', limit: 20, offset: 0, includeData: true } as any);
     assert.ok(lastPath.startsWith('/v1/executions?'), lastPath);
     assert.ok(lastPath.includes('workflowId=w1'), lastPath);
@@ -133,13 +138,13 @@ describe('SynapseDXClient', () => {
   });
 
   it('getExecution supports includeData', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.getExecution('e1', true);
     assert.equal(lastPath, '/v1/executions/e1?includeData=true');
   });
 
   it('iam usageSummary and usageEvents hit the right endpoints', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.iam.usageSummary({ feature: 'workflows' });
     assert.equal(lastPath, '/v1/usage/summary?feature=workflows');
     assert.equal(lastMethod, 'GET');
@@ -167,7 +172,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('call() passes any method/path/body through', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.call('POST', '/v1/accounts/a1/credentials', { name: 'x' });
     assert.equal(lastPath, '/v1/accounts/a1/credentials');
     assert.equal(lastMethod, 'POST');
@@ -178,7 +183,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('credentials CRUD hits the workflow credentials paths', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.createCredential('a1', { name: 'stripe-live', type: 'bearer', secret: 's3cr3t', expiresAt: '2027-01-01T00:00:00Z' });
     assert.equal(lastPath, '/v1/credentials');
     assert.equal(lastMethod, 'POST');
@@ -198,7 +203,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('ai agent posts question and history', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ai.agent('how to create a workflow', [{ role: 'user', text: 'hi' }]);
     assert.equal(lastPath, '/v1/ai/agent');
     assert.equal(lastMethod, 'POST');
@@ -209,14 +214,14 @@ describe('SynapseDXClient', () => {
   });
 
   it('ldsLicenses lists the license catalog', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ldsLicenses();
     assert.equal(lastPath, '/v1/lds/licenses');
     assert.equal(lastMethod, 'GET');
   });
 
   it('ldsDatasources passes orgId/accountId filters', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ldsDatasources({ orgId: 'o1', accountId: 'a1' });
     assert.equal(lastPath, '/v1/lds/datasources?orgId=o1&accountId=a1');
     await c.ldsDatasources();
@@ -224,7 +229,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('ldsCreateDatasource posts the contract body', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     const input = {
       name: 'Weather', slug: 'weather', entityType: 'WeatherObserved', license: 'CC-BY-4.0',
       licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
@@ -238,7 +243,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('covers LDS datasource/attribute CRUD paths', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ldsDatasource('ds1');
     assert.equal(lastPath, '/v1/lds/datasources/ds1');
     await c.ldsUpdateDatasource('ds1', { name: 'renamed' });
@@ -261,7 +266,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('ldsIngest normalizes single/array/wrapped record bodies', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ldsIngest('ds1', { sensor: 's1', temperature: 21 });
     assert.equal(lastPath, '/v1/lds/datasources/ds1/records');
     assert.equal(lastMethod, 'POST');
@@ -273,7 +278,7 @@ describe('SynapseDXClient', () => {
   });
 
   it('ldsEntities sends limit/offset/visibility query params', async () => {
-    const c = new SynapseDXClient({ baseUrl: base });
+    const c = new SynapseOneClient({ baseUrl: base });
     await c.ldsEntities('ds1', { limit: 50, offset: 10, visibility: 'public' });
     assert.equal(lastPath, '/v1/lds/datasources/ds1/entities?limit=50&offset=10&visibility=public');
     await c.ldsEntities('ds1');
@@ -300,10 +305,10 @@ describe('SynapseDXClient', () => {
     const a = errSrv.address();
     const errBase = `http://127.0.0.1:${typeof a === 'object' && a ? a.port : 0}`;
     try {
-      const c = new SynapseDXClient({ baseUrl: errBase });
+      const c = new SynapseOneClient({ baseUrl: errBase });
       await assert.rejects(
         () => c.ldsSetAttributes('ds1', [{ name: 'id' }]),
-        /synapsedx 400 .*reserved_attribute/,
+        /synapseone 400 .*reserved_attribute/,
       );
       assert.equal(errMethod, 'PUT');
       assert.equal(errPath, '/v1/lds/datasources/ds1/attributes');

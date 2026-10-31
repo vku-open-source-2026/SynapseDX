@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * SynapseQueue persistence — Redis (sorted sets + hashes + Lua) in
  * production, in-memory fallback for development and tests.
@@ -154,7 +154,7 @@ export async function closeStore(): Promise<void> {
 }
 
 function qPrefix(tenant: string): string {
-  return `synapsedx:queue:v1:${tenant}:`;
+  return `synapseone:queue:v1:${tenant}:`;
 }
 
 function keysFor(tenant: string, name: string) {
@@ -174,7 +174,7 @@ function keysFor(tenant: string, name: string) {
   };
 }
 
-const QUEUE_PREFIX = 'synapsedx:queue:v1:';
+const QUEUE_PREFIX = 'synapseone:queue:v1:';
 
 function mapRedisError(e: any): never {
   if (e instanceof QueueError) throw e;

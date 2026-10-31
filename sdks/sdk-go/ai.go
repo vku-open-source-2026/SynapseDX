@@ -1,7 +1,7 @@
-// Copyright 2026 SynapseDX Contributors
+// Copyright 2026 SynapseOne Contributors
 // Licensed under the Apache License, Version 2.0 (the "License");
 
-package synapsedx
+package synapseone
 
 // AiHistoryItem represents one turn in the assistant conversation.
 type AiHistoryItem struct {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 // Pure workflow-graph operations for the visual drag-and-drop editor.
@@ -55,7 +55,7 @@ function normalizeNode(n, usedIds) {
     ...rest,
     id: nextId,
     name: typeof name === 'string' && name ? name : 'Node',
-    type: typeof type === 'string' && type ? type : 'n8n-nodes-base.noOp',
+    type: normalizeNodeType(typeof type === 'string' && type ? type : 'n8n-nodes-base.noOp'),
     typeVersion: typeof typeVersion === 'number' ? typeVersion : 1,
     position: pos,
     parameters: parameters && typeof parameters === 'object' ? parameters : {},
@@ -333,59 +333,75 @@ export function wouldCycle(nodes, connections, fromName, toName, opts = {}) {
 }
 
 export const IF_TYPE = 'n8n-nodes-base.if';
+/** Legacy `synapsedx.*` nodes are still accepted during the rebrand window. */
+export function normalizeNodeType(t) {
+  return typeof t === 'string' && t.startsWith('synapsedx.') ? `synapseone.${t.slice('synapsedx.'.length)}` : t;
+}
 export function isIfType(t) {
-  return t === 'if' || t === 'n8n-nodes-base.if' || t === IF_TYPE || t === 'synapsedx.if';
+  const x = normalizeNodeType(t);
+  return x === 'if' || x === 'n8n-nodes-base.if' || x === IF_TYPE || x === 'synapseone.if';
 }
 export function isDecisionType(t) {
+  const x = normalizeNodeType(t);
   return (
-    t === 'decision' ||
-    t === 'decision.route' ||
-    t === 'synapseflow.decision' ||
-    t === 'synapsedx.decision' ||
-    t === 'n8n-nodes-base.decision'
+    x === 'decision' ||
+    x === 'decision.route' ||
+    x === 'synapseflow.decision' ||
+    x === 'synapseone.decision' ||
+    x === 'n8n-nodes-base.decision'
   );
 }
 export function isAiAgentType(t) {
+  const x = normalizeNodeType(t);
   return (
-    t === 'ai.agent' ||
-    t === 'synapseflow.aiAgent' ||
-    t === 'synapsedx.aiAgent' ||
-    t === 'agent' ||
-    t === 'n8n-nodes-base.aiAgent'
+    x === 'ai.agent' ||
+    x === 'synapseflow.aiAgent' ||
+    x === 'synapseone.aiAgent' ||
+    x === 'agent' ||
+    x === 'n8n-nodes-base.aiAgent'
   );
 }
 export function isModelType(t) {
-  return t === 'synapseflow.model' || t === 'synapsedx.model';
+  const x = normalizeNodeType(t);
+  return x === 'synapseflow.model' || x === 'synapseone.model';
 }
 export function isBranchingType(t) {
   return isIfType(t) || isDecisionType(t);
 }
 export function isWebhookType(t) {
-  return t === 'webhook' || t === 'n8n-nodes-base.webhook' || t === 'synapsedx.webhook';
+  const x = normalizeNodeType(t);
+  return x === 'webhook' || x === 'n8n-nodes-base.webhook' || x === 'synapseone.webhook';
 }
 export function isCronType(t) {
-  return t === 'cron' || t === 'n8n-nodes-base.cron' || t === 'synapsedx.cron';
+  const x = normalizeNodeType(t);
+  return x === 'cron' || x === 'n8n-nodes-base.cron' || x === 'synapseone.cron';
 }
 export function isManualType(t) {
-  return t === 'manualTrigger' || t === 'n8n-nodes-base.manualTrigger' || t === 'synapsedx.manualTrigger';
+  const x = normalizeNodeType(t);
+  return x === 'manualTrigger' || x === 'n8n-nodes-base.manualTrigger' || x === 'synapseone.manualTrigger';
 }
 export function isTriggerType(t) {
   return isWebhookType(t) || isCronType(t) || isManualType(t);
 }
 export function isCodeType(t) {
-  return t === 'code' || t === 'n8n-nodes-base.code' || t === 'synapsedx.code';
+  const x = normalizeNodeType(t);
+  return x === 'code' || x === 'n8n-nodes-base.code' || x === 'synapseone.code';
 }
 export function isHttpType(t) {
-  return t === 'httpRequest' || t === 'n8n-nodes-base.httpRequest' || t === 'synapsedx.httpRequest';
+  const x = normalizeNodeType(t);
+  return x === 'httpRequest' || x === 'n8n-nodes-base.httpRequest' || x === 'synapseone.httpRequest';
 }
 export function isSetType(t) {
-  return t === 'set' || t === 'n8n-nodes-base.set' || t === 'synapsedx.set';
+  const x = normalizeNodeType(t);
+  return x === 'set' || x === 'n8n-nodes-base.set' || x === 'synapseone.set';
 }
 export function isNoOpType(t) {
-  return t === 'noOp' || t === 'n8n-nodes-base.noOp' || t === 'synapsedx.noOp';
+  const x = normalizeNodeType(t);
+  return x === 'noOp' || x === 'n8n-nodes-base.noOp' || x === 'synapseone.noOp';
 }
 export function isIntegrationType(t) {
-  return INTEGRATION_SERVICES[t] !== undefined || t === 'synapsedx.api';
+  const x = normalizeNodeType(t);
+  return INTEGRATION_SERVICES[x] !== undefined || x === 'synapseone.api';
 }
 /** Branch index contract for If nodes: main[0] = true, main[1] = false. */
 export const IF_BRANCH_TRUE = 0;
@@ -603,10 +619,10 @@ export function graphWarnings(nodes, connections) {
 export function isKnownType(type) {
   if (NODE_TYPES.some((t) => t.type === type)) return true;
   return [
-    'webhook', 'cron', 'manualTrigger', 'httpRequest', 'code', 'set', 'if', 'noOp', 'synapsedx.api',
-    'decision', 'decision.route', 'synapseflow.decision', 'synapsedx.decision', 'n8n-nodes-base.decision',
-    'ai.agent', 'synapseflow.aiAgent', 'synapsedx.aiAgent', 'agent', 'n8n-nodes-base.aiAgent',
-    'synapseflow.model', 'synapsedx.model',
+    'webhook', 'cron', 'manualTrigger', 'httpRequest', 'code', 'set', 'if', 'noOp', 'synapseone.api',
+    'decision', 'decision.route', 'synapseflow.decision', 'synapseone.decision', 'n8n-nodes-base.decision',
+    'ai.agent', 'synapseflow.aiAgent', 'synapseone.aiAgent', 'agent', 'n8n-nodes-base.aiAgent',
+    'synapseflow.model', 'synapseone.model',
   ].includes(type);
 }
 
@@ -626,32 +642,32 @@ export const NODE_ICON_MAP = {
   set: 'sliders',
   'n8n-nodes-base.if': 'code-branch',
   if: 'code-branch',
-  'synapsedx.api': 'cube',
+  'synapseone.api': 'cube',
   'synapseflow.aiAgent': 'robot',
   'ai.agent': 'robot',
   'synapseflow.decision': 'brain',
   decision: 'brain',
   'synapseflow.model': 'microchip',
-  'synapsedx.iam': 'shield',
-  'synapsedx.base': 'database',
-  'synapsedx.faststore': 'bolt',
-  'synapsedx.queue': 'inbox',
-  'synapsedx.lds': 'diagram-project',
-  'synapsedx.inference': 'microchip',
-  'synapsedx.flow': 'diagram-project',
+  'synapseone.iam': 'shield',
+  'synapseone.base': 'database',
+  'synapseone.faststore': 'bolt',
+  'synapseone.queue': 'inbox',
+  'synapseone.lds': 'diagram-project',
+  'synapseone.inference': 'microchip',
+  'synapseone.flow': 'diagram-project',
   'n8n-nodes-base.noOp': 'circle-dot',
   noOp: 'circle-dot',
 };
 
 /** First-party service nodes are split per service (palette + engine). */
 export const INTEGRATION_SERVICES = {
-  'synapsedx.iam': 'IAM',
-  'synapsedx.base': 'Base',
-  'synapsedx.faststore': 'Faststore',
-  'synapsedx.queue': 'Queue',
-  'synapsedx.lds': 'LDS',
-  'synapsedx.inference': 'Inference',
-  'synapsedx.flow': 'Flow',
+  'synapseone.iam': 'IAM',
+  'synapseone.base': 'Base',
+  'synapseone.faststore': 'Faststore',
+  'synapseone.queue': 'Queue',
+  'synapseone.lds': 'LDS',
+  'synapseone.inference': 'Inference',
+  'synapseone.flow': 'Flow',
 };
 
 /** Curated local-engine node types for the palette (free-form type still allowed). */
@@ -666,13 +682,13 @@ export const NODE_TYPES = [
   { type: 'n8n-nodes-base.code', label: 'Code', hint: 'Run sandboxed JavaScript — $input in, return value out', category: 'actions', placeholder: 'return { doubled: ($input.value ?? 0) * 2 }' },
   { type: 'n8n-nodes-base.set', label: 'Set Fields', hint: 'Add/overwrite fields — supports {{ $json.x }} templating', category: 'actions', placeholder: 'Set tag = processed, keep the rest' },
   { type: 'n8n-nodes-base.if', label: 'If / Branch', hint: 'Two outputs — true (top) and false (bottom)', category: 'logic', placeholder: '$input.value > 10 → Big / Small' },
-  { type: 'synapsedx.iam', label: 'Synapse IAM', hint: 'Identity & authorization: orgs, users, roles, policies, permissions, audit', category: 'integrations', placeholder: 'authorize.check for user + action' },
-  { type: 'synapsedx.base', label: 'SynapseBase', hint: 'JSON document store: query, insert, fetch and delete documents', category: 'integrations', placeholder: 'Query support_kb where category = billing' },
-  { type: 'synapsedx.faststore', label: 'Faststore', hint: 'Ultra-fast cache/KV: get, set with TTL, counters, hashes', category: 'integrations', placeholder: 'GET session:42 or SET with 1h TTL' },
-  { type: 'synapsedx.queue', label: 'SynapseQueue', hint: 'Reliable message queue: publish, consume, ack', category: 'integrations', placeholder: 'Publish ticket.escalated to support-jobs' },
-  { type: 'synapsedx.lds', label: 'SynapseLDS', hint: 'Linked Data Store (NGSI-LD): datasources, records, entities', category: 'integrations', placeholder: 'Publish a smart-city observation' },
-  { type: 'synapsedx.inference', label: 'Synapse Inference', hint: 'LLM chat, embeddings, decision evaluation and semantic routing', category: 'integrations', placeholder: 'Route a query or generate an embedding' },
-  { type: 'synapsedx.flow', label: 'SynapseFlow', hint: 'Workflows & execution history — list, inspect or run another workflow', category: 'integrations', placeholder: 'Run workflow "enrichment" with this payload' },
+  { type: 'synapseone.iam', label: 'Synapse IAM', hint: 'Identity & authorization: orgs, users, roles, policies, permissions, audit', category: 'integrations', placeholder: 'authorize.check for user + action' },
+  { type: 'synapseone.base', label: 'SynapseBase', hint: 'JSON document store: query, insert, fetch and delete documents', category: 'integrations', placeholder: 'Query support_kb where category = billing' },
+  { type: 'synapseone.faststore', label: 'Faststore', hint: 'Ultra-fast cache/KV: get, set with TTL, counters, hashes', category: 'integrations', placeholder: 'GET session:42 or SET with 1h TTL' },
+  { type: 'synapseone.queue', label: 'SynapseQueue', hint: 'Reliable message queue: publish, consume, ack', category: 'integrations', placeholder: 'Publish ticket.escalated to support-jobs' },
+  { type: 'synapseone.lds', label: 'SynapseLDS', hint: 'Linked Data Store (NGSI-LD): datasources, records, entities', category: 'integrations', placeholder: 'Publish a smart-city observation' },
+  { type: 'synapseone.inference', label: 'Synapse Inference', hint: 'LLM chat, embeddings, decision evaluation and semantic routing', category: 'integrations', placeholder: 'Route a query or generate an embedding' },
+  { type: 'synapseone.flow', label: 'SynapseFlow', hint: 'Workflows & execution history — list, inspect or run another workflow', category: 'integrations', placeholder: 'Run workflow "enrichment" with this payload' },
   { type: 'n8n-nodes-base.noOp', label: 'NoOp', hint: 'Do nothing — passes input through (useful log point)', category: 'utils', placeholder: 'Passthrough for debugging' },
 ];
 
@@ -682,7 +698,7 @@ export const NODE_CATEGORIES = [
   { id: 'ai', label: 'AI & Agents', blurb: 'Agents, decision routing and model cores' },
   { id: 'actions', label: 'Actions', blurb: 'Do work: fetch, transform, set fields' },
   { id: 'logic', label: 'Logic', blurb: 'Branch the flow' },
-  { id: 'integrations', label: 'SynapseDX Services', blurb: 'First-party services (run as you)' },
+  { id: 'integrations', label: 'SynapseOne Services', blurb: 'First-party services (run as you)' },
   { id: 'utils', label: 'Utils', blurb: 'Helpers' },
 ];
 
@@ -706,20 +722,20 @@ const TYPE_VERSIONS = {
   'n8n-nodes-base.set': 1,
   if: 1,
   'n8n-nodes-base.if': 1,
-  'synapsedx.api': 1,
+  'synapseone.api': 1,
   'synapseflow.aiAgent': 1,
   'ai.agent': 1,
   'synapseflow.decision': 1,
   decision: 1,
   'synapseflow.model': 1,
-  'synapsedx.model': 1,
-  'synapsedx.iam': 1,
-  'synapsedx.base': 1,
-  'synapsedx.faststore': 1,
-  'synapsedx.queue': 1,
-  'synapsedx.lds': 1,
-  'synapsedx.inference': 1,
-  'synapsedx.flow': 1,
+  'synapseone.model': 1,
+  'synapseone.iam': 1,
+  'synapseone.base': 1,
+  'synapseone.faststore': 1,
+  'synapseone.queue': 1,
+  'synapseone.lds': 1,
+  'synapseone.inference': 1,
+  'synapseone.flow': 1,
   noOp: 1,
   'n8n-nodes-base.noOp': 1,
 };
@@ -804,15 +820,15 @@ export const EXAMPLE_PARAMS = {
     temperature: 0.2,
   },
   'synapseflow.model': { core: 'synapse-inference', model: 'liquid/lfm-2.5-2.6b:free' },
-  'synapsedx.model': { core: 'synapse-inference', model: 'liquid/lfm-2.5-2.6b:free' },
-  'synapsedx.api': { resource: 'orgs', operation: 'list', input: {} },
-  'synapsedx.iam': { operation: 'orgs.list', input: {} },
-  'synapsedx.base': { operation: 'query-documents', input: { collection: 'documents', where: {}, limit: 10 } },
-  'synapsedx.faststore': { operation: 'get', input: { key: 'demo-key' } },
-  'synapsedx.queue': { operation: 'publish', input: { queue: 'demo-queue', payload: { hello: 'world' } } },
-  'synapsedx.lds': { operation: 'list-datasources', input: {} },
-  'synapsedx.inference': { operation: 'route', input: { input: '={{ $json.query }}', choices: { support: 'support question', billing: 'billing question' }, instruction: 'Pick a department' } },
-  'synapsedx.flow': { operation: 'workflows.list', input: {} },
+  'synapseone.model': { core: 'synapse-inference', model: 'liquid/lfm-2.5-2.6b:free' },
+  'synapseone.api': { resource: 'orgs', operation: 'list', input: {} },
+  'synapseone.iam': { operation: 'orgs.list', input: {} },
+  'synapseone.base': { operation: 'query-documents', input: { collection: 'documents', where: {}, limit: 10 } },
+  'synapseone.faststore': { operation: 'get', input: { key: 'demo-key' } },
+  'synapseone.queue': { operation: 'publish', input: { queue: 'demo-queue', payload: { hello: 'world' } } },
+  'synapseone.lds': { operation: 'list-datasources', input: {} },
+  'synapseone.inference': { operation: 'route', input: { input: '={{ $json.query }}', choices: { support: 'support question', billing: 'billing question' }, instruction: 'Pick a department' } },
+  'synapseone.flow': { operation: 'workflows.list', input: {} },
   set: { values: { tag: 'processed' } },
   'n8n-nodes-base.set': { values: { tag: 'processed' } },
   noOp: {},

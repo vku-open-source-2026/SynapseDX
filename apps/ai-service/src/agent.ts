@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0;
  */
 // Two-step agent for API testing:
@@ -51,7 +51,7 @@ export function pathParams(path: string): string[] {
 }
 
 const DECISION_SYSTEM = [
-  'You are an API routing decision model for the SynapseDX PaaS.',
+  'You are an API routing decision model for the SynapseOne PaaS.',
   'Given the user question and the API catalog (JSON array), pick the SINGLE best endpoint to answer it.',
   'Reply with ONLY a JSON object: {"method":"GET|POST|PUT|DELETE","path":"<exact catalog path>","reason":"<one short sentence>"}.',
   'The method and path must match a catalog entry EXACTLY (including any :params and query string).',
@@ -59,7 +59,7 @@ const DECISION_SYSTEM = [
 ].join(' ');
 
 const GENERATE_SYSTEM = [
-  "You are an API call generator for the SynapseDX PaaS.",
+  "You are an API call generator for the SynapseOne PaaS.",
   'Given the user question and the endpoint, generate the exact values to call it.',
   'Reply with ONLY a JSON object: {"pathValues":{"<param>":"<value>"},"body":{...},"explanation":"<one short sentence in the user\'s language>"}.',
   'pathValues keys must be exactly the :params in the path (empty object if none). Values must be non-empty strings, max 128 chars.',
@@ -68,7 +68,7 @@ const GENERATE_SYSTEM = [
 ].join(' ');
 
 const GUIDE_SYSTEM = [
-  'You are a helpful guide for the SynapseDX PaaS API.',
+  'You are a helpful guide for the SynapseOne PaaS API.',
   'The user asks a general how-to question that maps to NO single endpoint.',
   'Given the API catalog (method, path, description per endpoint), answer concisely',
   "in the user's language: which endpoints to call, in what order, one short line per step.",

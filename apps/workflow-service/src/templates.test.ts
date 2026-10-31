@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import { describe, it, before, after } from 'node:test';
@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, normalizeDecisionChoices, workflowRunPrincipal, synapsedxCall, makeCredentialResolver } from './index';
+import { buildTemplate, listTemplates, createApp, findWebhookPath, validateDefinition, normalizeDecisionChoices, workflowRunPrincipal, synapseoneCall, makeCredentialResolver } from './index';
 import { isBlockedUrl, runWorkflow } from './engine';
 import { __clearMem, createCredentialRec } from './store';
 
@@ -76,7 +76,7 @@ describe('workflow templates', () => {
       customerId: 'c-42',
       priority: 'normal',
     }, {
-      synapsedxCall: async (resource, operation) => {
+      synapseoneCall: async (resource, operation) => {
         calls.push(`${resource}.${operation}`);
         if (resource === 'inference' && operation === 'route') {
           return { best_choice: 'billing', confidence: 0.1, probabilities: { billing: 0.1 } };
@@ -106,7 +106,7 @@ describe('workflow templates', () => {
       customerId: 'c-7',
       userId: 'u-7',
     }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'route') {
           return { best_choice: 'technical', confidence: 0.94, probabilities: { technical: 0.94 } };
         }
@@ -142,8 +142,8 @@ describe('workflow templates', () => {
     assert.equal(def.nodes.length, 30);
     const types = new Set(def.nodes.map((n: any) => n.type));
     for (const type of [
-      'synapsedx.base', 'synapsedx.faststore', 'synapsedx.iam', 'synapsedx.lds',
-      'synapsedx.queue', 'synapsedx.flow', 'synapseflow.decision',
+      'synapseone.base', 'synapseone.faststore', 'synapseone.iam', 'synapseone.lds',
+      'synapseone.queue', 'synapseone.flow', 'synapseflow.decision',
       'synapseflow.aiAgent', 'synapseflow.model',
     ]) {
       assert.ok(types.has(type), type);
@@ -174,7 +174,7 @@ describe('workflow templates', () => {
       const calls: string[] = [];
       let seenTools: string[] = [];
       const r = await runWorkflow(def, { ...base, eventId: `evt-${expectedRoute}`, ...payload }, {
-        synapsedxCall: async (resource, operation, args) => {
+        synapseoneCall: async (resource, operation, args) => {
           calls.push(`${resource}.${operation}`);
           if (resource === 'inference' && operation === 'route') {
             assert.equal(args.choices[expectedRoute] !== undefined, true);
@@ -249,7 +249,7 @@ describe('workflow templates', () => {
     const r = await runWorkflow(def, {
       query: 'refund invoice', amount: 50, customerId: 'cust-1', userId: 'u-1', eventId: 'evt-no-lds',
     }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'route') return { best_choice: 'billing', confidence: 0.9, probabilities: {} };
         if (resource === 'base' && operation === 'create-document') return { id: args.id, data: args.data };
         if (resource === 'faststore' && operation === 'set') return { ok: true, key: args.key };
@@ -293,10 +293,10 @@ describe('workflow templates', () => {
 });
 
 describe('self-call allowlist (P0-1)', () => {
-  const OLD = process.env.SYNAPSEDX_SELF_BASE_URLS;
+  const OLD = process.env.SYNAPSEONE_SELF_BASE_URLS;
   after(() => {
-    if (OLD === undefined) delete process.env.SYNAPSEDX_SELF_BASE_URLS;
-    else process.env.SYNAPSEDX_SELF_BASE_URLS = OLD;
+    if (OLD === undefined) delete process.env.SYNAPSEONE_SELF_BASE_URLS;
+    else process.env.SYNAPSEONE_SELF_BASE_URLS = OLD;
   });
   const selfDef = (url: string) => ({
     nodes: [
@@ -306,12 +306,12 @@ describe('self-call allowlist (P0-1)', () => {
     connections: { Start: { main: [[{ node: 'H' }]] } },
   });
   it('blocks first-party hosts by default', () => {
-    delete process.env.SYNAPSEDX_SELF_BASE_URLS;
+    delete process.env.SYNAPSEONE_SELF_BASE_URLS;
     assert.equal(isBlockedUrl('http://gateway:8080/v1/orgs'), true);
     assert.match(validateDefinition(selfDef('http://gateway:8080/v1/orgs'))!, /blocked internal/);
   });
   it('allowlisted origins pass save-time and runtime guards', () => {
-    process.env.SYNAPSEDX_SELF_BASE_URLS = 'http://gateway:8080, http://iam:4001';
+    process.env.SYNAPSEONE_SELF_BASE_URLS = 'http://gateway:8080, http://iam:4001';
     assert.equal(isBlockedUrl('http://gateway:8080/v1/orgs'), false);
     assert.equal(isBlockedUrl('http://iam:4001/health'), false);
     assert.equal(validateDefinition(selfDef('http://gateway:8080/v1/orgs')), null);
@@ -347,7 +347,7 @@ describe('workflow internal gate', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         __clearMem();
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
@@ -358,7 +358,7 @@ describe('workflow internal gate', () => {
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
 
@@ -375,14 +375,14 @@ describe('workflow internal gate', () => {
     assert.equal(r.status, 401);
   });
   it('gateway credential passes the gate', async () => {
-    const r = await fetch(base + '/v1/templates', { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const r = await fetch(base + '/v1/templates', { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(r.status, 200);
     assert.ok((await r.json()).length >= 4);
   });
   it('malformed JSON body is 400 invalid_json, not 500', async () => {
     const r = await fetch(base + '/v1/workflows', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' },
       body: '{"name":broken',
     });
     assert.equal(r.status, 400);
@@ -392,7 +392,7 @@ describe('workflow internal gate', () => {
     // Python SDK serializes missing name as null — must not 400.
     const r = await fetch(base + '/v1/workflows', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' },
       body: JSON.stringify({ template: 'webhook-to-log', name: null }),
     });
     assert.equal(r.status, 201);
@@ -404,7 +404,7 @@ describe('workflow internal gate', () => {
 describe('findWebhookPath', () => {
   const hook = (path: unknown) => ({ nodes: [{ type: 'n8n-nodes-base.webhook', parameters: { path } }, { type: 'n8n-nodes-base.noOp', parameters: {} }] });
   it('returns the first webhook trigger path', () => {
-    assert.equal(findWebhookPath(hook('synapsedx-event')), 'synapsedx-event');
+    assert.equal(findWebhookPath(hook('synapseone-event')), 'synapseone-event');
   });
   it('returns null without webhook nodes or nodes array', () => {
     assert.equal(findWebhookPath({ nodes: [{ type: 'n8n-nodes-base.cron', parameters: {} }] }), null);
@@ -425,7 +425,7 @@ describe('execute validation (local engine)', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
           const a = server!.address();
@@ -435,14 +435,14 @@ describe('execute validation (local engine)', () => {
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
 
   it('CRLF id is 400', async () => {
     const r = await fetch(`${base}/v1/workflows/${encodeURIComponent('a\r\nb')}/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' },
       body: '{}',
     });
     assert.equal(r.status, 400);
@@ -451,7 +451,7 @@ describe('execute validation (local engine)', () => {
   it('oversized execute body is 400', async () => {
     const r = await fetch(`${base}/v1/workflows/x/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' },
       body: JSON.stringify({ big: 'x'.repeat(300 * 1024) }),
     });
     assert.equal(r.status, 400);
@@ -460,7 +460,7 @@ describe('execute validation (local engine)', () => {
   it('oversized execute body beyond parser limit → 413 (not 500)', async () => {
     const r = await fetch(`${base}/v1/workflows/x/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' },
       body: JSON.stringify({ big: 'x'.repeat(3 * 1024 * 1024) }),
     });
     assert.equal(r.status, 413);
@@ -474,7 +474,7 @@ describe('update + id validation (local engine)', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
           const a = server!.address();
@@ -484,10 +484,10 @@ describe('update + id validation (local engine)', () => {
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
-  const H = { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' };
+  const H = { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' };
 
   it('PUT with CRLF id is 400', async () => {
     const r = await fetch(`${base}/v1/workflows/${encodeURIComponent('a\r\nb')}`, { method: 'PUT', headers: H, body: JSON.stringify({ name: 'x' }) });
@@ -540,15 +540,15 @@ describe('update + id validation (local engine)', () => {
     assert.match((await r.json()).message, /cycle/i);
   });
   it('GET workflow with oversized id is 400', async () => {
-    const r = await fetch(`${base}/v1/workflows/${'x'.repeat(200)}`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const r = await fetch(`${base}/v1/workflows/${'x'.repeat(200)}`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(r.status, 400);
   });
   it('executions with non-numeric limit is 400', async () => {
-    const r = await fetch(`${base}/v1/executions?limit=abc`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const r = await fetch(`${base}/v1/executions?limit=abc`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(r.status, 400);
   });
   it('executions list returns envelope + paginates locally', async () => {
-    const r = await fetch(`${base}/v1/executions?limit=5&offset=00`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const r = await fetch(`${base}/v1/executions?limit=5&offset=00`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(r.status, 200);
     const body: any = await r.json();
     assert.ok(Array.isArray(body.data));
@@ -556,7 +556,7 @@ describe('update + id validation (local engine)', () => {
   it('DELETE workflow with CRLF id is 400', async () => {
     const r = await fetch(`${base}/v1/workflows/${encodeURIComponent('a\rb')}`, {
       method: 'DELETE',
-      headers: { 'x-synapsedx-internal': 'test-secret-123' },
+      headers: { 'x-synapseone-internal': 'test-secret-123' },
     });
     assert.equal(r.status, 400);
   });
@@ -568,7 +568,7 @@ describe('local CRUD + execute + executions', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         __clearMem();
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
@@ -579,10 +579,10 @@ describe('local CRUD + execute + executions', () => {
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
-  const H = { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' };
+  const H = { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' };
 
   it('full lifecycle: create -> get -> activate -> execute -> executions -> delete', async () => {
     const c = await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'code-transform', name: 'e2e-local' }) });
@@ -591,7 +591,7 @@ describe('local CRUD + execute + executions', () => {
     assert.ok(wf.id);
     assert.equal(wf.active, false);
 
-    const g = await fetch(`${base}/v1/workflows/${wf.id}`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const g = await fetch(`${base}/v1/workflows/${wf.id}`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(g.status, 200);
 
     const act = await fetch(`${base}/v1/workflows/${wf.id}/activate`, { method: 'POST', headers: H, body: '{}' });
@@ -611,20 +611,20 @@ describe('local CRUD + execute + executions', () => {
     const smallOut: any = await small.json();
     assert.equal(smallOut.output.tag, 'small');
 
-    const list = await fetch(`${base}/v1/executions?workflowId=${wf.id}&limit=10`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const list = await fetch(`${base}/v1/executions?workflowId=${wf.id}&limit=10`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(list.status, 200);
     const listed: any = await list.json();
     assert.ok(listed.data.length >= 2);
 
-    const one = await fetch(`${base}/v1/executions/${out.executionId}?includeData=true`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const one = await fetch(`${base}/v1/executions/${out.executionId}?includeData=true`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(one.status, 200);
     const oneBody: any = await one.json();
     assert.ok(Array.isArray(oneBody.nodeRuns));
     assert.ok(oneBody.nodeRuns.length >= 4);
 
-    const del = await fetch(`${base}/v1/workflows/${wf.id}`, { method: 'DELETE', headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const del = await fetch(`${base}/v1/workflows/${wf.id}`, { method: 'DELETE', headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(del.status, 200);
-    const gone = await fetch(`${base}/v1/workflows/${wf.id}`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const gone = await fetch(`${base}/v1/workflows/${wf.id}`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(gone.status, 404);
   });
 
@@ -643,7 +643,7 @@ describe('validation: names, webhooks, cron, conflicts (m5/M7/M8)', () => {
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         __clearMem();
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
@@ -654,10 +654,10 @@ describe('validation: names, webhooks, cron, conflicts (m5/M7/M8)', () => {
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
-  const H = { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' };
+  const H = { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' };
   const postDef = (name: string, definition: any) =>
     fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ name, definition }) });
 
@@ -734,15 +734,15 @@ describe('validation: names, webhooks, cron, conflicts (m5/M7/M8)', () => {
     const pb = b.nodes.find((n: any) => n.type === 'n8n-nodes-base.webhook')?.parameters?.path;
     assert.ok(pa && pb && pa !== pb);
   });
-  it('synapsedx-self-check template builds, validates and saves (first-party demo)', async () => {
+  it('synapseone-self-check template builds, validates and saves (first-party demo)', async () => {
     const names: string[] = listTemplates().map((t) => t.name);
-    assert.ok(names.includes('synapsedx-self-check'));
-    const def: any = buildTemplate('synapsedx-self-check', 'self');
-    assert.ok(def.nodes.some((n: any) => n.type === 'synapsedx.api'));
+    assert.ok(names.includes('synapseone-self-check'));
+    const def: any = buildTemplate('synapseone-self-check', 'self');
+    assert.ok(def.nodes.some((n: any) => n.type === 'synapseone.api'));
     assert.equal(validateDefinition({ nodes: def.nodes, connections: def.connections }), null);
-    const bad = validateDefinition({ nodes: [{ name: 'S', type: 'synapsedx.api', parameters: { resource: 'nope', operation: 'list' } }] });
+    const bad = validateDefinition({ nodes: [{ name: 'S', type: 'synapseone.api', parameters: { resource: 'nope', operation: 'list' } }] });
     assert.match(bad || '', /unknown resource/);
-    const c = await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'synapsedx-self-check', name: 'self-run' }) });
+    const c = await fetch(`${base}/v1/workflows`, { method: 'POST', headers: H, body: JSON.stringify({ template: 'synapseone-self-check', name: 'self-run' }) });
     assert.equal(c.status, 201);
   });
   it('github-push-to-log template builds, verifies GitHub-style HMAC and normalizes', async () => {
@@ -792,10 +792,10 @@ describe('validation: names, webhooks, cron, conflicts (m5/M7/M8)', () => {
       body: JSON.stringify({ workflowId: c.id, definition: { nodes: [{ name: 'M', type: 'n8n-nodes-base.manualTrigger', parameters: {} }], connections: {} }, input: {} }),
     });
     assert.equal(t.status, 200);
-    const listed: any = await (await fetch(`${base}/v1/executions?workflowId=${c.id}&triggeredBy=test`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } })).json();
+    const listed: any = await (await fetch(`${base}/v1/executions?workflowId=${c.id}&triggeredBy=test`, { headers: { 'x-synapseone-internal': 'test-secret-123' } })).json();
     assert.ok(listed.data.length >= 1);
     assert.equal(listed.data[0].triggeredBy, 'test');
-    const bad = await fetch(`${base}/v1/executions?triggeredBy=nope`, { headers: { 'x-synapsedx-internal': 'test-secret-123' } });
+    const bad = await fetch(`${base}/v1/executions?triggeredBy=nope`, { headers: { 'x-synapseone-internal': 'test-secret-123' } });
     assert.equal(bad.status, 400);
   });
 });
@@ -806,7 +806,7 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
   before(
     () =>
       new Promise<void>((resolve) => {
-        process.env.SYNAPSEDX_INTERNAL_SECRET = 'test-secret-123';
+        process.env.SYNAPSEONE_INTERNAL_SECRET = 'test-secret-123';
         __clearMem();
         const app = createApp();
         server = app.listen(0, '127.0.0.1', () => {
@@ -817,10 +817,10 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
       }),
   );
   after(() => {
-    delete process.env.SYNAPSEDX_INTERNAL_SECRET;
+    delete process.env.SYNAPSEONE_INTERNAL_SECRET;
     return new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   });
-  const H = { 'Content-Type': 'application/json', 'x-synapsedx-internal': 'test-secret-123' };
+  const H = { 'Content-Type': 'application/json', 'x-synapseone-internal': 'test-secret-123' };
   const P = (extra: Record<string, string> = {}) => ({ ...H, ...extra });
 
   it('credentials CRUD hides secrets + enforces account scope (P0-4)', async () => {
@@ -839,7 +839,7 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     // Cross-account caller is refused.
     const cross = await fetch(`${base}/v1/credentials`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-account': 'acc-2', 'x-synapsedx-org': 'o1' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-account': 'acc-2', 'x-synapseone-org': 'o1' }),
       body: JSON.stringify({ accountId: 'acc-1', name: 'x', kind: 'bearer', secret: 's' }),
     });
     assert.equal(cross.status, 403);
@@ -880,7 +880,7 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     });
     assert.equal(bad.status, 400);
 
-    const foreign = P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-account': 'acc-other', 'x-synapsedx-org': 'o1' });
+    const foreign = P({ 'x-synapseone-user': 'u1', 'x-synapseone-account': 'acc-other', 'x-synapseone-org': 'o1' });
     assert.equal((await fetch(`${base}/v1/credentials/${cred.id}`, { headers: foreign })).status, 403);
     assert.equal((await fetch(`${base}/v1/credentials/${cred.id}/rotate`, {
       method: 'POST', headers: foreign, body: JSON.stringify({ secret: 'x' }),
@@ -997,7 +997,7 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
   it('tenant binding, cross-tenant 404s and revision++ (P0-3/P2)', async () => {
     const mine: any = await (await fetch(`${base}/v1/workflows`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme', 'x-synapsedx-account': 'prod' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme', 'x-synapseone-account': 'prod' }),
       body: JSON.stringify({ template: 'manual-starter', name: 'tenant-wf' }),
     })).json();
     assert.equal(mine.orgId, 'acme');
@@ -1006,27 +1006,27 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     assert.equal(mine.revision, 1);
     // Another org cannot see it.
     const peek = await fetch(`${base}/v1/workflows/${mine.id}`, {
-      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+      headers: P({ 'x-synapseone-user': 'u2', 'x-synapseone-org': 'other' }),
     });
     assert.equal(peek.status, 404);
     // ...nor plant workflows into a foreign org.
     const plant = await fetch(`${base}/v1/workflows`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+      headers: P({ 'x-synapseone-user': 'u2', 'x-synapseone-org': 'other' }),
       body: JSON.stringify({ template: 'manual-starter', name: 'plant', orgId: 'acme' }),
     });
     assert.equal(plant.status, 403);
     // Update bumps revision.
     const upd: any = await (await fetch(`${base}/v1/workflows/${mine.id}`, {
       method: 'PUT',
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
       body: JSON.stringify({ name: 'tenant-wf-2' }),
     })).json();
     assert.equal(upd.revision, 2);
     // Execute records principal + actor.
     const ex: any = await (await fetch(`${base}/v1/workflows/${mine.id}/execute`, {
       method: 'POST',
-      headers: P({ 'Content-Type': 'application/json', 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'Content-Type': 'application/json', 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
       body: JSON.stringify({ value: 4 }),
     })).json();
     const one: any = await (await fetch(`${base}/v1/executions/${ex.executionId}?includeData=true`, { headers: H })).json();
@@ -1037,18 +1037,18 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
   it('credentials are org-scoped: list/delete refuse foreign orgs (#5)', async () => {
     const create = await fetch(`${base}/v1/credentials`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+      headers: P({ 'x-synapseone-user': 'ua', 'x-synapseone-org': 'org-a' }),
       body: JSON.stringify({ accountId: 'acc-a', name: 'org-a-secret', kind: 'bearer', secret: 'TOPSECRET-A' }),
     });
     assert.equal(create.status, 201);
     const cred: any = await create.json();
     // Same account id, other org → the secret is invisible and undeletable.
     const foreignList: any = await (await fetch(`${base}/v1/credentials?accountId=acc-a`, {
-      headers: P({ 'x-synapsedx-user': 'ub', 'x-synapsedx-org': 'org-b' }),
+      headers: P({ 'x-synapseone-user': 'ub', 'x-synapseone-org': 'org-b' }),
     })).json();
     assert.deepEqual(foreignList.data, []);
     const foreignDel = await fetch(`${base}/v1/credentials/${cred.id}`, {
-      method: 'DELETE', headers: P({ 'x-synapsedx-user': 'ub', 'x-synapsedx-org': 'org-b' }),
+      method: 'DELETE', headers: P({ 'x-synapseone-user': 'ub', 'x-synapseone-org': 'org-b' }),
     });
     assert.equal(foreignDel.status, 403);
     // Anonymous dev view is unchanged (no principal) but never leaks the secret.
@@ -1057,11 +1057,11 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     assert.ok(!JSON.stringify(anonList).includes('TOPSECRET-A'));
     // Owning org still sees and deletes it.
     const ownList: any = await (await fetch(`${base}/v1/credentials?accountId=acc-a`, {
-      headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+      headers: P({ 'x-synapseone-user': 'ua', 'x-synapseone-org': 'org-a' }),
     })).json();
     assert.equal(ownList.data.length, 1);
     const ownDel = await fetch(`${base}/v1/credentials/${cred.id}`, {
-      method: 'DELETE', headers: P({ 'x-synapsedx-user': 'ua', 'x-synapsedx-org': 'org-a' }),
+      method: 'DELETE', headers: P({ 'x-synapseone-user': 'ua', 'x-synapseone-org': 'org-a' }),
     });
     assert.equal(ownDel.status, 200);
   });
@@ -1078,26 +1078,26 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
   it('executions are tenant-scoped: foreign orgs cannot list or read payloads (#6)', async () => {
     const wf: any = await (await fetch(`${base}/v1/workflows`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
       body: JSON.stringify({ template: 'manual-starter', name: 'exec-scope' }),
     })).json();
     const ex: any = await (await fetch(`${base}/v1/workflows/${wf.id}/execute`, {
       method: 'POST',
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
       body: JSON.stringify({ consignment: 'ORG_A_PAYLOAD' }),
     })).json();
     assert.equal(ex.status, 'success');
     const foreignList: any = await (await fetch(`${base}/v1/executions?includeData=true`, {
-      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+      headers: P({ 'x-synapseone-user': 'u2', 'x-synapseone-org': 'other' }),
     })).json();
     assert.ok(!JSON.stringify(foreignList).includes('ORG_A_PAYLOAD'));
     assert.ok((foreignList.data as any[]).every((e) => e.principal?.org === 'other'));
     const foreignOne = await fetch(`${base}/v1/executions/${ex.executionId}?includeData=true`, {
-      headers: P({ 'x-synapsedx-user': 'u2', 'x-synapsedx-org': 'other' }),
+      headers: P({ 'x-synapseone-user': 'u2', 'x-synapseone-org': 'other' }),
     });
     assert.equal(foreignOne.status, 404);
     const own: any = await (await fetch(`${base}/v1/executions/${ex.executionId}?includeData=true`, {
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
     })).json();
     assert.equal(own.principal?.org, 'acme');
     // Anonymous dev/tests keep the full view.
@@ -1107,35 +1107,35 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
 
   it('explicit tenant filters cannot cross tenants (#6)', async () => {
     const foreignOrg = await fetch(`${base}/v1/workflows?orgId=other`, {
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
     });
     assert.equal(foreignOrg.status, 403);
     const foreignAcct = await fetch(`${base}/v1/workflows?accountId=acc-foreign`, {
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
     });
     assert.equal(foreignAcct.status, 403);
     const own: any = await (await fetch(`${base}/v1/workflows?orgId=acme`, {
-      headers: P({ 'x-synapsedx-user': 'u1', 'x-synapsedx-org': 'acme' }),
+      headers: P({ 'x-synapseone-user': 'u1', 'x-synapseone-org': 'acme' }),
     })).json();
     assert.ok(Array.isArray(own) && own.every((w: any) => w.orgId === 'acme'));
   });
 
   it('account-only principals never see legacy tenant-free workflows (#6)', async () => {
     const list: any = await (await fetch(`${base}/v1/workflows`, {
-      headers: P({ 'x-synapsedx-user': 'svc', 'x-synapsedx-account': 'acct-x' }),
+      headers: P({ 'x-synapseone-user': 'svc', 'x-synapseone-account': 'acct-x' }),
     })).json();
     assert.ok(Array.isArray(list));
     assert.ok(list.every((w: any) => w.accountId === 'acct-x'));
     assert.ok(!list.some((w: any) => w.name === 'mask' || w.name === 'guarded'));
     const legacy = await fetch(`${base}/v1/workflows?accountId=acct-x`, {
-      headers: P({ 'x-synapsedx-user': 'svc', 'x-synapsedx-account': 'acct-other' }),
+      headers: P({ 'x-synapseone-user': 'svc', 'x-synapseone-account': 'acct-other' }),
     });
     assert.equal(legacy.status, 403);
   });
 
   it('API-key principals (no user header) stay tenant-scoped (#17)', async () => {
-    const keyA = P({ 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-key-a' });
-    const keyB = P({ 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-key-b' });
+    const keyA = P({ 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-key-a' });
+    const keyB = P({ 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-key-b' });
 
     const created = await fetch(`${base}/v1/workflows`, {
       method: 'POST', headers: keyA,
@@ -1193,12 +1193,12 @@ describe('credentials, webhook hardening, tenant, revision, metrics (P0/P2)', ()
     const r = await fetch(`${base}/metrics`, { headers: H });
     assert.equal(r.status, 200);
     const text = await r.text();
-    assert.ok(text.includes('synapsedx_workflow_runs_total'));
-    assert.ok(text.includes('synapsedx_workflow_webhook_rejected_total'));
+    assert.ok(text.includes('synapseone_workflow_runs_total'));
+    assert.ok(text.includes('synapseone_workflow_webhook_rejected_total'));
   });
 });
 
-describe('synapsedx.api IAM service credential (#10)', () => {
+describe('synapseone.api IAM service credential (#10)', () => {
   it('sends X-API-Key + run principal, and fails loud without a key', async () => {
     const origFetch = globalThis.fetch;
     const seen: Array<{ url: string; headers: any }> = [];
@@ -1207,19 +1207,19 @@ describe('synapsedx.api IAM service credential (#10)', () => {
       return { ok: true, status: 200, text: async () => '[]' } as any;
     };
     try {
-      process.env.SYNAPSEDX_IAM_API_KEY = 'svc-key-123';
-      const out = await synapsedxCall('orgs', 'list', {}, { sub: 'u1', org: 'acme' });
+      process.env.SYNAPSEONE_IAM_API_KEY = 'svc-key-123';
+      const out = await synapseoneCall('orgs', 'list', {}, { sub: 'u1', org: 'acme' });
       assert.deepEqual(out, []);
       assert.equal(seen.length, 1);
       assert.match(seen[0].url, /\/v1\/orgs$/);
       assert.equal(seen[0].headers['X-API-Key'], 'svc-key-123');
-      assert.equal(seen[0].headers['X-SynapseDX-User'], 'u1');
-      assert.equal(seen[0].headers['X-SynapseDX-Org'], 'acme');
+      assert.equal(seen[0].headers['X-SynapseOne-User'], 'u1');
+      assert.equal(seen[0].headers['X-SynapseOne-Org'], 'acme');
     } finally {
-      delete process.env.SYNAPSEDX_IAM_API_KEY;
+      delete process.env.SYNAPSEONE_IAM_API_KEY;
       (globalThis as any).fetch = origFetch;
     }
     // Missing service key: a clear, actionable error instead of a bare IAM 401.
-    await assert.rejects(synapsedxCall('orgs', 'list', {}, null), /SYNAPSEDX_IAM_API_KEY/);
+    await assert.rejects(synapseoneCall('orgs', 'list', {}, null), /SYNAPSEONE_IAM_API_KEY/);
   });
 });

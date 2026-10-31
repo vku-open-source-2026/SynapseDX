@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License").
  * Synapse Faststore API tests: boot the real Express app on the in-memory
  * backend and cover keys/TTL/NX, counters, batch, scans, hashes, lists, sets,
@@ -15,7 +15,7 @@ let server: Server;
 let base = '';
 
 function headers(org = 'tenant-a', sub = 'user-1'): Record<string, string> {
-  return { 'content-type': 'application/json', 'x-synapsedx-user': sub, 'x-synapsedx-org': org, 'x-synapsedx-kind': 'user' };
+  return { 'content-type': 'application/json', 'x-synapseone-user': sub, 'x-synapseone-org': org, 'x-synapseone-kind': 'user' };
 }
 
 async function call(method: string, path: string, body?: any, h: Record<string, string> = headers()): Promise<{ status: number; json: any }> {
@@ -44,7 +44,7 @@ test('health and metrics are served', async () => {
   assert.equal(health.json.backend, 'memory');
   const metrics = await fetch(`${base}/metrics`);
   assert.equal(metrics.status, 200);
-  assert.match(await metrics.text(), /synapsedx_faststore_up 1/);
+  assert.match(await metrics.text(), /synapseone_faststore_up 1/);
 });
 
 test('key/value CRUD, TTL, NX/XX and tenant isolation', async () => {
@@ -269,10 +269,10 @@ test('distributed locks: acquire, release, extend and wait', async () => {
 });
 
 test('API-key headers without a user never fall back to platform (#17)', async () => {
-  const platformH = { 'content-type': 'application/json', 'x-synapsedx-tenant': 'admin' };
+  const platformH = { 'content-type': 'application/json', 'x-synapseone-tenant': 'admin' };
   assert.equal((await call('PUT', '/v1/faststore/keys/shared', { value: 'platform-value' }, platformH)).status, 201);
 
-  const keyH = { 'content-type': 'application/json', 'x-synapsedx-kind': 'apikey', 'x-synapsedx-account': 'acc-9' };
+  const keyH = { 'content-type': 'application/json', 'x-synapseone-kind': 'apikey', 'x-synapseone-account': 'acc-9' };
   // The key is confined to account:acc-9; ?tenant=admin must not select the
   // platform/tenant namespace.
   const hidden = await call('GET', '/v1/faststore/keys/shared?tenant=admin', undefined, keyH);
@@ -287,14 +287,14 @@ test('API-key headers without a user never fall back to platform (#17)', async (
 });
 
 test('authentication and validation', async () => {
-  const anon = await call('GET', '/v1/faststore/keys', undefined, { 'x-synapsedx-anon': '1' } as any);
+  const anon = await call('GET', '/v1/faststore/keys', undefined, { 'x-synapseone-anon': '1' } as any);
   assert.equal(anon.status, 401);
 
   const platformMissing = await call('GET', '/v1/faststore/keys', undefined, {} as any);
   assert.equal(platformMissing.status, 400);
   assert.equal(platformMissing.json.error, 'tenant_required');
 
-  const platformOk = await call('GET', '/v1/faststore/keys', undefined, { 'x-synapsedx-tenant': 'admin' } as any);
+  const platformOk = await call('GET', '/v1/faststore/keys', undefined, { 'x-synapseone-tenant': 'admin' } as any);
   assert.equal(platformOk.status, 200);
 
   const missing = await call('GET', '/v1/faststore/keys/absent');

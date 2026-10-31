@@ -1,10 +1,10 @@
-# Copyright 2026 SynapseDX Contributors
+# Copyright 2026 SynapseOne Contributors
 # Licensed under the Apache License, Version 2.0 (the "License");
 """LDS (linked-data service) client: datasources, attributes, records,
 NGSI-LD entities and licenses.
 
-Access it through ``SynapseDXClient(...).lds`` or build it directly with a
-:class:`~synapsedx_sdk._http.HttpClient`.
+Access it through ``SynapseOneClient(...).lds`` or build it directly with a
+:class:`~synapseone_sdk._http.HttpClient`.
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseLDS persistence — Drizzle ORM on Postgres with in-memory fallback
  * (dev/test). Tables/indexes live in ./schema.ts and are applied by versioned
@@ -62,14 +62,14 @@ export async function ensureTables(): Promise<void> {
       // Hold the advisory lock on the same dedicated session that runs the
       // migration (pool connections are not guaranteed to be reused).
       const migrationDb = drizzle(client, { schema: { ldsAttributes, ldsDatasources, ldsRecords } });
-      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapsedx_lds_migrations'))`);
+      await migrationDb.execute(sql`select pg_advisory_lock(hashtext('synapseone_lds_migrations'))`);
       try {
         await migrate(migrationDb, {
           migrationsFolder: path.join(__dirname, '..', 'drizzle'),
           migrationsTable: '__drizzle_migrations_lds',
         });
       } finally {
-        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapsedx_lds_migrations'))`).catch(() => undefined);
+        await migrationDb.execute(sql`select pg_advisory_unlock(hashtext('synapseone_lds_migrations'))`).catch(() => undefined);
       }
     } finally {
       client.release();

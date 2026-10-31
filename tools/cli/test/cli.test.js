@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * CLI offline tests — no platform needed (help/version/errors only).
  */
@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('path');
 
-const BIN = path.join(__dirname, '..', 'bin', 'synapsedx.js');
+const BIN = path.join(__dirname, '..', 'bin', 'synapseone.js');
 
 function run(...args) {
   return new Promise((resolve) => {
@@ -48,11 +48,11 @@ before(
 );
 after(() => new Promise((resolve) => stub.close(() => resolve())));
 
-describe('synapsedx cli offline', () => {
+describe('synapseone cli offline', () => {
   it('--version exits 0', async () => {
     const r = await run('--version');
     assert.equal(r.code, 0);
-    assert.match(r.stdout, /synapsedx v\d+\.\d+\.\d+/);
+    assert.match(r.stdout, /synapseone v\d+\.\d+\.\d+/);
   });
 
   it('help lists commands', async () => {
@@ -266,7 +266,7 @@ describe('synapsedx cli offline', () => {
     assert.ok(r.stdout.includes('call'), 'call in help');
   });
 
-  it('unreachable base exits 1 with synapsedx error', async () => {
+  it('unreachable base exits 1 with synapseone error', async () => {
     const r = await run('--base', 'http://127.0.0.1:1', 'orgs');
     assert.equal(r.code, 1);
     assert.match(r.stderr + r.stdout, /network|HTTP/);

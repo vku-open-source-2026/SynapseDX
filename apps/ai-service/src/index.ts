@@ -1,7 +1,8 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0;
  */
+import './env-compat';
 // AI service: LLM-assisted API testing agent.
 // Giống workflow-service: gọi engine ngoài (OpenAI-compatible LLM API)
 // qua env — API key ở server-side, KHÔNG bao giờ xuống browser.
@@ -45,8 +46,8 @@ export function createApp(): express.Express {
   const IS_PROD = process.env.NODE_ENV === 'production';
 
   if (IS_PROD) {
-    if (!process.env.SYNAPSEDX_INTERNAL_SECRET) {
-      throw new Error('[ai] SYNAPSEDX_INTERNAL_SECRET must be set in production');
+    if (!process.env.SYNAPSEONE_INTERNAL_SECRET) {
+      throw new Error('[ai] SYNAPSEONE_INTERNAL_SECRET must be set in production');
     }
     if (!AI_API_KEY) {
       throw new Error('[ai] AI_API_KEY must be set in production');
@@ -88,18 +89,18 @@ export function createApp(): express.Express {
   }) as any);
   app.use(express.json({ limit: '2mb' }));
 
-  // Defense-in-depth: giống workflow-service — khi SYNAPSEDX_INTERNAL_SECRET
-  // được set, mọi /v1/* phải mang header x-synapsedx-internal khớp.
-  const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || '';
+  // Defense-in-depth: giống workflow-service — khi SYNAPSEONE_INTERNAL_SECRET
+  // được set, mọi /v1/* phải mang header x-synapseone-internal khớp.
+  const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || '';
   if (!INTERNAL_SECRET) {
-    console.warn('[ai][security] SYNAPSEDX_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production.');
+    console.warn('[ai][security] SYNAPSEONE_INTERNAL_SECRET not set — service-to-service auth disabled (dev default). Set it in production.');
   }
   app.use('/v1/' as any, ((req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!INTERNAL_SECRET) {
       if (IS_PROD) return res.status(500).json({ error: 'misconfigured', message: 'internal secret required in production' });
       return next();
     }
-    const raw = req.headers['x-synapsedx-internal'] as string | string[] | undefined;
+    const raw = (req.headers['x-synapseone-internal'] ?? req.headers['x-synapsedx-internal']) as string | string[] | undefined;
     const got = Array.isArray(raw) ? (raw[0] || '') : (raw || '');
     const a = Buffer.from(got);
     const b = Buffer.from(INTERNAL_SECRET);
@@ -135,7 +136,7 @@ export function createApp(): express.Express {
   });
 
   // In-memory limiter: LLM calls tốn tiền — giới hạn theo principal
-  // (gateway đã stamp x-synapsedx-user/x-synapsedx-account từ JWT/API key).
+  // (gateway đã stamp x-synapseone-user/x-synapseone-account từ JWT/API key).
   const hits = new Map<string, { n: number; reset: number }>();
   const WINDOW_MS = 60_000;
   const LIMIT = num(process.env.AI_RATE_LIMIT, 30, 1, 1000);
@@ -145,7 +146,7 @@ export function createApp(): express.Express {
   }, WINDOW_MS).unref?.();
   function agentLimit(req: express.Request, res: express.Response, next: express.NextFunction) {
     const principal =
-      String(req.headers['x-synapsedx-user'] || req.headers['x-synapsedx-account'] || '') ||
+      String((req.headers['x-synapseone-user'] ?? req.headers['x-synapsedx-user']) || (req.headers['x-synapseone-account'] ?? req.headers['x-synapsedx-account']) || '') ||
       String(req.ip || req.socket?.remoteAddress || 'anon').slice(0, 64);
     const now = Date.now();
     const cur = hits.get(principal);

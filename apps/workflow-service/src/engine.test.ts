@@ -1,12 +1,12 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Engine unit tests: sandbox, set/if/http guards, DAG, cron.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseDXParams, validateIntegrationParams, resolveIntegrationCall, validateAgentToolIds, isBlockedUrl, assertUrlAllowed } from './engine';
+import { runWorkflow, detectCycle, cronIntervalMs, execCodeSandbox, validateCronParams, cronNextRunAt, validateSynapseOneParams, validateIntegrationParams, resolveIntegrationCall, validateAgentToolIds, isBlockedUrl, assertUrlAllowed } from './engine';
 
 const N = (name: string, type: string, parameters: any = {}) => ({ name, type, parameters });
 
@@ -414,7 +414,7 @@ describe('engine: disabled, retry, onError, credentials, principal (P0/P2)', () 
     }
   });
   it('propagates the principal downstream on self calls (P0-3)', async () => {
-    process.env.SYNAPSEDX_SELF_BASE_URLS = 'http://gateway:8080';
+    process.env.SYNAPSEONE_SELF_BASE_URLS = 'http://gateway:8080';
     let seen: any = {};
     const orig = globalThis.fetch;
     (globalThis as any).fetch = async (_url: any, init: any) => {
@@ -427,11 +427,11 @@ describe('engine: disabled, retry, onError, credentials, principal (P0/P2)', () 
         connections: { Start: { main: [[{ node: 'H' }]] } } as any,
       }, {}, { principal: { sub: 'u1', org: 'acme', account: 'prod', kind: 'user' } });
       assert.equal(r.status, 'success');
-      assert.equal(seen['X-SynapseDX-User'], 'u1');
-      assert.equal(seen['X-SynapseDX-Org'], 'acme');
+      assert.equal(seen['X-SynapseOne-User'], 'u1');
+      assert.equal(seen['X-SynapseOne-Org'], 'acme');
     } finally {
       (globalThis as any).fetch = orig;
-      delete process.env.SYNAPSEDX_SELF_BASE_URLS;
+      delete process.env.SYNAPSEONE_SELF_BASE_URLS;
     }
   });
   it('builds audit actors (P0-2)', async () => {
@@ -441,8 +441,8 @@ describe('engine: disabled, retry, onError, credentials, principal (P0/P2)', () 
   });
 });
 
-describe('engine: synapsedx.api first-party block', () => {
-  const apiNode = (parameters: any) => ({ name: 'S', type: 'synapsedx.api', parameters });
+describe('engine: synapseone.api first-party block', () => {
+  const apiNode = (parameters: any) => ({ name: 'S', type: 'synapseone.api', parameters });
   const defOf = (parameters: any) => ({
     nodes: [{ name: 'Start', type: 'n8n-nodes-base.manualTrigger', parameters: {} }, apiNode(parameters)],
     connections: { Start: { main: [[{ node: 'S' }]] } } as any,
@@ -450,7 +450,7 @@ describe('engine: synapsedx.api first-party block', () => {
   it('calls the wired caller with templated args', async () => {
     let seen: any = null;
     const r = await runWorkflow(defOf({ resource: 'users', operation: 'list', input: { orgId: '={{ $json.org }}' } }), { org: 'acme' }, {
-      synapsedxCall: async (resource, operation, args, principal) => {
+      synapseoneCall: async (resource, operation, args, principal) => {
         seen = { resource, operation, args, principal };
         return [{ email: 'a@x' }];
       },
@@ -461,25 +461,25 @@ describe('engine: synapsedx.api first-party block', () => {
     assert.deepEqual(r.output, [{ email: 'a@x' }]);
   });
   it('rejects unknown resource/operation and missing required args', async () => {
-    assert.match(validateSynapseDXParams({ resource: 'nope', operation: 'list' }) || '', /unknown resource/);
-    assert.match(validateSynapseDXParams({ resource: 'orgs', operation: 'delete' }) || '', /unknown operation/);
-    assert.match(validateSynapseDXParams({}) || '', /'resource' is required/);
+    assert.match(validateSynapseOneParams({ resource: 'nope', operation: 'list' }) || '', /unknown resource/);
+    assert.match(validateSynapseOneParams({ resource: 'orgs', operation: 'delete' }) || '', /unknown operation/);
+    assert.match(validateSynapseOneParams({}) || '', /'resource' is required/);
     const noCall = runWorkflow(defOf({ resource: 'orgs', operation: 'list', input: {} }), {});
-    assert.match((await noCall).error || '', /does not expose a SynapseDX caller/);
+    assert.match((await noCall).error || '', /does not expose a SynapseOne caller/);
     const missing = await runWorkflow(defOf({ resource: 'users', operation: 'list', input: {} }), {}, {
-      synapsedxCall: async () => { throw new Error('must not be called'); },
+      synapseoneCall: async () => { throw new Error('must not be called'); },
     });
     assert.equal(missing.status, 'error');
     assert.match(missing.error || '', /needs 'orgId'/);
   });
   it('validates required args at save time too (templates are allowed)', () => {
-    assert.match(validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: {} }) || '', /needs 'datasourceId'/);
-    assert.match(validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '  ' } }) || '', /needs 'datasourceId'/);
+    assert.match(validateSynapseOneParams({ resource: 'lds', operation: 'publish-record', input: {} }) || '', /needs 'datasourceId'/);
+    assert.match(validateSynapseOneParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '  ' } }) || '', /needs 'datasourceId'/);
     assert.equal(
-      validateSynapseDXParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } }),
+      validateSynapseOneParams({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.datasourceId }}', record: '={{ $json }}' } }),
       null,
     );
-    assert.equal(validateSynapseDXParams({ resource: 'orgs', operation: 'list', input: {} }), null);
+    assert.equal(validateSynapseOneParams({ resource: 'orgs', operation: 'list', input: {} }), null);
   });
   it('supports the lds.publish-record resource with templated args (SynapseLDS)', async () => {
     let seen: any = null;
@@ -487,7 +487,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const r = await runWorkflow(
       defOf({ resource: 'lds', operation: 'publish-record', input: { datasourceId: '={{ $json.ds }}', record: '={{ $json }}' } }),
       input,
-      { synapsedxCall: async (resource, operation, args) => { seen = { resource, operation, args }; return { ingested: 1, created: 1 }; } },
+      { synapseoneCall: async (resource, operation, args) => { seen = { resource, operation, args }; return { ingested: 1, created: 1 }; } },
     );
     assert.equal(r.status, 'success');
     assert.equal(seen.resource, 'lds');
@@ -498,19 +498,19 @@ describe('engine: synapsedx.api first-party block', () => {
     assert.deepEqual(r.output, { ingested: 1, created: 1 });
     // datasourceId stays required at run time
     const missing = await runWorkflow(defOf({ resource: 'lds', operation: 'publish-record', input: { record: '={{ $json }}' } }), input, {
-      synapsedxCall: async () => { throw new Error('must not be called'); },
+      synapseoneCall: async () => { throw new Error('must not be called'); },
     });
     assert.equal(missing.status, 'error');
     assert.match(missing.error || '', /needs 'datasourceId'/);
     // list-datasources needs no args
     const list = await runWorkflow(defOf({ resource: 'lds', operation: 'list-datasources', input: {} }), {}, {
-      synapsedxCall: async () => ([{ id: 'ds-1', license: 'CC-BY-4.0' }]),
+      synapseoneCall: async () => ([{ id: 'ds-1', license: 'CC-BY-4.0' }]),
     });
     assert.equal(list.status, 'success');
   });
   it('caps oversized responses', async () => {
     const r = await runWorkflow(defOf({ resource: 'orgs', operation: 'list', input: {} }), {}, {
-      synapsedxCall: async () => ({ s: 'x'.repeat(600 * 1024) }),
+      synapseoneCall: async () => ({ s: 'x'.repeat(600 * 1024) }),
     });
     assert.equal(r.status, 'error');
     assert.match(r.error || '', /exceeds 500KB/);
@@ -526,7 +526,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const rBase = await runWorkflow(
       defOf({ resource: 'base', operation: 'query-documents', input: { collection: 'products', filter: { active: true } } }),
       {},
-      { synapsedxCall: mockCall }
+      { synapseoneCall: mockCall }
     );
     assert.equal(rBase.status, 'success');
 
@@ -534,7 +534,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const rBaseVec = await runWorkflow(
       defOf({ resource: 'base', operation: 'vector-search', input: { collection: 'articles', vector: [0.1, 0.2, 0.3], limit: 5 } }),
       {},
-      { synapsedxCall: mockCall }
+      { synapseoneCall: mockCall }
     );
     assert.equal(rBaseVec.status, 'success');
 
@@ -542,7 +542,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const rFs = await runWorkflow(
       defOf({ resource: 'faststore', operation: 'set', input: { key: 'user:123', value: 'active', ttlSeconds: 300 } }),
       {},
-      { synapsedxCall: mockCall }
+      { synapseoneCall: mockCall }
     );
     assert.equal(rFs.status, 'success');
 
@@ -550,7 +550,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const rQ = await runWorkflow(
       defOf({ resource: 'queue', operation: 'publish', input: { queue: 'tasks', payload: { id: 1 } } }),
       {},
-      { synapsedxCall: mockCall }
+      { synapseoneCall: mockCall }
     );
     assert.equal(rQ.status, 'success');
 
@@ -558,7 +558,7 @@ describe('engine: synapsedx.api first-party block', () => {
     const rInf = await runWorkflow(
       defOf({ resource: 'inference', operation: 'route', input: { input: 'hello', choices: { a: 'A', b: 'B' } } }),
       {},
-      { synapsedxCall: mockCall }
+      { synapseoneCall: mockCall }
     );
     assert.equal(rInf.status, 'success');
 
@@ -603,9 +603,9 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
       } as any,
     };
 
-    // Test with synapsedxCall routing to 'support' (index 1)
+    // Test with synapseoneCall routing to 'support' (index 1)
     const res = await runWorkflow(def, { query: 'I need customer support' }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'route') {
           return { best_choice: 'support', confidence: 0.98, probabilities: { support: 0.98, billing: 0.01, technical: 0.01 } };
         }
@@ -642,7 +642,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     let chatCalls = 0;
 
     const res = await runWorkflow(def, { initial: true }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'chat') {
           chatCalls++;
           if (chatCalls === 1) {
@@ -695,7 +695,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
           faststoreSetArgs = args;
           return { ok: true, created: true };
         }
-        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+        throw new Error(`Unexpected synapseoneCall: ${resource}.${operation}`);
       },
     });
 
@@ -728,7 +728,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     let baseCalledWith: any = null;
 
     const res = await runWorkflow(def, { initial: true }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'chat') {
           chatCalls++;
           if (chatCalls === 1) {
@@ -769,7 +769,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
             total: 1,
           };
         }
-        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+        throw new Error(`Unexpected synapseoneCall: ${resource}.${operation}`);
       },
     });
 
@@ -802,7 +802,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     let baseVector: any = null;
 
     const res = await runWorkflow(def, {}, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'chat') {
           return {
             choices: [{
@@ -856,7 +856,7 @@ describe('engine: SynapseFlow Decision & AI Agent', () => {
     let baseVector: any = null;
 
     const res = await runWorkflow(def, {}, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'chat') {
           return {
             choices: [{
@@ -915,7 +915,7 @@ describe('engine: decision fallback and agent sockets', () => {
 
   it('falls back on an unknown route and on low confidence', async () => {
     const unknown = await runWorkflow(decisionDef(2, 0.5), { query: 'hello' }, {
-      synapsedxCall: async () => ({ best_choice: 'not-a-route', confidence: 0.99, probabilities: {} }),
+      synapseoneCall: async () => ({ best_choice: 'not-a-route', confidence: 0.99, probabilities: {} }),
     });
     assert.equal(unknown.status, 'success');
     assert.equal(unknown.output.department, 'technical');
@@ -923,7 +923,7 @@ describe('engine: decision fallback and agent sockets', () => {
     assert.equal(unknown.output.decision.fallback, true);
 
     const unsure = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
-      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0.2, probabilities: {} }),
+      synapseoneCall: async () => ({ best_choice: 'billing', confidence: 0.2, probabilities: {} }),
     });
     assert.equal(unsure.status, 'success');
     assert.equal(unsure.output.department, 'support');
@@ -931,14 +931,14 @@ describe('engine: decision fallback and agent sockets', () => {
     assert.equal(unsure.output.decision.fallback, true);
 
     const zero = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
-      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0, probabilities: {} }),
+      synapseoneCall: async () => ({ best_choice: 'billing', confidence: 0, probabilities: {} }),
     });
     assert.equal(zero.output.department, 'support');
     assert.equal(zero.output.decision.fallback, true);
     assert.equal(zero.output.decision.confidence, 0);
 
     const confident = await runWorkflow(decisionDef(1, 0.8), { query: 'hello' }, {
-      synapsedxCall: async () => ({ best_choice: 'billing', confidence: 0.95, probabilities: {} }),
+      synapseoneCall: async () => ({ best_choice: 'billing', confidence: 0.95, probabilities: {} }),
     });
     assert.equal(confident.output.department, 'billing');
     assert.equal(confident.output.decision.fallback, false);
@@ -965,7 +965,7 @@ describe('engine: decision fallback and agent sockets', () => {
     let seenTools: any[] = [];
     let seenUser = '';
     const res = await runWorkflow(def, { name: 'Ada' }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         assert.equal(resource, 'inference');
         assert.equal(operation, 'chat');
         chat++;
@@ -997,7 +997,7 @@ describe('engine: decision fallback and agent sockets', () => {
     assert.equal(res.output.agent.actions_taken[0].result.output.source, 'canvas-tool');
   });
 
-  it('exposes a synapsedx.base vector-search node as a canvas tool to the agent and auto-embeds query', async () => {
+  it('exposes a synapseone.base vector-search node as a canvas tool to the agent and auto-embeds query', async () => {
     const def = {
       nodes: [
         N('Start', 'manualTrigger'),
@@ -1007,7 +1007,7 @@ describe('engine: decision fallback and agent sockets', () => {
           tools: [],
           maxSteps: 3,
         }),
-        N('KBSearch', 'synapsedx.base', {
+        N('KBSearch', 'synapseone.base', {
           operation: 'vector-search',
           input: { collection: 'articles', limit: 3 },
         }),
@@ -1024,7 +1024,7 @@ describe('engine: decision fallback and agent sockets', () => {
     let baseCalled: any = null;
 
     const res = await runWorkflow(def, { query: 'transformer attention' }, {
-      synapsedxCall: async (resource, operation, args) => {
+      synapseoneCall: async (resource, operation, args) => {
         if (resource === 'inference' && operation === 'chat') {
           chat++;
           seenTools = args.tools || [];
@@ -1055,7 +1055,7 @@ describe('engine: decision fallback and agent sockets', () => {
           baseCalled = args;
           return { items: [{ id: 'doc-attention', similarity: 0.99, data: { title: 'Transformers' } }], total: 1 };
         }
-        throw new Error(`Unexpected synapsedxCall: ${resource}.${operation}`);
+        throw new Error(`Unexpected synapseoneCall: ${resource}.${operation}`);
       },
     });
 
@@ -1082,7 +1082,7 @@ describe('engine: decision fallback and agent sockets', () => {
     };
     let seenModel = '';
     const res = await runWorkflow(def, {}, {
-      synapsedxCall: async (_resource, _operation, args) => {
+      synapseoneCall: async (_resource, _operation, args) => {
         seenModel = args.model;
         return { choices: [{ message: { role: 'assistant', content: 'ok' } }] };
       },
@@ -1108,7 +1108,7 @@ describe('engine: decision fallback and agent sockets', () => {
     let chat = 0;
     let schema: any[] = [];
     const res = await runWorkflow(def, {}, {
-      synapsedxCall: async (_resource, _operation, args) => {
+      synapseoneCall: async (_resource, _operation, args) => {
         chat++;
         if (chat === 1) {
           schema = args.tools || [];
@@ -1136,37 +1136,37 @@ describe('engine: decision fallback and agent sockets', () => {
   });
 });
 
-describe('engine: split SynapseDX service nodes', () => {
+describe('engine: split SynapseOne service nodes', () => {
   it('maps each service node to the canonical resource/operation', () => {
-    assert.deepEqual(resolveIntegrationCall('synapsedx.base', { operation: 'get-document', input: { collection: 'c', id: '1' } }), {
+    assert.deepEqual(resolveIntegrationCall('synapseone.base', { operation: 'get-document', input: { collection: 'c', id: '1' } }), {
       resource: 'base', operation: 'get-document', input: { collection: 'c', id: '1' },
     });
-    assert.deepEqual(resolveIntegrationCall('synapsedx.iam', { operation: 'authorize.check', input: {} }), {
+    assert.deepEqual(resolveIntegrationCall('synapseone.iam', { operation: 'authorize.check', input: {} }), {
       resource: 'authorize', operation: 'check', input: {},
     });
-    assert.deepEqual(resolveIntegrationCall('synapsedx.flow', { operation: 'workflows.execute', input: { id: 'w1' } }), {
+    assert.deepEqual(resolveIntegrationCall('synapseone.flow', { operation: 'workflows.execute', input: { id: 'w1' } }), {
       resource: 'workflows', operation: 'execute', input: { id: 'w1' },
     });
-    assert.deepEqual(resolveIntegrationCall('synapsedx.queue', { operation: 'publish', input: { queue: 'q' } }), {
+    assert.deepEqual(resolveIntegrationCall('synapseone.queue', { operation: 'publish', input: { queue: 'q' } }), {
       resource: 'queue', operation: 'publish', input: { queue: 'q' },
     });
   });
 
   it('rejects missing/unknown operations and required input', () => {
-    assert.match(validateIntegrationParams('synapsedx.base', {}) || '', /operation.*required/);
-    assert.match(validateIntegrationParams('synapsedx.base', { operation: 'nope', input: {} }) || '', /unknown operation/);
+    assert.match(validateIntegrationParams('synapseone.base', {}) || '', /operation.*required/);
+    assert.match(validateIntegrationParams('synapseone.base', { operation: 'nope', input: {} }) || '', /unknown operation/);
     assert.match(
-      validateIntegrationParams('synapsedx.base', { operation: 'get-document', input: { collection: 'c' } }) || '',
+      validateIntegrationParams('synapseone.base', { operation: 'get-document', input: { collection: 'c' } }) || '',
       /needs 'id'/,
     );
-    assert.equal(validateIntegrationParams('synapsedx.iam', { operation: 'authorize.check', input: { userId: 'u', action: 'read', resource: 'r' } }), null);
+    assert.equal(validateIntegrationParams('synapseone.iam', { operation: 'authorize.check', input: { userId: 'u', action: 'read', resource: 'r' } }), null);
   });
 
   it('executes a split integration node with templated input as the run principal', async () => {
     const def = {
       nodes: [
         N('Start', 'manualTrigger'),
-        N('Check', 'synapsedx.iam', {
+        N('Check', 'synapseone.iam', {
           operation: 'authorize.check',
           input: { userId: '={{ $json.user }}', action: 'read', resource: 'ticket' },
         }),
@@ -1176,7 +1176,7 @@ describe('engine: split SynapseDX service nodes', () => {
     let seen: any = null;
     const r = await runWorkflow(def, { user: 'u-9' }, {
       principal: { sub: 'u-9', kind: 'user', org: 'acme' } as any,
-      synapsedxCall: async (resource, operation, args, principal) => {
+      synapseoneCall: async (resource, operation, args, principal) => {
         seen = { resource, operation, args, principal };
         return { allowed: true };
       },
@@ -1198,11 +1198,11 @@ describe('engine: split SynapseDX service nodes', () => {
   });
 
   it('validates vector-search params accepting either vector or query', () => {
-    assert.equal(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
-    assert.equal(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb', vector: [0.1, 0.2] } }), null);
-    assert.match(validateIntegrationParams('synapsedx.base', { operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
-    assert.equal(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
-    assert.match(validateSynapseDXParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
+    assert.equal(validateIntegrationParams('synapseone.base', { operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
+    assert.equal(validateIntegrationParams('synapseone.base', { operation: 'vector-search', input: { collection: 'kb', vector: [0.1, 0.2] } }), null);
+    assert.match(validateIntegrationParams('synapseone.base', { operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
+    assert.equal(validateSynapseOneParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb', query: 'search text' } }), null);
+    assert.match(validateSynapseOneParams({ resource: 'base', operation: 'vector-search', input: { collection: 'kb' } }) || '', /needs 'vector' or 'query'/);
   });
 });
 
@@ -1230,18 +1230,18 @@ describe('engine: AI agent LLM target hardening (#18)', () => {
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' } }] }));
     });
     const port = await listen(srv);
-    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
-    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
-    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-should-not-leak';
-    delete process.env.SYNAPSEDX_SELF_BASE_URLS;
+    const prevSecret = process.env.SYNAPSEONE_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEONE_SELF_BASE_URLS;
+    process.env.SYNAPSEONE_INTERNAL_SECRET = 'master-secret-should-not-leak';
+    delete process.env.SYNAPSEONE_SELF_BASE_URLS;
     try {
       const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}/v1`), {}, {});
       assert.equal(r.status, 'error');
       assert.match(String(r.error), /blocked internal URL/);
       assert.equal(hits, 0);
     } finally {
-      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
-      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      restoreEnv('SYNAPSEONE_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEONE_SELF_BASE_URLS', prevSelf);
       await close(srv);
     }
   });
@@ -1254,17 +1254,17 @@ describe('engine: AI agent LLM target hardening (#18)', () => {
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'hi' } }] }));
     });
     const port = await listen(srv);
-    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
-    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
-    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-ok';
-    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
+    const prevSecret = process.env.SYNAPSEONE_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEONE_SELF_BASE_URLS;
+    process.env.SYNAPSEONE_INTERNAL_SECRET = 'master-secret-ok';
+    process.env.SYNAPSEONE_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
     try {
       const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}`), {}, {});
       assert.equal(r.status, 'success');
-      assert.equal(seen?.['x-synapsedx-internal'], 'master-secret-ok');
+      assert.equal(seen?.['x-synapseone-internal'], 'master-secret-ok');
     } finally {
-      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
-      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      restoreEnv('SYNAPSEONE_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEONE_SELF_BASE_URLS', prevSelf);
       await close(srv);
     }
   });
@@ -1277,17 +1277,17 @@ describe('engine: AI agent LLM target hardening (#18)', () => {
       res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'hi' } }] }));
     });
     const port = await listen(srv);
-    const prevSecret = process.env.SYNAPSEDX_INTERNAL_SECRET;
-    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
-    process.env.SYNAPSEDX_INTERNAL_SECRET = 'master-secret-ok';
-    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
+    const prevSecret = process.env.SYNAPSEONE_INTERNAL_SECRET;
+    const prevSelf = process.env.SYNAPSEONE_SELF_BASE_URLS;
+    process.env.SYNAPSEONE_INTERNAL_SECRET = 'master-secret-ok';
+    process.env.SYNAPSEONE_SELF_BASE_URLS = `http://127.0.0.1:${port}`;
     try {
       const r = await runWorkflow(agentDef(`http://127.0.0.1:${port}`, 'openai-compatible'), {}, {});
       assert.equal(r.status, 'success');
-      assert.equal(seen?.['x-synapsedx-internal'], undefined);
+      assert.equal(seen?.['x-synapseone-internal'], undefined);
     } finally {
-      restoreEnv('SYNAPSEDX_INTERNAL_SECRET', prevSecret);
-      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      restoreEnv('SYNAPSEONE_INTERNAL_SECRET', prevSecret);
+      restoreEnv('SYNAPSEONE_SELF_BASE_URLS', prevSelf);
       await close(srv);
     }
   });
@@ -1308,8 +1308,8 @@ describe('engine: AI agent LLM target hardening (#18)', () => {
       res.end();
     });
     const aPort = await listen(a);
-    const prevSelf = process.env.SYNAPSEDX_SELF_BASE_URLS;
-    process.env.SYNAPSEDX_SELF_BASE_URLS = `http://127.0.0.1:${aPort}`;
+    const prevSelf = process.env.SYNAPSEONE_SELF_BASE_URLS;
+    process.env.SYNAPSEONE_SELF_BASE_URLS = `http://127.0.0.1:${aPort}`;
     try {
       const r = await runWorkflow(agentDef(`http://127.0.0.1:${aPort}`, 'openai-compatible'), {}, {});
       assert.equal(r.status, 'error');
@@ -1317,7 +1317,7 @@ describe('engine: AI agent LLM target hardening (#18)', () => {
       assert.equal(aHits, 1);
       assert.equal(bHits, 0);
     } finally {
-      restoreEnv('SYNAPSEDX_SELF_BASE_URLS', prevSelf);
+      restoreEnv('SYNAPSEONE_SELF_BASE_URLS', prevSelf);
       await close(a);
       await close(b);
     }

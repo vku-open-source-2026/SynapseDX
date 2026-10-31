@@ -66,9 +66,9 @@ jobs:
           curl -sf http://localhost:8080/v1/templates -H"Authorization: Bearer $TOK" | grep -q webhook-to-log
           echo E2E_OK
       - run: bash tests/e2e/api-check.sh
-      - run: pip install ./sdks/sdk-python -q && SYNAPSEDX_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
-      - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
-      - run: SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
+      - run: pip install ./sdks/sdk-python -q && SYNAPSEONE_BASE_URL=http://localhost:8080 python tests/e2e/sdk-check.py
+      - run: npm install --workspaces --no-audit --no-fund -q && npm run build --workspaces --if-present -q && SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/sdk-check.js
+      - run: SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/services-check.js
       # IAM integration nodes authenticate as the workflow service with a real
       # API key (the internal secret alone is not a caller identity).
       - name: Configure workflow IAM service key
@@ -94,8 +94,8 @@ jobs:
           python3 - "$KEY" <<'PY'
           import pathlib, sys
           p = pathlib.Path('.env')
-          lines = [l for l in p.read_text().splitlines() if not l.startswith('SYNAPSEDX_IAM_API_KEY=')]
-          lines.append('SYNAPSEDX_IAM_API_KEY=' + sys.argv[1])
+          lines = [l for l in p.read_text().splitlines() if not l.startswith('SYNAPSEONE_IAM_API_KEY=')]
+          lines.append('SYNAPSEONE_IAM_API_KEY=' + sys.argv[1])
           p.write_text('\n'.join(lines) + '\n')
           PY
           docker compose up -d workflow
@@ -110,6 +110,6 @@ jobs:
       # Complex-workflow showcase: Decision -> Base/Faststore/IAM/LDS/Queue/Flow
       # fan-out/fan-in. The AI lane is unit-tested; set SHOWCASE_RUN_AI=1 locally
       # with inference credentials to exercise it live.
-      - run: SYNAPSEDX_BASE_URL=http://localhost:8080 node tests/e2e/workflow-showcase.mjs
+      - run: SYNAPSEONE_BASE_URL=http://localhost:8080 node tests/e2e/workflow-showcase.mjs
       - run: docker compose down -v
         if: always()

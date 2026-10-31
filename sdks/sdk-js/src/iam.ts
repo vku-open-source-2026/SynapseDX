@@ -1,10 +1,10 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Synapse IAM client: auth/OIDC, orgs/accounts/users, roles/policies,
  * API keys, service accounts and usage analytics.
  *
- * Access it through `new SynapseDXClient(...).iam` or build it with an
+ * Access it through `new SynapseOneClient(...).iam` or build it with an
  * HttpClient directly.
  */
 

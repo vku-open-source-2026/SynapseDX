@@ -66,7 +66,7 @@ jobs:
           if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
             echo "::warning::NPM_TOKEN not set — npm publish will fail. Add an Automation token in npmjs.com, then repo Settings → Secrets and variables → Actions → NPM_TOKEN."
           fi
-          echo "PyPI uses Trusted Publishing (configure once on pypi.org: project synapsedx-sdk → Trusted Publisher = this repo + workflow cd.yml)."
+          echo "PyPI uses Trusted Publishing (configure once on pypi.org: project synapseone-sdk → Trusted Publisher = this repo + workflow cd.yml)."
 
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
@@ -75,8 +75,8 @@ jobs:
         run: |
           DEV="${{ steps.ver.outputs.npm }}"
           for PKG in sdk cli; do
-            if npm view "@synapsedx/$PKG@$DEV" version >/dev/null 2>&1; then
-              echo "npm: @synapsedx/$PKG@$DEV already published — skipping."
+            if npm view "@synapseone/$PKG@$DEV" version >/dev/null 2>&1; then
+              echo "npm: @synapseone/$PKG@$DEV already published — skipping."
             else
               npm publish --workspace=$( [ "$PKG" = cli ] && echo tools/cli || echo sdks/sdk-js ) --tag dev --access public
             fi
@@ -112,16 +112,16 @@ jobs:
               workflow) CTX=apps/workflow-service ;;
               console) CTX=apps/console ;;
             esac
-            docker build -t "ghcr.io/$OWNER/synapsedx-$SVC:main" -t "ghcr.io/$OWNER/synapsedx-$SVC:main-$SHA" "$CTX"
-            docker push "ghcr.io/$OWNER/synapsedx-$SVC:main"
-            docker push "ghcr.io/$OWNER/synapsedx-$SVC:main-$SHA"
+            docker build -t "ghcr.io/$OWNER/synapseone-$SVC:main" -t "ghcr.io/$OWNER/synapseone-$SVC:main-$SHA" "$CTX"
+            docker push "ghcr.io/$OWNER/synapseone-$SVC:main"
+            docker push "ghcr.io/$OWNER/synapseone-$SVC:main-$SHA"
           done
 
       - name: Summary
         run: |
           {
             echo "## CD (dev channel) — ${{ github.sha }}";
-            echo "- npm: \`@synapsedx/sdk@${{ steps.ver.outputs.npm }}\`, \`@synapsedx/cli@${{ steps.ver.outputs.npm }}\` (tag \`dev\`)";
-            echo "- PyPI: \`synapsedx-sdk==${{ steps.ver.outputs.pep }}\` (\`pip install --pre\` moi thay)";
-            echo "- GHCR: \`ghcr.io/${{ github.repository_owner }}/synapsedx-{gateway,iam,workflow,console}:main(-${{ steps.ver.outputs.sha }})\`";
+            echo "- npm: \`@synapseone/sdk@${{ steps.ver.outputs.npm }}\`, \`@synapseone/cli@${{ steps.ver.outputs.npm }}\` (tag \`dev\`)";
+            echo "- PyPI: \`synapseone-sdk==${{ steps.ver.outputs.pep }}\` (\`pip install --pre\` moi thay)";
+            echo "- GHCR: \`ghcr.io/${{ github.repository_owner }}/synapseone-{gateway,iam,workflow,console}:main(-${{ steps.ver.outputs.sha }})\`";
           } >> "$GITHUB_STEP_SUMMARY"

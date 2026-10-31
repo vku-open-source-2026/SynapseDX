@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * lds command tests — stub gateway, no platform needed.
  */
@@ -13,7 +13,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('path');
 
-const BIN = path.join(__dirname, '..', 'bin', 'synapsedx.js');
+const BIN = path.join(__dirname, '..', 'bin', 'synapseone.js');
 
 function run(...args) {
   return new Promise((resolve) => {
@@ -87,7 +87,7 @@ function canned(method, p) {
   return { ok: true };
 }
 
-describe('synapsedx lds', () => {
+describe('synapseone lds', () => {
   it('lds without a subcommand explains usage', async () => {
     const r = await run('lds');
     assert.equal(r.code, 1);

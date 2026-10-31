@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  *
  * End-to-end check for Synapse Inference Engine through the Gateway
@@ -13,10 +13,10 @@ const dotenv = require('dotenv');
 const envFile = fs.existsSync('.env') ? fs.readFileSync('.env', 'utf-8') : '';
 const env = dotenv.parse(envFile);
 
-const GATEWAY_BASE = process.env.SYNAPSEDX_BASE_URL || 'http://localhost:8080';
+const GATEWAY_BASE = process.env.SYNAPSEONE_BASE_URL || 'http://localhost:8080';
 const INFERENCE_DIRECT = process.env.INFERENCE_SERVICE_URL || 'http://localhost:4008';
 const JWT_SECRET = process.env.IAM_JWT_SECRET || env.IAM_JWT_SECRET || 'change_me_super_secret_32chars_min';
-const INTERNAL_SECRET = process.env.SYNAPSEDX_INTERNAL_SECRET || env.SYNAPSEDX_INTERNAL_SECRET || '';
+const INTERNAL_SECRET = process.env.SYNAPSEONE_INTERNAL_SECRET || env.SYNAPSEONE_INTERNAL_SECRET || '';
 
 console.log('== Synapse Inference Engine E2E Tests ==');
 console.log(`Gateway: ${GATEWAY_BASE}`);
@@ -31,7 +31,7 @@ const token = jwt.sign(
     scopes: ['*'],
   },
   JWT_SECRET,
-  { issuer: 'synapsedx-iam', expiresIn: '1h' },
+  { issuer: 'synapseone-iam', expiresIn: '1h' },
 );
 
 const authHeaders = {
@@ -67,7 +67,7 @@ async function run() {
   console.log('\n[3/7] Embeddings via Gateway (/v1/inference/embeddings)...');
   const embPayload = {
     input: [
-      'Automate invoice processing with SynapseDX',
+      'Automate invoice processing with SynapseOne',
       'Create custom workflow webhook trigger',
     ],
   };
@@ -181,8 +181,8 @@ async function run() {
 
   // Test 8: JavaScript SDK client.inference.* verification
   console.log('\n[8/8] JavaScript SDK (client.inference.*) via Gateway...');
-  const { SynapseDXClient } = require('../../sdks/sdk-js/dist/index.js');
-  const client = new SynapseDXClient({ baseUrl: GATEWAY_BASE, token });
+  const { SynapseOneClient } = require('../../sdks/sdk-js/dist/index.js');
+  const client = new SynapseOneClient({ baseUrl: GATEWAY_BASE, token });
 
   const sdkHealth = await client.inference.health();
   assert.equal(sdkHealth.service, 'inference');

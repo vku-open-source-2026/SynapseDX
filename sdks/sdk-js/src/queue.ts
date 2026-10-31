@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * SynapseQueue client: queues, publish (delay + dedupe), at-least-once
  * consumption with visibility-timeout leases, ack/nack/heartbeat, retry,
@@ -11,7 +11,7 @@
  * so consumers must be idempotent.
  *
  * Every operation is scoped to the caller's tenant (org / account / user).
- * Platform callers set `tenant` on the client (x-synapsedx-tenant).
+ * Platform callers set `tenant` on the client (x-synapseone-tenant).
  */
 
 import { HttpClient } from './_http';

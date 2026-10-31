@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Real OIDC Authorization Code flow (Authentik / Keycloak / any OIDC IdP).
  * No extra dependencies: discovery + token exchange over fetch, ID-token
@@ -19,8 +19,8 @@ export interface OidcSettings {
 
 export function oidcSettings(): OidcSettings {
   return {
-    issuer: (process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/synapsedx/').replace(/\/*$/, '/'),
-    clientId: process.env.OIDC_CLIENT_ID || 'synapsedx-platform',
+    issuer: (process.env.OIDC_ISSUER || 'http://authentik-server:9000/application/o/synapseone/').replace(/\/*$/, '/'),
+    clientId: process.env.OIDC_CLIENT_ID || 'synapseone-platform',
     clientSecret: process.env.OIDC_CLIENT_SECRET || '',
     redirectUri: process.env.OIDC_REDIRECT_URI || 'http://localhost:3000/oidc/callback',
     provider: process.env.OIDC_PROVIDER || 'authentik',

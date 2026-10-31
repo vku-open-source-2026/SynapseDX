@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useState } from 'react';
@@ -68,7 +68,7 @@ export default function Authorize() {
           <Field label="Action (e.g. workflow:Execute)">
             <Input value={action} onChange={(e) => setAction(e.target.value)} />
           </Field>
-          <Field label="Resource (e.g. * or arn:synapsedx:...)">
+          <Field label="Resource (e.g. * or arn:synapseone:...)">
             <Input value={resource} onChange={(e) => setResource(e.target.value)} />
           </Field>
           <Field label="Context JSON (for Condition)">

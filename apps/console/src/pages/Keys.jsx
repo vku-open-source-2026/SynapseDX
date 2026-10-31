@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React, { useEffect, useRef, useState } from 'react';
@@ -85,7 +85,7 @@ export default function Keys() {
 
   return (
     <>
-      <PageTitle title="API Keys" sub="Long-lived synapsedx_* keys — shown only once at creation" right={<Btn onClick={() => setOpen(true)}>+ New key</Btn>} />
+      <PageTitle title="API Keys" sub="Long-lived synapseone_* keys — shown only once at creation" right={<Btn onClick={() => setOpen(true)}>+ New key</Btn>} />
       <Err e={err} />
       <ScopeBar scope={scope} />
       <Card>

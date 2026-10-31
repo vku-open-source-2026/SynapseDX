@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  *
  * NGSI-LD projection layer — the security core of SynapseLDS.
@@ -9,7 +9,7 @@
  *      `attributes.*`. `_core/audit/security/storage/lineage` are never
  *      touched — new metadata fields can be added without any leak risk.
  *      The leading underscore is a naming convention, NOT a security
- *      mechanism (see docs/specs/synapsedx-lds.md).
+ *      mechanism (see docs/specs/synapseone-lds.md).
  *   2. Default deny: an attribute that is not registered in the dataset
  *      schema registry, or whose visibility is not exportable for the
  *      caller, is skipped. New dynamic fields never auto-publish.

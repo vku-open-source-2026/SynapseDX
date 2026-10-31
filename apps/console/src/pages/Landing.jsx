@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  */
 import React from 'react';
@@ -40,7 +40,7 @@ export default function Landing() {
           PaaS for your infrastructure
         </h1>
         <p className="mt-4 text-normal-text max-w-2xl mx-auto">
-          SynapseDX is an open-source Tier-1 PaaS (Apache-2.0): API gateway, AWS-style IAM,
+          SynapseOne is an open-source Tier-1 PaaS (Apache-2.0): API gateway, AWS-style IAM,
           core data cluster and workflows — managed via Console, multi-language SDKs and CLI.
         </p>
         <div className="mt-6 flex flex-col sm:flex-row justify-center items-stretch sm:items-center gap-3 max-w-md sm:max-w-none mx-auto">
@@ -67,9 +67,9 @@ export default function Landing() {
             One line, no clone needed — or run it instantly with npx (Node 18+).
           </p>
           <pre className="bg-background rounded-2xl p-4 text-xs font-mono overflow-x-auto text-main-text">
-{`curl -fsSL https://synapsedx.sbs/install.sh | sh
+{`curl -fsSL https://synapseone.space/install.sh | sh
 # ..or without installing anything:
-npx -y @synapsedx/cli@latest --help`}
+npx -y @synapseone/cli@latest --help`}
           </pre>
         </div>
 
@@ -96,7 +96,7 @@ open http://localhost:3000   # sign in: demo@acme.local / org acme`}
       </main>
 
       <footer className="pb-10 text-center text-xs text-normal-text">
-        synapsedx · Apache-2.0 · Tier-1 PaaS
+        synapseone · Apache-2.0 · Tier-1 PaaS
       </footer>
     </div>
   );

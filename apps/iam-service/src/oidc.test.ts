@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 SynapseDX Contributors
+ * Copyright 2026 SynapseOne Contributors
  * Licensed under the Apache License, Version 2.0 (the "License");
  * Real OIDC Authorization Code flow tests — stub IdP with genuine RSA-signed
  * ID tokens (node:http, ephemeral ports). No external network.
