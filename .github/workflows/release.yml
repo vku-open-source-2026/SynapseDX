@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+        with: { node-version: 24, registry-url: https://registry.npmjs.org }
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - run: npm install --workspaces
@@ -35,10 +35,13 @@ jobs:
   publish-sdk-js:
     runs-on: ubuntu-latest
     needs: release
+    permissions:
+      contents: read
+      id-token: write # npm Trusted Publishing (OIDC, no token secret)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+        with: { node-version: 24, registry-url: https://registry.npmjs.org }
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
       # Idempotent: skip when this exact version already exists (re-runs stay green).
@@ -49,16 +52,17 @@ jobs:
           else
             npm publish --workspace=sdks/sdk-js --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-cli:
     runs-on: ubuntu-latest
     needs: release
+    permissions:
+      contents: read
+      id-token: write # npm Trusted Publishing (OIDC, no token secret)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+        with: { node-version: 24, registry-url: https://registry.npmjs.org }
       - run: cp LICENSE tools/cli/LICENSE 2>/dev/null || true
       # Idempotent: skip when this exact version already exists (re-runs stay green).
       - run: |
@@ -68,8 +72,6 @@ jobs:
           else
             npm publish --workspace=tools/cli --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   publish-sdk-python:
     # Stable PyPI releases only. The PyPI Trusted Publisher is configured for

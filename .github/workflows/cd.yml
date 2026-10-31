@@ -29,10 +29,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write # npm Trusted Publishing (OIDC, no token secret)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20, registry-url: https://registry.npmjs.org }
+        with: { node-version: 24, registry-url: https://registry.npmjs.org }
 
       # Version dev dong tu root package.json + run number (khong commit tro lai).
       - name: Compute dev versions
@@ -55,12 +56,6 @@ jobs:
           "
           grep -H '"version":' sdks/sdk-js/package.json tools/cli/package.json
 
-      - name: Preflight secrets
-        run: |
-          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "::warning::NPM_TOKEN not set — npm publish will fail. Add an Automation token in npmjs.com, then repo Settings → Secrets and variables → Actions → NPM_TOKEN."
-          fi
-
       - run: npm install --workspace=sdks/sdk-js && npm run build --workspace=sdks/sdk-js
       - run: cp LICENSE sdks/sdk-js/LICENSE
       # Idempotent: skip packages whose exact version already exists (re-runs stay green).
@@ -74,8 +69,6 @@ jobs:
               npm publish --workspace=$( [ "$PKG" = cli ] && echo tools/cli || echo sdks/sdk-js ) --tag dev --access public
             fi
           done
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Login GHCR
         uses: docker/login-action@v3
