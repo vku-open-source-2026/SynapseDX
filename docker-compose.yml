@@ -1,0 +1,14 @@
+services:
+  synapsedx:
+    build:
+      context: ..
+      dockerfile: SynapseDX/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "8082"
+      SYNAPSEONE_BASE_URL: https://api.synapseone.space
+      ALLOW_LOCAL_DEPENDENCIES: "false"
+    ports:
+      - "8082:8082"

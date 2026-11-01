@@ -1,0 +1,22 @@
+{
+  "name": "@synapsedx/capabilities-service",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "SynapseDX Tier-2 reusable capabilities service",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "test": "npm run build && node --test dist/src/*.test.js"
+  },
+  "dependencies": {
+    "@synapseone/sdk": "^0.7.0",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}

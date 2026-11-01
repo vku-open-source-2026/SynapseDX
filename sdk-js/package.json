@@ -1,0 +1,31 @@
+{
+  "name": "@synapsedx/capabilities",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "SynapseDX Tier-2 capabilities API client",
+  "homepage": "https://synapsedx.sbs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vku-open-source-2026/SynapseDX.git",
+    "directory": "sdk-js"
+  },
+  "publishConfig": { "access": "public" },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/index.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
+  }
+}
