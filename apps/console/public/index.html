@@ -1,10 +1,37 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: 2026 VKU.VIC -->
 <!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SynapseDX</title></head>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#07111f" />
+    <title>SynapseDX · Capability Control Plane</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
   <body>
-    <main><h1>SynapseDX</h1><p>Tier-2 reusable capabilities.</p><p id="status">Checking gateway…</p></main>
-    <script>
-      fetch('/health').then(r => r.json()).then(x => { document.querySelector('#status').textContent = x.status; }).catch(() => { document.querySelector('#status').textContent = 'Gateway unavailable'; });
-    </script>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <a class="brand" href="#overview"><span class="brand-mark">DX</span><span><strong>SynapseDX</strong><small>Capability control plane</small></span></a>
+        <nav>
+          <a class="nav-link active" href="#overview"><span>⌂</span>Overview</a>
+          <a class="nav-link" href="#datasets"><span>◈</span>Datasets</a>
+          <a class="nav-link" href="#records"><span>▤</span>Records</a>
+          <a class="nav-link" href="#events"><span>⌁</span>Events &amp; queues</a>
+          <a class="nav-link" href="#docs"><span>?</span>API reference</a>
+        </nav>
+        <div class="sidebar-footer"><span class="status-dot"></span><span>Public boundary online</span></div>
+      </aside>
+      <main class="main-content">
+        <header class="topbar"><div><p class="eyebrow">TIER 2 · PUBLIC CAPABILITY SERVICES</p><h1>Operate the open-data layer</h1></div><a class="outline-button" href="https://synapsedx.sbs/health" target="_blank" rel="noreferrer">View health ↗</a></header>
+        <section id="overview" class="hero-card"><div><span class="hero-kicker">VKU.VIC PLATFORM</span><h2>One contract for every domain product.</h2><p>SynapseDX exposes datasets, records, publication and events through a stable API. SynapseCity and SynapseCity SOS consume this layer over the public HTTPS boundary.</p><div class="hero-actions"><a class="primary-button" href="#datasets">Explore capabilities <span>→</span></a><a class="text-link" href="#docs">Read API reference</a></div></div><div class="hero-orbit" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="orbit-core">DX</span></div></section>
+        <section class="metric-grid" aria-label="Platform metrics"><article class="metric-card"><span class="metric-icon cyan">◈</span><div><strong id="dataset-count">—</strong><span>Registered datasets</span></div></article><article class="metric-card"><span class="metric-icon violet">▤</span><div><strong id="record-count">—</strong><span>Records available</span></div></article><article class="metric-card"><span class="metric-icon amber">⌁</span><div><strong id="event-status">—</strong><span>Event queue</span></div></article><article class="metric-card"><span class="metric-icon green">✓</span><div><strong id="health-status">Checking</strong><span>Tier chain</span></div></article></section>
+        <section id="datasets" class="panel"><div class="panel-heading"><div><p class="eyebrow">CAPABILITY CATALOG</p><h2>Datasets</h2></div><button class="ghost-button" id="refresh-datasets" type="button">Refresh</button></div><div id="dataset-list" class="dataset-list"><div class="loading-row">Loading capability catalog…</div></div></section>
+        <section class="split-grid"><article id="records" class="panel compact"><p class="eyebrow">RECORD PIPELINE</p><h2>Write once, publish safely</h2><p class="muted">Domain services keep their own models while SynapseDX handles validation, persistence through Tier 1, publication through SynapseLDS and event emission.</p><div class="pipeline"><span>Domain API</span><i>→</i><span>DX records</span><i>→</i><span>LDS + queue</span></div></article><article id="events" class="panel compact"><p class="eyebrow">EVENTS &amp; QUEUES</p><h2>Observable by default</h2><p class="muted">Every dataset and record mutation emits a traceable event with a correlation id for downstream consumers.</p><div class="event-line"><span class="status-dot"></span><span id="event-detail">Connecting to SynapseOne queue…</span></div></article></section>
+        <section id="docs" class="panel docs-panel"><div><p class="eyebrow">BUILD WITH CONFIDENCE</p><h2>Public, documented, reproducible</h2><p class="muted">The API boundary is available at <code>https://synapsedx.sbs</code>. Source, Apache-2.0 license and dependency inventory are published for every release.</p></div><div class="doc-links"><a href="https://github.com/vku-open-source-2026/SynapseDX" target="_blank" rel="noreferrer">Source repository ↗</a><a href="https://synapsecity.sbs/docs" target="_blank" rel="noreferrer">Domain integration docs ↗</a></div></section>
+        <footer>SynapseDX · VKU.VIC · Apache-2.0 · <span id="last-checked">—</span></footer>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

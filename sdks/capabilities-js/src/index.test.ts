@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 VKU.VIC
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { CapabilitiesClient } from './index';

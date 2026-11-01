@@ -24,3 +24,11 @@ docker compose up -d --build
 
 The public edge must route `synapsedx.sbs` to the gateway and an optional
 `cloud.synapsedx.sbs` to the console. See `infra/nginx/synapsedx.conf`.
+
+## PoF project checklist
+
+- License: Apache-2.0 (`LICENSE`) with per-source SPDX headers and attribution in `NOTICE`.
+- Build from source: `npm ci && npm run build` using Node.js 20+; Docker builds are reproducible with `docker compose build`.
+- Issue tracker: [GitHub Issues](https://github.com/vku-open-source-2026/SynapseDX/issues).
+- Change history: [`CHANGELOG.md`](CHANGELOG.md). Versioned release tags are published on GitHub.
+- Dependency inventory: [`THIRD-PARTY.md`](THIRD-PARTY.md); dependencies are not modified or bundled into the repository.

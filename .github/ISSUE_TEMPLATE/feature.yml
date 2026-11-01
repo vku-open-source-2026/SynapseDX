@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+name: Feature request
+description: Propose an improvement to the reusable capabilities layer.
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+    validations:
+      required: true
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Use case and compatibility impact
+    validations:
+      required: true

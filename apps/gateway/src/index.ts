@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 VKU.VIC
 import express, { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 

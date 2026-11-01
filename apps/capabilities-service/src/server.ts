@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 VKU.VIC
 import express, { NextFunction, Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
