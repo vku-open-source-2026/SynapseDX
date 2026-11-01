@@ -38,3 +38,9 @@ npm run build
 npm test
 npm start
 ```
+
+## Project identity
+
+- Team: VKU.VIC.
+- Members: Ho Sy Bao Nhan; Tran Thi Thuy Duong; Vo Thanh Nam.
+- Repository license: Apache-2.0. Preserve `LICENSE` and `NOTICE` in all distributions.
