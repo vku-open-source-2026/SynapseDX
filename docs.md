@@ -1,7 +1,9 @@
 # SynapseDX deployment and contracts
 
-SynapseDX is a public HTTPS Tier-2 service. Put the process behind the
-`synapsedx.sbs` TLS edge and proxy the public paths to port 8082. The process
+SynapseDX is a public HTTPS Tier-2 service. Put `apps/gateway` behind the
+`synapsedx.sbs` TLS edge and proxy the public paths to host port 8082. The
+gateway forwards to `apps/capabilities-service`; the frontend is
+`apps/console`. The process
 must be configured with a scoped SynapseOne API key (`SYNAPSEONE_API_KEY`) and
 the public gateway URL `https://api.synapseone.space`.
 
@@ -18,8 +20,8 @@ visibility; the key remains server-side and is never returned to callers.
 | public projection | `/v1/capabilities/datasets/:id/entities` | `client.lds.*` |
 | capability event | internal to a write | `client.queue.publish()` |
 
-`@synapseone/sdk` is a runtime dependency. The service contains no direct
-`fetch` to SynapseOne and no private service URL.
+`@synapseone/sdk` is a runtime dependency of `apps/capabilities-service`. The
+service contains no direct `fetch` to SynapseOne and no private service URL.
 
 ## Operator actions
 

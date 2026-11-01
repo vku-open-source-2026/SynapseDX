@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SynapseDX</title></head>
+  <body>
+    <main><h1>SynapseDX</h1><p>Tier-2 reusable capabilities.</p><p id="status">Checking gateway…</p></main>
+    <script>
+      fetch('/health').then(r => r.json()).then(x => { document.querySelector('#status').textContent = x.status; }).catch(() => { document.querySelector('#status').textContent = 'Gateway unavailable'; });
+    </script>
+  </body>
+</html>

@@ -7,7 +7,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vku-open-source-2026/SynapseDX.git",
-    "directory": "sdk-js"
+    "directory": "sdks/capabilities-js"
   },
   "publishConfig": { "access": "public" },
   "main": "dist/index.js",

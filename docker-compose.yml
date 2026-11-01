@@ -1,8 +1,8 @@
 services:
-  synapsedx:
+  capabilities:
     build:
       context: ..
-      dockerfile: SynapseDX/Dockerfile
+      dockerfile: SynapseDX/apps/capabilities-service/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
@@ -10,5 +10,32 @@ services:
       PORT: "8082"
       SYNAPSEONE_BASE_URL: https://api.synapseone.space
       ALLOW_LOCAL_DEPENDENCIES: "false"
+    expose:
+      - "8082"
+    networks: [synapsedx]
+  gateway:
+    build:
+      context: ..
+      dockerfile: SynapseDX/apps/gateway/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      CAPABILITIES_SERVICE_URL: http://capabilities:8082
+      CORS_ORIGIN: https://synapsecity.sbs
     ports:
-      - "8082:8082"
+      - "8082:8080"
+    networks:
+      synapsedx:
+        aliases: [synapsedx-gateway]
+  console:
+    build:
+      context: ..
+      dockerfile: SynapseDX/apps/console/Dockerfile
+    restart: unless-stopped
+    expose: ["80"]
+    networks: [synapsedx]
+
+networks:
+  synapsedx:
+    name: synapsedx-public-stack

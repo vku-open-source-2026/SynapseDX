@@ -1,0 +1,11 @@
+{
+  "name": "@synapsedx/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "SynapseDX public API gateway",
+  "type": "commonjs",
+  "scripts": { "build": "tsc -p tsconfig.json", "start": "node dist/src/index.js" },
+  "dependencies": { "express": "^4.21.2" },
+  "devDependencies": { "@types/express": "^5.0.0", "@types/node": "^22.10.2", "typescript": "^5.7.2" }
+}

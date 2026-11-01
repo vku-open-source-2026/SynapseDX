@@ -1,0 +1,15 @@
+FROM node:20-bookworm-slim AS build
+WORKDIR /workspace
+COPY SynapseDX/package*.json ./SynapseDX/
+COPY SynapseDX/apps/capabilities-service/package*.json SynapseDX/apps/capabilities-service/tsconfig.json ./SynapseDX/apps/capabilities-service/
+COPY SynapseDX/apps/capabilities-service/src ./SynapseDX/apps/capabilities-service/src
+RUN cd SynapseDX && npm ci && npm run build --workspace=@synapsedx/capabilities-service
+FROM node:20-bookworm-slim
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=build /workspace/SynapseDX/package*.json ./
+COPY --from=build /workspace/SynapseDX/node_modules ./node_modules
+COPY --from=build /workspace/SynapseDX/apps/capabilities-service/dist ./apps/capabilities-service/dist
+COPY --from=build /workspace/SynapseDX/apps/capabilities-service/package.json ./apps/capabilities-service/
+EXPOSE 8082
+CMD ["node", "apps/capabilities-service/dist/src/server.js"]
