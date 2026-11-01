@@ -34,7 +34,9 @@ services:
       dockerfile: SynapseDX/apps/console/Dockerfile
     restart: unless-stopped
     expose: ["80"]
-    networks: [synapsedx]
+    networks:
+      synapsedx:
+        aliases: [synapsedx-console]
 
 networks:
   synapsedx:
