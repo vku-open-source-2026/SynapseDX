@@ -44,6 +44,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
           images="synapsedx-capabilities synapsedx-gateway synapsedx-console"
           for image in $images; do
             remote="ghcr.io/${OWNER}/${image}"
