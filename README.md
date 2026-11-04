@@ -14,6 +14,11 @@ The backend imports the published `@synapseone/sdk@0.7.0`; it does not use raw
 HTTP to SynapseOne. The gateway only proxies the Tier-2 API within the product.
 Tier 3 calls the gateway at `https://synapsedx.sbs`.
 
+Dataset metadata can be updated in place with
+`PATCH /v1/capabilities/datasets/:id` (or
+`CapabilitiesClient.datasets.update()`), including the data license and public
+visibility. This keeps Tier-3 license migrations on the Tier-2 contract.
+
 ```bash
 cp .env.example .env
 npm install

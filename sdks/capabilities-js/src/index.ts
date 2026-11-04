@@ -33,6 +33,10 @@ export interface Dataset extends DatasetInput {
   updatedAt: string;
 }
 
+export type DatasetUpdateInput = Partial<Pick<DatasetInput,
+  'name' | 'entityType' | 'license' | 'description' | 'public' | 'owner' | 'schemaVersion'
+>>;
+
 export interface RecordPage<T = Record<string, unknown>> {
   items: Array<{ id: string; data: T; version?: number; createdAt?: string; updatedAt?: string }>;
   total: number;
@@ -108,6 +112,7 @@ export class CapabilitiesClient {
     list: (query?: { publicOnly?: boolean; limit?: number; offset?: number }) => Promise<Dataset[]>;
     get: (id: string) => Promise<Dataset>;
     create: (input: DatasetInput) => Promise<Dataset>;
+    update: (id: string, input: DatasetUpdateInput) => Promise<Dataset>;
     publish: (id: string) => Promise<Dataset>;
     revoke: (id: string) => Promise<Dataset>;
     entities: (id: string, query?: { limit?: number; offset?: number }) => Promise<unknown[]>;
@@ -129,6 +134,7 @@ export class CapabilitiesClient {
       })}`),
       get: (id) => this.http.request<Dataset>(`/v1/capabilities/datasets/${encodeURIComponent(id)}`),
       create: (input) => this.http.request<Dataset>('/v1/capabilities/datasets', { method: 'POST', body: JSON.stringify(input) }),
+      update: (id, input) => this.http.request<Dataset>(`/v1/capabilities/datasets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
       publish: (id) => this.http.request<Dataset>(`/v1/capabilities/datasets/${encodeURIComponent(id)}/publish`, { method: 'POST' }),
       revoke: (id) => this.http.request<Dataset>(`/v1/capabilities/datasets/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
       entities: (id, query = {}) => this.http.request<unknown[]>(`/v1/capabilities/datasets/${encodeURIComponent(id)}/entities?${new URLSearchParams({

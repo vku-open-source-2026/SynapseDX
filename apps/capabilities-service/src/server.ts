@@ -177,6 +177,45 @@ app.get('/v1/capabilities/datasets/:id', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.patch('/v1/capabilities/datasets/:id', async (req, res, next) => {
+  try {
+    const client = tier1FromRequest(req);
+    const { data } = await getDataset(client, req.params.id);
+    const body = bodyRecord(req.body);
+    const patch: Partial<DatasetRecord> = {};
+    if (body.name !== undefined) patch.name = requireField(body, 'name');
+    if (body.entityType !== undefined) patch.entityType = requireField(body, 'entityType');
+    if (body.license !== undefined) patch.license = requireField(body, 'license');
+    if (body.description !== undefined) patch.description = String(body.description);
+    if (body.owner !== undefined) patch.owner = String(body.owner);
+    if (body.schemaVersion !== undefined) patch.schemaVersion = requireField(body, 'schemaVersion');
+    if (body.public !== undefined) {
+      if (typeof body.public !== 'boolean') throw httpError(400, 'public_must_be_boolean');
+      patch.public = body.public;
+    }
+    if (Object.keys(patch).length === 0) throw httpError(400, 'no_updatable_fields');
+    const updated: DatasetRecord = { ...data, ...patch, updatedAt: new Date().toISOString() };
+    await client.base.updateDocument(COLLECTIONS.datasets, data.id, { data: updated as unknown as Record<string, unknown> });
+    if (updated.ldsDatasourceId) {
+      await client.lds.updateDatasource(updated.ldsDatasourceId, {
+        name: updated.name,
+        entityType: updated.entityType,
+        license: updated.license,
+        ...(updated.description ? { description: updated.description } : {}),
+        defaultVisibility: updated.public ? 'public' : 'internal',
+      });
+    }
+    await emitCapabilityEvent(client, {
+      eventId: randomUUID(),
+      type: 'dataset.updated',
+      datasetId: updated.id,
+      version: updated.schemaVersion,
+      at: updated.updatedAt,
+    });
+    res.json(updated);
+  } catch (error) { next(error); }
+});
+
 app.post('/v1/capabilities/datasets/:id/publish', async (req, res, next) => {
   try {
     const client = tier1FromRequest(req);
