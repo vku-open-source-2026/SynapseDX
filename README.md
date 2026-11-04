@@ -1,5 +1,8 @@
 # SynapseDX — Tier 2
 
+![CI](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml/badge.svg)
+![Release](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/release-images.yml/badge.svg)
+
 SynapseDX is the reusable capability layer between SynapseOne (Tier 1) and the
 Tier-3 products (SynapseCity, SynapseCitySOS). It exposes generic
 organization/open-data capabilities and uses SynapseOne for all persistence,

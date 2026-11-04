@@ -88,3 +88,18 @@ Tier-2 requires a scoped Tier-1 service credential with Base/LDS/Queue/Stream/
 IAM/Workflow/Inference/Faststore/Storage/Notifications access. Local HTTP
 dependencies are test-only (`ALLOW_LOCAL_DEPENDENCIES=true`); production must
 use public HTTPS URLs.
+
+## Container release (v* tags)
+
+`.github/workflows/release-images.yml` builds and publishes:
+
+```text
+ghcr.io/vku-open-source-2026/synapsedx-capabilities:vX.Y.Z
+ghcr.io/vku-open-source-2026/synapsedx-gateway:vX.Y.Z
+ghcr.io/vku-open-source-2026/synapsedx-console:vX.Y.Z
+```
+
+Each image also gets `latest` and `sha-<commit>` tags. The GitHub release
+attaches the verified SDK tarball, checksums, compose file and API/runner docs.
+The separate operator-gated `sdk-v*` workflow publishes the npm SDK when
+`NPM_TOKEN` is configured.
