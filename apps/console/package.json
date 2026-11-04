@@ -6,7 +6,11 @@
   "description": "SynapseDX Tier-2 capability console shell",
   "scripts": {
     "build": "node -e \"console.log('static console ready')\"",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "playwright test"
   },
-  "type": "module"
+  "type": "module",
+  "devDependencies": {
+    "@playwright/test": "^1.64.1"
+  }
 }

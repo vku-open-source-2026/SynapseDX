@@ -67,3 +67,28 @@ jobs:
           npm init -y >/dev/null
           npm install "$TARBALL" >/dev/null
           node -e "const m = require('@synapsedx/capabilities'); if (typeof m.CapabilitiesClient !== 'function') process.exit(1); console.log('sdk-ok')"
+
+  console-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+      - name: Role-matrix and responsive console E2E
+        run: npm run test:e2e --workspace=@synapsedx/console
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-playwright
+          path: |
+            apps/console/test-results
+            apps/console/playwright-report
+          retention-days: 7
