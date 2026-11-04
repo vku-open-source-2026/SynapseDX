@@ -11,3 +11,4 @@
 @media(max-width:900px){.role-grid{grid-template-columns:repeat(2,1fr)}.session-name{max-width:150px}}
 @media(max-width:620px){.session-box{width:100%}.session-user{justify-content:flex-start}.toolbar .input{flex:1 1 150px}.modal{margin:12px auto;width:calc(100% - 20px);max-height:calc(100vh - 24px)}.role-grid{grid-template-columns:1fr}.kv{grid-template-columns:1fr}.data-table{min-width:640px}}
 .data-table .dataset-name small{display:block;line-height:1.45}.data-table .dataset-name small+small{margin-top:2px}
+.bulk-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);background:#0a1c31;border-radius:9px;padding:9px 12px;margin:14px 0 2px}.bulk-bar .checkbox{margin:0}.danger-outline{border-color:#8c3d4a;color:#f39aa7}

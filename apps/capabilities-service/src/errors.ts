@@ -46,6 +46,7 @@ export type ErrorCode =
   | 'moderation_forbidden'
   | 'review_note_required'
   | 'review_not_pending'
+  | 'review_required'
   | 'job_not_found'
   | 'job_kind_unknown'
   | 'job_not_runnable'

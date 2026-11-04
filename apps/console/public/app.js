@@ -23,6 +23,8 @@ const state = {
   datasets: [],
   selectedDataset: null,
   reviewStatus: 'pending',
+  selectedReviews: new Set(),
+  settings: null,
   auditQuery: {},
 };
 
@@ -442,29 +444,68 @@ async function renderModeration() {
   }
   const result = await api.get(`/v1/capabilities/management/review-queue?status=${encodeURIComponent(state.reviewStatus)}&limit=100`);
   const items = Array.isArray(result?.items) ? result.items : [];
+  const canDecide = state.reviewStatus === 'pending' && can(state.context, 'moderation:write');
   const tabs = ['pending', 'approved', 'rejected', 'all'].map((value) => (
     `<button class="tab${state.reviewStatus === value ? ' active' : ''}" type="button" data-action="review-tab" data-id="${value}">${escapeHtml(statusLabel(value === 'all' ? 'All' : value))}</button>`
   )).join('');
   const rows = items.map((dataset) => {
     const actions = [];
-    if (state.reviewStatus === 'pending' && can(state.context, 'moderation:write')) {
+    if (canDecide) {
       actions.push(actionButton('approve-review', dataset.id, 'Approve', { variant: 'ok' }));
       actions.push(actionButton('reject-review', dataset.id, 'Reject', { variant: 'bad' }));
     }
     if (can(state.context, 'records:read')) actions.push(actionButton('view-records', dataset.id, 'Records'));
-    return `<tr><td><div class="dataset-name"><strong>${escapeHtml(dataset.name || dataset.id)}</strong><small class="mono">${escapeHtml(dataset.id)}</small></div></td>` +
+    const selected = state.selectedReviews.has(dataset.id);
+    return `<tr>` +
+      `<td>${canDecide ? `<input type="checkbox" data-review-select="${escapeHtml(dataset.id)}"${selected ? ' checked' : ''} aria-label="Select ${escapeHtml(dataset.name || dataset.id)}" />` : ''}</td>` +
+      `<td><div class="dataset-name"><strong>${escapeHtml(dataset.name || dataset.id)}</strong><small class="mono">${escapeHtml(dataset.id)}</small></div></td>` +
       `<td>${badge(dataset.status)}</td><td>${badge(dataset.reviewStatus)}</td>` +
       `<td class="mono">${escapeHtml(relativeTime(dataset.reviewSubmittedAt))}</td>` +
       `<td>${escapeHtml(dataset.reviewNote || '—')}</td>` +
       `<td><div class="row-actions">${actions.join('') || '<span class="muted">Read only</span>'}</div></td></tr>`;
   }).join('');
+  const selectedCount = state.selectedReviews.size;
+  const bulk = canDecide
+    ? `<div class="bulk-bar"><label class="checkbox"><input type="checkbox" data-review-all ${items.length && selectedCount === items.length ? 'checked' : ''} /><span>Select all</span></label>` +
+      `<span class="muted">${selectedCount} selected</span>` +
+      `<button class="ghost-button" type="button" data-action="bulk-review" data-id="approve"${selectedCount ? '' : ' disabled'}>Approve selected</button>` +
+      `<button class="ghost-button danger-outline" type="button" data-action="bulk-review" data-id="reject"${selectedCount ? '' : ' disabled'}>Reject selected</button></div>`
+    : '';
   setView(
     `<section class="panel"><div class="panel-heading"><div><p class="eyebrow">PEER REVIEW</p><h2>Publication moderation</h2>` +
     `<p class="muted">Operators submit public drafts; moderators approve or reject the metadata. Publication remains an operator action.</p></div></div>` +
-    `<div class="tabs">${tabs}</div>` +
-    dataTable(['Dataset', 'Status', 'Review', 'Submitted', 'Note', 'Actions'], rows.length ? [rows] : [], { empty: 'No datasets in this review lane.' }) +
+    `<div class="tabs">${tabs}</div>${bulk}` +
+    dataTable(['', 'Dataset', 'Status', 'Review', 'Submitted', 'Note', 'Actions'], rows.length ? [rows] : [], { empty: 'No datasets in this review lane.' }) +
     `</section>`
   );
+  bindReviewSelection(items);
+}
+
+function bindReviewSelection(items) {
+  const selected = state.selectedReviews;
+  const update = () => {
+    const boxes = [...document.querySelectorAll('[data-review-select]')];
+    const count = boxes.filter((box) => box.checked).length;
+    state.selectedReviews = new Set(boxes.filter((box) => box.checked).map((box) => box.dataset.reviewSelect));
+    const all = document.querySelector('[data-review-all]');
+    if (all) all.checked = boxes.length > 0 && count === boxes.length;
+    const label = document.querySelector('.bulk-bar .muted');
+    if (label) label.textContent = `${state.selectedReviews.size} selected`;
+    for (const button of document.querySelectorAll('[data-action="bulk-review"]')) {
+      button.disabled = state.selectedReviews.size === 0;
+    }
+  };
+  for (const box of document.querySelectorAll('[data-review-select]')) {
+    box.checked = selected.has(box.dataset.reviewSelect);
+    box.addEventListener('change', update);
+  }
+  const all = document.querySelector('[data-review-all]');
+  all?.addEventListener('change', () => {
+    for (const box of document.querySelectorAll('[data-review-select]')) box.checked = all.checked;
+    update();
+  });
+  update();
+  void items;
 }
 
 /* -------------------------------------------------------------------------- *
@@ -548,9 +589,22 @@ async function renderAudit() {
  * -------------------------------------------------------------------------- */
 
 async function renderSettings() {
-  const health = await api.get('/health').catch(() => null);
   const context = state.context || {};
   const scopes = context.auth?.scopes || [];
+  const [healthResult, settingsResult] = await Promise.allSettled([
+    api.get('/health'),
+    api.get('/v1/capabilities/management/settings'),
+  ]);
+  const health = healthResult.status === 'fulfilled' ? healthResult.value : null;
+  const settings = settingsResult.status === 'fulfilled' ? settingsResult.value?.settings : null;
+  state.settings = settings;
+  const canWrite = can(context, 'settings:write');
+  const policy = settings
+    ? `<p class="eyebrow">PUBLICATION POLICY</p><h2>${settings.requireReview ? 'Review required' : 'Direct publication'}</h2>` +
+      `<p class="muted">When review is required, a public dataset must be approved by a moderator before an operator can publish it.</p>` +
+      `<label class="checkbox"><input type="checkbox" id="require-review"${settings.requireReview ? ' checked' : ''}${canWrite ? '' : ' disabled'} /><span>Require moderator approval before publication</span></label>` +
+      (canWrite ? '<div class="row-actions"><button class="primary-button" type="button" data-action="save-settings">Save policy</button></div>' : '<p class="muted">Your role can view but not change this policy.</p>')
+    : '<p class="eyebrow">PUBLICATION POLICY</p><p class="muted">The policy is unavailable for this role.</p>';
   setView(
     `<section class="split-grid"><article class="panel"><p class="eyebrow">VERIFIED PRINCIPAL</p><h2>${escapeHtml(context.user?.email || context.user?.id || '—')}</h2>` +
     `<p class="muted">Roles: ${escapeHtml((context.roles || []).join(', ') || 'none')}</p>` +
@@ -566,6 +620,7 @@ async function renderSettings() {
     `<dt>Docs</dt><dd><a class="text-link" href="https://github.com/vku-open-source-2026/SynapseDX/blob/main/docs/API.md" target="_blank" rel="noreferrer">API reference ↗</a></dd></dl>` +
     `<div class="row-actions"><button class="ghost-button" type="button" data-action="logout-all">Sign out all sessions</button>` +
     `<button class="ghost-button" type="button" data-action="logout">Sign out</button></div></article></section>` +
+    `<section class="panel">${policy}</section>` +
     `<section class="panel"><p class="eyebrow">ROLE MODEL</p><h2>Management roles</h2>` +
     `<div class="role-grid"><div><strong>Administrator</strong><p class="muted">Full control, tenant settings and role visibility.</p></div>` +
     `<div><strong>Operator</strong><p class="muted">Datasets, records, publication and outbox recovery.</p></div>` +
@@ -827,6 +882,39 @@ function openReviewModal(dataset, decision) {
   });
 }
 
+function openBulkReviewModal(decision) {
+  const ids = [...state.selectedReviews];
+  if (!ids.length) return;
+  const rejecting = decision === 'reject';
+  openModal({
+    title: `${rejecting ? 'Reject' : 'Approve'} ${ids.length} dataset(s)`,
+    body: `<p class="muted">${rejecting
+      ? 'The same reason is recorded for every selected dataset. Items that are no longer pending are skipped and reported.'
+      : 'Approval records one decision per dataset and keeps the individual audit trail.'}</p>` +
+      textareaField(rejecting ? 'Reason (required)' : 'Review note', 'note', '', { required: rejecting, rows: 4 }),
+    submitLabel: rejecting ? 'Reject selected' : 'Approve selected',
+    danger: rejecting,
+    onSubmit: async (form) => {
+      const note = String(new FormData(form).get('note') || '').trim();
+      if (rejecting && note.length < 3) throw new Error('A reason is required to reject datasets.');
+      let ok = 0;
+      const errors = [];
+      for (const id of ids) {
+        try {
+          await api.post(`/v1/capabilities/management/datasets/${encodeURIComponent(id)}/${decision}`, { ...(note ? { note } : {}) });
+          ok += 1;
+        } catch (error) {
+          errors.push(`${id}: ${error.message}`);
+        }
+      }
+      state.selectedReviews = new Set();
+      closeModal(false);
+      await render();
+      showToast(`${ok} dataset(s) ${rejecting ? 'rejected' : 'approved'}${errors.length ? `; ${errors.length} skipped` : ''}.`, errors.length ? 'warn' : 'ok');
+    },
+  });
+}
+
 function openSubmitReviewModal(dataset) {
   openModal({
     title: `Submit ${dataset.name || dataset.id} for review`,
@@ -863,6 +951,15 @@ async function handleAction(action, id) {
     showToast('Signed out.');
     return;
   }
+  if (action === 'save-settings') {
+    const checkbox = $('require-review');
+    if (!checkbox) throw new Error('The review policy control is unavailable.');
+    const result = await api.patch('/v1/capabilities/management/settings', { requireReview: checkbox.checked });
+    state.settings = result?.settings || state.settings;
+    await render();
+    showToast('Publication policy saved.');
+    return;
+  }
   if (action === 'logout-all') {
     if (!state.session?.refreshToken) throw new Error('No refresh token is available for this session.');
     if (!(await confirmModal({ title: 'Sign out all sessions?', message: 'This revokes every refresh token for the account.', label: 'Sign out all', danger: true }))) return;
@@ -882,8 +979,10 @@ async function handleAction(action, id) {
   if (action === 'submit-review') return openSubmitReviewModal(await findDataset(id));
   if (action === 'review-tab') {
     state.reviewStatus = id;
+    state.selectedReviews = new Set();
     return render();
   }
+  if (action === 'bulk-review') return openBulkReviewModal(id);
   if (action === 'approve-review') return openReviewModal(await findDataset(id), 'approve');
   if (action === 'reject-review') return openReviewModal(await findDataset(id), 'reject');
   if (action === 'view-records') {
