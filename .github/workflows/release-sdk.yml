@@ -15,8 +15,9 @@ permissions:
 
 jobs:
   publish:
-    if: startsWith(github.ref, 'refs/tags/sdk-v')
     runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,12 +40,12 @@ jobs:
           tar -tzf "$TARBALL" | grep -q 'package/LICENSE'
           tar -tzf "$TARBALL" | grep -q 'package/NOTICE'
       - name: Publish to npm
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: env.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --workspace=@synapsedx/capabilities --access public --provenance
       - name: Explain skipped publish
-        if: ${{ secrets.NPM_TOKEN == '' }}
+        if: env.NPM_TOKEN == ''
         run: |
           echo 'NPM_TOKEN is not configured; the SDK tarball was built and verified but not published.' >&2
           echo 'Set NPM_TOKEN for the @synapsedx scope to complete issue #14.' >&2
