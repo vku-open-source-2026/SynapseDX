@@ -20,6 +20,17 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ### Added
 
+- Tier-2 management console (`cloud.synapsedx.sbs`) for administrators,
+  operators, moderators and managers: login through the Tier-1 identity
+  capability, dataset create/edit/publish/revoke/delete, record CRUD and bulk
+  import, review queue, event feed, audit/usage and session settings.
+- Management capability endpoints under `/v1/capabilities/management/*` with
+  server-derived roles (`admin`, `operator`, `moderator`, `manager`, `viewer`)
+  and an additive dataset review lane (`submit-review`, `approve`, `reject`,
+  review audit). Publication remains a separate operator action.
+- CI hardening: CodeQL (JS/TS), dependency review on pull requests, actionlint,
+  CycloneDX SBOM artifacts, npm audit gate, Dependabot, PR template and
+  concurrency/timeout controls.
 - Per-dependency health/readiness (`/v1/capabilities/health|ready`) with status,
   latency and error codes; typed SDK `health()`/`ready()` (#30).
 - Non-destructive capability event feed with cursor plus dataset outbox and

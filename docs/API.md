@@ -243,6 +243,29 @@ The caller always uses its own account-scoped key/token. Tier-2 derives
 `tenantKey` from the verified account/org/subject and never reads a role from
 the request body.
 
+## Management console
+
+The console at `cloud.synapsedx.sbs` is a static SPA backed by these routes.
+Roles are derived from the verified Tier-1 principal; the browser cannot
+choose a role. `admin` is `*`/`synapsedx:admin`, `operator` is `write`/
+`synapsedx:operator`, `moderator` is `synapsedx:moderator`, and `manager` is a
+read/manager scope. A credential with no explicit scopes keeps the legacy
+full-access behaviour and resolves to `operator` + `manager`.
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/v1/capabilities/management/context` | verified | `{user, tenant, org?, account?, roles, permissions, auth}` for the console shell. |
+| GET | `/v1/capabilities/management/summary` | verified | Tenant-scoped dataset counts, pending-review count, pending outbox events and recent audit. |
+| GET | `/v1/capabilities/management/review-queue` | manager+ | `{items,total,...}` filtered by `status=pending\|approved\|rejected\|all`. |
+| POST | `/v1/capabilities/management/datasets/:id/submit-review` | write | Submit a public draft/revoked dataset for peer review (`{note?}`). |
+| POST | `/v1/capabilities/management/datasets/:id/approve` | moderator/admin | Approve a pending review (`{note?}`). Publication remains a separate operator action. |
+| POST | `/v1/capabilities/management/datasets/:id/reject` | moderator/admin | Reject a pending review; `{note}` is required and is shown to the operator. |
+
+Review state is additive on the dataset: `reviewStatus`
+(`none|pending|approved|rejected`), `reviewSubmittedAt`, `reviewedBy`,
+`reviewedAt`, `reviewNote`. It never bypasses the existing
+`draft → published → revoked` lifecycle or the public-license check.
+
 ## AI/inference
 
 | Method | Route | Auth | Description |

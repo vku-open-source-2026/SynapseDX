@@ -58,6 +58,12 @@ export interface DatasetRecord {
   retentionDays?: number;
   everPublished?: boolean;
   pendingEvents?: CapabilityEvent[];
+  /** Optional peer-review lane; publication remains an operator action. */
+  reviewStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+  reviewSubmittedAt?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
   createdAt: string;
   updatedAt: string;
 }

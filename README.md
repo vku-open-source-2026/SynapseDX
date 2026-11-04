@@ -113,6 +113,33 @@ omitted inherits the dataset default.
   succeeds (`x-event-status: pending`) and the event is retried from the
   dataset outbox via `POST /v1/capabilities/events/outbox/flush?datasetId=...`.
 
+## Management console
+
+`cloud.synapsedx.sbs` serves the Tier-2 control plane for administrators,
+operators, moderators and managers. It is a dependency-free static SPA backed
+only by the public capabilities API:
+
+- sign in with the Tier-1 IAM account (email/password); the session lives in
+  `sessionStorage` and is revoked through the identity capability;
+- overview metrics, dataset create/edit/publish/revoke/delete, record CRUD and
+  bulk import, review queue, event feed, audit/usage and session settings;
+- roles are derived server-side: `admin`, `operator`, `moderator`, `manager`
+  and `viewer`; the browser cannot choose a role;
+- public visitors can still browse the published dataset catalog.
+
+The review lane is additive: `submit-review` → `approve`/`reject` records a
+decision, while publication remains a separate operator action. See
+[`docs/API.md`](docs/API.md) and
+[`docs/DX_OS_TIER_MODEL_2026-11-04.md`](docs/DX_OS_TIER_MODEL_2026-11-04.md).
+
+## DX-OS 2026
+
+The OLP 2026 exam asks for a three-tier DX-OS: headless Tier-1 platform,
+reusable H-P-D-I capabilities in Tier 2, and domain apps in Tier 3. The tier
+boundary, feature allocation matrix, HITL contract and OLP evidence checklist
+are documented in
+[`docs/DX_OS_TIER_MODEL_2026-11-04.md`](docs/DX_OS_TIER_MODEL_2026-11-04.md).
+
 ## Commands
 
 ```bash

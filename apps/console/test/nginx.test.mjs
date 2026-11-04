@@ -21,3 +21,11 @@ test('console nginx proxies the API and health to the gateway', () => {
   assert.match(config, /location \/v1\/capabilities[\s\S]*proxy_pass \$gateway\$request_uri;/);
   assert.match(config, /resolver 127\.0\.0\.11/);
 });
+
+test('console nginx sends a strict self-only CSP and permissions policy', () => {
+  assert.match(config, /Content-Security-Policy[^;]*default-src 'self'/);
+  assert.match(config, /script-src 'self'/);
+  assert.match(config, /frame-ancestors 'none'/);
+  assert.match(config, /connect-src 'self'/);
+  assert.match(config, /Permissions-Policy[^;]*geolocation=\(\)/);
+});

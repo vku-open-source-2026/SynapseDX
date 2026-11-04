@@ -159,17 +159,42 @@ export function isAdmin(principal: CallerPrincipal): boolean {
   return principal.scopes.some((scope) => scope === '*' || scope === 'synapsedx:admin' || scope === 'admin');
 }
 
-/** Read-only API keys cannot mutate capability data. */
-export function assertWriteScope(principal: CallerPrincipal): void {
-  if (isAdmin(principal)) return;
-  if (!principal.scopes.length) return; // Tier-1 keys without explicit scopes are full-access keys
-  const writable = principal.scopes.some((scope) => (
+/** A credential may mutate capability data (write, operator or admin). */
+export function hasWriteScope(principal: CallerPrincipal): boolean {
+  if (isAdmin(principal)) return true;
+  if (!principal.scopes.length) return true; // Tier-1 keys without explicit scopes are full-access keys
+  return principal.scopes.some((scope) => (
     scope === '*' ||
     scope.toLowerCase() === 'write' ||
+    scope.toLowerCase() === 'synapsedx:operator' ||
     /(^|:)write$/i.test(scope) ||
     /(^|:)admin$/i.test(scope)
   ));
-  if (!writable) throw apiError(403, 'insufficient_scope', 'this credential is read-only');
+}
+
+/** A credential may read tenant-scoped management data. */
+export function hasReadScope(principal: CallerPrincipal): boolean {
+  if (hasWriteScope(principal)) return true;
+  return principal.scopes.some((scope) => {
+    const value = scope.toLowerCase();
+    return value === '*:read' || value === 'read' || value === 'synapsedx:manager' || /(^|:)read$/i.test(value);
+  });
+}
+
+/** A credential may review/approve capability metadata. */
+export function isModerator(principal: CallerPrincipal): boolean {
+  if (isAdmin(principal)) return true;
+  return principal.scopes.some((scope) => {
+    const value = scope.toLowerCase();
+    return value === 'synapsedx:moderator' || value === 'moderator' || value.endsWith(':moderator');
+  });
+}
+
+/** Read-only API keys cannot mutate capability data. */
+export function assertWriteScope(principal: CallerPrincipal): void {
+  if (!hasWriteScope(principal)) {
+    throw apiError(403, 'insufficient_scope', 'this credential is read-only');
+  }
 }
 
 /** Dataset visibility for the verified caller. */

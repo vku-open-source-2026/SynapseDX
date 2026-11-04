@@ -36,6 +36,9 @@ export async function startHarness(
     tokens: {
       'user-token': { sub: 'user-1', account: 'acct-a', org: 'org-a', scopes: ['write'] },
       'read-token': { sub: 'reader', account: 'acct-a', scopes: ['read'] },
+      'moderator-token': { sub: 'moderator-1', account: 'acct-a', org: 'org-a', scopes: ['synapsedx:moderator', 'read'] },
+      'viewer-token': { sub: 'viewer-1', account: 'acct-a', org: 'org-a', scopes: ['datasets:list'] },
+      'admin-token': { sub: 'admin-1', account: 'acct-a', org: 'org-a', scopes: ['*'] },
       'other-token': { sub: 'user-b', account: 'acct-b', org: 'org-b', scopes: ['write'] },
     },
     apiKeys: {

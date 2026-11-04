@@ -7,5 +7,6 @@
   "scripts": {
     "build": "node -e \"console.log('static console ready')\"",
     "test": "node --test test/*.test.mjs"
-  }
+  },
+  "type": "module"
 }
