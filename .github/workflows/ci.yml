@@ -11,9 +11,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,6 +31,16 @@ jobs:
         run: npm run build
       - name: Test (contract suites, no network)
         run: npm test
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Generate CycloneDX SBOM
+        run: npm sbom --sbom-format=cyclonedx > sbom.cdx.json
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: synapsedx-sbom
+          path: sbom.cdx.json
+          retention-days: 14
       - name: Compose config
         run: docker compose config >/dev/null
       - name: Compose build
