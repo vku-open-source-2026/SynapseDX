@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
-          pairs="capabilities:synapsedx-capabilities gateway:synapsedx-gateway console:synapsedx-console"
+          pairs="capabilities:synapsedx/capabilities gateway:synapsedx/gateway console:synapsedx/console"
           for pair in $pairs; do
             service="${pair%%:*}"
             image="${pair##*:}"
@@ -82,9 +82,9 @@ jobs:
             SynapseDX ${{ github.ref_name }}
 
             Images:
-            - `ghcr.io/${{ github.repository_owner }}/synapsedx-capabilities:${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository_owner }}/synapsedx-gateway:${{ github.ref_name }}`
-            - `ghcr.io/${{ github.repository_owner }}/synapsedx-console:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository_owner }}/synapsedx/capabilities:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository_owner }}/synapsedx/gateway:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository_owner }}/synapsedx/console:${{ github.ref_name }}`
 
             SDK tarball and checksums are attached. npm publication is handled by
             the operator-gated `sdk-v*` workflow.
