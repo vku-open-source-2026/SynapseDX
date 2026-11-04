@@ -33,6 +33,7 @@ const VIEW_META = {
   datasets: { eyebrow: 'CAPABILITY CATALOG', title: 'Datasets and publication' },
   records: { eyebrow: 'RECORD PIPELINE', title: 'Records and projections' },
   moderation: { eyebrow: 'PEER REVIEW', title: 'Publication moderation' },
+  team: { eyebrow: 'ACCESS CONTROL', title: 'Team and roles' },
   events: { eyebrow: 'EVENT BUS', title: 'Events and outbox' },
   audit: { eyebrow: 'GOVERNANCE', title: 'Audit and usage' },
   settings: { eyebrow: 'SESSION', title: 'Console settings' },
@@ -228,6 +229,7 @@ async function render() {
     else if (state.view === 'datasets') await renderDatasets();
     else if (state.view === 'records') await renderRecords();
     else if (state.view === 'moderation') await renderModeration();
+    else if (state.view === 'team') await renderTeam();
     else if (state.view === 'events') await renderEvents();
     else if (state.view === 'audit') await renderAudit();
     else if (state.view === 'settings') await renderSettings();
@@ -506,6 +508,45 @@ function bindReviewSelection(items) {
   });
   update();
   void items;
+}
+
+/* -------------------------------------------------------------------------- *
+ * Team and roles
+ * -------------------------------------------------------------------------- */
+
+async function renderTeam() {
+  if (!can(state.context, 'users:read')) {
+    setView(errorPanel({ status: 403, code: 'insufficient_scope', message: 'Team administration requires an administrator.' }));
+    return;
+  }
+  const data = await api.get('/v1/capabilities/management/team');
+  const members = Array.isArray(data?.members) ? data.members : [];
+  const roles = Array.isArray(data?.roles) ? data.roles : [];
+  const policies = Array.isArray(data?.policies) ? data.policies : [];
+  const roleOptions = roles.map((role) => `<option value="${escapeHtml(role.id)}">${escapeHtml(role.slug || role.name || role.id)}</option>`).join('');
+  const rows = members.map((member) => {
+    const current = Array.isArray(member.roles) ? member.roles : [];
+    const chips = current.map((role) => {
+      const roleId = role.id || role.roleId || role;
+      const label = role.slug || role.name || roleId;
+      return `<span class="permission">${escapeHtml(label)} <button class="inline-remove" type="button" data-action="remove-role" data-id="${escapeHtml(`${member.id}|${roleId}`)}" aria-label="Remove ${escapeHtml(label)}">×</button></span>`;
+    }).join('');
+    return `<tr><td><div class="dataset-name"><strong>${escapeHtml(member.displayName || member.email || member.id)}</strong><small class="mono">${escapeHtml(member.email || member.id)}</small></div></td>` +
+      `<td>${chips || '<span class="muted">No roles</span>'}</td>` +
+      `<td><div class="row-actions"><select class="input" data-role-select="${escapeHtml(member.id)}" aria-label="Role for ${escapeHtml(member.email || member.id)}">${roleOptions}</select>` +
+      `<button class="table-action" type="button" data-action="assign-role" data-id="${escapeHtml(member.id)}">Assign</button></div></td></tr>`;
+  }).join('');
+  setView(
+    `<section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACCESS CONTROL</p><h2>Team and roles</h2>` +
+    `<p class="muted">Membership and role assignment are owned by Tier-1 IAM. This page only projects the verified tenant's users and roles; changes are audited.</p></div>` +
+    `<span class="pill neutral">${members.length} member${members.length === 1 ? '' : 's'}</span></div>` +
+    dataTable(['Member', 'Roles', 'Assign'], rows.length ? [rows] : [], { empty: 'No members are visible for this tenant.' }) +
+    `</section>` +
+    `<section class="split-grid"><article class="panel compact"><p class="eyebrow">ROLES</p><h2>${roles.length} role${roles.length === 1 ? '' : 's'}</h2>` +
+    `<div class="permission-list">${roles.map((role) => `<span class="permission">${escapeHtml(role.slug || role.name || role.id)}</span>`).join('') || '<span class="muted">No roles</span>'}</div></article>` +
+    `<article class="panel compact"><p class="eyebrow">POLICIES</p><h2>${policies.length} polic${policies.length === 1 ? 'y' : 'ies'}</h2>` +
+    `<div class="permission-list">${policies.map((policy) => `<span class="permission">${escapeHtml(policy.name || policy.id)}</span>`).join('') || '<span class="muted">No policies</span>'}</div></article></section>`
+  );
 }
 
 /* -------------------------------------------------------------------------- *
@@ -949,6 +990,23 @@ async function handleAction(action, id) {
     renderShell();
     await render();
     showToast('Signed out.');
+    return;
+  }
+  if (action === 'assign-role') {
+    const select = document.querySelector(`[data-role-select="${CSS.escape(id)}"]`);
+    const roleId = select?.value;
+    if (!roleId) throw new Error('Choose a role first.');
+    await api.post(`/v1/capabilities/management/team/${encodeURIComponent(id)}/roles`, { roleId });
+    await render();
+    showToast('Role assigned.');
+    return;
+  }
+  if (action === 'remove-role') {
+    const [userId, roleId] = String(id || '').split('|');
+    if (!userId || !roleId) throw new Error('Invalid role assignment.');
+    await api.del(`/v1/capabilities/management/team/${encodeURIComponent(userId)}/roles/${encodeURIComponent(roleId)}`);
+    await render();
+    showToast('Role removed.');
     return;
   }
   if (action === 'save-settings') {

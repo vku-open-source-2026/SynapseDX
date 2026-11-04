@@ -38,6 +38,10 @@ async function mockApi(page, context) {
   await page.route('**/health', (route) => route.fulfill({ json: { status: 'ok', dependencies: [] } }));
   await page.route('**/v1/capabilities/management/context', (route) => route.fulfill({ json: context }));
   let requireReview = false;
+  await page.route('**/v1/capabilities/management/team**', (route) => {
+    if (route.request().method() === 'POST') return route.fulfill({ json: { ok: true } });
+    return route.fulfill({ json: { org: 'org-a', account: 'acct-a', members: [{ id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] }, { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] }], roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }], policies: [{ id: 'policy-1', name: 'read-only' }] } });
+  });
   await page.route('**/v1/capabilities/management/settings', (route) => {
     if (route.request().method() === 'PATCH') requireReview = true;
     return route.fulfill({ json: { settings: { requireReview } } });
@@ -129,13 +133,16 @@ test('moderator can review but cannot edit or publish datasets', async ({ page }
 test('administrator sees every management lane and action', async ({ page }) => {
   await openAs(page, 'admin');
   await expect(page.locator('.role-badge')).toHaveText('Administrator');
-  for (const view of ['datasets', 'records', 'moderation', 'events', 'audit', 'settings']) {
+  for (const view of ['datasets', 'records', 'moderation', 'team', 'events', 'audit', 'settings']) {
     await expect(page.locator(`[data-nav="${view}"]`)).toBeVisible();
   }
   await page.click('[data-nav="datasets"]');
   await expect(page.locator('[data-action="new-dataset"]')).toBeVisible();
   await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(2);
   await expect(page.locator('[data-action="revoke-dataset"]')).toHaveCount(1);
+  await page.click('[data-nav="team"]');
+  await expect(page.locator('[data-action="assign-role"]')).toHaveCount(2);
+  await expect(page.getByText('read-only')).toBeVisible();
 });
 
 test('administrator can change the publication review policy', async ({ page }) => {

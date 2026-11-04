@@ -47,6 +47,8 @@ export type ErrorCode =
   | 'review_note_required'
   | 'review_not_pending'
   | 'review_required'
+  | 'org_required'
+  | 'user_token_required'
   | 'job_not_found'
   | 'job_kind_unknown'
   | 'job_not_runnable'
