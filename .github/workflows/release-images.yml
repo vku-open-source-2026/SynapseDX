@@ -45,12 +45,16 @@ jobs:
         run: |
           set -euo pipefail
           OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
-          images="synapsedx-capabilities synapsedx-gateway synapsedx-console"
-          for image in $images; do
+          pairs="capabilities:synapsedx-capabilities gateway:synapsedx-gateway console:synapsedx-console"
+          for pair in $pairs; do
+            service="${pair%%:*}"
+            image="${pair##*:}"
+            image_id="$(docker compose images -q "$service")"
+            test -n "$image_id"
             remote="ghcr.io/${OWNER}/${image}"
-            docker tag "${image}:latest" "${remote}:${TAG}"
-            docker tag "${image}:latest" "${remote}:latest"
-            docker tag "${image}:latest" "${remote}:sha-${SHA}"
+            docker tag "$image_id" "${remote}:${TAG}"
+            docker tag "$image_id" "${remote}:latest"
+            docker tag "$image_id" "${remote}:sha-${SHA}"
             docker push "${remote}:${TAG}"
             docker push "${remote}:latest"
             docker push "${remote}:sha-${SHA}"
