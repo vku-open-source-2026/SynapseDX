@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 VKU.VIC
-FROM node:20-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /workspace
 COPY SynapseDX/package*.json ./SynapseDX/
 COPY SynapseDX/apps/capabilities-service/package*.json SynapseDX/apps/capabilities-service/tsconfig.json ./SynapseDX/apps/capabilities-service/
 COPY SynapseDX/apps/capabilities-service/src ./SynapseDX/apps/capabilities-service/src
 RUN cd SynapseDX && npm ci && npm run build:service
 
-FROM node:20-bookworm-slim
+FROM node:26-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /workspace/SynapseDX/package*.json ./
