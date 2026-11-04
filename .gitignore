@@ -4,3 +4,6 @@ dist/
 *.log
 .notes/
 
+test-results/
+playwright-report/
+blob-report/
