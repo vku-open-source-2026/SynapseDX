@@ -251,6 +251,69 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
     res.json({ settings });
   }));
 
+  app.get('/v1/capabilities/management/team', handler(async (req, res) => {
+    const { caller } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!verified.org) throw apiError(400, 'org_required', 'the caller credential has no organization claim');
+    if (caller.credential?.kind !== 'bearer') {
+      throw apiError(403, 'user_token_required', 'team administration requires a user bearer token');
+    }
+    const iam = credentialClient(config, caller.credential).iam;
+    const members = await iam.listUsers(verified.org);
+    const roles = verified.account ? await iam.listRoles(verified.account) : [];
+    const policies = verified.account ? await iam.listPolicies(verified.account) : [];
+    res.setHeader('cache-control', 'no-store');
+    res.json({ org: verified.org, account: verified.account || null, members, roles, policies });
+  }));
+
+  app.get('/v1/capabilities/management/team/:userId/roles', handler(async (req, res) => {
+    const { caller } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
+    const roles = await credentialClient(config, caller.credential).iam.userRoles(String(req.params.userId));
+    res.setHeader('cache-control', 'no-store');
+    res.json({ userId: String(req.params.userId), roles });
+  }));
+
+  app.post('/v1/capabilities/management/team/:userId/roles', handler(async (req, res) => {
+    const { caller, client } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
+    const roleId = String((req.body || {}).roleId || '').trim();
+    if (!roleId) throw apiError(400, 'field_required', 'roleId is required');
+    const result = await credentialClient(config, caller.credential).iam.assignRole(String(req.params.userId), roleId);
+    await recordAudit(client, config, {
+      actor: verified.subject,
+      tenant: verified.tenantKey,
+      action: 'team.role.assign',
+      correlationId: correlationIdOf(req),
+      details: { userId: String(req.params.userId), roleId },
+    });
+    res.json({ ok: true, result });
+  }));
+
+  app.delete('/v1/capabilities/management/team/:userId/roles/:roleId', handler(async (req, res) => {
+    const { caller, client } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
+    const result = await credentialClient(config, caller.credential).iam.unassignRole(
+      String(req.params.userId),
+      String(req.params.roleId),
+    );
+    await recordAudit(client, config, {
+      actor: verified.subject,
+      tenant: verified.tenantKey,
+      action: 'team.role.unassign',
+      correlationId: correlationIdOf(req),
+      details: { userId: String(req.params.userId), roleId: String(req.params.roleId) },
+    });
+    res.json({ ok: true, result });
+  }));
+
   app.get('/v1/capabilities/management/review-queue', handler(async (req, res) => {
     const { caller, client } = await readContext(req, config);
     const verified = requireAuthenticated(caller);

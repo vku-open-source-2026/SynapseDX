@@ -148,6 +148,33 @@ test('review lane is tenant-scoped and refuses private or published datasets', a
   }
 });
 
+test('administrators can inspect and assign team roles', async () => {
+  const harness = await startHarness();
+  try {
+    const team = await api(harness, '/v1/capabilities/management/team', { token: 'admin-token' });
+    assert.equal(team.status, 200);
+    assert.equal(team.body.members.length, 2);
+    assert.equal(team.body.roles[0].slug, 'admin');
+    assert.equal((await api(harness, '/v1/capabilities/management/team', { token: 'user-token' })).status, 403);
+
+    const assigned = await api(harness, '/v1/capabilities/management/team/user-2/roles', {
+      method: 'POST', token: 'admin-token', body: { roleId: 'role-operator' },
+    });
+    assert.equal(assigned.status, 200);
+    const roles = await api(harness, '/v1/capabilities/management/team/user-2/roles', { token: 'admin-token' });
+    assert.equal(roles.status, 200);
+    assert.equal(roles.body.roles[0].slug, 'operator');
+    const removed = await api(harness, '/v1/capabilities/management/team/user-2/roles/role-operator', {
+      method: 'DELETE', token: 'admin-token',
+    });
+    assert.equal(removed.status, 200);
+    const summary = await api(harness, '/v1/capabilities/management/summary', { token: 'admin-token' });
+    assert.ok(summary.body.recentAudit.some((item: any) => item.action === 'team.role.assign'));
+  } finally {
+    await harness.close();
+  }
+});
+
 test('tenant settings enforce review before publication', async () => {
   const harness = await startHarness();
   try {

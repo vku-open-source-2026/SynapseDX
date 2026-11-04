@@ -25,7 +25,7 @@ test('navigation is permission-driven and public visitors only see the catalog',
   assert.deepEqual(navigationFor(null).map((item) => item.view), ['overview', 'datasets']);
   assert.deepEqual(navigationFor(operator).map((item) => item.view), ['overview', 'datasets', 'records', 'events', 'audit', 'settings']);
   assert.deepEqual(navigationFor(moderator).map((item) => item.view), ['overview', 'datasets', 'records', 'moderation', 'audit']);
-  assert.deepEqual(navigationFor(admin).map((item) => item.view), ['overview', 'datasets', 'records', 'moderation', 'events', 'audit', 'settings']);
+  assert.deepEqual(navigationFor(admin).map((item) => item.view), ['overview', 'datasets', 'records', 'moderation', 'team', 'events', 'audit', 'settings']);
   assert.equal(canOpenView(operator, 'moderation'), false);
   assert.equal(canOpenView(moderator, 'moderation'), true);
   assert.equal(can(admin, 'users:read'), true);

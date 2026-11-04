@@ -625,6 +625,30 @@ export class FakeTier1 {
     if (path === '/v1/audit' && method === 'GET') return this.json(res, 200, { items: [{ id: 'audit-1', action: 'login' }], total: 1 });
     if (path === '/v1/usage/summary' && method === 'GET') return this.json(res, 200, { totals: { requests: 3 }, byFeature: {} });
     if (path === '/v1/usage/events' && method === 'GET') return this.json(res, 200, { items: [{ id: 'usage-1' }], total: 1 });
+    if (/^\/v1\/orgs\/[^/]+\/users$/.test(path) && method === 'GET') {
+      return this.json(res, 200, [
+        { id: 'user-1', email: 'user@example.com', displayName: 'User One' },
+        { id: 'user-2', email: 'operator@example.com', displayName: 'Operator Two' },
+      ]);
+    }
+    if (/^\/v1\/accounts\/[^/]+\/roles$/.test(path) && method === 'GET') {
+      return this.json(res, 200, [
+        { id: 'role-admin', slug: 'admin', description: 'Administrator' },
+        { id: 'role-operator', slug: 'operator', description: 'Operator' },
+      ]);
+    }
+    if (/^\/v1\/accounts\/[^/]+\/policies$/.test(path) && method === 'GET') {
+      return this.json(res, 200, [{ id: 'policy-1', name: 'read-only' }]);
+    }
+    if (/^\/v1\/users\/[^/]+\/assign$/.test(path) && method === 'POST') {
+      return this.json(res, 200, { ok: true, roleId: body?.roleId });
+    }
+    if (/^\/v1\/users\/[^/]+\/roles\/[^/]+$/.test(path) && method === 'DELETE') {
+      return this.json(res, 200, { ok: true });
+    }
+    if (/^\/v1\/users\/[^/]+\/roles$/.test(path) && method === 'GET') {
+      return this.json(res, 200, [{ id: 'role-operator', slug: 'operator' }]);
+    }
 
     // ---- Base ----
     if (path.startsWith('/v1/base/')) return this.handleBase(method, path, url, body, res);
