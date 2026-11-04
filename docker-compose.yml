@@ -3,39 +3,70 @@
 services:
   capabilities:
     build:
-      context: ..
-      dockerfile: SynapseDX/apps/capabilities-service/Dockerfile
+      context: .
+      dockerfile: apps/capabilities-service/Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       NODE_ENV: production
       PORT: "8082"
       SYNAPSEONE_BASE_URL: https://api.synapseone.space
       ALLOW_LOCAL_DEPENDENCIES: "false"
+      SYNAPSEDX_AUTH_MODE: required
+      CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     expose:
       - "8082"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8082/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     networks: [synapsedx]
+
   gateway:
     build:
-      context: ..
-      dockerfile: SynapseDX/apps/gateway/Dockerfile
+      context: .
+      dockerfile: apps/gateway/Dockerfile
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: "8080"
       CAPABILITIES_SERVICE_URL: http://capabilities:8082
-      CORS_ORIGIN: https://synapsecity.sbs
+      UPSTREAM_TIMEOUT_MS: "30000"
+      CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     ports:
       - "8082:8080"
+    depends_on:
+      capabilities:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     networks:
       synapsedx:
         aliases: [synapsedx-gateway]
+
   console:
     build:
-      context: ..
-      dockerfile: SynapseDX/apps/console/Dockerfile
+      context: .
+      dockerfile: apps/console/Dockerfile
     restart: unless-stopped
     expose: ["80"]
+    depends_on:
+      gateway:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
     networks:
       synapsedx:
         aliases: [synapsedx-console]

@@ -4,5 +4,8 @@
   "private": true,
   "license": "Apache-2.0",
   "description": "SynapseDX Tier-2 capability console shell",
-  "scripts": { "build": "node -e \"console.log('static console ready')\"" }
+  "scripts": {
+    "build": "node -e \"console.log('static console ready')\"",
+    "test": "node --test test/*.test.mjs"
+  }
 }

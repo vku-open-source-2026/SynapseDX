@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: 2026 VKU.VIC
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const config = readFileSync(resolve(here, '../nginx.conf'), 'utf8');
+
+test('nginx.conf uses only nginx comments', () => {
+  for (const line of config.split('\n')) {
+    assert.equal(/^\s*\/\//.test(line), false, `invalid nginx comment: ${line}`);
+  }
+  assert.match(config, /^# SPDX-License-Identifier: Apache-2\.0/m);
+});
+
+test('console nginx proxies the API and health to the gateway', () => {
+  assert.match(config, /location = \/health[\s\S]*proxy_pass \$gateway\/health;/);
+  assert.match(config, /location \/v1\/capabilities[\s\S]*proxy_pass \$gateway\$request_uri;/);
+  assert.match(config, /resolver 127\.0\.0\.11/);
+});

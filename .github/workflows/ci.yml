@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Test (contract suites, no network)
+        run: npm test
+      - name: Compose config
+        run: docker compose config >/dev/null
+      - name: Compose build
+        run: docker compose build
+      - name: Console nginx config
+        run: docker run --rm synapsedx-console nginx -t
+      - name: SDK tarball contents
+        run: |
+          mkdir -p /tmp/sdk-pack
+          npm pack --workspace=@synapsedx/capabilities --pack-destination /tmp/sdk-pack
+          TARBALL=$(ls /tmp/sdk-pack/*.tgz)
+          echo "Tarball: $TARBALL"
+          if tar -tzf "$TARBALL" | grep -E '(test|spec)\.(js|d\.ts)$'; then
+            echo 'test artifacts must not be published' >&2
+            exit 1
+          fi
+          tar -tzf "$TARBALL" | grep -q 'package/LICENSE'
+          tar -tzf "$TARBALL" | grep -q 'package/NOTICE'
+      - name: Install SDK from tarball
+        run: |
+          TARBALL=$(ls /tmp/sdk-pack/*.tgz)
+          mkdir -p /tmp/sdk-consumer
+          cd /tmp/sdk-consumer
+          npm init -y >/dev/null
+          npm install "$TARBALL" >/dev/null
+          node -e "const m = require('@synapsedx/capabilities'); if (typeof m.CapabilitiesClient !== 'function') process.exit(1); console.log('sdk-ok')"

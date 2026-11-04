@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+# Keep the Docker build context inside the SynapseDX repository.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+node_modules
+**/node_modules
+dist
+**/dist
+coverage
+*.log
+*.tsbuildinfo
+docs
+openspec

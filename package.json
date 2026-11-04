@@ -1,10 +1,13 @@
 {
   "name": "synapsedx",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "SynapseDX Tier-2 reusable capabilities product",
-  "workspaces": ["apps/*", "sdks/*"],
+  "workspaces": [
+    "apps/*",
+    "sdks/*"
+  ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

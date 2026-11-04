@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+name: Release SDK
+
+# Operator-gated: the @synapsedx scope owner must add NPM_TOKEN and push a
+# `sdk-v*` tag. This workflow never publishes without the secret.
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Build and test
+        run: |
+          npm run build --workspace=@synapsedx/capabilities
+          npm test --workspace=@synapsedx/capabilities
+      - name: Verify tarball
+        run: |
+          mkdir -p /tmp/sdk-pack
+          npm pack --workspace=@synapsedx/capabilities --pack-destination /tmp/sdk-pack
+          TARBALL=$(ls /tmp/sdk-pack/*.tgz)
+          if tar -tzf "$TARBALL" | grep -E '(test|spec)\.(js|d\.ts)$'; then exit 1; fi
+          tar -tzf "$TARBALL" | grep -q 'package/LICENSE'
+          tar -tzf "$TARBALL" | grep -q 'package/NOTICE'
+      - name: Publish to npm
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --workspace=@synapsedx/capabilities --access public --provenance
+      - name: Explain skipped publish
+        if: ${{ secrets.NPM_TOKEN == '' }}
+        run: |
+          echo 'NPM_TOKEN is not configured; the SDK tarball was built and verified but not published.' >&2
+          echo 'Set NPM_TOKEN for the @synapsedx scope to complete issue #14.' >&2

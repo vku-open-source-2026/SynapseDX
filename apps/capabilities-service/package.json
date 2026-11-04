@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/capabilities-service",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "SynapseDX Tier-2 capabilities backend",
@@ -11,7 +11,7 @@
     "test": "npm run build && node --test dist/src/*.test.js"
   },
   "dependencies": {
-    "@synapseone/sdk": "^0.7.0",
+    "@synapseone/sdk": "file:../../vendor/synapseone-sdk-0.8.0-dev.0.tgz",
     "express": "^4.21.2"
   },
   "devDependencies": {
