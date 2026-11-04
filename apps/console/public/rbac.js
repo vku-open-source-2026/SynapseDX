@@ -51,7 +51,9 @@ export function navigationFor(context) {
   if (can(context, 'moderation:read')) items.push({ view: 'moderation', label: 'Moderation', icon: '⚖' });
   if (can(context, 'events:read')) items.push({ view: 'events', label: 'Events', icon: '⌁' });
   if (can(context, 'audit:read')) items.push({ view: 'audit', label: 'Audit & usage', icon: '◎' });
-  if (context) items.push({ view: 'settings', label: 'Settings', icon: '⚙' });
+  if (can(context, 'settings:read') || can(context, 'settings:write')) {
+    items.push({ view: 'settings', label: 'Settings', icon: '⚙' });
+  }
   return items;
 }
 

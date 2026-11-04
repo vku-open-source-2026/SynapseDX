@@ -22,6 +22,7 @@ import {
   AuditRecord, COLLECTIONS, DatasetRecord, correlationIdOf, queryDocuments, recordAudit,
 } from '../platform';
 import { saveDataset } from '../publication';
+import { loadManagementSettings, saveManagementSettings } from '../settings';
 import {
   accessibleDataset, expectedVersion, readContext, requireVersionMatch, writeContext,
 } from './shared';
@@ -213,6 +214,41 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
       roles,
       permissions,
     });
+  }));
+
+  app.get('/v1/capabilities/management/settings', handler(async (req, res) => {
+    const { caller, client } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!managementPermissions(verified).includes('settings:read')) {
+      throw apiError(403, 'insufficient_scope', 'settings require a manager or administrator role');
+    }
+    const settings = await loadManagementSettings(client, verified.tenantKey);
+    res.setHeader('cache-control', 'no-store');
+    res.json({ settings });
+  }));
+
+  app.patch('/v1/capabilities/management/settings', handler(async (req, res) => {
+    const { caller, client } = await writeContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) {
+      throw apiError(403, 'insufficient_scope', 'only an administrator can change management settings');
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    if (typeof body.requireReview !== 'boolean') {
+      throw apiError(400, 'invalid_request', 'requireReview must be a boolean');
+    }
+    const settings = await saveManagementSettings(client, verified.tenantKey, {
+      requireReview: body.requireReview,
+      updatedBy: verified.subject,
+    });
+    await recordAudit(client, config, {
+      actor: verified.subject,
+      tenant: verified.tenantKey,
+      action: 'settings.update',
+      correlationId: correlationIdOf(req),
+      details: { requireReview: settings.requireReview },
+    });
+    res.json({ settings });
   }));
 
   app.get('/v1/capabilities/management/review-queue', handler(async (req, res) => {

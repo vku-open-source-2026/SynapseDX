@@ -23,6 +23,7 @@ export const COLLECTIONS = {
   notificationRefs: 'synapsedx_capability_notification_refs',
   notificationPreferences: 'synapsedx_capability_notification_preferences',
   audit: 'synapsedx_capability_audit',
+  settings: 'synapsedx_capability_settings',
 } as const;
 
 export type DatasetStatus = 'draft' | 'published' | 'revoked';

@@ -148,6 +148,39 @@ test('review lane is tenant-scoped and refuses private or published datasets', a
   }
 });
 
+test('tenant settings enforce review before publication', async () => {
+  const harness = await startHarness();
+  try {
+    const initial = await api(harness, '/v1/capabilities/management/settings', { token: 'admin-token' });
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.settings.requireReview, false);
+    assert.equal((await api(harness, '/v1/capabilities/management/settings', { token: 'user-token' })).status, 200);
+
+    const changed = await api(harness, '/v1/capabilities/management/settings', {
+      method: 'PATCH', token: 'admin-token', body: { requireReview: true },
+    });
+    assert.equal(changed.status, 200);
+    assert.equal(changed.body.settings.requireReview, true);
+    assert.equal((await api(harness, '/v1/capabilities/management/settings', { token: 'read-token' })).status, 200);
+    assert.equal((await api(harness, '/v1/capabilities/management/settings', {
+      method: 'PATCH', token: 'user-token', body: { requireReview: false },
+    })).status, 403);
+
+    await createDataset(harness, { slug: 'gated', name: 'Gated', public: true });
+    const blocked = await api(harness, '/v1/capabilities/datasets/gated/publish', { method: 'POST', token: 'user-token' });
+    assert.equal(blocked.status, 409);
+    assert.equal(blocked.body.error.code, 'review_required');
+
+    await api(harness, '/v1/capabilities/management/datasets/gated/submit-review', { method: 'POST', token: 'user-token' });
+    await api(harness, '/v1/capabilities/management/datasets/gated/approve', { method: 'POST', token: 'moderator-token' });
+    const published = await api(harness, '/v1/capabilities/datasets/gated/publish', { method: 'POST', token: 'user-token' });
+    assert.equal(published.status, 200);
+    assert.equal(published.body.status, 'published');
+  } finally {
+    await harness.close();
+  }
+});
+
 test('summary reports status and review counts for the caller tenant', async () => {
   const harness = await startHarness();
   try {

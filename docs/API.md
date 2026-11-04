@@ -256,6 +256,8 @@ full-access behaviour and resolves to `operator` + `manager`.
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/management/context` | verified | `{user, tenant, org?, account?, roles, permissions, auth}` for the console shell. |
 | GET | `/v1/capabilities/management/summary` | verified | Tenant-scoped dataset counts, pending-review count, pending outbox events and recent audit. |
+| GET | `/v1/capabilities/management/settings` | manager+ | Tenant settings (`requireReview`). |
+| PATCH | `/v1/capabilities/management/settings` | admin | Update `{requireReview}`; publication returns `409 review_required` until a moderator approves the dataset. |
 | GET | `/v1/capabilities/management/review-queue` | manager+ | `{items,total,...}` filtered by `status=pending\|approved\|rejected\|all`. |
 | POST | `/v1/capabilities/management/datasets/:id/submit-review` | write | Submit a public draft/revoked dataset for peer review (`{note?}`). |
 | POST | `/v1/capabilities/management/datasets/:id/approve` | moderator/admin | Approve a pending review (`{note?}`). Publication remains a separate operator action. |

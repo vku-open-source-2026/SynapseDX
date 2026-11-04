@@ -37,6 +37,11 @@ const datasets = [
 async function mockApi(page, context) {
   await page.route('**/health', (route) => route.fulfill({ json: { status: 'ok', dependencies: [] } }));
   await page.route('**/v1/capabilities/management/context', (route) => route.fulfill({ json: context }));
+  let requireReview = false;
+  await page.route('**/v1/capabilities/management/settings', (route) => {
+    if (route.request().method() === 'PATCH') requireReview = true;
+    return route.fulfill({ json: { settings: { requireReview } } });
+  });
   await page.route('**/v1/capabilities/management/summary', (route) => route.fulfill({
     json: {
       generatedAt: '2026-11-04T12:00:00Z',
@@ -103,6 +108,7 @@ test('operator can mutate datasets and records but cannot moderate', async ({ pa
   await expect(page.locator('[data-action="edit-dataset"]')).toHaveCount(3);
   await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(2);
   await expect(page.locator('[data-action="delete-dataset"]')).toHaveCount(3);
+  await expect(page.locator('[data-nav="settings"]')).toHaveCount(0);
 });
 
 test('moderator can review but cannot edit or publish datasets', async ({ page }) => {
@@ -115,6 +121,9 @@ test('moderator can review but cannot edit or publish datasets', async ({ page }
   await page.click('[data-nav="moderation"]');
   await expect(page.locator('[data-action="approve-review"]')).toHaveCount(1);
   await expect(page.locator('[data-action="reject-review"]')).toHaveCount(1);
+  await page.check('[data-review-select="city-assets"]');
+  await expect(page.locator('[data-action="bulk-review"][data-id="approve"]')).toBeEnabled();
+  await expect(page.locator('[data-action="bulk-review"][data-id="reject"]')).toBeEnabled();
 });
 
 test('administrator sees every management lane and action', async ({ page }) => {
@@ -127,6 +136,18 @@ test('administrator sees every management lane and action', async ({ page }) => 
   await expect(page.locator('[data-action="new-dataset"]')).toBeVisible();
   await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(2);
   await expect(page.locator('[data-action="revoke-dataset"]')).toHaveCount(1);
+});
+
+test('administrator can change the publication review policy', async ({ page }) => {
+  await openAs(page, 'admin');
+  await page.click('[data-nav="settings"]');
+  const toggle = page.locator('#require-review');
+  await expect(toggle).toBeVisible();
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await page.click('[data-action="save-settings"]');
+  await expect(page.getByText('Publication policy saved.')).toBeVisible();
+  await expect(page.getByText('Review required')).toBeVisible();
 });
 
 test('login form exchanges credentials and opens the administrator overview', async ({ page }) => {

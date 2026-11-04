@@ -9,6 +9,7 @@ import { apiError } from '../errors';
 import { handler } from '../http';
 import { DATASET_SLUG_RE, slugifyDataset, validateDatasetId } from '../ids';
 import { validateEntityType, validateLicense, validateRetentionDays, validateSchemaVersion } from '../licenses';
+import { loadManagementSettings } from '../settings';
 import { booleanParam, parsePagination, setPageHeaders, stringParam } from '../pagination';
 import {
   COLLECTIONS, DatasetRecord, buildEvent, claimIdempotency, correlationIdOf, emitEvent,
@@ -23,6 +24,19 @@ import {
 
 function idempotencyTenant(principal: CallerPrincipal): string {
   return principal.tenantKey;
+}
+
+async function assertReviewPolicy(
+  client: import('@synapseone/sdk').SynapseOneClient,
+  tenant: string,
+  dataset: DatasetRecord,
+): Promise<void> {
+  const settings = await loadManagementSettings(client, tenant);
+  if (settings.requireReview && dataset.reviewStatus !== 'approved') {
+    throw apiError(409, 'review_required', 'this tenant requires moderator approval before publication', {
+      reviewStatus: dataset.reviewStatus || 'none',
+    });
+  }
 }
 
 function datasetBody(body: Record<string, unknown>, existing?: DatasetRecord) {
@@ -205,6 +219,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         resultVersion = transition.dataset.document.version;
         if (transition.event) emitted = await emitEvent(client, config, result, transition.event);
       } else if (patch.public === true && data.status === 'revoked' && data.everPublished) {
+        await assertReviewPolicy(client, principal.tenantKey, working);
         const transition = await publishDataset(client, working, ifVersion, { correlationId, idempotencyKey });
         result = transition.dataset.data;
         resultVersion = transition.dataset.document.version;
@@ -251,6 +266,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const body = (req.body || {}) as Record<string, unknown>;
     const requestedVersion = expectedVersion(req, body);
     requireVersionMatch(requestedVersion, document.version, 'dataset');
+    await assertReviewPolicy(client, principal.tenantKey, data);
     const idempotencyKey = idempotencyKeyOf(req);
     const claim = await claimIdempotency(
       client, config, idempotencyTenant(principal), idempotencyKey,
