@@ -11,7 +11,7 @@ identity verification and messaging.
 ```text
 apps/gateway             public HTTPS API boundary (container :8080, host :8082)
 apps/capabilities-service reusable capability backend (container :8082)
-apps/console              static console shell (container :80, optional cloud. host)
+apps/console              React console (Vite + TanStack Router + Tailwind, container :80, optional cloud. host)
 sdks/capabilities-js      @synapsedx/capabilities client SDK
 infra/                    public-edge snippets and deployment material
 ```
@@ -112,16 +112,20 @@ omitted inherits the dataset default.
 ## Management console
 
 `cloud.synapsedx.sbs` serves the Tier-2 control plane for administrators,
-operators, moderators and managers. It is a dependency-free static SPA backed
-only by the public capabilities API:
+operators, moderators and managers. The console is a React SPA (Vite +
+TanStack Router + Tailwind, same stack as the City/SOS consoles) backed only
+by the public capabilities API:
 
-- sign in with the Tier-1 IAM account (email/password); the session lives in
-  `sessionStorage` and is revoked through the identity capability;
+- public catalog landing for anonymous visitors, and sign in with the Tier-1
+  IAM account (email/password); the session lives in `localStorage` and is
+  revoked through the identity capability;
 - overview metrics, dataset create/edit/publish/revoke/delete, record CRUD and
-  bulk import, review queue, event feed, audit/usage and session settings;
+  bulk import, review queue, approvals (HITL), 10 business modules, team
+  account/roles, event feed, audit/usage and session settings under `/admin`;
 - roles are derived server-side: `admin`, `operator`, `moderator`, `manager`
   and `viewer`; the browser cannot choose a role;
-- public visitors can still browse the published dataset catalog.
+- the production image serves the static build through nginx with the
+  City/SOS design system and a strict self-only CSP.
 
 The review lane is additive: `submit-review` → `approve`/`reject` records a
 decision, while publication remains a separate operator action. See

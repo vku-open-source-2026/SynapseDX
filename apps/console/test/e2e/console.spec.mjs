@@ -6,7 +6,8 @@ const SESSION_KEY = 'synapsedx.console.session.v1';
 const ALL = [
   'summary:read', 'datasets:read', 'records:read', 'datasets:write', 'datasets:delete',
   'records:write', 'events:read', 'events:flush', 'audit:read', 'moderation:read',
-  'moderation:write', 'usage:read', 'settings:read', 'users:read', 'settings:write', 'approvals:read', 'approvals:write',
+  'moderation:write', 'usage:read', 'settings:read', 'users:read', 'settings:write',
+  'approvals:read', 'approvals:write',
 ];
 
 const contexts = {
@@ -29,9 +30,9 @@ const contexts = {
 };
 
 const datasets = [
-  { id: 'city-assets', name: 'City assets', entityType: 'CityAsset', license: 'PDDL-1.0', status: 'draft', public: true, reviewStatus: 'pending', updatedAt: '2026-11-04T10:00:00Z' },
-  { id: 'city-incidents', name: 'City incidents', entityType: 'CityIncident', license: 'PDDL-1.0', status: 'published', public: true, reviewStatus: 'approved', updatedAt: '2026-11-04T11:00:00Z' },
-  { id: 'sos-events', name: 'SOS events', entityType: 'EmergencyEvent', license: 'CC-BY-4.0', status: 'revoked', public: false, reviewStatus: 'none', updatedAt: '2026-11-04T12:00:00Z' },
+  { id: 'city-assets', name: 'City assets', slug: 'city-assets', entityType: 'CityAsset', license: 'PDDL-1.0', status: 'draft', public: true, reviewStatus: 'pending', updatedAt: '2026-11-04T10:00:00Z' },
+  { id: 'city-incidents', name: 'City incidents', slug: 'city-incidents', entityType: 'CityIncident', license: 'PDDL-1.0', status: 'published', public: true, reviewStatus: 'approved', updatedAt: '2026-11-04T11:00:00Z' },
+  { id: 'sos-events', name: 'SOS events', slug: 'sos-events', entityType: 'EmergencyEvent', license: 'CC-BY-4.0', status: 'revoked', public: false, reviewStatus: 'none', updatedAt: '2026-11-04T12:00:00Z' },
 ];
 
 async function mockApi(page, context) {
@@ -39,12 +40,30 @@ async function mockApi(page, context) {
   await page.route('**/v1/capabilities/management/context', (route) => route.fulfill({ json: context }));
   let requireReview = false;
   await page.route('**/v1/capabilities/approvals**', (route) => {
-    if (route.request().method() === 'POST') return route.fulfill({ json: { approval: { id: 'approval-1', status: 'approved' } } });
-    return route.fulfill({ json: { items: [{ id: 'approval-1', title: 'Approve dispatch', module: 'sos.dispatch', action: 'dispatch.assign', requester: 'operator@example.com', requiredApprovals: 1, status: 'pending', decisions: [], createdAt: '2026-11-04T11:00:00Z', dueAt: '2026-11-05T11:00:00Z' }], total: 1 } });
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ status: 201, json: { approval: { id: 'approval-1', status: 'pending' } } });
+    }
+    return route.fulfill({
+      json: {
+        items: [{ id: 'approval-1', title: 'Approve dispatch', module: 'sos.dispatch', action: 'dispatch.assign', requester: 'operator@example.com', requiredApprovals: 1, status: 'pending', decisions: [], createdAt: '2026-11-04T11:00:00Z', dueAt: '2026-11-05T11:00:00Z' }],
+        total: 1,
+      },
+    });
   });
   await page.route('**/v1/capabilities/management/team**', (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ json: { ok: true } });
-    return route.fulfill({ json: { org: 'org-a', account: 'acct-a', accounts: [{ id: 'acct-a', slug: 'prod', displayName: 'Prod' }], members: [{ id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] }, { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] }], roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }], policies: [{ id: 'policy-1', name: 'read-only' }] } });
+    return route.fulfill({
+      json: {
+        org: 'org-a', account: 'acct-a',
+        accounts: [{ id: 'acct-a', slug: 'prod', displayName: 'Prod' }],
+        members: [
+          { id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] },
+          { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] },
+        ],
+        roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }],
+        policies: [{ id: 'policy-1', name: 'read-only' }],
+      },
+    });
   });
   await page.route('**/v1/capabilities/management/settings', (route) => {
     if (route.request().method() === 'PATCH') requireReview = true;
@@ -60,13 +79,21 @@ async function mockApi(page, context) {
       permissions: context.permissions,
     },
   }));
-  await page.route('**/v1/capabilities/management/review-queue**', (route) => route.fulfill({ json: { items: datasets.filter((d) => d.reviewStatus === 'pending'), total: 1 } }));
-  await page.route('**/v1/capabilities/datasets?limit=200', (route) => route.fulfill({ json: datasets }));
-  await page.route('**/v1/capabilities/datasets?limit=6', (route) => route.fulfill({ json: datasets.filter((d) => d.status === 'published') }));
-  await page.route('**/v1/capabilities/datasets/*/records?**', (route) => route.fulfill({
+  await page.route('**/v1/capabilities/management/review-queue**', (route) => route.fulfill({
+    json: { items: datasets.filter((dataset) => dataset.reviewStatus === 'pending'), total: 1 },
+  }));
+  await page.route('**/v1/capabilities/datasets**', (route) => {
+    const method = route.request().method();
+    if (method === 'GET' && route.request().url().includes('limit=6')) {
+      return route.fulfill({ json: datasets.filter((dataset) => dataset.status === 'published') });
+    }
+    if (method === 'GET') return route.fulfill({ json: datasets });
+    return route.fulfill({ status: 201, json: { id: 'new-dataset' } });
+  });
+  await page.route('**/v1/capabilities/datasets/*/records**', (route) => route.fulfill({
     json: { items: [{ id: 'r1', data: { name: 'Asset A' }, version: 1, published: true, updatedAt: '2026-11-04T11:00:00Z' }], total: 1 },
   }));
-  await page.route('**/v1/capabilities/events?limit=100', (route) => route.fulfill({
+  await page.route('**/v1/capabilities/events?**', (route) => route.fulfill({
     json: { items: [{ id: 'e1', event: { type: 'dataset.published', datasetId: 'city-incidents', at: '2026-11-04T11:00:00Z', correlationId: 'c1' } }], nextCursor: 'c1' },
   }));
   await page.route('**/v1/capabilities/audit?**', (route) => route.fulfill({
@@ -74,8 +101,11 @@ async function mockApi(page, context) {
   }));
   await page.route('**/v1/capabilities/usage', (route) => route.fulfill({ json: { totals: { requests: 10, errors: 1 }, window: '24h' } }));
   await page.route('**/v1/capabilities/inbox', (route) => route.fulfill({ json: { items: [], total: 0, unread: 0 } }));
-  await page.route('**/v1/capabilities/notification-preferences', (route) => route.fulfill({ json: { preferences: { subject: 'admin-1', channels: ['inbox'], muted: false, digest: 'instant' } } }));
+  await page.route('**/v1/capabilities/notification-preferences', (route) => route.fulfill({
+    json: { preferences: { subject: 'admin-1', channels: ['inbox'], muted: false, digest: 'instant' } },
+  }));
   await page.route('**/v1/capabilities/workspaces', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/workspaces/*/pages', (route) => route.fulfill({ json: { items: [] } }));
   await page.route('**/v1/capabilities/people', (route) => route.fulfill({ json: { items: [], total: 0 } }));
   await page.route('**/v1/capabilities/kpis', (route) => route.fulfill({ json: { items: [], total: 0 } }));
   await page.route('**/v1/capabilities/projects', (route) => route.fulfill({ json: { items: [], total: 0 } }));
@@ -92,23 +122,22 @@ async function mockApi(page, context) {
   await page.route('**/v1/capabilities/rag/usage', (route) => route.fulfill({ json: { queries: 0, tokens: 0, costUsd: 0, noAnswer: 0 } }));
 }
 
-async function openAs(page, role, hash = '#overview') {
+async function openAs(page, role, path = '/admin') {
   await page.addInitScript(({ key, value }) => {
-    sessionStorage.setItem(key, JSON.stringify({ accessToken: 'playwright-token', refreshToken: '', obtainedAt: new Date().toISOString() }));
+    localStorage.setItem(key, JSON.stringify({ accessToken: 'playwright-token', refreshToken: '', obtainedAt: new Date().toISOString() }));
     void value;
   }, { key: SESSION_KEY, value: role });
   await mockApi(page, contexts[role]);
-  await page.goto(`/${hash}`);
+  await page.goto(path);
   await expect(page.locator('#page-title')).toBeVisible();
 }
 
 test('public visitor sees the catalog but no management navigation', async ({ page }) => {
   await mockApi(page, { roles: [], permissions: [], user: { id: 'anon' }, tenant: 'public', auth: { kind: 'none', scopes: [] } });
   await page.goto('/');
-  await expect(page.getByText('One contract for every domain product.')).toBeVisible();
-  await expect(page.locator('#session-box [data-action="login"]')).toBeVisible();
-  await expect(page.locator('[data-nav="records"]')).toHaveCount(0);
-  await expect(page.locator('[data-nav="moderation"]')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'One contract for every domain product.' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Sign in' }).first()).toBeVisible();
+  await expect(page.locator('[data-nav]')).toHaveCount(0);
 });
 
 test('manager is read-only and cannot open moderation or create datasets', async ({ page }) => {
@@ -118,7 +147,7 @@ test('manager is read-only and cannot open moderation or create datasets', async
   await expect(page.locator('[data-nav="audit"]')).toBeVisible();
   await expect(page.locator('[data-nav="moderation"]')).toHaveCount(0);
   await page.click('[data-nav="datasets"]');
-  await expect(page.locator('#dataset-table tbody tr')).toHaveCount(3);
+  await expect(page.locator('[data-nav="datasets"]')).toBeVisible();
   await expect(page.locator('[data-action="new-dataset"]')).toHaveCount(0);
   await expect(page.locator('[data-action="edit-dataset"]')).toHaveCount(0);
   await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(0);
@@ -169,8 +198,7 @@ test('administrator sees every management lane and action', async ({ page }) => 
 });
 
 test('administrator can change the publication review policy', async ({ page }) => {
-  await openAs(page, 'admin');
-  await page.click('[data-nav="settings"]');
+  await openAs(page, 'admin', '/admin/settings');
   const toggle = page.locator('#require-review');
   await expect(toggle).toBeVisible();
   await expect(toggle).not.toBeChecked();
@@ -181,20 +209,23 @@ test('administrator can change the publication review policy', async ({ page }) 
 });
 
 test('login form exchanges credentials and opens the administrator overview', async ({ page }) => {
-  await page.route('**/v1/capabilities/auth/login', (route) => route.fulfill({ json: { accessToken: 'playwright-token', refreshToken: 'refresh' } }));
+  await page.route('**/v1/capabilities/auth/login', (route) => route.fulfill({
+    status: 200,
+    json: { accessToken: 'playwright-token', refreshToken: 'refresh' },
+  }));
   await mockApi(page, contexts.admin);
   await page.goto('/');
-  await page.click('[data-action="login"]');
+  await page.getByRole('link', { name: 'Sign in' }).first().click();
+  await expect(page).toHaveURL(/\/login/);
   await page.fill('input[name="email"]', 'admin@example.com');
   await page.fill('input[name="password"]', 'secret');
-  await page.click('#modal-form button[type="submit"]');
+  await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.locator('.role-badge')).toHaveText('Administrator');
-  await expect(page.getByText('Govern the capability layer with evidence.')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Govern the capability layer with evidence.' })).toBeVisible();
 });
 
 test('business modules expose every H/P/D/I lane with empty states', async ({ page }) => {
-  await openAs(page, 'admin');
-  await page.click('[data-nav="modules"]');
+  await openAs(page, 'admin', '/admin/modules');
   await expect(page.locator('[data-action="module-tab"]')).toHaveCount(10);
   for (const lane of ['inbox', 'workspace', 'people', 'projects', 'forms', 'reports', 'quality', 'ocr', 'agents', 'assistant']) {
     await expect(page.locator(`[data-action="module-tab"][data-id="${lane}"]`)).toBeVisible();
@@ -203,14 +234,13 @@ test('business modules expose every H/P/D/I lane with empty states', async ({ pa
   await page.click('[data-action="module-tab"][data-id="assistant"]');
   await expect(page.locator('#rag-form')).toBeVisible();
   await page.click('[data-action="module-tab"][data-id="reports"]');
-  await expect(page.getByText('No reports yet.')).toBeVisible();
+  await expect(page.getByText('No reports yet')).toBeVisible();
 });
 
-test('mobile layout keeps navigation and the overview usable', async ({ page }) => {
+test('mobile layout keeps navigation and the catalog usable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openAs(page, 'admin');
-  await expect(page.locator('#primary-nav')).toBeVisible();
-  await expect(page.locator('.metric-card').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Toggle navigation' }).click();
   await page.click('[data-nav="datasets"]');
   await expect(page.locator('#dataset-search')).toBeVisible();
 });

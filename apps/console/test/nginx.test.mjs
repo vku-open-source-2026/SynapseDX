@@ -18,7 +18,7 @@ test('nginx.conf uses only nginx comments', () => {
 
 test('console nginx proxies the API and health to the gateway', () => {
   assert.match(config, /location = \/health[\s\S]*proxy_pass \$gateway\/health;/);
-  assert.match(config, /location \/v1\/capabilities[\s\S]*proxy_pass \$gateway\$request_uri;/);
+  assert.match(config, /location \/v1\/[\s\S]*proxy_pass \$gateway\$request_uri;/);
   assert.match(config, /resolver 127\.0\.0\.11/);
 });
 
@@ -28,4 +28,8 @@ test('console nginx sends a strict self-only CSP and permissions policy', () => 
   assert.match(config, /frame-ancestors 'none'/);
   assert.match(config, /connect-src 'self'/);
   assert.match(config, /Permissions-Policy[^;]*geolocation=\(\)/);
+});
+
+test('console nginx falls back to the SPA entrypoint', () => {
+  assert.match(config, /try_files \$uri \$uri\/ \/index\.html;/);
 });
