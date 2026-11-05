@@ -10,6 +10,7 @@
 import { ApiError, createApi } from './api.js';
 import { escapeHtml } from './escape.js';
 import { can, canOpenView, navigationFor, primaryRole, roleLabel } from './rbac.js';
+import { bindModules, handleModuleAction, renderModules } from './modules.js';
 import {
   formatNumber, parseJsonObject, previewJson, relativeTime, statusClass, statusLabel,
 } from './format.js';
@@ -28,6 +29,7 @@ const state = {
   settings: null,
   teamAccount: null,
   auditQuery: {},
+  moduleTab: 'inbox',
 };
 
 const VIEW_META = {
@@ -36,6 +38,7 @@ const VIEW_META = {
   records: { eyebrow: 'RECORD PIPELINE', title: 'Records and projections' },
   moderation: { eyebrow: 'PEER REVIEW', title: 'Publication moderation' },
   approvals: { eyebrow: 'HUMAN IN THE LOOP', title: 'Approvals' },
+  modules: { eyebrow: 'H · P · D · I CAPABILITIES', title: 'Business modules' },
   team: { eyebrow: 'ACCESS CONTROL', title: 'Team and roles' },
   events: { eyebrow: 'EVENT BUS', title: 'Events and outbox' },
   audit: { eyebrow: 'GOVERNANCE', title: 'Audit and usage' },
@@ -233,10 +236,12 @@ async function render() {
     else if (state.view === 'records') await renderRecords();
     else if (state.view === 'moderation') await renderModeration();
     else if (state.view === 'approvals') await renderApprovals();
+    else if (state.view === 'modules') await renderModules(moduleContext());
     else if (state.view === 'team') await renderTeam();
     else if (state.view === 'events') await renderEvents();
     else if (state.view === 'audit') await renderAudit();
     else if (state.view === 'settings') await renderSettings();
+    if (state.view === 'modules') bindModules(moduleContext());
   } catch (error) {
     setView(errorPanel(error));
   }
@@ -1138,7 +1143,115 @@ async function findDataset(id) {
   return state.datasets.find((dataset) => dataset.id === id) || await api.get(`/v1/capabilities/datasets/${encodeURIComponent(id)}`);
 }
 
+function moduleContext() {
+  return {
+    state, api, $, setView, render,
+    escapeHtml, badge, dataTable, actionButton, previewJson, relativeTime,
+    field, openModal, confirmModal, showToast, closeModal,
+  };
+}
+
 async function handleAction(action, id) {
+  if (await handleModuleAction(moduleContext(), action, id)) return;
+  if (action === 'module-tab') {
+    state.moduleTab = id;
+    return render();
+  }
+  if (action === 'prefs-toggle') {
+    const current = await api.get('/v1/capabilities/notification-preferences');
+    await api.put('/v1/capabilities/notification-preferences', { ...current.preferences, muted: !current.preferences?.muted });
+    await render();
+    showToast(current.preferences?.muted ? 'Delivery unmuted.' : 'Delivery muted.');
+    return;
+  }
+  if (action === 'inbox-read' || action === 'inbox-archive') {
+    await api.post(`/v1/capabilities/inbox/${encodeURIComponent(id)}/${action === 'inbox-read' ? 'read' : 'archive'}`);
+    await render();
+    return;
+  }
+  if (action === 'report-run') {
+    const result = await api.post(`/v1/capabilities/reports/${encodeURIComponent(id)}/run`, {});
+    return openModal({
+      title: result.report?.name || 'Report result',
+      hideSubmit: true,
+      body: `<p class="muted">${result.total} matching row${result.total === 1 ? '' : 's'} · generated ${escapeHtml(relativeTime(result.generatedAt))}</p>` +
+        `<pre class="json-preview" style="max-height:420px;overflow:auto">${escapeHtml(previewJson(result.rows, 4000))}</pre>`,
+    });
+  }
+  if (action === 'report-export') {
+    const result = await api.post(`/v1/capabilities/reports/${encodeURIComponent(id)}/export`, { format: 'csv', idempotencyKey: `console-${Date.now()}` });
+    const blob = new Blob([result.content || ''], { type: 'text/csv' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `report-${id}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    showToast('CSV export generated.');
+    return;
+  }
+  if (action === 'dashboard-open') {
+    const result = await api.get(`/v1/capabilities/dashboards/${encodeURIComponent(id)}/data`);
+    return openModal({
+      title: result.dashboard?.name || 'Dashboard',
+      hideSubmit: true,
+      body: result.widgets.map((widget) => `<div class="panel compact"><p class="eyebrow">${escapeHtml(widget.report?.kind || 'widget')}</p><h2>${escapeHtml(widget.title || widget.report?.name || widget.reportId)}</h2>` +
+        (widget.error ? `<p class="form-error">${escapeHtml(widget.error)}</p>` : `<pre class="json-preview" style="max-height:240px;overflow:auto">${escapeHtml(previewJson(widget.rows, 2000))}</pre>`) + `</div>`).join('') || '<p class="muted">No widgets.</p>',
+    });
+  }
+  if (action === 'form-preview') {
+    const result = await api.get(`/v1/capabilities/forms/${encodeURIComponent(id)}`);
+    const form = result.form;
+    const fields = Object.entries(form.schema?.properties || {}).map(([key, config]) => (
+      `<label class="field"><span>${escapeHtml(config.title || key)}${(form.schema.required || []).includes(key) ? ' *' : ''}</span>` +
+      `<input class="input" placeholder="${escapeHtml(config.type || 'string')}" ${config.readOnly ? 'readonly' : ''} />` +
+      `${config.visibleWhen ? `<small>Visible when ${escapeHtml(config.visibleWhen.field)} = ${escapeHtml(String(config.visibleWhen.equals))}</small>` : ''}</label>`
+    )).join('');
+    return openModal({ title: `Form preview · ${form.name}`, hideSubmit: true, body: fields || '<p class="muted">This schema has no fields.</p>' });
+  }
+  if (action === 'process-inspect') {
+    const processes = await api.get('/v1/capabilities/processes');
+    const process = (processes.items || []).find((item) => item.id === id);
+    if (!process) return showToast('Process not found', 'bad');
+    const nodes = (process.nodes || []).map((node) => `<tr><td class="mono">${escapeHtml(node.id)}</td><td>${escapeHtml(node.type)}</td><td class="mono">${escapeHtml(previewJson(node.config || node, 200))}</td></tr>`);
+    return openModal({ title: `Process inspector · ${process.name}`, hideSubmit: true, body: `<p class="muted">Version ${process.version} · ${escapeHtml(String(process.slaMinutes || 'no'))} minute SLA</p>` + dataTable(['Node', 'Type', 'Config'], nodes, { empty: 'No nodes.' }) });
+  }
+  if (action === 'ocr-redact') {
+    await api.post(`/v1/capabilities/ocr/jobs/${encodeURIComponent(id)}/redact`, {});
+    await render();
+    showToast('PII redacted across pages and extracted fields.');
+    return;
+  }
+  if (action === 'ocr-approve' || action === 'ocr-reject') {
+    const [jobId, fieldName] = String(id).split(':');
+    const jobResult = await api.get(`/v1/capabilities/ocr/jobs/${encodeURIComponent(jobId)}`);
+    const current = (jobResult.job?.fields || []).find((field) => field.name === fieldName);
+    if (action === 'ocr-approve') {
+      return openModal({
+        title: `Approve ${fieldName}`,
+        body: field('Corrected value', 'value', current?.value || '', { required: true }),
+        submitLabel: 'Approve field',
+        onSubmit: async (form) => {
+          const data = new FormData(form);
+          await api.post(`/v1/capabilities/ocr/jobs/${encodeURIComponent(jobId)}/fields/${encodeURIComponent(fieldName)}/correct`, { value: String(data.get('value') || ''), decision: 'approve' });
+          closeModal(false);
+          await render();
+          showToast('Field approved.');
+        },
+      });
+    }
+    if (!(await confirmModal({ title: `Reject ${fieldName}?`, message: 'The field stays out of the generated record and remains in the audit trail.', label: 'Reject field', danger: true }))) return;
+    await api.post(`/v1/capabilities/ocr/jobs/${encodeURIComponent(jobId)}/fields/${encodeURIComponent(fieldName)}/correct`, { decision: 'reject' });
+    await render();
+    showToast('Field rejected.');
+    return;
+  }
+  if (action === 'agent-kill') {
+    if (!(await confirmModal({ title: 'Enable the agent kill switch?', message: 'New runs stop immediately and every paused run is cancelled for this tenant.', label: 'Enable kill switch', danger: true }))) return;
+    await api.post(`/v1/capabilities/agents/${encodeURIComponent(id)}/kill-switch`, { enabled: true });
+    await render();
+    showToast('Agent kill switch enabled.');
+    return;
+  }
   if (action === 'login') return openLoginModal();
   if (action === 'logout') {
     try {

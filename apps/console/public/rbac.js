@@ -48,6 +48,7 @@ export function navigationFor(context) {
     { view: 'datasets', label: 'Datasets', icon: '◈' },
   ];
   if (can(context, 'records:read')) items.push({ view: 'records', label: 'Records', icon: '▤' });
+  if (can(context, 'records:read') || can(context, 'datasets:read')) items.push({ view: 'modules', label: 'Modules', icon: '▦' });
   if (can(context, 'moderation:read')) items.push({ view: 'moderation', label: 'Moderation', icon: '⚖' });
   if (can(context, 'approvals:read')) items.push({ view: 'approvals', label: 'Approvals', icon: '✓' });
   if (can(context, 'users:read')) items.push({ view: 'team', label: 'Team', icon: '♟' });

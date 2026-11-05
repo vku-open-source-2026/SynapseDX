@@ -21,6 +21,7 @@ import {
 import {
   accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
 } from './shared';
+import { assertDatasetPublishable } from './data-insights';
 
 function idempotencyTenant(principal: CallerPrincipal): string {
   return principal.tenantKey;
@@ -220,6 +221,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         if (transition.event) emitted = await emitEvent(client, config, result, transition.event);
       } else if (patch.public === true && data.status === 'revoked' && data.everPublished) {
         await assertReviewPolicy(client, principal.tenantKey, working);
+        await assertDatasetPublishable(client, working);
         const transition = await publishDataset(client, working, ifVersion, { correlationId, idempotencyKey });
         result = transition.dataset.data;
         resultVersion = transition.dataset.document.version;
@@ -267,6 +269,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const requestedVersion = expectedVersion(req, body);
     requireVersionMatch(requestedVersion, document.version, 'dataset');
     await assertReviewPolicy(client, principal.tenantKey, data);
+    await assertDatasetPublishable(client, data);
     const idempotencyKey = idempotencyKeyOf(req);
     const claim = await claimIdempotency(
       client, config, idempotencyTenant(principal), idempotencyKey,
