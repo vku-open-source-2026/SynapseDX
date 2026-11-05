@@ -25,6 +25,7 @@ const state = {
   reviewStatus: 'pending',
   selectedReviews: new Set(),
   settings: null,
+  teamAccount: null,
   auditQuery: {},
 };
 
@@ -360,7 +361,9 @@ function datasetRow(dataset) {
     `<td class="mono">${escapeHtml(dataset.entityType || '—')}</td>` +
     `<td><span class="mono">${escapeHtml(dataset.license || '—')}</span></td>` +
     `<td>${badge(dataset.status)}</td><td>${badge(review)}</td>` +
-    `<td><div class="row-actions">${actions.join('') || '<span class="muted">Read only</span>'}</div></td></tr>`;
+    `<td>${actions.length
+      ? `<details class="action-menu"><summary>Actions</summary><div class="action-menu-list">${actions.join('')}</div></details>`
+      : '<span class="muted">Read only</span>'}</td></tr>`;
 }
 
 function bindDatasetFilters() {
@@ -519,10 +522,16 @@ async function renderTeam() {
     setView(errorPanel({ status: 403, code: 'insufficient_scope', message: 'Team administration requires an administrator.' }));
     return;
   }
-  const data = await api.get('/v1/capabilities/management/team');
+  const teamPath = state.teamAccount
+    ? `/v1/capabilities/management/team?accountId=${encodeURIComponent(state.teamAccount)}`
+    : '/v1/capabilities/management/team';
+  const data = await api.get(teamPath);
   const members = Array.isArray(data?.members) ? data.members : [];
   const roles = Array.isArray(data?.roles) ? data.roles : [];
   const policies = Array.isArray(data?.policies) ? data.policies : [];
+  const accounts = Array.isArray(data?.accounts) ? data.accounts : [];
+  state.teamAccount = data?.account || state.teamAccount;
+  const accountOptions = accounts.map((account) => `<option value="${escapeHtml(account.id)}"${String(account.id) === String(data?.account) ? ' selected' : ''}>${escapeHtml(account.displayName || account.slug || account.id)}</option>`).join('');
   const roleOptions = roles.map((role) => `<option value="${escapeHtml(role.id)}">${escapeHtml(role.slug || role.name || role.id)}</option>`).join('');
   const rows = members.map((member) => {
     const current = Array.isArray(member.roles) ? member.roles : [];
@@ -531,15 +540,19 @@ async function renderTeam() {
       const label = role.slug || role.name || roleId;
       return `<span class="permission">${escapeHtml(label)} <button class="inline-remove" type="button" data-action="remove-role" data-id="${escapeHtml(`${member.id}|${roleId}`)}" aria-label="Remove ${escapeHtml(label)}">×</button></span>`;
     }).join('');
-    return `<tr><td><div class="dataset-name"><strong>${escapeHtml(member.displayName || member.email || member.id)}</strong><small class="mono">${escapeHtml(member.email || member.id)}</small></div></td>` +
+    return `<tr data-team-row data-team-search="${escapeHtml(`${member.displayName || ''} ${member.email || ''} ${member.id || ''}`.toLowerCase())}"><td><div class="dataset-name"><strong>${escapeHtml(member.displayName || member.email || member.id)}</strong><small class="mono">${escapeHtml(member.email || member.id)}</small></div></td>` +
       `<td>${chips || '<span class="muted">No roles</span>'}</td>` +
-      `<td><div class="row-actions"><select class="input" data-role-select="${escapeHtml(member.id)}" aria-label="Role for ${escapeHtml(member.email || member.id)}">${roleOptions}</select>` +
-      `<button class="table-action" type="button" data-action="assign-role" data-id="${escapeHtml(member.id)}">Assign</button></div></td></tr>`;
+      `<td>${roles.length
+        ? `<div class="row-actions"><select class="input" data-role-select="${escapeHtml(member.id)}" aria-label="Role for ${escapeHtml(member.email || member.id)}">${roleOptions}</select><button class="table-action" type="button" data-action="assign-role" data-id="${escapeHtml(member.id)}">Assign</button></div>`
+        : '<span class="muted">Create a role first</span>'}</td></tr>`;
   }).join('');
   setView(
     `<section class="panel"><div class="panel-heading"><div><p class="eyebrow">ACCESS CONTROL</p><h2>Team and roles</h2>` +
     `<p class="muted">Membership and role assignment are owned by Tier-1 IAM. This page only projects the verified tenant's users and roles; changes are audited.</p></div>` +
-    `<span class="pill neutral">${members.length} member${members.length === 1 ? '' : 's'}</span></div>` +
+    `<div class="row-actions"><select id="team-account" class="input" aria-label="Account">${accountOptions}</select>` +
+    `<button class="primary-button" type="button" data-action="new-role">New role <span>→</span></button>` +
+    `<span class="pill neutral">${members.length} member${members.length === 1 ? '' : 's'}</span></div></div>` +
+    `<div class="toolbar"><input id="team-search" class="input" type="search" placeholder="Search member, email or id…" aria-label="Search members" /><span id="team-count" class="muted">Showing ${Math.min(20, members.length)} of ${members.length}</span></div>` +
     dataTable(['Member', 'Roles', 'Assign'], rows.length ? [rows] : [], { empty: 'No members are visible for this tenant.' }) +
     `</section>` +
     `<section class="split-grid"><article class="panel compact"><p class="eyebrow">ROLES</p><h2>${roles.length} role${roles.length === 1 ? '' : 's'}</h2>` +
@@ -547,6 +560,31 @@ async function renderTeam() {
     `<article class="panel compact"><p class="eyebrow">POLICIES</p><h2>${policies.length} polic${policies.length === 1 ? 'y' : 'ies'}</h2>` +
     `<div class="permission-list">${policies.map((policy) => `<span class="permission">${escapeHtml(policy.name || policy.id)}</span>`).join('') || '<span class="muted">No policies</span>'}</div></article></section>`
   );
+  $('team-account')?.addEventListener('change', (event) => {
+    state.teamAccount = event.target.value;
+    render();
+  });
+  bindTeamFilter();
+}
+
+function bindTeamFilter() {
+  const search = $('team-search');
+  if (!search) return;
+  const rows = [...document.querySelectorAll('[data-team-row]')];
+  const apply = () => {
+    const query = search.value.trim().toLowerCase();
+    let shown = 0;
+    for (const [index, row] of rows.entries()) {
+      const matches = !query || (row.dataset.teamSearch || '').includes(query);
+      const withinLimit = query ? shown < 50 : index < 20;
+      row.hidden = !(matches && withinLimit);
+      if (!row.hidden) shown += 1;
+    }
+    const count = $('team-count');
+    if (count) count.textContent = `${shown} of ${rows.length} shown`;
+  };
+  search.addEventListener('input', apply);
+  apply();
 }
 
 /* -------------------------------------------------------------------------- *
@@ -902,6 +940,26 @@ function openBulkForm() {
   });
 }
 
+function openRoleForm() {
+  openModal({
+    title: 'New role',
+    body: field('Role slug', 'slug', '', { required: true, placeholder: 'moderator', help: 'Lowercase letters, digits or hyphens; used by the identity policy.' }) +
+      textareaField('Description', 'description', '', { rows: 3 }),
+    submitLabel: 'Create role',
+    onSubmit: async (form) => {
+      const data = new FormData(form);
+      await api.post('/v1/capabilities/management/team/roles', {
+        slug: String(data.get('slug') || '').trim(),
+        description: String(data.get('description') || '').trim(),
+        ...(state.teamAccount ? { accountId: state.teamAccount } : {}),
+      });
+      closeModal(false);
+      await render();
+      showToast('Role created. Assign it to a team member.');
+    },
+  });
+}
+
 function openReviewModal(dataset, decision) {
   const rejecting = decision === 'reject';
   openModal({
@@ -992,6 +1050,7 @@ async function handleAction(action, id) {
     showToast('Signed out.');
     return;
   }
+  if (action === 'new-role') return openRoleForm();
   if (action === 'assign-role') {
     const select = document.querySelector(`[data-role-select="${CSS.escape(id)}"]`);
     const roleId = select?.value;

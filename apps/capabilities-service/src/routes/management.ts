@@ -261,10 +261,45 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
     }
     const iam = credentialClient(config, caller.credential).iam;
     const members = await iam.listUsers(verified.org);
-    const roles = verified.account ? await iam.listRoles(verified.account) : [];
-    const policies = verified.account ? await iam.listPolicies(verified.account) : [];
+    const accounts = await iam.listAccounts(verified.org) as Array<{ id: string; slug?: string; displayName?: string }>;
+    const requested = String(req.query.accountId || verified.account || '').trim();
+    const account = requested && accounts.some((item: any) => String(item.id) === requested)
+      ? requested
+      : (accounts[0]?.id ? String(accounts[0].id) : null);
+    const roles = account ? await iam.listRoles(account) : [];
+    const policies = account ? await iam.listPolicies(account) : [];
     res.setHeader('cache-control', 'no-store');
-    res.json({ org: verified.org, account: verified.account || null, members, roles, policies });
+    res.json({ org: verified.org, account, accounts, members, roles, policies });
+  }));
+
+  app.post('/v1/capabilities/management/team/roles', handler(async (req, res) => {
+    const { caller, client } = await readContext(req, config);
+    const verified = requireAuthenticated(caller);
+    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
+    if (!verified.org) throw apiError(400, 'org_required', 'the caller credential has no organization claim');
+    const body = (req.body || {}) as Record<string, unknown>;
+    const slug = String(body.slug || '').trim().toLowerCase();
+    if (!/^[a-z][a-z0-9-]{1,62}$/.test(slug)) {
+      throw apiError(400, 'invalid_role_slug', 'role slug must be 2..63 lowercase letters, digits or hyphens');
+    }
+    const description = body.description === undefined ? '' : String(body.description).slice(0, 300);
+    const iam = credentialClient(config, caller.credential).iam;
+    const accounts = await iam.listAccounts(verified.org) as Array<{ id: string }>;
+    const requested = String(body.accountId || verified.account || '').trim();
+    const account = requested && accounts.some((item) => String(item.id) === requested)
+      ? requested
+      : (accounts[0]?.id ? String(accounts[0].id) : '');
+    if (!account) throw apiError(400, 'account_required', 'no account is available for this organization');
+    const role = await iam.createRole(account, slug, description);
+    await recordAudit(client, config, {
+      actor: verified.subject,
+      tenant: verified.tenantKey,
+      action: 'team.role.create',
+      correlationId: correlationIdOf(req),
+      details: { account, slug },
+    });
+    res.status(201).json({ account, role });
   }));
 
   app.get('/v1/capabilities/management/team/:userId/roles', handler(async (req, res) => {
