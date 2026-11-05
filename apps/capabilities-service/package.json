@@ -11,7 +11,7 @@
     "test": "npm run build && node --test dist/src/*.test.js"
   },
   "dependencies": {
-    "@synapseone/sdk": "file:../../vendor/synapseone-sdk-0.8.0-dev.0.tgz",
+    "@synapseone/sdk": "^0.8.0",
     "express": "^4.21.2"
   },
   "devDependencies": {

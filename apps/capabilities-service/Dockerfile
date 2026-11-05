@@ -3,9 +3,7 @@
 FROM node:20-bookworm-slim AS build
 WORKDIR /workspace
 COPY package*.json ./
-# Temporary vendored Tier-1 SDK build (see THIRD-PARTY.md). Replace with a
-# registry semver range once @synapseone/sdk 0.8.x is published.
-COPY vendor ./vendor
+# Tier-1 SDK is installed from the public npm registry.
 COPY apps/capabilities-service/package.json apps/capabilities-service/tsconfig.json ./apps/capabilities-service/
 COPY apps/capabilities-service/src ./apps/capabilities-service/src
 RUN npm ci && npm run build --workspace=@synapsedx/capabilities-service

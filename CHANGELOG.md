@@ -5,6 +5,13 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- Tier-2 file bytes now use the SynapseOCS bucket SDK (`@synapseone/sdk@^0.8.0`)
+  instead of the legacy default-bucket storage API; legacy objects are copied
+  into OCS lazily on first read.
+- The Tier-1 SDK is installed from the public npm registry; the temporary
+  vendored tarball is removed.
+
 ### Added
 - H/P/D/I capability modules: collaboration inbox/mentions/preferences and
   versioned PARA workspaces/wiki; people, KPIs, HITL timesheets; forms and

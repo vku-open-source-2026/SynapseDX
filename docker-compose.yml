@@ -16,6 +16,7 @@ services:
       SYNAPSEONE_BASE_URL: https://api.synapseone.space
       ALLOW_LOCAL_DEPENDENCIES: "false"
       SYNAPSEDX_AUTH_MODE: required
+      SYNAPSEDX_FILES_BUCKET: ${SYNAPSEDX_FILES_BUCKET:-synapsedx-files}
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     expose:
       - "8082"

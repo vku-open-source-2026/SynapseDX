@@ -169,6 +169,7 @@ export class FakeTier1 {
   readonly collections = new Map<string, Map<string, StoredDoc>>();
   readonly datasources = new Map<string, Datasource>();
   readonly storage = new Map<string, FakeObject>();
+  readonly ocsBuckets = new Set<string>(['default']);
   readonly notifications = new Map<string, FakeNotification>();
   readonly notificationPreferences = new Map<string, { tenant: string; recipient: string; channels: string[]; unsubscribed: boolean; updatedAt: string }>();
   readonly users = new Map<string, { id: string; email: string; password: string; orgSlug: string; verified: boolean; sessions: string[] }>();
@@ -316,6 +317,89 @@ export class FakeTier1 {
       refreshToken: refresh,
       user: { id: user.id, email: user.email, email_verified: (user as any).verified === true },
     };
+  }
+
+  private handleOcs(method: string, path: string, url: URL, raw: Buffer, headers: Record<string, string>, res: ServerResponse): void {
+    const tenant = this.tenantOf(headers);
+    if (!tenant) return this.json(res, 401, { error: 'tenant_required' });
+    if (path === '/v1/ocs/buckets' && method === 'GET') {
+      const withStats = url.searchParams.get('withStats') === '1';
+      const buckets = [...this.ocsBuckets].sort().map((name) => {
+        const objects = [...this.storage.values()].filter((object) => object.key.startsWith(`${name}|${tenant}|`));
+        return {
+          name, createdAt: nowIso(),
+          ...(withStats ? { objects: objects.length, bytes: objects.reduce((sum, object) => sum + object.body.length, 0) } : {}),
+        };
+      });
+      return this.json(res, 200, { buckets, total: buckets.length });
+    }
+    if (path === '/v1/ocs/buckets' && method === 'POST') {
+      let body: any = {};
+      try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return this.json(res, 400, { error: 'invalid_json' }); }
+      const name = String(body.name || '');
+      if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(name)) return this.json(res, 400, { error: 'invalid_bucket_name' });
+      if (this.ocsBuckets.has(name)) return this.json(res, 409, { error: 'bucket_exists' });
+      this.ocsBuckets.add(name);
+      return this.json(res, 201, { bucket: { name, createdAt: nowIso() } });
+    }
+    const bucketMatch = path.match(/^\/v1\/ocs\/buckets\/([^/]+)$/);
+    if (bucketMatch && (method === 'GET' || method === 'HEAD')) {
+      const name = decodeURIComponent(bucketMatch[1]);
+      if (!this.ocsBuckets.has(name)) return this.json(res, 404, { error: 'bucket_not_found' });
+      if (method === 'HEAD') { res.writeHead(200, { 'x-ocs-bucket': name }); res.end(); return; }
+      return this.json(res, 200, { bucket: { name, createdAt: nowIso() } });
+    }
+    const presignMatch = path.match(/^\/v1\/ocs\/buckets\/([^/]+)\/presign$/);
+    if (presignMatch && method === 'POST') {
+      if (!this.storagePresign) return this.json(res, 501, { error: 'presign_unsupported' });
+      let body: any = {};
+      try { body = raw.length ? JSON.parse(raw.toString('utf8')) : {}; } catch { return this.json(res, 400, { error: 'invalid_json' }); }
+      const bucket = decodeURIComponent(presignMatch[1]);
+      const key = String(body.key || '');
+      const verb = String(body.method || 'GET').toUpperCase();
+      return this.json(res, 200, { url: `https://s3.example/${encodeURIComponent(bucket)}/${encodeURIComponent(key)}?sig=fake`, bucket, key, method: verb, expiresIn: Number(body.expiresIn || 900) });
+    }
+    const objectMatch = path.match(/^\/v1\/ocs\/buckets\/([^/]+)\/objects\/(.+)$/);
+    if (objectMatch) {
+      const bucket = decodeURIComponent(objectMatch[1]);
+      const key = decodeURIComponent(objectMatch[2]);
+      if (!this.ocsBuckets.has(bucket)) return this.json(res, 404, { error: 'bucket_not_found' });
+      const id = `${bucket}|${tenant}|${key}`;
+      if (method === 'PUT') {
+        if (!raw.length) return this.json(res, 400, { error: 'empty_body' });
+        if (raw.length > this.maxObjectBytes) return this.json(res, 413, { error: 'object_too_large' });
+        const checksum = createHash('sha256').update(raw).digest('hex');
+        const provided = String(headers['x-object-checksum-sha256'] || '').toLowerCase();
+        if (provided && provided !== checksum) return this.json(res, 400, { error: 'checksum_mismatch', expected: checksum });
+        const current = this.storage.get(id);
+        const now = nowIso();
+        const contentType = String(headers['content-type'] || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+        const object: FakeObject = { tenant, key: id, body: raw, contentType, etag: checksum.slice(0, 32), checksumSha256: checksum, createdAt: current?.createdAt || now, updatedAt: now };
+        this.storage.set(id, object);
+        return this.json(res, current ? 200 : 201, { object: { bucket, key, size: raw.length, contentType, etag: object.etag, checksumSha256: checksum, createdAt: object.createdAt, updatedAt: object.updatedAt } });
+      }
+      const object = this.storage.get(id);
+      if (!object) return this.json(res, 404, { error: 'not_found' });
+      if (method === 'HEAD') {
+        res.writeHead(200, {
+          'content-type': object.contentType, 'content-length': String(object.body.length), etag: `"${object.etag}"`,
+          'x-object-key': key, 'x-ocs-bucket': bucket, 'x-object-checksum-sha256': object.checksumSha256,
+          'x-object-created-at': object.createdAt, 'x-object-updated-at': object.updatedAt,
+        });
+        res.end();
+        return;
+      }
+      if (method === 'GET') {
+        res.writeHead(200, { 'content-type': object.contentType, 'content-length': String(object.body.length), etag: `"${object.etag}"`, 'x-object-checksum-sha256': object.checksumSha256 });
+        res.end(object.body);
+        return;
+      }
+      if (method === 'DELETE') {
+        this.storage.delete(id);
+        return this.json(res, 200, { ok: true, bucket, key });
+      }
+    }
+    return this.json(res, 404, { error: 'not_found', path });
   }
 
   private handleStorage(method: string, path: string, url: URL, raw: Buffer, headers: Record<string, string>, res: ServerResponse): void {
@@ -499,6 +583,11 @@ export class FakeTier1 {
     this.seq += 1;
 
     // Storage accepts raw bytes; read the body before any JSON parsing.
+    if (path.startsWith('/v1/ocs/')) {
+      const raw = await readRaw(req);
+      this.requests.push({ method, path, headers, body: raw.length ? `<${raw.length} bytes>` : undefined });
+      return this.handleOcs(method, path, url, raw, headers, res);
+    }
     if (path.startsWith('/v1/storage/')) {
       const raw = await readRaw(req);
       this.requests.push({ method, path, headers, body: raw.length ? `<${raw.length} bytes>` : undefined });
