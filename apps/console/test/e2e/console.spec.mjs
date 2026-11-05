@@ -40,7 +40,7 @@ async function mockApi(page, context) {
   let requireReview = false;
   await page.route('**/v1/capabilities/management/team**', (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ json: { ok: true } });
-    return route.fulfill({ json: { org: 'org-a', account: 'acct-a', members: [{ id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] }, { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] }], roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }], policies: [{ id: 'policy-1', name: 'read-only' }] } });
+    return route.fulfill({ json: { org: 'org-a', account: 'acct-a', accounts: [{ id: 'acct-a', slug: 'prod', displayName: 'Prod' }], members: [{ id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] }, { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] }], roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }], policies: [{ id: 'policy-1', name: 'read-only' }] } });
   });
   await page.route('**/v1/capabilities/management/settings', (route) => {
     if (route.request().method() === 'PATCH') requireReview = true;

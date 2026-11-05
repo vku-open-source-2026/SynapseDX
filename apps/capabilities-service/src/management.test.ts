@@ -157,6 +157,15 @@ test('administrators can inspect and assign team roles', async () => {
     assert.equal(team.body.roles[0].slug, 'admin');
     assert.equal((await api(harness, '/v1/capabilities/management/team', { token: 'user-token' })).status, 403);
 
+    const role = await api(harness, '/v1/capabilities/management/team/roles', {
+      method: 'POST', token: 'admin-token', body: { slug: 'moderator', description: 'Peer reviewer' },
+    });
+    assert.equal(role.status, 201, JSON.stringify(role.body));
+    assert.equal(role.body.role.slug, 'moderator');
+    assert.equal((await api(harness, '/v1/capabilities/management/team/roles', {
+      method: 'POST', token: 'user-token', body: { slug: 'nope' },
+    })).status, 403);
+
     const assigned = await api(harness, '/v1/capabilities/management/team/user-2/roles', {
       method: 'POST', token: 'admin-token', body: { roleId: 'role-operator' },
     });

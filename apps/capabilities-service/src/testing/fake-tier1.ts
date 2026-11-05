@@ -625,11 +625,17 @@ export class FakeTier1 {
     if (path === '/v1/audit' && method === 'GET') return this.json(res, 200, { items: [{ id: 'audit-1', action: 'login' }], total: 1 });
     if (path === '/v1/usage/summary' && method === 'GET') return this.json(res, 200, { totals: { requests: 3 }, byFeature: {} });
     if (path === '/v1/usage/events' && method === 'GET') return this.json(res, 200, { items: [{ id: 'usage-1' }], total: 1 });
+    if (/^\/v1\/orgs\/[^/]+\/accounts$/.test(path) && method === 'GET') {
+      return this.json(res, 200, [{ id: 'acct-a', slug: 'prod', displayName: 'Prod' }]);
+    }
     if (/^\/v1\/orgs\/[^/]+\/users$/.test(path) && method === 'GET') {
       return this.json(res, 200, [
         { id: 'user-1', email: 'user@example.com', displayName: 'User One' },
         { id: 'user-2', email: 'operator@example.com', displayName: 'Operator Two' },
       ]);
+    }
+    if (/^\/v1\/accounts\/[^/]+\/roles$/.test(path) && method === 'POST') {
+      return this.json(res, 201, { id: `role-${body?.slug || 'new'}`, slug: body?.slug || 'new', description: body?.description || '' });
     }
     if (/^\/v1\/accounts\/[^/]+\/roles$/.test(path) && method === 'GET') {
       return this.json(res, 200, [
