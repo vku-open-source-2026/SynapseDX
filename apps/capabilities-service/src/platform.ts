@@ -245,8 +245,11 @@ export async function queryDocuments<T>(
 ): Promise<{ items: StoredDocument<T>[]; total: number; limit: number; offset: number; nextCursor: string | null }> {
   let result: BaseQueryResult<any>;
   try {
+    const hasWhere = Array.isArray(options.where)
+      ? options.where.length > 0
+      : !!options.where && Object.keys(options.where as Record<string, unknown>).length > 0;
     result = await client.base.queryDocuments(collection, {
-      ...(options.where ? { where: options.where } : {}),
+      ...(hasWhere ? { where: options.where } : {}),
       ...(options.orderBy ? { orderBy: options.orderBy as any } : {}),
       ...(options.limit !== undefined ? { limit: options.limit } : {}),
       ...(options.offset !== undefined ? { offset: options.offset } : {}),
