@@ -70,7 +70,7 @@ async function inbox(ctx) {
   return header('Inbox and mentions', `${result?.unread || 0} unread · preferences are tenant-scoped and respected by fan-out.`,
     `<button class="ghost-button" type="button" data-action="prefs-toggle">${pref.muted ? 'Unmute' : 'Mute'} delivery</button>`) +
     dataTable(['Item', 'Status', 'Created', 'Actions'], rows.length ? rows : [], { empty: 'No inbox items yet. Mentions and assignments arrive here.' }) +
-    `<div class="split-grid" style="margin-top:16px"><article class="panel compact"><p class="eyebrow">PREFERENCES</p><h2>${pref.muted ? 'Muted' : 'Delivering'}</h2>` +
+    `<div class="split-grid" class="mt-4"><article class="panel compact"><p class="eyebrow">PREFERENCES</p><h2>${pref.muted ? 'Muted' : 'Delivering'}</h2>` +
     `<p class="muted">Channels: ${escapeHtml((pref.channels || ['inbox']).join(', '))} · digest: ${escapeHtml(pref.digest || 'instant')}</p></article>` +
     `<article class="panel compact"><p class="eyebrow">MENTIONS</p><h2>Comments create inbox items</h2><p class="muted">Muted or quiet-hour recipients keep the item but skip external delivery.</p></article></div>`;
 }
@@ -134,7 +134,7 @@ async function projects(ctx) {
   ));
   return header('Projects and portfolio', 'Dependencies reject cycles, stage gates use HITL and capacity is derived from approved timesheets.') +
     dataTable(['Project', 'Dates', 'Gates', 'Stage'], rows.length ? rows : [], { empty: 'No projects yet.' }) +
-    `<div class="panel compact" style="margin-top:16px"><p class="eyebrow">CAPACITY</p><h2>Allocation</h2>` +
+    `<div class="panel compact" class="mt-4"><p class="eyebrow">CAPACITY</p><h2>Allocation</h2>` +
     dataTable(['Person', 'Approved hours', 'Signal'], capacityRows.length ? capacityRows : [], { empty: 'No approved timesheets yet.' }) + `</div>`;
 }
 
@@ -161,7 +161,7 @@ async function forms(ctx) {
     dataTable(['Form', 'Status', ''], formRows.length ? formRows : [], { empty: 'No forms yet.' }) + `</article>` +
     `<article class="panel compact"><p class="eyebrow">PROCESSES</p><h2>Process inspector</h2>` +
     dataTable(['Process', 'Status', ''], processRows.length ? processRows : [], { empty: 'No process definitions yet.' }) + `</article></div>` +
-    `<p class="muted" style="margin-top:12px">${running.length} running instance${running.length === 1 ? '' : 's'}.</p>`;
+    `<p class="muted" class="mt-3">${running.length} running instance${running.length === 1 ? '' : 's'}.</p>`;
 }
 
 async function reports(ctx) {
@@ -181,7 +181,7 @@ async function reports(ctx) {
   ));
   return header('Reports and dashboards', 'Saved queries are permission-checked on every run; exports are idempotent and audited.') +
     dataTable(['Report', 'Schedule', ''], rows.length ? rows : [], { empty: 'No reports yet.' }) +
-    `<div class="panel compact" style="margin-top:16px"><p class="eyebrow">DASHBOARDS</p><h2>Decision views</h2>` +
+    `<div class="panel compact" class="mt-4"><p class="eyebrow">DASHBOARDS</p><h2>Decision views</h2>` +
     dataTable(['Dashboard', 'Widgets', ''], dashboardRows.length ? dashboardRows : [], { empty: 'No dashboards yet.' }) + `</div>`;
 }
 
@@ -239,7 +239,7 @@ async function agents(ctx) {
   ));
   return header('Agent registry and traces', 'Tool allowlists are deny-by-default; high-risk runs pause for HITL and every trace is redacted.') +
     dataTable(['Agent', 'Tools', 'Risk', ''], agentRows.length ? agentRows : [], { empty: 'No agents registered yet.' }) +
-    `<div class="panel compact" style="margin-top:16px"><p class="eyebrow">RUNS</p><h2>Recent traces</h2>` +
+    `<div class="panel compact" class="mt-4"><p class="eyebrow">RUNS</p><h2>Recent traces</h2>` +
     dataTable(['Agent', 'Status', 'Cost', 'When'], runRows.length ? runRows : [], { empty: 'No agent runs yet.' }) + `</div>`;
 }
 
@@ -249,8 +249,8 @@ async function assistant(ctx) {
   return header('Grounded assistant', 'Answers cite only sources the caller can open; prompt-injection patterns are refused.') +
     `<form id="rag-form" class="toolbar"><input id="rag-question" class="input" placeholder="Ask a question about accessible workspace, datasets or files…" aria-label="Question" />` +
     `<button class="primary-button" type="submit">Ask <span>→</span></button></form>` +
-    `<div id="rag-answer" class="panel compact" style="margin-top:16px"><p class="muted">Answers will appear here with numbered citations.</p></div>` +
-    `<p class="muted" style="margin-top:12px">${usage.queries || 0} queries · $${Number(usage.costUsd || 0).toFixed(6)} metered · ${usage.noAnswer || 0} no-answer paths</p>`;
+    `<div id="rag-answer" class="panel compact" class="mt-4"><p class="muted">Answers will appear here with numbered citations.</p></div>` +
+    `<p class="muted" class="mt-3">${usage.queries || 0} queries · $${Number(usage.costUsd || 0).toFixed(6)} metered · ${usage.noAnswer || 0} no-answer paths</p>`;
 }
 
 export function bindModules(ctx) {
@@ -304,7 +304,7 @@ export async function handleModuleAction(ctx, action, id) {
     openModal({
       title: result.report?.name || 'Report result', hideSubmit: true,
       body: `<p class="muted">${result.total} matching row${result.total === 1 ? '' : 's'} · generated ${escapeHtml(relativeTime(result.generatedAt))}</p>` +
-        `<pre class="json-preview" style="max-height:420px;overflow:auto">${escapeHtml(previewJson(result.rows, 4000))}</pre>`,
+        `<pre class="json-preview" class="scroll-preview">${escapeHtml(previewJson(result.rows, 4000))}</pre>`,
     });
     return true;
   }
@@ -324,7 +324,7 @@ export async function handleModuleAction(ctx, action, id) {
     openModal({
       title: result.dashboard?.name || 'Dashboard', hideSubmit: true,
       body: result.widgets.map((widget) => `<div class="panel compact"><p class="eyebrow">${escapeHtml(widget.report?.kind || 'widget')}</p><h2>${escapeHtml(widget.title || widget.report?.name || widget.reportId)}</h2>` +
-        (widget.error ? `<p class="form-error">${escapeHtml(widget.error)}</p>` : `<pre class="json-preview" style="max-height:240px;overflow:auto">${escapeHtml(previewJson(widget.rows, 2000))}</pre>`) + `</div>`).join('') || '<p class="muted">No widgets.</p>',
+        (widget.error ? `<p class="form-error">${escapeHtml(widget.error)}</p>` : `<pre class="json-preview" class="scroll-widget">${escapeHtml(previewJson(widget.rows, 2000))}</pre>`) + `</div>`).join('') || '<p class="muted">No widgets.</p>',
     });
     return true;
   }
