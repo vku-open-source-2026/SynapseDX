@@ -382,21 +382,22 @@ a failed run is retried with bounded backoff, then marked `dead`.
 
 ## Files
 
-Metadata is a Tier-1 Base document; bytes live in Tier-1 storage under a
-tenant-prefixed key. Cross-tenant ids return `404 file_not_found`. Quotas,
-MIME/size limits and `SYNAPSEDX_FILES_*` configuration are enforced before the
-Tier-1 call.
+Metadata is a Tier-1 Base document; bytes live in the Tier-1 SynapseOCS bucket
+`SYNAPSEDX_FILES_BUCKET` (default `synapsedx-files`) under a tenant-prefixed key.
+Legacy default-bucket objects are copied into OCS lazily on first read.
+Cross-tenant ids return `404 file_not_found`. Quotas, MIME/size limits and the
+other `SYNAPSEDX_FILES_*` settings are enforced before the OCS call.
 
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | POST | `/v1/capabilities/files` | write | `{filename,contentType?,size?,checksumSha256?,datasetId?,recordId?,id?}` → `201` metadata + `upload` instructions. Supports `Idempotency-Key`. |
-| PUT | `/v1/capabilities/files/:id/content` | write | Raw binary body (`Content-Type`, optional `X-Checksum-SHA256`). Verifies checksum/quota and uploads to Tier-1. |
+| PUT | `/v1/capabilities/files/:id/content` | write | Raw binary body (`Content-Type`, optional `X-Checksum-SHA256`). Verifies checksum/quota and uploads to SynapseOCS. |
 | GET | `/v1/capabilities/files/:id/content` | verified | Streams the object with `Content-Type`, `Content-Length`, `Content-Disposition` and `X-Checksum-SHA256`. |
 | GET | `/v1/capabilities/files/:id` | verified | Metadata (size, MIME, checksum, dataset/record link). |
 | GET | `/v1/capabilities/files` | verified | Tenant list (`prefix`, pagination). |
 | GET | `/v1/capabilities/files/quota` | verified | `{usedBytes,quotaBytes,remainingBytes,files,maxFileBytes,allowedTypes}`. |
 | POST | `/v1/capabilities/files/:id/complete` | write | Finalize a presigned/direct upload after `HEAD` verification (`{size?}`). |
-| POST | `/v1/capabilities/files/:id/presign` | write | `{method?,expiresIn?}` → signed URL. `501 presign_unsupported` on the filesystem backend. |
+| POST | `/v1/capabilities/files/:id/presign` | write | `{method?,expiresIn?}` → signed URL. `501 presign_unsupported` when the OCS backend cannot sign URLs. |
 | DELETE | `/v1/capabilities/files/:id` | write | Delete object + metadata. |
 
 Uploads are idempotent by file id + checksum (Tier-1 upsert). A presigned `PUT`
