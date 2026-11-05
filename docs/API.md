@@ -271,6 +271,21 @@ Review state is additive on the dataset: `reviewStatus`
 `reviewedAt`, `reviewNote`. It never bypasses the existing
 `draft → published → revoked` lifecycle or the public-license check.
 
+## Approvals (human-in-the-loop)
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/v1/capabilities/approvals` | write | `{title,module,action,approverRoles?,requiredApprovals?,entityType?,entityId?,payload?,dueAt?}`. |
+| GET | `/v1/capabilities/approvals` | verified | Tenant-scoped list (`status`, `module`, `mine=requester\|approver`). |
+| GET | `/v1/capabilities/approvals/:id` | verified | One approval with decisions and ETag version. |
+| POST | `/v1/capabilities/approvals/:id/decide` | verified | `{decision:approve\|reject,note?}`. Requester cannot decide; configured approver roles are enforced; duplicate decisions return 409. |
+| POST | `/v1/capabilities/approvals/:id/cancel` | requester/admin | Cancel a pending request. |
+
+The state machine is `pending -> approved|rejected|cancelled`; `requiredApprovals`
+accumulates independent approve decisions. Every transition is audited as
+`approval.create`, `approval.decide` or `approval.cancel`. Domain effects remain
+owned by the caller; this capability only records the human decision.
+
 ## AI/inference
 
 | Method | Route | Auth | Description |

@@ -24,6 +24,7 @@ export const COLLECTIONS = {
   notificationPreferences: 'synapsedx_capability_notification_preferences',
   audit: 'synapsedx_capability_audit',
   settings: 'synapsedx_capability_settings',
+  approvals: 'synapsedx_capability_approvals',
 } as const;
 
 export type DatasetStatus = 'draft' | 'published' | 'revoked';

@@ -37,7 +37,7 @@ export function relativeTime(value) {
 export function statusLabel(status) {
   const labels = {
     draft: 'Draft', published: 'Published', revoked: 'Revoked',
-    pending: 'Pending review', approved: 'Approved', rejected: 'Rejected', none: 'Not submitted',
+    pending: 'Pending review', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled', none: 'Not submitted',
   };
   return labels[String(status || '').toLowerCase()] || String(status || '—');
 }
