@@ -49,6 +49,7 @@ export function navigationFor(context) {
   ];
   if (can(context, 'records:read')) items.push({ view: 'records', label: 'Records', icon: '▤' });
   if (can(context, 'moderation:read')) items.push({ view: 'moderation', label: 'Moderation', icon: '⚖' });
+  if (can(context, 'approvals:read')) items.push({ view: 'approvals', label: 'Approvals', icon: '✓' });
   if (can(context, 'users:read')) items.push({ view: 'team', label: 'Team', icon: '♟' });
   if (can(context, 'events:read')) items.push({ view: 'events', label: 'Events', icon: '⌁' });
   if (can(context, 'audit:read')) items.push({ view: 'audit', label: 'Audit & usage', icon: '◎' });

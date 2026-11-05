@@ -24,6 +24,7 @@ const state = {
   selectedDataset: null,
   reviewStatus: 'pending',
   selectedReviews: new Set(),
+  approvalStatus: 'pending',
   settings: null,
   teamAccount: null,
   auditQuery: {},
@@ -34,6 +35,7 @@ const VIEW_META = {
   datasets: { eyebrow: 'CAPABILITY CATALOG', title: 'Datasets and publication' },
   records: { eyebrow: 'RECORD PIPELINE', title: 'Records and projections' },
   moderation: { eyebrow: 'PEER REVIEW', title: 'Publication moderation' },
+  approvals: { eyebrow: 'HUMAN IN THE LOOP', title: 'Approvals' },
   team: { eyebrow: 'ACCESS CONTROL', title: 'Team and roles' },
   events: { eyebrow: 'EVENT BUS', title: 'Events and outbox' },
   audit: { eyebrow: 'GOVERNANCE', title: 'Audit and usage' },
@@ -230,6 +232,7 @@ async function render() {
     else if (state.view === 'datasets') await renderDatasets();
     else if (state.view === 'records') await renderRecords();
     else if (state.view === 'moderation') await renderModeration();
+    else if (state.view === 'approvals') await renderApprovals();
     else if (state.view === 'team') await renderTeam();
     else if (state.view === 'events') await renderEvents();
     else if (state.view === 'audit') await renderAudit();
@@ -516,6 +519,103 @@ function bindReviewSelection(items) {
 /* -------------------------------------------------------------------------- *
  * Team and roles
  * -------------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------------- *
+ * Approvals (HITL)
+ * -------------------------------------------------------------------------- */
+
+async function renderApprovals() {
+  const result = await api.get(`/v1/capabilities/approvals?status=${encodeURIComponent(state.approvalStatus)}`);
+  const items = Array.isArray(result?.items) ? result.items : [];
+  const tabs = ['pending', 'approved', 'rejected', 'cancelled'].map((value) => (
+    `<button class="tab${state.approvalStatus === value ? ' active' : ''}" type="button" data-action="approval-tab" data-id="${value}">${escapeHtml(statusLabel(value))}</button>`
+  )).join('');
+  const currentUser = state.context?.user?.id;
+  const rows = items.map((approval) => {
+    const approvals = (approval.decisions || []).filter((item) => item.decision === 'approve').length;
+    const actions = [];
+    if (approval.status === 'pending' && can(state.context, 'approvals:write') && approval.requester !== currentUser) {
+      actions.push(actionButton('approval-approve', approval.id, 'Approve', { variant: 'ok' }));
+      actions.push(actionButton('approval-reject', approval.id, 'Reject', { variant: 'bad' }));
+    }
+    return `<tr><td><div class="dataset-name"><strong>${escapeHtml(approval.title)}</strong><small class="mono">${escapeHtml(approval.module)} · ${escapeHtml(approval.action)}</small></div></td>` +
+      `<td class="mono">${escapeHtml(approval.requester)}</td>` +
+      `<td>${approvals} / ${escapeHtml(approval.requiredApprovals)}</td>` +
+      `<td>${badge(approval.status)}</td>` +
+      `<td class="mono">${escapeHtml(relativeTime(approval.createdAt))}</td>` +
+      `<td class="mono">${escapeHtml(approval.dueAt ? relativeTime(approval.dueAt) : '—')}</td>` +
+      `<td><div class="row-actions">${actions.join('') || '<span class="muted">No action</span>'}</div></td></tr>`;
+  }).join('');
+  setView(
+    `<section class="panel"><div class="panel-heading"><div><p class="eyebrow">HUMAN IN THE LOOP</p><h2>Approvals</h2>` +
+    `<p class="muted">One tenant-scoped decision trail for dispatch, budget, publication and other high-risk actions. Every decision is audited; requesters cannot approve their own request.</p></div>` +
+    (can(state.context, 'approvals:write') ? '<button class="primary-button" type="button" data-action="new-approval">New approval <span>→</span></button>' : '') +
+    `</div><div class="tabs">${tabs}</div>` +
+    dataTable(['Request', 'Requester', 'Approvals', 'Status', 'Created', 'Due', 'Actions'], rows.length ? [rows] : [], { empty: 'No approvals in this lane.' }) +
+    `</section>`
+  );
+}
+
+function openApprovalForm() {
+  openModal({
+    title: 'New approval request',
+    body: field('Title', 'title', '', { required: true, placeholder: 'Approve dispatch for incident 42' }) +
+      field('Module', 'module', '', { required: true, placeholder: 'sos.dispatch' }) +
+      field('Action', 'action', '', { required: true, placeholder: 'dispatch.assign' }) +
+      field('Approver roles', 'approverRoles', 'moderator', { help: 'Comma-separated; leave empty for any management role.' }) +
+      field('Required approvals', 'requiredApprovals', '1', { type: 'number' }) +
+      field('Due at', 'dueAt', '', { type: 'datetime-local' }) +
+      textareaField('Payload (JSON object)', 'payload', '{}', { rows: 5 }),
+    submitLabel: 'Create request',
+    onSubmit: async (form) => {
+      const data = new FormData(form);
+      let payload;
+      try { payload = JSON.parse(String(data.get('payload') || '{}')); } catch { throw new Error('payload must be valid JSON'); }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('payload must be a JSON object');
+      const approverRoles = String(data.get('approverRoles') || '').split(',').map((item) => item.trim()).filter(Boolean);
+      const dueAt = String(data.get('dueAt') || '').trim();
+      await api.post('/v1/capabilities/approvals', {
+        title: String(data.get('title') || '').trim(),
+        module: String(data.get('module') || '').trim(),
+        action: String(data.get('action') || '').trim(),
+        approverRoles,
+        requiredApprovals: Number(data.get('requiredApprovals') || 1),
+        ...(dueAt ? { dueAt: new Date(dueAt).toISOString() } : {}),
+        payload,
+      });
+      closeModal(false);
+      state.approvalStatus = 'pending';
+      await render();
+      showToast('Approval request created.');
+    },
+  });
+}
+
+function openApprovalDecision(approval, decision) {
+  const rejecting = decision === 'reject';
+  openModal({
+    title: `${rejecting ? 'Reject' : 'Approve'} ${approval.title}`,
+    body: `<p class="muted">${rejecting ? 'The requester sees this note in the audit trail.' : 'Approval is recorded with your principal and timestamp.'}</p>` +
+      textareaField(rejecting ? 'Reason (required)' : 'Note', 'note', '', { required: rejecting, rows: 4 }),
+    submitLabel: rejecting ? 'Reject' : 'Approve',
+    danger: rejecting,
+    onSubmit: async (form) => {
+      const note = String(new FormData(form).get('note') || '').trim();
+      if (rejecting && note.length < 3) throw new Error('A reason is required.');
+      await api.post(`/v1/capabilities/approvals/${encodeURIComponent(approval.id)}/decide`, {
+        decision, ...(note ? { note } : {}),
+      });
+      closeModal(false);
+      await render();
+      showToast(`Approval ${rejecting ? 'rejected' : 'recorded'}.`);
+    },
+  });
+}
+
+async function findApproval(id) {
+  const result = await api.get(`/v1/capabilities/approvals/${encodeURIComponent(id)}`);
+  return result.approval;
+}
 
 async function renderTeam() {
   if (!can(state.context, 'users:read')) {
@@ -1049,6 +1149,15 @@ async function handleAction(action, id) {
     await render();
     showToast('Signed out.');
     return;
+  }
+  if (action === 'new-approval') return openApprovalForm();
+  if (action === 'approval-tab') {
+    state.approvalStatus = id;
+    return render();
+  }
+  if (action === 'approval-approve' || action === 'approval-reject') {
+    const approval = await findApproval(id);
+    return openApprovalDecision(approval, action === 'approval-approve' ? 'approve' : 'reject');
   }
   if (action === 'new-role') return openRoleForm();
   if (action === 'assign-role') {

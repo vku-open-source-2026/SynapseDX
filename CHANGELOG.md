@@ -5,6 +5,12 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- Generic human-in-the-loop approvals (`/v1/capabilities/approvals`): tenant-scoped
+  requests, approver roles, quorum, self-approval denial, cancellation and audit.
+- Light, card-based management console aligned with the City/SOS visual language,
+  plus account selection and role creation on Team.
+
 ### Security
 
 - Tier-2 callers are authenticated by verifying their Tier-1 bearer/API key

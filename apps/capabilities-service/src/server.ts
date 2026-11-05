@@ -13,6 +13,7 @@ import express from 'express';
 import { ServiceConfig, loadConfig } from './config';
 import { correlationMiddleware, corsMiddleware, errorMiddleware, notFoundMiddleware, securityMiddleware } from './http';
 import { registerAiRoutes } from './routes/ai';
+import { registerApprovalRoutes } from './routes/approvals';
 import { registerAuditRoutes } from './routes/audit';
 import { registerAuthRoutes } from './routes/auth';
 import { registerDatasetRoutes } from './routes/datasets';
@@ -46,6 +47,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerHealthRoutes(app, config);
   registerAuthRoutes(app, config);
   registerManagementRoutes(app, config);
+  registerApprovalRoutes(app, config);
   registerDatasetRoutes(app, config);
   registerRecordRoutes(app, config);
   registerEventRoutes(app, config);

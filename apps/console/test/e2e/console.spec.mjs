@@ -6,24 +6,24 @@ const SESSION_KEY = 'synapsedx.console.session.v1';
 const ALL = [
   'summary:read', 'datasets:read', 'records:read', 'datasets:write', 'datasets:delete',
   'records:write', 'events:read', 'events:flush', 'audit:read', 'moderation:read',
-  'moderation:write', 'usage:read', 'settings:read', 'users:read', 'settings:write',
+  'moderation:write', 'usage:read', 'settings:read', 'users:read', 'settings:write', 'approvals:read', 'approvals:write',
 ];
 
 const contexts = {
   admin: { user: { id: 'admin-1', email: 'admin@example.com' }, tenant: 'org:demo', roles: ['admin'], permissions: ALL, auth: { kind: 'jwt', scopes: ['*'] } },
   operator: {
     user: { id: 'op-1', email: 'operator@example.com' }, tenant: 'org:demo', roles: ['operator', 'manager'],
-    permissions: ['summary:read', 'datasets:read', 'records:read', 'datasets:write', 'datasets:delete', 'records:write', 'events:read', 'events:flush', 'audit:read'],
+    permissions: ['summary:read', 'datasets:read', 'records:read', 'datasets:write', 'datasets:delete', 'records:write', 'events:read', 'events:flush', 'audit:read', 'approvals:read', 'approvals:write'],
     auth: { kind: 'jwt', scopes: ['write'] },
   },
   moderator: {
     user: { id: 'mod-1', email: 'moderator@example.com' }, tenant: 'org:demo', roles: ['moderator', 'manager'],
-    permissions: ['summary:read', 'datasets:read', 'records:read', 'moderation:read', 'moderation:write', 'events:read', 'audit:read', 'usage:read', 'settings:read'],
+    permissions: ['summary:read', 'datasets:read', 'records:read', 'moderation:read', 'moderation:write', 'events:read', 'audit:read', 'usage:read', 'settings:read', 'approvals:read', 'approvals:write'],
     auth: { kind: 'jwt', scopes: ['synapsedx:moderator', 'read'] },
   },
   manager: {
     user: { id: 'mgr-1', email: 'manager@example.com' }, tenant: 'org:demo', roles: ['manager'],
-    permissions: ['summary:read', 'datasets:read', 'records:read', 'events:read', 'audit:read', 'usage:read', 'settings:read'],
+    permissions: ['summary:read', 'datasets:read', 'records:read', 'events:read', 'audit:read', 'usage:read', 'settings:read', 'approvals:read', 'approvals:write'],
     auth: { kind: 'jwt', scopes: ['read'] },
   },
 };
@@ -38,6 +38,10 @@ async function mockApi(page, context) {
   await page.route('**/health', (route) => route.fulfill({ json: { status: 'ok', dependencies: [] } }));
   await page.route('**/v1/capabilities/management/context', (route) => route.fulfill({ json: context }));
   let requireReview = false;
+  await page.route('**/v1/capabilities/approvals**', (route) => {
+    if (route.request().method() === 'POST') return route.fulfill({ json: { approval: { id: 'approval-1', status: 'approved' } } });
+    return route.fulfill({ json: { items: [{ id: 'approval-1', title: 'Approve dispatch', module: 'sos.dispatch', action: 'dispatch.assign', requester: 'operator@example.com', requiredApprovals: 1, status: 'pending', decisions: [], createdAt: '2026-11-04T11:00:00Z', dueAt: '2026-11-05T11:00:00Z' }], total: 1 } });
+  });
   await page.route('**/v1/capabilities/management/team**', (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ json: { ok: true } });
     return route.fulfill({ json: { org: 'org-a', account: 'acct-a', accounts: [{ id: 'acct-a', slug: 'prod', displayName: 'Prod' }], members: [{ id: 'user-1', email: 'admin@example.com', displayName: 'Admin', roles: [{ id: 'role-admin', slug: 'admin' }] }, { id: 'user-2', email: 'operator@example.com', displayName: 'Operator', roles: [] }], roles: [{ id: 'role-admin', slug: 'admin' }, { id: 'role-operator', slug: 'operator' }], policies: [{ id: 'policy-1', name: 'read-only' }] } });
@@ -133,13 +137,15 @@ test('moderator can review but cannot edit or publish datasets', async ({ page }
 test('administrator sees every management lane and action', async ({ page }) => {
   await openAs(page, 'admin');
   await expect(page.locator('.role-badge')).toHaveText('Administrator');
-  for (const view of ['datasets', 'records', 'moderation', 'team', 'events', 'audit', 'settings']) {
+  for (const view of ['datasets', 'records', 'moderation', 'approvals', 'team', 'events', 'audit', 'settings']) {
     await expect(page.locator(`[data-nav="${view}"]`)).toBeVisible();
   }
   await page.click('[data-nav="datasets"]');
   await expect(page.locator('[data-action="new-dataset"]')).toBeVisible();
   await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(2);
   await expect(page.locator('[data-action="revoke-dataset"]')).toHaveCount(1);
+  await page.click('[data-nav="approvals"]');
+  await expect(page.locator('[data-action="approval-approve"]')).toHaveCount(1);
   await page.click('[data-nav="team"]');
   await expect(page.locator('[data-action="assign-role"]')).toHaveCount(2);
   await expect(page.getByText('read-only')).toBeVisible();

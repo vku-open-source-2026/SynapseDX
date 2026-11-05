@@ -29,17 +29,17 @@ import {
 
 export type ManagementRole = 'admin' | 'operator' | 'moderator' | 'manager' | 'viewer';
 
-const READ_PERMISSIONS = ['summary:read', 'datasets:read', 'records:read'] as const;
+const READ_PERMISSIONS = ['summary:read', 'datasets:read', 'records:read', 'approvals:read'] as const;
 const OPERATOR_PERMISSIONS = [
   ...READ_PERMISSIONS, 'datasets:write', 'datasets:delete', 'records:write',
-  'events:read', 'events:flush', 'audit:read',
+  'events:read', 'events:flush', 'audit:read', 'approvals:write',
 ] as const;
 const MODERATOR_PERMISSIONS = [
   ...READ_PERMISSIONS, 'moderation:read', 'moderation:write',
-  'events:read', 'audit:read', 'usage:read',
+  'events:read', 'audit:read', 'usage:read', 'approvals:write',
 ] as const;
 const MANAGER_PERMISSIONS = [
-  ...READ_PERMISSIONS, 'events:read', 'audit:read', 'usage:read', 'settings:read',
+  ...READ_PERMISSIONS, 'events:read', 'audit:read', 'usage:read', 'settings:read', 'approvals:write',
 ] as const;
 const ADMIN_PERMISSIONS = [
   ...new Set([
