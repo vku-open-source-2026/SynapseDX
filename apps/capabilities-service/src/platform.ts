@@ -251,7 +251,7 @@ export async function queryDocuments<T>(
     result = await client.base.queryDocuments(collection, {
       ...(hasWhere ? { where: options.where } : {}),
       ...(options.orderBy ? { orderBy: options.orderBy as any } : {}),
-      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.limit !== undefined ? { limit: Math.min(options.limit, 1000) } : {}),
       ...(options.offset !== undefined ? { offset: options.offset } : {}),
       ...(options.cursor ? { cursor: options.cursor } : {}),
       as: 'data',
