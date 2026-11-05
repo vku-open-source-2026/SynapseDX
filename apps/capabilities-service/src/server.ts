@@ -25,6 +25,10 @@ import { registerRecordRoutes } from './routes/records';
 import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerCollaborationRoutes } from './routes/collaboration';
+import { registerPeopleProcessRoutes } from './routes/people-process';
+import { registerDataInsightRoutes } from './routes/data-insights';
+import { registerIntelligenceRoutes } from './routes/intelligence';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
   const app = express();
@@ -57,6 +61,10 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerFileRoutes(app, config);
   registerNotificationRoutes(app, config);
   registerGeoRoutes(app, config);
+  registerCollaborationRoutes(app, config);
+  registerPeopleProcessRoutes(app, config);
+  registerDataInsightRoutes(app, config);
+  registerIntelligenceRoutes(app, config);
 
   app.use(notFoundMiddleware());
   app.use(errorMiddleware());

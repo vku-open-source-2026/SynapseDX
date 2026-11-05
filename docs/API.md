@@ -286,6 +286,55 @@ accumulates independent approve decisions. Every transition is audited as
 `approval.create`, `approval.decide` or `approval.cancel`. Domain effects remain
 owned by the caller; this capability only records the human decision.
 
+## Collaboration (#32, #35)
+
+| Method | Route | Description |
+| --- | --- | --- |
+| POST | `/v1/capabilities/comments` | Comment with `mentions[]`; creates deduplicated inbox items (`idempotencyKey` supported). |
+| GET | `/v1/capabilities/comments` | Filter by `entityType`, `entityId`, `module`. |
+| GET | `/v1/capabilities/inbox` | Recipient inbox (`status`, `module`), unread count. |
+| POST | `/v1/capabilities/inbox/:id/read` · `/archive` | Mark an item read or archived. |
+| GET/PUT | `/v1/capabilities/notification-preferences` | Per-user channels, mute, digest and quiet hours. |
+| POST/GET | `/v1/capabilities/workspaces` | PARA workspaces with owner/editor/viewer members. |
+| PATCH/DELETE | `/v1/capabilities/workspaces/:id` | Update membership or delete pages + workspace. |
+| POST/GET | `/v1/capabilities/workspaces/:id/pages` | Versioned wiki pages (`ifVersion` optimistic concurrency). |
+| GET/PUT/DELETE | `/v1/capabilities/pages/:id` | Page + versions + backlinks; missing attachments are dropped. |
+| POST | `/v1/capabilities/pages/:id/attachments` | Attach a Tier-2 file (bytes remain in Tier-1 storage). |
+| GET | `/v1/capabilities/page-search?q=` | Permission-aware page search. |
+
+## People / process / projects (#36, #37, #38)
+
+- `/v1/capabilities/people`, `/org-units`: directory linked to IAM subjects.
+- `/v1/capabilities/kpis`, `/kpis/:id/checkins`: progress derived only from check-ins.
+- `/v1/capabilities/timesheets`, `/:id/submit`, `/:id/decide`: submit creates a HITL approval; self-approval is refused; approved periods lock.
+- `/v1/capabilities/forms`, `/:id/versions`, `/:id/validate`: JSON-schema subset with conditional `visibleWhen` fields.
+- `/v1/capabilities/processes`, `/:id/versions`, `/:id/start`; `/process-instances/:id/transition`: published versions pin per instance, illegal transitions return `409`.
+- `/v1/capabilities/projects`, `/:id/tasks`, `/:id/dependencies` (cycle rejection), `/:id/gates` + submit/decide (HITL stage gates), `/:id/raid`, `/project-capacity`.
+
+## Reports and data products (#39, #40)
+
+| Method | Route | Description |
+| --- | --- | --- |
+| POST/GET | `/v1/capabilities/reports` | Saved report (`kind`, dataset, query, parameters). |
+| POST | `/v1/capabilities/reports/:id/run` | Permission-checked execution (metric/trend/table/bar/line). |
+| POST | `/v1/capabilities/reports/:id/export` | CSV/JSON/NDJSON, idempotent by key, audited. |
+| POST | `/v1/capabilities/reports/:id/schedule` | Cron/format/recipient schedule. |
+| POST | `/v1/capabilities/report-schedules/run-due` | Hourly idempotent schedule runner. |
+| POST/GET | `/v1/capabilities/dashboards` | Widget layout + shared filters. |
+| POST | `/v1/capabilities/dashboards/:id/share` | Stable share link id. |
+| GET | `/v1/capabilities/dashboards/:id/data` | Runs every widget with the same filters. |
+| POST | `/v1/capabilities/datasets/:id/contract` | Schema/semantic types/owner/SLA/license + compatibility check. |
+| GET | `/v1/capabilities/datasets/:id/contract` | Current contract and history. |
+| PUT | `/v1/capabilities/datasets/:id/quality/rules` | Required/unique/range/regex/freshness + publication gate. |
+| POST/GET | `/v1/capabilities/datasets/:id/quality[/run]` | Run and inspect quality results. |
+| POST/GET | `/v1/capabilities/lineage[/:type/:id]` | Tenant-scoped upstream/downstream traversal. |
+
+## Intelligence (#43, #44, #45)
+
+- `/v1/capabilities/ocr/jobs` + `/:id/redact` + `/:id/fields/:field/correct`: page/bbox provenance, low-confidence queue, PII redaction and record creation with provenance.
+- `/v1/capabilities/agents`, `/:id/runs`, `/:id/kill-switch`; `/agent-runs`, `/:id/resume`: deny-by-default tools, high-risk HITL pause, redacted traces, tenant kill switch.
+- `/v1/capabilities/rag/documents`, `/rag/query`, `/rag/usage`: ACL-aware retrieval, numbered citations, no-answer path, prompt-injection refusal, per-tenant usage/cost.
+
 ## AI/inference
 
 | Method | Route | Auth | Description |

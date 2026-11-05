@@ -73,6 +73,23 @@ async function mockApi(page, context) {
     json: { items: [{ id: 'a1', at: '2026-11-04T11:00:00Z', actor: 'operator@example.com', action: 'dataset.review.submit', datasetId: 'city-assets' }], total: 1 },
   }));
   await page.route('**/v1/capabilities/usage', (route) => route.fulfill({ json: { totals: { requests: 10, errors: 1 }, window: '24h' } }));
+  await page.route('**/v1/capabilities/inbox', (route) => route.fulfill({ json: { items: [], total: 0, unread: 0 } }));
+  await page.route('**/v1/capabilities/notification-preferences', (route) => route.fulfill({ json: { preferences: { subject: 'admin-1', channels: ['inbox'], muted: false, digest: 'instant' } } }));
+  await page.route('**/v1/capabilities/workspaces', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/people', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/kpis', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/projects', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/project-capacity', (route) => route.fulfill({ json: { items: [] } }));
+  await page.route('**/v1/capabilities/forms', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/processes', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/process-instances', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/reports', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/dashboards', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/datasets?limit=1', (route) => route.fulfill({ json: datasets.slice(0, 1) }));
+  await page.route('**/v1/capabilities/ocr/jobs', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/agents', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/agent-runs', (route) => route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/v1/capabilities/rag/usage', (route) => route.fulfill({ json: { queries: 0, tokens: 0, costUsd: 0, noAnswer: 0 } }));
 }
 
 async function openAs(page, role, hash = '#overview') {
@@ -137,7 +154,7 @@ test('moderator can review but cannot edit or publish datasets', async ({ page }
 test('administrator sees every management lane and action', async ({ page }) => {
   await openAs(page, 'admin');
   await expect(page.locator('.role-badge')).toHaveText('Administrator');
-  for (const view of ['datasets', 'records', 'moderation', 'approvals', 'team', 'events', 'audit', 'settings']) {
+  for (const view of ['datasets', 'records', 'moderation', 'approvals', 'modules', 'team', 'events', 'audit', 'settings']) {
     await expect(page.locator(`[data-nav="${view}"]`)).toBeVisible();
   }
   await page.click('[data-nav="datasets"]');
@@ -173,6 +190,20 @@ test('login form exchanges credentials and opens the administrator overview', as
   await page.click('#modal-form button[type="submit"]');
   await expect(page.locator('.role-badge')).toHaveText('Administrator');
   await expect(page.getByText('Govern the capability layer with evidence.')).toBeVisible();
+});
+
+test('business modules expose every H/P/D/I lane with empty states', async ({ page }) => {
+  await openAs(page, 'admin');
+  await page.click('[data-nav="modules"]');
+  await expect(page.locator('[data-action="module-tab"]')).toHaveCount(10);
+  for (const lane of ['inbox', 'workspace', 'people', 'projects', 'forms', 'reports', 'quality', 'ocr', 'agents', 'assistant']) {
+    await expect(page.locator(`[data-action="module-tab"][data-id="${lane}"]`)).toBeVisible();
+  }
+  await expect(page.getByText('No inbox items yet')).toBeVisible();
+  await page.click('[data-action="module-tab"][data-id="assistant"]');
+  await expect(page.locator('#rag-form')).toBeVisible();
+  await page.click('[data-action="module-tab"][data-id="reports"]');
+  await expect(page.getByText('No reports yet.')).toBeVisible();
 });
 
 test('mobile layout keeps navigation and the overview usable', async ({ page }) => {

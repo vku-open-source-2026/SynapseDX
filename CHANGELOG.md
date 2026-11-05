@@ -6,6 +6,17 @@ Keep a Changelog format and version tags use Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- H/P/D/I capability modules: collaboration inbox/mentions/preferences and
+  versioned PARA workspaces/wiki; people, KPIs, HITL timesheets; forms and
+  versioned process definitions; projects with dependency-cycle rejection and
+  HITL stage gates; permission-checked reports, dashboards and scheduled
+  exports; dataset contracts, quality gates and lineage; OCR correction queue;
+  governed agent registry with redacted traces and kill switch; grounded RAG
+  assistant with citations and prompt-injection guardrails.
+- Console "Modules" lane with inbox/preferences, workspace, people, projects,
+  forms/process preview, reports/dashboards, quality, OCR, agents and assistant.
+
+### Added
 - Generic human-in-the-loop approvals (`/v1/capabilities/approvals`): tenant-scoped
   requests, approver roles, quorum, self-approval denial, cancellation and audit.
 - Light, card-based management console aligned with the City/SOS visual language,

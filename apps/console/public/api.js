@@ -54,6 +54,7 @@ export function createApi({ baseUrl = '', getToken = () => null, fetchImpl = glo
     request,
     get: (path, options = {}) => request(path, options),
     post: (path, body, options = {}) => request(path, { ...options, method: 'POST', ...(body === undefined ? {} : { body }) }),
+    put: (path, body, options = {}) => request(path, { ...options, method: 'PUT', ...(body === undefined ? {} : { body }) }),
     patch: (path, body, options = {}) => request(path, { ...options, method: 'PATCH', ...(body === undefined ? {} : { body }) }),
     del: (path, options = {}) => request(path, { ...options, method: 'DELETE' }),
   };
