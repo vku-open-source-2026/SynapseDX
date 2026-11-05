@@ -4,11 +4,8 @@ This repository contains only project source under Apache-2.0. Dependencies are
 installed unmodified from public registries; their upstream licenses remain in
 the lockfile metadata and are not relicensed by VKU.VIC.
 
-Exception (temporary): `vendor/synapseone-sdk-0.8.0-dev.0.tgz` is a build of
-the Apache-2.0 SynapseOne SDK source (LICENSE/NOTICE included) because the
-registry release `0.7.0` predates the storage/notifications/identity APIs.
-Replace it with `@synapseone/sdk@^0.8.0` once published; see
-`docs/RELEASE.md`.
+The Tier-1 SDK is installed unmodified from the public npm registry as
+`@synapseone/sdk@^0.8.0`; no vendored SDK tarball is used.
 
 | Component | Version | License | Use |
 |---|---|---|---|
@@ -17,7 +14,7 @@ Replace it with `@synapseone/sdk@^0.8.0` once published; see
 | `@types/node` | ^22.10.2 | MIT | build-time types |
 | `@types/express` | ^5.0.0 | MIT | build-time types |
 | Express | ^4.21.2 | MIT | capabilities service and gateway HTTP boundary |
-| `@synapseone/sdk` | 0.8.0-dev.0 (vendored local build) | Apache-2.0 | Tier-1 Base/LDS/Queue/Stream/IAM/Workflow/Inference/Storage/Notifications access |
+| `@synapseone/sdk` | ^0.8.0 (npm registry) | Apache-2.0 | Tier-1 Base/LDS/Queue/Stream/IAM/Workflow/Inference/Storage/Notifications access |
 | nginx | 1.27-alpine | BSD-2-Clause | console static/proxy container |
 | `nginx:1.27-alpine` base image packages | Alpine/musl/OpenSSL | MIT/BSD/Apache-2.0 | container runtime |
 

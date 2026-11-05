@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 /**
- * File/object-storage capability over Tier-1 SynapseObjectStorage.
+ * File/object-storage capability over Tier-1 SynapseOCS.
  *
- * Binary data lives in Tier-1 storage; Tier-2 owns the file contract (id,
+ * Binary data lives in a Tier-1 SynapseOCS bucket; Tier-2 owns the file contract (id,
  * tenant/product ownership, dataset/record link, quotas, MIME/size limits,
  * checksums and presigned-URL policy). No file bytes or file index are stored
  * in the Tier-2 process; metadata is a Tier-1 Base document.
@@ -36,6 +36,8 @@ export interface FileRecord {
   size: number;
   checksumSha256?: string;
   storageKey: string;
+  /** Set for objects written through SynapseOCS; absent on legacy records. */
+  ocsBucket?: string;
   datasetId?: string;
   recordId?: string;
   createdAt: string;
@@ -163,6 +165,49 @@ function mapStorageError(error: unknown): never {
   throw error;
 }
 
+async function ensureOcsBucket(client: any, config: ServiceConfig): Promise<void> {
+  try {
+    await client.ocs.createBucket(config.filesBucket);
+  } catch (error) {
+    if (error instanceof SynapseOneError && (error.status === 400 || error.status === 409)) return;
+    throw error;
+  }
+}
+
+/** Lazily copy a legacy default-bucket object into SynapseOCS. */
+async function migrateLegacyObject(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<StoredDocument<FileRecord>> {
+  if (found.data.ocsBucket) return found;
+  await ensureOcsBucket(client, config);
+  const bytes = await client.storage.getObject(found.data.storageKey);
+  await client.ocs.putObject(config.filesBucket, found.data.storageKey, bytes, {
+    contentType: found.data.contentType,
+    ...(found.data.checksumSha256 ? { checksumSha256: found.data.checksumSha256 } : {}),
+  });
+  const updated: FileRecord = { ...found.data, ocsBucket: config.filesBucket, updatedAt: new Date().toISOString() };
+  try {
+    await client.base.updateDocument(COLLECTIONS.files, found.data.id, {
+      data: updated as unknown as Record<string, unknown>,
+      ...(found.version ? { ifVersion: found.version } : {}),
+    });
+  } catch {
+    // The bytes are already in OCS; a metadata race must not break the read.
+  }
+  found.data = updated;
+  return found;
+}
+
+async function readFileBytes(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<Uint8Array> {
+  if (found.data.ocsBucket) return client.ocs.getObject(found.data.ocsBucket, found.data.storageKey);
+  const migrated = await migrateLegacyObject(client, config, found);
+  return client.ocs.getObject(config.filesBucket, migrated.data.storageKey);
+}
+
+async function headFileObject(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<any> {
+  if (found.data.ocsBucket) return client.ocs.headObject(found.data.ocsBucket, found.data.storageKey);
+  const migrated = await migrateLegacyObject(client, config, found);
+  return client.ocs.headObject(config.filesBucket, migrated.data.storageKey);
+}
+
 export function registerFileRoutes(app: Express, config: ServiceConfig): void {
   const raw = express.raw({ type: () => true, limit: config.filesMaxBytes });
 
@@ -255,6 +300,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
         size,
         ...(providedChecksum ? { checksumSha256: providedChecksum } : {}),
         storageKey: storageKey(config, principal.tenantKey, id, filename),
+        ocsBucket: config.filesBucket,
         ...(body.datasetId ? { datasetId: String(body.datasetId) } : {}),
         ...(body.recordId ? { recordId: String(body.recordId) } : {}),
         createdAt: now,
@@ -331,7 +377,8 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       });
     }
     try {
-      await client.storage.putObject(record.storageKey, body, { contentType, checksumSha256: actualChecksum });
+      await ensureOcsBucket(client, config);
+      await client.ocs.putObject(config.filesBucket, record.storageKey, body, { contentType, checksumSha256: actualChecksum });
     } catch (error) {
       mapStorageError(error);
     }
@@ -340,6 +387,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       contentType,
       size: body.length,
       checksumSha256: actualChecksum,
+      ocsBucket: config.filesBucket,
       updatedAt: new Date().toISOString(),
     };
     await client.base.updateDocument(COLLECTIONS.files, record.id, {
@@ -358,7 +406,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     const found = await loadFile(client, String(req.params.id), { principal });
     let bytes: Uint8Array;
     try {
-      bytes = await client.storage.getObject(found.data.storageKey);
+      bytes = await readFileBytes(client, config, found);
     } catch (error) {
       mapStorageError(error);
     }
@@ -376,7 +424,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     const found = await loadFile(client, String(req.params.id), { principal });
     let object: any;
     try {
-      object = await client.storage.headObject(found.data.storageKey);
+      object = await headFileObject(client, config, found);
     } catch (error) {
       mapStorageError(error);
     }
@@ -403,6 +451,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       ...found.data,
       size: Number(object.size),
       contentType,
+      ocsBucket: config.filesBucket,
       ...(object.checksumSha256 ? { checksumSha256: String(object.checksumSha256) } : {}),
       updatedAt: new Date().toISOString(),
     };
@@ -427,7 +476,8 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     }
     let signed: any;
     try {
-      signed = await client.storage.presign(found.data.storageKey, { method: method as any, expiresIn });
+      const migrated = await migrateLegacyObject(client, config, found);
+      signed = await client.ocs.presign(config.filesBucket, migrated.data.storageKey, { method: method as any, expiresIn });
     } catch (error) {
       mapStorageError(error);
     }
@@ -436,6 +486,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       fileId: found.data.id,
       method: signed.method || method,
       url: signed.url,
+      bucket: config.filesBucket,
       expiresIn: signed.expiresIn || expiresIn,
       completeUrl: method === 'PUT' ? `/v1/capabilities/files/${encodeURIComponent(found.data.id)}/complete` : undefined,
     });
@@ -445,7 +496,12 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     const { principal, client } = await writeContext(req, config);
     const found = await loadFile(client, String(req.params.id), { principal });
     try {
-      await client.storage.deleteObject(found.data.storageKey);
+      if (found.data.ocsBucket) {
+        await client.ocs.deleteObject(found.data.ocsBucket, found.data.storageKey);
+      } else {
+        await client.storage.deleteObject(found.data.storageKey);
+        await client.ocs.deleteObject(config.filesBucket, found.data.storageKey).catch(() => undefined);
+      }
     } catch (error) {
       if (!(error instanceof SynapseOneError && error.status === 404)) mapStorageError(error);
     }

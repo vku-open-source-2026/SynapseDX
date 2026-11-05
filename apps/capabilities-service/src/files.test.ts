@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { api, apiBinary, startHarness } from './testing/harness';
+import { COLLECTIONS } from './platform';
 
 test('file capability uploads/downloads binary data with metadata, checksum and tenant isolation', async () => {
   const harness = await startHarness();
@@ -27,6 +28,8 @@ test('file capability uploads/downloads binary data with metadata, checksum and 
     assert.equal(upload.status, 200);
     assert.equal(upload.body.size, bytes.length);
     assert.equal(upload.body.checksumSha256, checksum);
+    assert.ok(harness.fake.ocsBuckets.has('synapsedx-files'));
+    assert.ok([...harness.fake.storage.keys()].some((key) => key.startsWith('synapsedx-files|')));
 
     const metadata = await api(harness, `/v1/capabilities/files/${id}`, { token: 'user-token' });
     assert.equal(metadata.status, 200);
@@ -203,5 +206,38 @@ test('presigned URLs are exposed only when the Tier-1 backend supports them', as
     assert.equal(complete.body.size, bytes.length);
   } finally {
     await s3Backend.close();
+  }
+});
+
+test('legacy default-bucket files are lazily migrated to SynapseOCS', async () => {
+  const harness = await startHarness();
+  try {
+    const bytes = Buffer.from('legacy-object');
+    const checksum = createHash('sha256').update(bytes).digest('hex');
+    const storageKey = 'synapsedx/files/acct-a/legacy-1/legacy.txt';
+    const now = new Date().toISOString();
+    harness.fake.storage.set(`account:service-account|${storageKey}`, {
+      tenant: 'account:service-account', key: storageKey, body: bytes, contentType: 'text/plain',
+      etag: checksum.slice(0, 32), checksumSha256: checksum, createdAt: now, updatedAt: now,
+    });
+    const collection = harness.fake.collections.get(COLLECTIONS.files) ?? new Map();
+    harness.fake.collections.set(COLLECTIONS.files, collection);
+    collection.set('legacy-1', {
+      id: 'legacy-1', version: 1, createdAt: now, updatedAt: now,
+      data: {
+        id: 'legacy-1', tenant: 'acct-a', owner: 'user-1', filename: 'legacy.txt',
+        contentType: 'text/plain', size: bytes.length, checksumSha256: checksum,
+        storageKey, createdAt: now, updatedAt: now,
+      },
+    });
+
+    const download = await apiBinary(harness, '/v1/capabilities/files/legacy-1/content', { token: 'user-token' });
+    assert.equal(download.status, 200);
+    assert.deepEqual(download.body, bytes);
+    assert.ok([...harness.fake.storage.keys()].some((key) => key.startsWith('synapsedx-files|') && key.includes(storageKey)));
+    const metadata = collection.get('legacy-1');
+    assert.equal((metadata?.data as any).ocsBucket, 'synapsedx-files');
+  } finally {
+    await harness.close();
   }
 });

@@ -60,6 +60,8 @@ export interface ServiceConfig {
   filesAllowedTypes: string[];
   filesPresignTtlSeconds: number;
   filesPrefix: string;
+  /** SynapseOCS bucket for Tier-2 file bytes (never the process filesystem). */
+  filesBucket: string;
 }
 
 function boolValue(raw: string | undefined, fallback = false): boolean {
@@ -190,6 +192,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
   );
   if (!authAllowedAudiences.includes(authAudience)) authAllowedAudiences.unshift(authAudience);
   const filesPrefix = (env.SYNAPSEDX_FILES_PREFIX?.trim() || 'synapsedx/files').replace(/^\/+|\/+$/g, '');
+  const filesBucket = (env.SYNAPSEDX_FILES_BUCKET?.trim() || 'synapsedx-files');
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(filesBucket)) {
+    throw new Error('SYNAPSEDX_FILES_BUCKET must be a valid SynapseOCS bucket name (3..63 lowercase characters)');
+  }
   if (!/^[A-Za-z0-9._@:/-]{1,200}$/.test(filesPrefix)) {
     throw new Error('SYNAPSEDX_FILES_PREFIX must match [A-Za-z0-9._@:/-]{1,200}');
   }
@@ -220,5 +226,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     filesAllowedTypes: listValue(env.SYNAPSEDX_FILES_ALLOWED_TYPES, []),
     filesPresignTtlSeconds: intValue(env.SYNAPSEDX_FILES_PRESIGN_TTL_SECONDS, 900, 1, 604800),
     filesPrefix,
+    filesBucket,
   };
 }

@@ -20,14 +20,10 @@ The backend imports `@synapseone/sdk` and does not use raw HTTP to SynapseOne;
 it has no database, queue, cache or identity store of its own. Tier 3 calls the
 gateway at `https://synapsedx.sbs`.
 
-> **Temporary SDK build.** The public `@synapseone/sdk@0.7.0` release predates
-> `StorageService`, `NotificationsService` and the typed health/identity
-> lifecycle. Until `0.8.x` is published, the service depends on a byte-for-byte
-> build of the Tier-1 SDK source committed as
-> `vendor/synapseone-sdk-0.8.0-dev.0.tgz` (`file:` dependency). The Dockerfile
-> copies `vendor/`; replace the dependency with `^0.8.0` and delete the tarball
-> when the registry release exists. See `THIRD-PARTY.md` and
-> `docs/RELEASE.md`.
+> **Registry SDK.** `@synapseone/sdk@^0.8.0` is published on npm and includes
+> SynapseOCS, storage, notifications and the typed identity/health lifecycle.
+> The service and Docker build install it directly from the registry; there is
+> no vendored SDK tarball.
 
 > **Ports:** `8082` is the host publish port. Inside the compose network the
 > gateway listens on `8080` and is reachable as `synapsedx-gateway:8080`; the

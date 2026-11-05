@@ -52,54 +52,9 @@ The current package version is `0.3.0`; bump it with `npm version` before a new
 tag. Publication (and therefore #14 closure) remains blocked on the operator
 token.
 
-## Temporary `@synapseone/sdk` vendor build
+## Tier-1 SDK dependency
 
-The published Tier-1 SDK `0.7.0` lacks `StorageService`,
-`NotificationsService` and the typed identity/health lifecycle. Until a
-registry release exists, `apps/capabilities-service` depends on
-`vendor/synapseone-sdk-0.8.0-dev.0.tgz`, a build of the Apache-2.0 Tier-1 SDK
-source with LICENSE/NOTICE and no test files.
-
-Replacement procedure once `@synapseone/sdk@0.8.x` is published:
-
-1. Change `apps/capabilities-service/package.json` to
-   `"@synapseone/sdk": "^0.8.0"`.
-2. Run `npm install` and refresh `package-lock.json`.
-3. Remove `vendor/` and the `COPY vendor ./vendor` line from
-   `apps/capabilities-service/Dockerfile`.
-4. Run `npm run build`, `npm test`, `docker compose build` and update
-   `THIRD-PARTY.md`/`README.md`.
-
-The tarball is a temporary local dependency, not a fork: it is byte-for-byte
-the Tier-1 SDK build and must not be patched independently.
-
-## Service release
-
-```bash
-npm ci
-npm run build
-npm test
-docker compose config
-docker compose build
-docker compose up -d
-```
-
-Tier-2 requires a scoped Tier-1 service credential with Base/LDS/Queue/Stream/
-IAM/Workflow/Inference/Faststore/Storage/Notifications access. Local HTTP
-dependencies are test-only (`ALLOW_LOCAL_DEPENDENCIES=true`); production must
-use public HTTPS URLs.
-
-## Container release (v* tags)
-
-`.github/workflows/release-images.yml` builds and publishes:
-
-```text
-ghcr.io/vku-open-source-2026/synapsedx-capabilities:vX.Y.Z
-ghcr.io/vku-open-source-2026/synapsedx-gateway:vX.Y.Z
-ghcr.io/vku-open-source-2026/synapsedx-console:vX.Y.Z
-```
-
-Each image also gets `latest` and `sha-<commit>` tags. The GitHub release
-attaches the verified SDK tarball, checksums, compose file and API/runner docs.
-The separate operator-gated `sdk-v*` workflow publishes the npm SDK when
-`NPM_TOKEN` is configured.
+`apps/capabilities-service` installs `@synapseone/sdk@^0.8.0` from the public npm
+registry. The SDK includes SynapseOCS/storage, notifications and the typed
+identity/health lifecycle. There is no vendored SDK tarball and no `file:`
+dependency; Docker builds resolve the package from npm.
