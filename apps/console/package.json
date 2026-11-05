@@ -1,16 +1,43 @@
 {
   "name": "@synapsedx/console",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "SynapseDX Tier-2 capability console shell",
-  "scripts": {
-    "build": "node -e \"console.log('static console ready')\"",
-    "test": "node --test test/*.test.mjs",
-    "test:e2e": "playwright test"
-  },
+  "description": "SynapseDX Tier-2 capability control plane console",
   "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "generate:routes": "tsr generate",
+    "build": "tsr generate && tsc -b && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run && node --test test/nginx.test.mjs",
+    "test:e2e": "playwright test",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.10",
+    "@tanstack/react-router": "^1.139.10",
+    "axios": "^1.13.2",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.554.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zustand": "^5.0.8"
+  },
   "devDependencies": {
-    "@playwright/test": "^1.64.1"
+    "@playwright/test": "1.64.1",
+    "@tanstack/router-cli": "^1.139.10",
+    "@tanstack/router-plugin": "^1.139.10",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.1",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.17",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.4",
+    "vitest": "^4.0.14"
   }
 }

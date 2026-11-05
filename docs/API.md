@@ -245,7 +245,7 @@ the request body.
 
 ## Management console
 
-The console at `cloud.synapsedx.sbs` is a static SPA backed by these routes.
+The console at `cloud.synapsedx.sbs` is a React SPA backed by these routes.
 Roles are derived from the verified Tier-1 principal; the browser cannot
 choose a role. `admin` is `*`/`synapsedx:admin`, `operator` is `write`/
 `synapsedx:operator`, `moderator` is `synapsedx:moderator`, and `manager` is a

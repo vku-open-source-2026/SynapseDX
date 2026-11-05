@@ -6,6 +6,13 @@ Keep a Changelog format and version tags use Semantic Versioning.
 ## [Unreleased]
 
 ### Changed
+- Console rebuilt as a React SPA (Vite + TanStack Router + Tailwind v4, the
+  City/SOS design system) replacing the static shell. Public catalog landing,
+  split sign-in screen, `/admin` console routes (overview, datasets, records,
+  moderation, approvals, modules, team, events, audit, settings), permission-
+  driven sidebar, accessible modals, Playwright role-matrix E2E (9 tests) and
+  Vitest unit tests. The Docker image builds the SPA with Vite and serves it
+  via nginx with the same strict CSP.
 - Tier-2 file bytes now use the SynapseOCS bucket SDK (`@synapseone/sdk@^0.8.0`)
   instead of the legacy default-bucket storage API; legacy objects are copied
   into OCS lazily on first read.
