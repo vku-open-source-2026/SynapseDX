@@ -20,6 +20,17 @@ import { createScoped, listScoped } from './module-helpers';
 import { detectProvinces } from '../crawlers/kttv';
 
 const CHUNK_SIZE = 1800;
+/**
+ * PDF ingestion is limited to the public KTTV sources this capability knows
+ * how to cite. An open URL fetcher would be an SSRF primitive even with DNS
+ * checks, so operators must extend this list explicitly.
+ */
+const PDF_HOST_ALLOWLIST = new Set(
+  String(process.env.KNOWLEDGE_PDF_HOSTS || 'www.nchmf.gov.vn,nchmf.gov.vn,kttv.gov.vn,s3.vndms.gov.vn,vndms.gov.vn')
+    .split(',')
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean),
+);
 const CHUNK_OVERLAP = 200;
 const MAX_BODY = 120_000;
 const MAX_CHUNKS = 64;
@@ -89,6 +100,9 @@ async function assertPublicPdfUrl(raw: string): Promise<URL> {
   const host = url.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.internal') || host.endsWith('.local') || host === 'metadata.google.internal') {
     throw apiError(400, 'blocked_url', 'internal hosts are not allowed');
+  }
+  if (!PDF_HOST_ALLOWLIST.has(host)) {
+    throw apiError(400, 'blocked_url', `host '${host}' is not an allowed KTTV PDF source`);
   }
   if (isIP(host)) {
     const parts = host.split('.').map(Number);
@@ -354,6 +368,7 @@ export function registerKnowledgeRoutes(app: Express, config: ServiceConfig): vo
     const timeout = setTimeout(() => controller.abort(), 30_000);
     let buffer: Buffer;
     try {
+      // codeql[js/request-forgery] -- the URL is constrained to PDF_HOST_ALLOWLIST above and its DNS answers are checked for private addresses.
       const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
       if (!response.ok) throw apiError(502, 'pdf_fetch_failed', `upstream returned ${response.status}`);
       const length = Number(response.headers.get('content-length') || 0);
