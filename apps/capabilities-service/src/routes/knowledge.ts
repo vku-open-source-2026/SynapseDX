@@ -236,6 +236,7 @@ export async function answerKnowledgeQuestion(
   principal: CallerPrincipal,
   question: string,
   topK = 6,
+  liveContext = '',
 ): Promise<KnowledgeAnswer> {
   const q = clean(question, 2000);
   if (!q) throw apiError(400, 'invalid_question', 'question is required');
@@ -277,6 +278,11 @@ export async function answerKnowledgeQuestion(
   }
 
   const parentIds = [...new Set(chunkDocs.map((chunk) => chunk.documentId))];
+  const parentDocs = new Map<string, KnowledgeDocumentRecord>();
+  await Promise.all(parentIds.map(async (parentId) => {
+    const parent = await getDocumentOrNull<KnowledgeDocumentRecord>(client, COLLECTIONS.knowledgeDocuments, parentId);
+    if (parent) parentDocs.set(parentId, parent.data);
+  }));
   const entities = new Set<string>();
   for (const parentId of parentIds.slice(0, limit)) {
     const graph: any = await client.base
@@ -302,6 +308,9 @@ export async function answerKnowledgeQuestion(
         'Bạn là trợ lý khí tượng thủy văn của SynapseCity.',
         'Chỉ trả lời dựa trên CONTEXT được cung cấp. Nếu context không đủ, nói rõ là không đủ dữ liệu.',
         'Trích dẫn nguồn bằng số trong ngoặc vuông, ví dụ [1]. Trả lời ngắn gọn, tiếng Việt.',
+        ...(String(liveContext || '').trim()
+          ? [`LIVE CONTEXT — cảnh báo đang hoạt động (ưu tiên khi mâu thuẫn với tài liệu cũ):\n${String(liveContext).trim().slice(0, 4000)}`]
+          : []),
         `CONTEXT:\n${context}`,
       ].join('\n\n'),
     },
@@ -310,17 +319,37 @@ export async function answerKnowledgeQuestion(
 
   let answer = '';
   let model: string | undefined;
-  try {
-    const response: any = await client.inference.chat(messages as any);
-    const choice = Array.isArray(response?.choices) ? response.choices[0] : null;
-    answer = String(choice?.message?.content ?? response?.message ?? '').trim();
-    model = response?.model ? String(response.model) : undefined;
-  } catch {
-    // Extractive fallback keeps the assistant useful when the provider is down.
-    answer = chunkDocs
-      .slice(0, 3)
-      .map((chunk, index) => `[${index + 1}] ${chunk.text.slice(0, 500)}`)
-      .join('\n\n');
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const fallbackModel = attempt === 1
+      ? String(process.env.KNOWLEDGE_FALLBACK_MODEL || 'inception/mercury-2.5')
+      : undefined;
+    try {
+      const response: any = await client.inference.chat(messages as any, {
+        temperature: 0.2,
+        max_tokens: fallbackModel ? 2_000 : 700,
+        ...(fallbackModel ? { model: fallbackModel } : {}),
+      } as any);
+      const choice = Array.isArray(response?.choices) ? response.choices[0] : null;
+      answer = String(choice?.message?.content ?? response?.message ?? '').trim();
+      model = response?.model ? String(response.model) : undefined;
+      if (answer) break;
+    } catch {
+      // Retry once with the configured fallback model before going extractive.
+    }
+  }
+  if (!answer) {
+    // No provider answer: return an explicit, grounded fallback instead of a
+    // raw chunk that could be mistaken for a generated answer.
+    model = undefined;
+    if (String(liveContext || '').trim()) {
+      answer = `AI đang tạm thời quá tải. Các cảnh báo đang hoạt động:\n${String(liveContext).trim()}`;
+    } else {
+      answer = `AI đang tạm thời quá tải. Tài liệu liên quan:\n${chunkDocs
+        .slice(0, 3)
+        .map((chunk, index) => `[${index + 1}] ${chunk.title}: ${chunk.text.slice(0, 220)}`)
+        .join('\n')}`;
+    }
   }
   if (!answer) {
     answer = chunkDocs
@@ -329,12 +358,16 @@ export async function answerKnowledgeQuestion(
       .join('\n\n');
   }
 
-  const citations = chunkDocs.slice(0, 8).map((chunk, index) => ({
-    index: index + 1,
-    title: chunk.title,
-    documentId: chunk.documentId,
-    ...(chunk.text ? {} : {}),
-  }));
+  const citations = chunkDocs.slice(0, 8).map((chunk, index) => {
+    const parent = parentDocs.get(chunk.documentId);
+    return {
+      index: index + 1,
+      title: chunk.title,
+      documentId: chunk.documentId,
+      ...(parent?.url ? { url: parent.url } : {}),
+      ...(parent?.publishedAt ? { publishedAt: parent.publishedAt } : {}),
+    };
+  });
   return { answer, citations, entities: [...entities].slice(0, 32), noAnswer: false, ...(model ? { model } : {}) };
 }
 
@@ -408,7 +441,8 @@ export function registerKnowledgeRoutes(app: Express, config: ServiceConfig): vo
     const { principal, client } = await authenticatedReadContext(req, config);
     const body = (req.body || {}) as any;
     const question = String(body.question || body.q || '').trim();
-    const result = await answerKnowledgeQuestion(client, principal, question, Number(body.topK || 6));
+    const liveContext = String(body.context || '').trim().slice(0, 4000);
+    const result = await answerKnowledgeQuestion(client, principal, question, Number(body.topK || 6), liveContext);
     res.json(result);
   }));
 

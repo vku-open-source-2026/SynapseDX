@@ -6,6 +6,13 @@ Keep a Changelog format and version tags use Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- **LLM situation brief**: `POST /v1/capabilities/hazards/brief` summarises the
+  live NCHMF/VNDMS feed with `[H1]` citations and a deterministic fallback when
+  the provider is rate-limited. `@synapsedx/capabilities@0.5.1` exposes
+  `hazards.brief`.
+- `knowledge.query` accepts a trusted `context` block (current alerts) that is
+  injected as system context, and returns source URLs/publication dates in
+  citations. The SDK adds the optional `context` field.
 - Tier-2 **KTTV capability**: NCHMF today-warning crawler and VNDMS public PDF
   ingestion, normalised hazards persisted in SynapseBase, a 30-minute scheduler
   and an admin-triggered run endpoint. Crawler state exposes last success,
