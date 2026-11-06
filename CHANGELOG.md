@@ -5,7 +5,20 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- Tier-2 **KTTV capability**: NCHMF today-warning crawler and VNDMS public PDF
+  ingestion, normalised hazards persisted in SynapseBase, a 30-minute scheduler
+  and an admin-triggered run endpoint. Crawler state exposes last success,
+  counts and source health; stale hazards are retired after a successful crawl.
+- **Knowledge base** on Tier-1 SynapseBase: documents/chunks with hybrid
+  pgvector search, graph entity expansion and grounded answers with citations.
+  Historical VNDMS PDFs are indexed as first-class documents.
+- `@synapsedx/capabilities@0.4.0` adds `knowledge` and `hazards` namespaces and
+  is published to npm for Tier-3 consumers.
+
 ### Security
+- PDF ingestion is restricted to an explicit NCHMF/KTTV/VNDMS host allowlist
+  (`KNOWLEDGE_PDF_HOSTS`) with private-address DNS checks.
 - The gateway host port is bound to 127.0.0.1 (`GATEWAY_HOST_PORT`), so the
   plaintext API is no longer reachable from the Internet; the public edge is
   the TLS nginx only.

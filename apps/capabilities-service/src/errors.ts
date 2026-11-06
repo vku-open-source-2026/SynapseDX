@@ -132,7 +132,18 @@ export type ErrorCode =
   | 'query_rejected'
   | 'internal_error'
   | 'route_not_found'
-  | 'method_not_allowed';
+  | 'method_not_allowed'  | 'invalid_url'
+  | 'blocked_url'
+  | 'invalid_document'
+  | 'invalid_question'
+  | 'pdf_fetch_failed'
+  | 'pdf_too_large'
+  | 'pdf_no_text'
+  | 'pdf_not_catalogued'
+  | 'crawl_running'
+  | 'admin_required'
+  | 'crawl_failed'
+;
 
 export interface ErrorEnvelope {
   error: {
