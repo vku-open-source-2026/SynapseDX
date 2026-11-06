@@ -139,6 +139,7 @@ export type ErrorCode =
   | 'pdf_fetch_failed'
   | 'pdf_too_large'
   | 'pdf_no_text'
+  | 'pdf_not_catalogued'
   | 'crawl_running'
   | 'admin_required'
   | 'crawl_failed'

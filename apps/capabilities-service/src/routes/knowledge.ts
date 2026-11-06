@@ -6,8 +6,6 @@
  * (`/v1/base/.../graph`) and a grounded answer with citations.
  */
 import { createHash } from 'node:crypto';
-import { isIP } from 'node:net';
-import { promises as dns } from 'node:dns';
 import { Express } from 'express';
 import { SynapseOneClient } from '@synapseone/sdk';
 import { CallerPrincipal, isAdmin } from '../auth';
@@ -20,25 +18,7 @@ import { createScoped, listScoped } from './module-helpers';
 import { detectProvinces } from '../crawlers/kttv';
 
 const CHUNK_SIZE = 1800;
-/**
- * PDF ingestion is limited to the public KTTV sources this capability knows
- * how to cite. An open URL fetcher would be an SSRF primitive even with DNS
- * checks, so operators must extend this list explicitly.
- */
-const PDF_ORIGINS: Record<string, string> = {
-  'www.nchmf.gov.vn': 'https://www.nchmf.gov.vn',
-  'nchmf.gov.vn': 'https://nchmf.gov.vn',
-  'kttv.gov.vn': 'https://kttv.gov.vn',
-  's3.vndms.gov.vn': 'https://s3.vndms.gov.vn',
-  'vndms.gov.vn': 'https://vndms.gov.vn',
-};
-const configuredPdfHosts = String(
-  process.env.KNOWLEDGE_PDF_HOSTS || 'www.nchmf.gov.vn,nchmf.gov.vn,kttv.gov.vn,s3.vndms.gov.vn,vndms.gov.vn',
-)
-  .split(',')
-  .map((host) => host.trim().toLowerCase())
-  .filter(Boolean);
-const PDF_HOST_ALLOWLIST = new Set(configuredPdfHosts.filter((host) => PDF_ORIGINS[host]));
+
 const CHUNK_OVERLAP = 200;
 const MAX_BODY = 120_000;
 const MAX_CHUNKS = 64;
@@ -82,69 +62,51 @@ function clean(value: string, max = 500): string {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
-const PRIVATE_IPV4 = (parts: number[]): boolean => {
-  const [a, b, c] = parts;
-  return a === 0 || a === 10 || a === 127
-    || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31)
-    || (a === 192 && b === 168)
-    || (a === 100 && b >= 64 && b <= 127)
-    || (a === 198 && (b === 18 || b === 19))
-    || a >= 224;
-};
+/**
+ * PDF ingestion only accepts catalogued official KTTV documents. The request
+ * selects an entry by id (or exact URL); the fetch target itself always comes
+ * from this server-side catalog, never from the request body. Operators can
+ * add entries with KNOWLEDGE_PDF_CATALOG (JSON array of {id,url,title}).
+ */
+interface CatalogPdf { id: string; url: string; title?: string }
 
-/** Reject loopback/private/metadata hosts for user-supplied PDF URLs. */
-async function assertPublicPdfUrl(raw: string): Promise<URL> {
-  let url: URL;
+const DEFAULT_PDF_CATALOG: CatalogPdf[] = [
+  {
+    id: 'vndms-sos-thanh-hoa',
+    url: 'https://s3.vndms.gov.vn/public/sos-message/2346fe380113c1d254ffb76730dac697.pdf',
+    title: 'BAN CHỈ HUY PHÒNG THỦ DÂN SỰ TỈNH THANH HOÁ',
+  },
+  {
+    id: 'vndms-sos-cao-bang',
+    url: 'https://s3.vndms.gov.vn/public/sos-message/2d4a6c402389381d31e27a7a69c05914.pdf',
+    title: 'SỞ NN VÀ MT TỈNH CAO BẰNG — BÁO CÁO THIỆT HẠI',
+  },
+];
+
+function officialPdfCatalog(): CatalogPdf[] {
+  const raw = process.env.KNOWLEDGE_PDF_CATALOG;
+  if (!raw) return DEFAULT_PDF_CATALOG;
   try {
-    url = new URL(raw);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return DEFAULT_PDF_CATALOG;
+    const entries = parsed
+      .map((item) => ({ id: String(item?.id || ''), url: String(item?.url || ''), title: String(item?.title || '') }))
+      .filter((item) => /^[A-Za-z0-9_.:-]{1,80}$/.test(item.id) && /^https:\/\//i.test(item.url));
+    return entries.length ? entries : DEFAULT_PDF_CATALOG;
   } catch {
-    throw apiError(400, 'invalid_url', 'url must be an absolute http(s) URL');
+    return DEFAULT_PDF_CATALOG;
   }
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw apiError(400, 'invalid_url', 'only http(s) URLs are allowed');
+}
+
+function resolveCatalogPdf(body: Record<string, unknown>): CatalogPdf {
+  const id = String(body.id || '').trim();
+  const url = String(body.url || '').trim();
+  if (!id && !url) throw apiError(400, 'pdf_not_catalogued', 'id or url of a catalogued KTTV PDF is required');
+  const catalog = officialPdfCatalog();
+  for (const entry of catalog) {
+    if ((id && entry.id === id) || (url && entry.url === url)) return entry;
   }
-  if (url.username || url.password) throw apiError(400, 'invalid_url', 'credentials in URLs are not allowed');
-  const host = url.hostname.toLowerCase();
-  if (host === 'localhost' || host.endsWith('.internal') || host.endsWith('.local') || host === 'metadata.google.internal') {
-    throw apiError(400, 'blocked_url', 'internal hosts are not allowed');
-  }
-  if (!PDF_HOST_ALLOWLIST.has(host)) {
-    throw apiError(400, 'blocked_url', `host '${host}' is not an allowed KTTV PDF source`);
-  }
-  // Rebuild the URL from a constant origin and the user path. The fetch sink
-  // never sees an attacker-controlled host, which keeps SSRF impossible even
-  // if a public host is later misconfigured.
-  const origin = PDF_ORIGINS[host];
-  const pathname = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
-  if (pathname.startsWith('//') || pathname.includes('\\')) {
-    throw apiError(400, 'invalid_url', 'invalid PDF path');
-  }
-  const safeUrl = new URL(pathname, origin);
-  if (safeUrl.origin !== new URL(origin).origin) {
-    throw apiError(400, 'blocked_url', 'PDF URL must stay on its allowlisted origin');
-  }
-  if (isIP(host)) {
-    const parts = host.split('.').map(Number);
-    if (isIP(host) === 4 && PRIVATE_IPV4(parts)) throw apiError(400, 'blocked_url', 'private addresses are not allowed');
-    if (isIP(host) === 6 && (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80'))) {
-      throw apiError(400, 'blocked_url', 'private addresses are not allowed');
-    }
-    return safeUrl;
-  }
-  try {
-    const records = await dns.lookup(host, { all: true });
-    for (const record of records) {
-      const address = record.address;
-      if (isIP(address) === 4 && PRIVATE_IPV4(address.split('.').map(Number))) {
-        throw apiError(400, 'blocked_url', 'host resolves to a private address');
-      }
-    }
-  } catch (error) {
-    if (error instanceof Error && 'status' in error) throw error;
-    // NXDOMAIN: let fetch fail naturally.
-  }
-  return safeUrl;
+  throw apiError(400, 'pdf_not_catalogued', 'PDF must be an official catalogued KTTV document');
 }
 
 function chunkText(text: string): string[] {
@@ -383,12 +345,14 @@ export function registerKnowledgeRoutes(app: Express, config: ServiceConfig): vo
     const { principal, client } = await writeContext(req, config);
     await ensureCollections(client);
     const body = (req.body || {}) as any;
-    const url = await assertPublicPdfUrl(String(body.url || ''));
+    const entry = resolveCatalogPdf(body);
+    const url = new URL(entry.url);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     let buffer: Buffer;
     try {
-      const response = await fetch(url, { signal: controller.signal, redirect: 'error' });
+      // entry.url comes from the server-side catalog, never from req.body.
+      const response = await fetch(entry.url, { signal: controller.signal, redirect: 'error' });
       if (!response.ok) throw apiError(502, 'pdf_fetch_failed', `upstream returned ${response.status}`);
       const length = Number(response.headers.get('content-length') || 0);
       if (length > MAX_PDF_BYTES) throw apiError(413, 'pdf_too_large', 'PDF exceeds 20 MB');
@@ -403,7 +367,8 @@ export function registerKnowledgeRoutes(app: Express, config: ServiceConfig): vo
     const text = String(parsed.text || '').replace(/\s+/g, ' ').trim();
     if (text.length < 40) throw apiError(422, 'pdf_no_text', 'the PDF has no extractable text');
     const result = await indexKnowledgeDocument(client, principal, {
-      title: String(body.title || url.pathname.split('/').pop() || 'Tài liệu PDF').slice(0, 300),
+      id: `k-pdf-${entry.id}`,
+      title: String(body.title || entry.title || url.pathname.split('/').pop() || 'Tài liệu PDF').slice(0, 300),
       body: text,
       source: url.hostname,
       url: url.toString(),
