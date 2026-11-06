@@ -244,7 +244,9 @@ export async function answerKnowledgeQuestion(
   try {
     const search: any = await client.search.hybrid(q, {
       collections: [COLLECTIONS.knowledgeChunks],
-      limit,
+      // Retrieve a wider candidate pool so source diversification below can
+      // still surface a fresh NCHMF warning when long PDFs dominate.
+      limit: Math.min(Math.max(limit * 5, 20), 50),
     } as any);
     hits = Array.isArray(search?.items) ? search.items : [];
   } catch {
@@ -258,13 +260,20 @@ export async function answerKnowledgeQuestion(
   }
 
   const chunkDocs: KnowledgeChunkRecord[] = [];
+  const perDocument = new Map<string, number>();
   for (const hit of hits) {
     const chunkId = String(hit.documentId || hit.id || '').split(':').pop() || '';
     const doc = await getDocumentOrNull<KnowledgeChunkRecord>(client, COLLECTIONS.knowledgeChunks, chunkId);
     // The search index is collection-wide; enforce the caller's tenant here
     // so a private knowledge document can never leak into another tenant's RAG
     // answer (service/admin credentials still see the shared KTTV corpus).
-    if (doc && (isAdmin(principal) || doc.data.tenant === principal.tenantKey)) chunkDocs.push(doc.data);
+    if (!doc || (!isAdmin(principal) && doc.data.tenant !== principal.tenantKey)) continue;
+    // Cap chunks per source so a long PDF cannot crowd out every other warning.
+    const seen = perDocument.get(doc.data.documentId) || 0;
+    if (seen >= 2) continue;
+    perDocument.set(doc.data.documentId, seen + 1);
+    chunkDocs.push(doc.data);
+    if (chunkDocs.length >= limit) break;
   }
 
   const parentIds = [...new Set(chunkDocs.map((chunk) => chunk.documentId))];
