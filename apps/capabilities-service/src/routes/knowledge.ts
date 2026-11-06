@@ -148,6 +148,9 @@ export async function indexKnowledgeDocument(
   const id = input.id && /^[A-Za-z0-9_:.@+-]{1,120}$/.test(input.id) ? input.id : `k-${sha1(`${source}|${url}|${title}`).slice(0, 24)}`;
 
   const existing = await getDocumentOrNull<KnowledgeDocumentRecord>(client, COLLECTIONS.knowledgeDocuments, id);
+  if (existing && !isAdmin(principal) && existing.data.tenant !== principal.tenantKey) {
+    throw apiError(409, 'record_already_exists', 'a document with this id belongs to another tenant');
+  }
   if (existing && existing.data.hash === hash) {
     return { document: existing.data, chunks: 0, graph: { nodes: 0, edges: 0 } };
   }
@@ -258,7 +261,10 @@ export async function answerKnowledgeQuestion(
   for (const hit of hits) {
     const chunkId = String(hit.documentId || hit.id || '').split(':').pop() || '';
     const doc = await getDocumentOrNull<KnowledgeChunkRecord>(client, COLLECTIONS.knowledgeChunks, chunkId);
-    if (doc) chunkDocs.push(doc.data);
+    // The search index is collection-wide; enforce the caller's tenant here
+    // so a private knowledge document can never leak into another tenant's RAG
+    // answer (service/admin credentials still see the shared KTTV corpus).
+    if (doc && (isAdmin(principal) || doc.data.tenant === principal.tenantKey)) chunkDocs.push(doc.data);
   }
 
   const parentIds = [...new Set(chunkDocs.map((chunk) => chunk.documentId))];
