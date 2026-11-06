@@ -5,6 +5,27 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- OCR jobs now read the stored Tier-2 image and run Tesseract 5 (`vie+eng`)
+  when no pre-extracted text is sent. Fields keep per-line bbox and
+  confidence; Vietnamese labels are recognised. The engine runs one job at a
+  time with one thread, a bounded queue (`429 ocr_busy`) and a timeout, so it
+  costs no memory while idle. PDFs are refused (`415`); render pages first.
+- The console OCR lane can upload an image and start a job; the assistant
+  shows whether an answer was written by the LLM or quoted, and how sources
+  were retrieved.
+
+### Changed
+- RAG retrieval uses Tier-1 embeddings when InferenceService reports a real
+  model (`mock_mode: false`) and keeps the local hash otherwise; chunks record
+  the `embeddingModel` they were indexed with and are only compared within it.
+  Keyword matching is Unicode-aware (Vietnamese diacritics) and token-based.
+- RAG answers are written by the Tier-1 LLM from the retrieved sources and are
+  accepted only when every `[n]` citation points at a retrieved source;
+  otherwise the extractive answer is returned. `generate: false` skips the
+  LLM. Responses add `generator`, `retrieval` and `model`.
+- OCR redaction also covers the per-line text kept for provenance.
+
 ## [0.6.1] - 2026-11-10
 
 ### Added

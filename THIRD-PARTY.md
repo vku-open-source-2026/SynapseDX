@@ -17,6 +17,9 @@ The Tier-1 SDK is installed unmodified from the public npm registry as
 | `@synapseone/sdk` | ^0.8.0 (npm registry) | Apache-2.0 | Tier-1 Base/LDS/Queue/Stream/IAM/Workflow/Inference/Storage/Notifications access |
 | nginx | 1.27-alpine | BSD-2-Clause | console static/proxy container |
 | `nginx:1.27-alpine` base image packages | Alpine/musl/OpenSSL | MIT/BSD/Apache-2.0 | container runtime |
+| Tesseract OCR (`tesseract-ocr`, Debian bookworm) | 5.3 | Apache-2.0 | OCR engine in the capabilities image, run as a separate process |
+| Tesseract language data (`tesseract-ocr-eng`, `tesseract-ocr-vie`) | 4.1 | Apache-2.0 | English and Vietnamese OCR models |
+| Leptonica (`liblept5`, Tesseract dependency) | 1.82 | BSD-2-Clause | image decoding for Tesseract |
 
 The console is plain static HTML/CSS/ES modules (no React, Vite, Tailwind,
 TanStack, Leaflet, MapLibre or Turf dependency). Geocoding is not bundled: an

@@ -332,8 +332,13 @@ owned by the caller; this capability only records the human decision.
 ## Intelligence (#43, #44, #45)
 
 - `/v1/capabilities/ocr/jobs` + `/:id/redact` + `/:id/fields/:field/correct`: page/bbox provenance, low-confidence queue, PII redaction and record creation with provenance.
+  - `POST /ocr/jobs {fileId}` OCRs the stored file with Tesseract (`vie+eng`); the job records `source: "engine"` and `engine {name, languages, durationMs}`, and every page keeps `lines[]` with text, bbox and confidence.
+  - `POST /ocr/jobs {fileId, text | pages[]}` skips the engine and parses pre-extracted text (`source: "client_text"`).
+  - Errors: `415 ocr_unsupported_type` (images only: PNG/JPEG/TIFF/BMP/WebP/GIF), `413 file_too_large`, `429 ocr_busy`, `503 ocr_engine_unavailable`, `504 ocr_timeout`, `422 ocr_failed` / `ocr_no_text`, `400 ocr_empty` (no `Label: value` lines).
 - `/v1/capabilities/agents`, `/:id/runs`, `/:id/kill-switch`; `/agent-runs`, `/:id/resume`: deny-by-default tools, high-risk HITL pause, redacted traces, tenant kill switch.
 - `/v1/capabilities/rag/documents`, `/rag/query`, `/rag/usage`: ACL-aware retrieval, numbered citations, no-answer path, prompt-injection refusal, per-tenant usage/cost.
+  - Ingest returns `embeddingModel`: `tier1/<model>` when Tier-1 InferenceService reports a real embedding model, otherwise `local/hash-48`.
+  - `POST /rag/query {question, topK?, generate?}` returns `answer`, `citations`, `confidence`, `noAnswer`, plus `generator` (`llm` | `extractive`), `retrieval` and, for LLM answers, `model`. An LLM answer is used only if each `[n]` cites a retrieved source; `generate: false` always quotes.
 
 ## AI/inference
 

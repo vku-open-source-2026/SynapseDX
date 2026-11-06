@@ -17,6 +17,14 @@ interface RagAnswer {
   noAnswer?: boolean;
   confidence?: number;
   citations?: Array<{ index: number; title: string }>;
+  generator?: 'llm' | 'extractive';
+  retrieval?: string;
+  model?: string;
+}
+
+function retrievalLabel(retrieval?: string): string {
+  if (!retrieval) return '';
+  return retrieval.startsWith('tier1/') ? `semantic · ${retrieval.slice(6)}` : 'keyword + hash';
 }
 
 export function AssistantModule() {
@@ -83,6 +91,12 @@ export function AssistantModule() {
               {answer.noAnswer ? 'No grounded answer' : `Confidence ${Math.round((answer.confidence || 0) * 100)}%`}
             </h3>
             <p className="mt-2 leading-7 text-slate-700">{answer.answer}</p>
+            {!answer.noAnswer && answer.generator ? (
+              <p className="mt-2 text-xs text-slate-500" data-testid="rag-provenance">
+                {answer.generator === 'llm' ? `Written by ${answer.model || 'the Tier-1 LLM'} from the cited sources` : 'Quoted from the cited sources'}
+                {answer.retrieval ? ` · retrieval: ${retrievalLabel(answer.retrieval)}` : ''}
+              </p>
+            ) : null}
             {answer.citations?.length ? (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {answer.citations.map((citation) => (

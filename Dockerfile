@@ -9,6 +9,10 @@ RUN cd SynapseDX && npm ci && npm run build:service
 
 FROM node:20-bookworm-slim
 ENV NODE_ENV=production
+# Tesseract OCR (Apache-2.0) + Vietnamese data; see apps/capabilities-service/Dockerfile.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-vie \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /workspace/SynapseDX/package*.json ./
 COPY --from=build /workspace/SynapseDX/node_modules ./node_modules

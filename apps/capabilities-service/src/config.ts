@@ -62,6 +62,20 @@ export interface ServiceConfig {
   filesPrefix: string;
   /** SynapseOCS bucket for Tier-2 file bytes (never the process filesystem). */
   filesBucket: string;
+  /** OCR engine for file-backed OCR jobs: `tesseract` (local CLI) or `off`. */
+  ocrEngine: 'tesseract' | 'off';
+  /** Tesseract language packs, joined with `+` (for example `vie+eng`). */
+  ocrLanguages: string;
+  tesseractBin: string;
+  ocrTimeoutMs: number;
+  ocrMaxBytes: number;
+  /** Requests allowed to wait for the single OCR worker before 429. */
+  ocrMaxQueue: number;
+  /** Let RAG write the answer with the Tier-1 LLM (extractive fallback). */
+  ragGenerate: boolean;
+  /** Use Tier-1 embeddings for RAG when the model is real (not mock). */
+  ragTier1Embeddings: boolean;
+  ragLlmTimeoutMs: number;
 }
 
 function boolValue(raw: string | undefined, fallback = false): boolean {
@@ -227,5 +241,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     filesPresignTtlSeconds: intValue(env.SYNAPSEDX_FILES_PRESIGN_TTL_SECONDS, 900, 1, 604800),
     filesPrefix,
     filesBucket,
+    ocrEngine: ocrEngineValue(env.SYNAPSEDX_OCR_ENGINE),
+    ocrLanguages: ocrLanguagesValue(env.SYNAPSEDX_OCR_LANGUAGES),
+    tesseractBin: env.SYNAPSEDX_TESSERACT_BIN?.trim() || 'tesseract',
+    ocrTimeoutMs: intValue(env.SYNAPSEDX_OCR_TIMEOUT_MS, 60000, 1000, 600000),
+    ocrMaxBytes: intValue(env.SYNAPSEDX_OCR_MAX_BYTES, 10 * 1024 * 1024, 1024, 100 * 1024 * 1024),
+    ocrMaxQueue: intValue(env.SYNAPSEDX_OCR_MAX_QUEUE, 4, 0, 100),
+    ragGenerate: boolValue(env.SYNAPSEDX_RAG_GENERATE, true),
+    ragTier1Embeddings: boolValue(env.SYNAPSEDX_RAG_TIER1_EMBEDDINGS, true),
+    ragLlmTimeoutMs: intValue(env.SYNAPSEDX_RAG_LLM_TIMEOUT_MS, 45000, 1000, 300000),
   };
+}
+
+function ocrEngineValue(raw: string | undefined): 'tesseract' | 'off' {
+  const value = String(raw || 'tesseract').trim().toLowerCase();
+  if (value !== 'tesseract' && value !== 'off') throw new Error('SYNAPSEDX_OCR_ENGINE must be "tesseract" or "off"');
+  return value;
+}
+
+function ocrLanguagesValue(raw: string | undefined): string {
+  const value = String(raw || 'vie+eng').trim();
+  if (!/^[A-Za-z_]{3,16}(\+[A-Za-z_]{3,16}){0,5}$/.test(value)) {
+    throw new Error('SYNAPSEDX_OCR_LANGUAGES must look like "vie+eng"');
+  }
+  return value;
 }

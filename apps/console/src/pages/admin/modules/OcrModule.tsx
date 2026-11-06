@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 /** OCR correction lane: low-confidence fields pause for a human decision. */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, ScanText, Check, X } from 'lucide-react';
+import { ShieldCheck, ScanText, Check, X, Upload, Loader2 } from 'lucide-react';
 import { api } from '../../../lib/api';
+import { httpClient } from '../../../lib/httpClient';
 import { statusLabel, statusTone } from '../../../lib/format';
 import { useToastStore } from '../../../stores/toastStore';
 import {
@@ -25,7 +26,11 @@ interface OcrJob {
   status: string;
   redacted?: boolean;
   fields?: OcrField[];
+  source?: 'engine' | 'client_text';
+  engine?: { name: string; languages: string; durationMs: number };
 }
+
+const OCR_ACCEPT = 'image/png,image/jpeg,image/tiff,image/bmp,image/webp,image/gif';
 
 export function OcrModule() {
   const queryClient = useQueryClient();
@@ -44,6 +49,33 @@ export function OcrModule() {
   const [rejectBusy, setRejectBusy] = useState(false);
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ['ocr-jobs'] });
+
+  const [scan, setScan] = useState<File | null>(null);
+  const [scanBusy, setScanBusy] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  /** Store the image as a Tier-2 file, then let the service OCR it. */
+  const submitScan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!scan || scanBusy) return;
+    setScanBusy(true);
+    try {
+      const created = await api.post<{ id: string; upload: { url: string } }>('/v1/capabilities/files', {
+        filename: scan.name, contentType: scan.type, size: scan.size,
+      });
+      await httpClient.put(created.upload.url, scan, { headers: { 'content-type': scan.type } });
+      const result = await api.post<{ job: OcrJob }>('/v1/capabilities/ocr/jobs', { fileId: created.id });
+      const pending = (result.job.fields ?? []).filter((field) => field.status === 'pending').length;
+      push(`OCR read ${result.job.fields?.length ?? 0} fields; ${pending} need review.`);
+      setScan(null);
+      setFileInputKey((key) => key + 1);
+      invalidate();
+    } catch (failure) {
+      push((failure as Error)?.message || 'The image could not be read.', 'bad');
+    } finally {
+      setScanBusy(false);
+    }
+  };
 
   const redact = useMutation({
     mutationFn: (jobId: string) => api.post(`/v1/capabilities/ocr/jobs/${encodeURIComponent(jobId)}/redact`, {}),
@@ -102,6 +134,22 @@ export function OcrModule() {
         <p className="text-sm text-slate-500">Low-confidence fields pause for a human decision before becoming records.</p>
       </div>
 
+      <form onSubmit={submitScan} className="flex flex-wrap items-center gap-2" id="ocr-upload-form">
+        <input
+          key={fileInputKey}
+          id="ocr-file"
+          type="file"
+          accept={OCR_ACCEPT}
+          aria-label="Scanned image"
+          className={`${inputClassName} min-w-0 flex-1 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-xs file:font-semibold`}
+          onChange={(event) => setScan(event.target.files?.[0] ?? null)}
+        />
+        <Button variant="primary" type="submit" disabled={!scan || scanBusy}>
+          {scanBusy ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Read image
+        </Button>
+      </form>
+      <p className="text-xs text-slate-500">PNG, JPEG, TIFF, BMP, WebP or GIF. Lines shaped like “Label: value” become fields (Vietnamese and English).</p>
+
       {jobs.isLoading ? (
         <div className="h-32 animate-pulse rounded-2xl bg-slate-100" />
       ) : jobs.isError ? (
@@ -114,7 +162,7 @@ export function OcrModule() {
         <EmptyState
           icon={<ScanText size={26} />}
           title="No OCR jobs yet"
-          message="Upload a document through POST /v1/capabilities/ocr/jobs."
+          message="Choose a scanned image above to start the review queue."
         />
       ) : (
         items.map((job) => (
@@ -122,7 +170,7 @@ export function OcrModule() {
             <CardHeader
               eyebrow={job.status.toUpperCase()}
               title={job.fileId}
-              description={`${job.redacted ? 'PII redacted' : 'PII not redacted'} · ${job.fields?.length ?? 0} fields`}
+              description={`${job.redacted ? 'PII redacted' : 'PII not redacted'} · ${job.fields?.length ?? 0} fields${job.engine ? ` · ${job.engine.name} ${job.engine.languages} · ${job.engine.durationMs} ms` : ''}`}
               actions={
                 <Button variant="ghost" onClick={() => redact.mutate(job.id)} disabled={redact.isPending}>
                   <ShieldCheck size={15} /> Redact PII

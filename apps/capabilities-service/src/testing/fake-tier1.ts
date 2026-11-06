@@ -10,6 +10,26 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 
+const FAKE_EMBED_DIM = 64;
+/** Tiny cross-language concept table so tests can check meaning-only matches. */
+const FAKE_CONCEPTS: Record<string, string> = {
+  flood: 'flood', floods: 'flood', 'lũ': 'flood', 'ngập': 'flood', 'lụt': 'flood',
+  barrier: 'barrier', barriers: 'barrier', 'đê': 'barrier', 'chắn': 'barrier',
+  river: 'river', 'sông': 'river',
+};
+
+/** Deterministic bag-of-concepts embedding (stand-in for a real sentence model). */
+function fakeConceptEmbedding(text: string): number[] {
+  const vector = new Array<number>(FAKE_EMBED_DIM).fill(0);
+  for (const raw of String(text).normalize('NFC').toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []) {
+    const concept = FAKE_CONCEPTS[raw];
+    if (!concept) continue;
+    vector[createHash('sha256').update(concept).digest().readUInt32BE(0) % FAKE_EMBED_DIM] += 1;
+  }
+  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+  return vector.map((value) => value / norm);
+}
+
 type Json = Record<string, unknown>;
 
 interface StoredDoc {
@@ -177,6 +197,8 @@ export class FakeTier1 {
   readonly issuedRefresh = new Map<string, string>();
   resetTokens = new Map<string, string>();
   readonly exchanges: Json[] = [];
+  readonly chatRequests: Json[] = [];
+  embeddingCalls = 0;
   readonly storagePresign: boolean;
   readonly maxObjectBytes: number;
   readonly attributes = new Map<string, Array<{ name: string; visibility: string }>>();
@@ -766,13 +788,28 @@ export class FakeTier1 {
     // ---- Inference ----
     if (path === '/v1/inference/health' && method === 'GET') {
       if (process.env.FAKE_TIER1_INFERENCE_DOWN === 'true') return this.json(res, 503, { error: 'unavailable' });
-      return this.json(res, 200, { status: 'ok', service: 'inference', version: '1.0.0', models: {}, components: {}, time: nowIso() });
+      // Default mirrors production today: the embedding model is not loaded (mock).
+      const real = process.env.FAKE_TIER1_EMBEDDING_REAL === 'true';
+      const components = real
+        ? { embedding: { model: 'fake-minilm', dimension: FAKE_EMBED_DIM, loaded: true, device: 'cpu', mock_mode: false } }
+        : process.env.FAKE_TIER1_EMBEDDING_MOCK === 'true'
+          ? { embedding: { model: 'fake-minilm', dimension: 384, loaded: false, device: 'cpu', mock_mode: true } }
+          : {};
+      return this.json(res, 200, { status: 'ok', service: 'inference', version: '1.0.0', models: {}, components, time: nowIso() });
     }
     if (path === '/v1/inference/chat/completions' && method === 'POST') {
-      return this.json(res, 200, { id: 'chat-1', object: 'chat.completion', created: 1, model: body?.model || 'fake', choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] });
+      this.chatRequests.push(body);
+      const content = process.env.FAKE_TIER1_CHAT_REPLY ?? 'ok';
+      return this.json(res, 200, { id: 'chat-1', object: 'chat.completion', created: 1, model: body?.model || 'fake', choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
     }
     if (path === '/v1/inference/embeddings' && method === 'POST') {
-      return this.json(res, 200, { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }], model: 'fake', usage: { prompt_tokens: 1, total_tokens: 1 } });
+      const inputs: string[] = Array.isArray(body?.input) ? body.input.map(String) : [String(body?.input ?? '')];
+      this.embeddingCalls += 1;
+      return this.json(res, 200, {
+        object: 'list',
+        data: inputs.map((text, index) => ({ object: 'embedding', index, embedding: fakeConceptEmbedding(text) })),
+        model: 'fake-minilm', usage: { prompt_tokens: inputs.length, total_tokens: inputs.length },
+      });
     }
     if (path === '/v1/inference/decision' && method === 'POST') return this.json(res, 200, { model: 'fake', results: {}, duration_ms: 1 });
     if (path === '/v1/inference/decision/route' && method === 'POST') return this.json(res, 200, { best_choice: Object.keys(body?.choices || {})[0] || 'a', confidence: 0.9, probabilities: {}, model: 'fake', duration_ms: 1 });
