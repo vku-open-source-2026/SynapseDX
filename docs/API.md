@@ -345,6 +345,29 @@ owned by the caller; this capability only records the human decision.
 | POST | `/v1/capabilities/ai/decision` | verified | `{state,questions}` |
 | POST | `/v1/capabilities/ai/route` | verified | `{input,choices,instruction?}` |
 
+## KTTV hazards and knowledge base
+
+The Tier-2 KTTV base feeds both the hazard map and the LLM features. Normalised
+hazards live in SynapseBase; documents/chunks live in the knowledge collections
+and are indexed in Tier-1 `/v1/search` with real 384-d pgvector embeddings plus
+SynapseBase Graph entity links.
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/v1/capabilities/hazards/today?hours=24&limit=50` | verified read | Active hazards in the window, newest first. |
+| POST | `/v1/capabilities/hazards/brief` | verified read | `{hours?,limit?,focus?}`. Grounded LLM situation brief with `[H1]` citations; `fallback:true` + deterministic text when the provider is unavailable. |
+| GET | `/v1/capabilities/hazards/status` | verified read | Last run/success, counts, source health (`nchmf+vndms`). |
+| POST | `/v1/capabilities/crawlers/kttv/run` | admin | Trigger a crawl (also runs on the 30-minute scheduler). |
+| POST | `/v1/capabilities/knowledge/documents` | write | `{title,body,source?,url?,kind?,tags?,id?}`; chunks + graph entities. |
+| POST | `/v1/capabilities/knowledge/ingest/pdf` | write | `{id|url}` from the server-side KTTV PDF catalog; rejects arbitrary URLs. |
+| GET | `/v1/capabilities/knowledge/documents?limit=` | verified read | Tenant-scoped document list. |
+| POST | `/v1/capabilities/knowledge/query` | verified read | `{question,topK?,context?}` → grounded answer, citations (URL/date), entities; hybrid vector + graph RAG. |
+| GET | `/v1/capabilities/knowledge/status` | verified read | Docs, chunks, graph node/edge counts. |
+
+SDK: `@synapsedx/capabilities@0.5.1` exposes `knowledge.query`,
+`knowledge.index`, `knowledge.ingestPdf`, `hazards.today`, `hazards.brief`,
+`hazards.status` and `hazards.runCrawler`.
+
 ## Jobs (scheduled work)
 
 Two executors share one API. `executor:"workflow"` (default) creates a Tier-1
