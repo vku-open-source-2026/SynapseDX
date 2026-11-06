@@ -25,12 +25,20 @@ const CHUNK_SIZE = 1800;
  * how to cite. An open URL fetcher would be an SSRF primitive even with DNS
  * checks, so operators must extend this list explicitly.
  */
-const PDF_HOST_ALLOWLIST = new Set(
-  String(process.env.KNOWLEDGE_PDF_HOSTS || 'www.nchmf.gov.vn,nchmf.gov.vn,kttv.gov.vn,s3.vndms.gov.vn,vndms.gov.vn')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean),
-);
+const PDF_ORIGINS: Record<string, string> = {
+  'www.nchmf.gov.vn': 'https://www.nchmf.gov.vn',
+  'nchmf.gov.vn': 'https://nchmf.gov.vn',
+  'kttv.gov.vn': 'https://kttv.gov.vn',
+  's3.vndms.gov.vn': 'https://s3.vndms.gov.vn',
+  'vndms.gov.vn': 'https://vndms.gov.vn',
+};
+const configuredPdfHosts = String(
+  process.env.KNOWLEDGE_PDF_HOSTS || 'www.nchmf.gov.vn,nchmf.gov.vn,kttv.gov.vn,s3.vndms.gov.vn,vndms.gov.vn',
+)
+  .split(',')
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
+const PDF_HOST_ALLOWLIST = new Set(configuredPdfHosts.filter((host) => PDF_ORIGINS[host]));
 const CHUNK_OVERLAP = 200;
 const MAX_BODY = 120_000;
 const MAX_CHUNKS = 64;
@@ -104,13 +112,25 @@ async function assertPublicPdfUrl(raw: string): Promise<URL> {
   if (!PDF_HOST_ALLOWLIST.has(host)) {
     throw apiError(400, 'blocked_url', `host '${host}' is not an allowed KTTV PDF source`);
   }
+  // Rebuild the URL from a constant origin and the user path. The fetch sink
+  // never sees an attacker-controlled host, which keeps SSRF impossible even
+  // if a public host is later misconfigured.
+  const origin = PDF_ORIGINS[host];
+  const pathname = url.pathname.startsWith('/') ? url.pathname : `/${url.pathname}`;
+  if (pathname.startsWith('//') || pathname.includes('\\')) {
+    throw apiError(400, 'invalid_url', 'invalid PDF path');
+  }
+  const safeUrl = new URL(pathname, origin);
+  if (safeUrl.origin !== new URL(origin).origin) {
+    throw apiError(400, 'blocked_url', 'PDF URL must stay on its allowlisted origin');
+  }
   if (isIP(host)) {
     const parts = host.split('.').map(Number);
     if (isIP(host) === 4 && PRIVATE_IPV4(parts)) throw apiError(400, 'blocked_url', 'private addresses are not allowed');
     if (isIP(host) === 6 && (host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80'))) {
       throw apiError(400, 'blocked_url', 'private addresses are not allowed');
     }
-    return url;
+    return safeUrl;
   }
   try {
     const records = await dns.lookup(host, { all: true });
@@ -124,7 +144,7 @@ async function assertPublicPdfUrl(raw: string): Promise<URL> {
     if (error instanceof Error && 'status' in error) throw error;
     // NXDOMAIN: let fetch fail naturally.
   }
-  return url;
+  return safeUrl;
 }
 
 function chunkText(text: string): string[] {
@@ -368,8 +388,7 @@ export function registerKnowledgeRoutes(app: Express, config: ServiceConfig): vo
     const timeout = setTimeout(() => controller.abort(), 30_000);
     let buffer: Buffer;
     try {
-      // codeql[js/request-forgery] -- the URL is constrained to PDF_HOST_ALLOWLIST above and its DNS answers are checked for private addresses.
-      const response = await fetch(url, { signal: controller.signal, redirect: 'follow' });
+      const response = await fetch(url, { signal: controller.signal, redirect: 'error' });
       if (!response.ok) throw apiError(502, 'pdf_fetch_failed', `upstream returned ${response.status}`);
       const length = Number(response.headers.get('content-length') || 0);
       if (length > MAX_PDF_BYTES) throw apiError(413, 'pdf_too_large', 'PDF exceeds 20 MB');
