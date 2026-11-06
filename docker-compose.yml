@@ -41,7 +41,10 @@ services:
       UPSTREAM_TIMEOUT_MS: "30000"
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     ports:
-      - "8082:8080"
+      # Loopback only: the public edge is synapseone-nginx (80/443), which
+      # reaches this gateway over the Docker network. Publishing 0.0.0.0 here
+      # exposes plaintext HTTP and bypasses the TLS edge.
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8082}:8080"
     depends_on:
       capabilities:
         condition: service_started

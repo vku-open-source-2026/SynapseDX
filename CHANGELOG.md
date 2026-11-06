@@ -5,6 +5,11 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+- The gateway host port is bound to 127.0.0.1 (`GATEWAY_HOST_PORT`), so the
+  plaintext API is no longer reachable from the Internet; the public edge is
+  the TLS nginx only.
+
 ### Changed
 - Console rebuilt as a React SPA (Vite + TanStack Router + Tailwind v4, the
   City/SOS design system) replacing the static shell. Public catalog landing,
