@@ -58,6 +58,15 @@ export interface CrawlStateRecord {
   error: string | null;
 }
 
+export interface HazardBrief {
+  brief: string;
+  hazards: Array<Pick<HazardRecord, 'id' | 'hazard_id' | 'title' | 'event_type' | 'severity' | 'provinces' | 'published_at' | 'url'>>;
+  model: string | null;
+  fallback: boolean;
+  generated_at: string;
+  hours: number;
+}
+
 let running = false;
 
 function isActive(publishedAt: string, hours = 72): boolean {
@@ -117,6 +126,126 @@ async function saveState(client: SynapseOneClient, principal: CallerPrincipal, p
   };
   if (existing) await client.base.updateDocument(COLLECTIONS.kttvState, 'state', { data: data as unknown as Record<string, unknown> });
   else await createScoped<CrawlStateRecord>(client, COLLECTIONS.kttvState, principal, data);
+}
+
+async function todayHazardRecords(
+  client: SynapseOneClient,
+  principal: CallerPrincipal,
+  hours: number,
+  limit: number,
+): Promise<HazardRecord[]> {
+  const { items } = await listScoped<HazardRecord>(client, COLLECTIONS.kttvHazards, principal, {
+    limit: 1000,
+    orderBy: { field: 'published_at', direction: 'desc' },
+  });
+  const cutoff = Date.now() - hours * 3600_000;
+  return items
+    .filter((item) => item.is_active !== false)
+    .filter((item) => new Date(item.published_at).getTime() >= cutoff)
+    .sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)))
+    .slice(0, limit);
+}
+
+function deterministicBrief(hazards: HazardRecord[], hours: number): string {
+  if (!hazards.length) return `Trong ${hours} giờ qua chưa có cảnh báo KTTV đang hoạt động.`;
+  const lines = hazards.slice(0, 8).map((hazard, index) => {
+    const places = hazard.provinces.length ? ` tại ${hazard.provinces.join(', ')}` : '';
+    return `[H${index + 1}] ${hazard.title} — ${hazard.severity} · ${hazard.event_type}${places}.`;
+  });
+  return `Trong ${hours} giờ qua có ${hazards.length} cảnh báo đang hoạt động:\n${lines.join('\n')}`;
+}
+
+/** LLM situation brief grounded in the live hazard feed, with a safe fallback. */
+export async function buildHazardBrief(
+  client: SynapseOneClient,
+  principal: CallerPrincipal,
+  options: { hours?: number; limit?: number; focus?: string } = {},
+): Promise<HazardBrief> {
+  const hours = Math.min(Math.max(Math.trunc(options.hours ?? 24), 1), 168);
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 12), 1), 40);
+  const hazards = await todayHazardRecords(client, principal, hours, limit);
+  const generatedAt = new Date().toISOString();
+  const citations = hazards.map((hazard) => ({
+    id: hazard.id,
+    hazard_id: hazard.hazard_id,
+    title: hazard.title,
+    event_type: hazard.event_type,
+    severity: hazard.severity,
+    provinces: hazard.provinces,
+    published_at: hazard.published_at,
+    url: hazard.url,
+  }));
+
+  if (!hazards.length) {
+    return { brief: deterministicBrief([], hours), hazards: citations, model: null, fallback: true, generated_at: generatedAt, hours };
+  }
+
+  const focus = String(options.focus || '').trim().slice(0, 500);
+  const context = hazards.map((hazard, index) => {
+    const places = hazard.provinces.length ? hazard.provinces.join(', ') : 'không xác định';
+    return `[H${index + 1}] ${hazard.title}\n` +
+      `Loại: ${hazard.event_type}; mức độ: ${hazard.severity}; khu vực: ${places}; ` +
+      `phát hành: ${hazard.published_at}; nguồn: ${hazard.source}; url: ${hazard.url}\n` +
+      `${hazard.description.slice(0, 700)}`;
+  }).join('\n\n');
+
+  const messages = [
+    {
+      role: 'system' as const,
+      content: [
+        'Bạn là trợ lý khí tượng thủy văn của SynapseCity, hỗ trợ người dân và ban chỉ huy.',
+        `Tóm tắt tình hình cảnh báo trong ${hours} giờ qua dựa DUY NHẤT trên CONTEXT.`,
+        'Nêu ngắn gọn: khu vực nào, loại thiên tai, mức độ, khuyến nghị an toàn. Trích dẫn [H1], [H2] tương ứng.',
+        'Nếu CONTEXT không có cảnh báo, nói rõ là chưa có cảnh báo. Không bịa thêm hiện tượng hoặc số liệu.',
+        'Trả lời bằng tiếng Việt, tối đa 220 từ.',
+        `CONTEXT:\n${context}`,
+      ].join('\n\n'),
+    },
+    {
+      role: 'user' as const,
+      content: focus ? `Tập trung vào: ${focus}` : 'Tóm tắt tình hình cảnh báo hôm nay.',
+    },
+  ];
+
+  // Large contexts occasionally make the free model return an empty
+  // completion. Retry once with a compact context before falling back.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_200));
+    const attemptContext = attempt === 0
+      ? context
+      : hazards.slice(0, 4).map((hazard, index) => {
+          const places = hazard.provinces.length ? hazard.provinces.join(', ') : 'không xác định';
+          return `[H${index + 1}] ${hazard.title} | ${hazard.event_type} | ${hazard.severity} | ${places} | ${hazard.published_at}`;
+        }).join('\n');
+    const attemptMessages = attempt === 0
+      ? messages
+      : [{ ...messages[0], content: messages[0].content.replace(context, attemptContext) }, messages[1]];
+    const fallbackModel = attempt === 1
+      ? String(process.env.HAZARD_BRIEF_FALLBACK_MODEL || 'inception/mercury-2.5')
+      : undefined;
+    try {
+      const response: any = await client.inference.chat(attemptMessages as any, {
+        temperature: 0.2,
+        max_tokens: fallbackModel ? 2_000 : 450,
+        ...(fallbackModel ? { model: fallbackModel } : {}),
+      } as any);
+      const choice = Array.isArray(response?.choices) ? response.choices[0] : null;
+      const brief = String(choice?.message?.content ?? response?.message ?? '').trim();
+      if (brief) {
+        return {
+          brief,
+          hazards: citations,
+          model: response?.model ? String(response.model) : null,
+          fallback: false,
+          generated_at: generatedAt,
+          hours,
+        };
+      }
+    } catch (error) {
+      console.warn(`[hazards][brief] LLM attempt ${attempt + 1} failed:`, (error as Error)?.message || error);
+    }
+  }
+  return { brief: deterministicBrief(hazards, hours), hazards: citations, model: null, fallback: true, generated_at: generatedAt, hours };
 }
 
 /** Run both crawlers, persist hazards, index text and upsert GIS points. */
@@ -232,17 +361,20 @@ export function registerHazardRoutes(app: Express, config: ServiceConfig): void 
     const principal = crawlerPrincipal();
     const hours = Math.min(Math.max(Number((req.query as any).hours || 72), 1), 168);
     const limit = Math.min(Math.max(Number((req.query as any).limit || 200), 1), 500);
-    const { items } = await listScoped<HazardRecord>(client, COLLECTIONS.kttvHazards, principal, {
-      limit: 1000,
-      orderBy: { field: 'published_at', direction: 'desc' },
-    });
-    const cutoff = Date.now() - hours * 3600_000;
-    const hazards = items
-      .filter((item) => item.is_active !== false)
-      .filter((item) => new Date(item.published_at).getTime() >= cutoff)
-      .sort((a, b) => String(b.published_at).localeCompare(String(a.published_at)))
-      .slice(0, limit);
+    const hazards = await todayHazardRecords(client, principal, hours, limit);
     res.json({ hazards, total: hazards.length, hours });
+  }));
+
+  app.post('/v1/capabilities/hazards/brief', handler(async (req, res) => {
+    const { client } = await authenticatedReadContext(req, config);
+    const principal = crawlerPrincipal();
+    const body = (req.body || {}) as any;
+    const result = await buildHazardBrief(client, principal, {
+      hours: Number(body.hours ?? 24),
+      limit: Number(body.limit ?? 12),
+      focus: body.focus ? String(body.focus) : undefined,
+    });
+    res.json(result);
   }));
 
   app.get('/v1/capabilities/hazards/status', handler(async (req, res) => {

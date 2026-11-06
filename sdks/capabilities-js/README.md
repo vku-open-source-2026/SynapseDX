@@ -73,6 +73,30 @@ await dx.records.delete(dataset.id, record.id);
 | `false` | never project the record; an existing projection is withdrawn |
 | omitted | inherit the dataset default |
 
+## Knowledge & hazards (Tier-2 LLM base)
+
+```ts
+// Hybrid vector + graph RAG with citations.
+const answer = await dx.knowledge.query({
+  question: 'Tình hình mưa lớn hôm nay thế nào?',
+  topK: 5,
+  context: '- [high] Mưa lớn tại miền Trung (feed cảnh báo hiện tại)',
+});
+console.log(answer.answer, answer.citations);
+
+// Grounded situation brief from today's hazard feed.
+const brief = await dx.hazards.brief({ hours: 24, limit: 8 });
+console.log(brief.brief, brief.model, brief.fallback);
+
+const today = await dx.hazards.today({ hours: 24, limit: 50 });
+const status = await dx.hazards.status();
+```
+
+`knowledge.query` runs on the Tier-2 knowledge base (Tier-1 SynapseBase
+documents + pgvector + graph) and returns `answer`, `citations` (with source
+URLs) and expanded `entities`. `hazards.brief` uses the same live feed and
+returns a deterministic, clearly-labelled fallback when the LLM is unavailable.
+
 ## Pagination, errors and events
 
 - `datasets.list()` keeps the historical `Dataset[]` return value.

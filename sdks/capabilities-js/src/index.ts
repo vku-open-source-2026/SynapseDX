@@ -747,6 +747,7 @@ export interface KnowledgeCitation {
   title: string;
   documentId: string;
   url?: string;
+  publishedAt?: string;
 }
 
 export interface KnowledgeAnswer {
@@ -782,6 +783,15 @@ export interface HazardRecord {
   fetched_at: string;
 }
 
+export interface HazardBrief {
+  brief: string;
+  hazards: Array<Pick<HazardRecord, 'id' | 'hazard_id' | 'title' | 'event_type' | 'severity' | 'provinces' | 'published_at' | 'url'>>;
+  model: string | null;
+  fallback: boolean;
+  generated_at: string;
+  hours: number;
+}
+
 export interface HazardFeed {
   hazards: HazardRecord[];
   total: number;
@@ -815,12 +825,13 @@ export class CapabilitiesClient {
     index: (input: KnowledgeDocumentInput, opts?: RequestOptions) => Promise<KnowledgeIndexResult>;
     ingestPdf: (input: { url: string; title?: string; publishedAt?: string; tags?: string[] }, opts?: RequestOptions) => Promise<KnowledgeIndexResult>;
     list: (query?: { limit?: number }, opts?: RequestOptions) => Promise<{ items: Array<{ id: string; title: string; source: string; url: string; kind: string; publishedAt: string }>; total: number }>;
-    query: (input: { question: string; topK?: number }, opts?: RequestOptions) => Promise<KnowledgeAnswer>;
+    query: (input: { question: string; topK?: number; context?: string }, opts?: RequestOptions) => Promise<KnowledgeAnswer>;
     status: (opts?: RequestOptions) => Promise<KnowledgeStatus>;
   };
 
   readonly hazards: {
     today: (query?: { hours?: number; limit?: number }, opts?: RequestOptions) => Promise<HazardFeed>;
+    brief: (input?: { hours?: number; limit?: number; focus?: string }, opts?: RequestOptions) => Promise<HazardBrief>;
     status: (opts?: RequestOptions) => Promise<HazardCrawlStatus>;
     runCrawler: (opts?: RequestOptions) => Promise<HazardCrawlResult>;
   };
@@ -1299,6 +1310,9 @@ export class CapabilitiesClient {
       today: (query = {}, requestOpts) => this.http.request<HazardFeed>(
         `/v1/capabilities/hazards/today${queryString({ hours: query.hours, limit: query.limit })}`, {}, requestOpts,
       ),
+      brief: (input = {}, requestOpts) => this.http.request<HazardBrief>('/v1/capabilities/hazards/brief', {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
       status: (requestOpts) => this.http.request<HazardCrawlStatus>('/v1/capabilities/hazards/status', {}, requestOpts),
       runCrawler: (requestOpts) => this.http.request<HazardCrawlResult>('/v1/capabilities/crawlers/kttv/run', {
         method: 'POST', body: '{}',
