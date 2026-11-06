@@ -29,6 +29,8 @@ import { registerCollaborationRoutes } from './routes/collaboration';
 import { registerPeopleProcessRoutes } from './routes/people-process';
 import { registerDataInsightRoutes } from './routes/data-insights';
 import { registerIntelligenceRoutes } from './routes/intelligence';
+import { registerKnowledgeRoutes } from './routes/knowledge';
+import { registerHazardRoutes, startKttvScheduler } from './routes/hazards';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
   const app = express();
@@ -65,6 +67,8 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerPeopleProcessRoutes(app, config);
   registerDataInsightRoutes(app, config);
   registerIntelligenceRoutes(app, config);
+  registerKnowledgeRoutes(app, config);
+  registerHazardRoutes(app, config);
 
   app.use(notFoundMiddleware());
   app.use(errorMiddleware());
@@ -76,5 +80,6 @@ if (require.main === module) {
   const app = createServer(config);
   app.listen(config.port, () => {
     console.log(`[synapsedx] Tier-2 capabilities listening on :${config.port}; Tier-1=${config.tier1BaseUrl}; auth=${config.authMode}`);
+    startKttvScheduler(config);
   });
 }

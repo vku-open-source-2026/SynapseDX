@@ -562,6 +562,7 @@ class Http {
   private readonly extraHeaders: Record<string, string>;
   private readonly fetchImpl: typeof fetch;
 
+
   constructor(opts: CapabilitiesClientOptions = {}) {
     const raw = opts.baseUrl ?? process.env.SYNAPSEDX_BASE_URL ?? 'https://synapsedx.sbs';
     this.baseUrl = dependencyUrl(raw);
@@ -713,8 +714,117 @@ class Http {
   }
 }
 
+
+export interface KnowledgeDocumentInput {
+  id?: string;
+  title: string;
+  body: string;
+  source?: string;
+  url?: string;
+  publishedAt?: string;
+  kind?: 'text' | 'pdf' | 'html';
+  tags?: string[];
+}
+
+export interface KnowledgeIndexResult {
+  document: {
+    id: string;
+    title: string;
+    body: string;
+    source: string;
+    url: string;
+    publishedAt: string;
+    kind: string;
+    tags: string[];
+    hash: string;
+  };
+  chunks: number;
+  graph: { nodes: number; edges: number };
+}
+
+export interface KnowledgeCitation {
+  index: number;
+  title: string;
+  documentId: string;
+  url?: string;
+}
+
+export interface KnowledgeAnswer {
+  answer: string;
+  citations: KnowledgeCitation[];
+  entities: string[];
+  noAnswer: boolean;
+  model?: string;
+}
+
+export interface KnowledgeStatus {
+  documents: number;
+  chunks: number;
+  graphNodes: number;
+  graphEdges: number;
+  backend: string;
+  admin: boolean;
+}
+
+export interface HazardRecord {
+  id: string;
+  hazard_id: string;
+  title: string;
+  description: string;
+  event_type: string;
+  severity: string;
+  source: string;
+  is_active: boolean;
+  geometry: { type: string; coordinates: unknown } | null;
+  provinces: string[];
+  url: string;
+  published_at: string;
+  fetched_at: string;
+}
+
+export interface HazardFeed {
+  hazards: HazardRecord[];
+  total: number;
+  hours: number;
+}
+
+export interface HazardCrawlStatus {
+  status: 'ok' | 'error' | 'unconfigured' | string;
+  configured: boolean;
+  source: string;
+  last_run_at?: string | null;
+  last_success_at?: string | null;
+  running?: boolean;
+  hazards?: number;
+  indexed?: number;
+  sources?: Record<string, unknown>;
+  error?: string | null;
+}
+
+export interface HazardCrawlResult {
+  hazards: number;
+  indexed: number;
+  sources: Record<string, unknown>;
+  error: string | null;
+}
+
 export class CapabilitiesClient {
   private readonly http: Http;
+
+  readonly knowledge: {
+    index: (input: KnowledgeDocumentInput, opts?: RequestOptions) => Promise<KnowledgeIndexResult>;
+    ingestPdf: (input: { url: string; title?: string; publishedAt?: string; tags?: string[] }, opts?: RequestOptions) => Promise<KnowledgeIndexResult>;
+    list: (query?: { limit?: number }, opts?: RequestOptions) => Promise<{ items: Array<{ id: string; title: string; source: string; url: string; kind: string; publishedAt: string }>; total: number }>;
+    query: (input: { question: string; topK?: number }, opts?: RequestOptions) => Promise<KnowledgeAnswer>;
+    status: (opts?: RequestOptions) => Promise<KnowledgeStatus>;
+  };
+
+  readonly hazards: {
+    today: (query?: { hours?: number; limit?: number }, opts?: RequestOptions) => Promise<HazardFeed>;
+    status: (opts?: RequestOptions) => Promise<HazardCrawlStatus>;
+    runCrawler: (opts?: RequestOptions) => Promise<HazardCrawlResult>;
+  };
+
 
   readonly datasets: {
     list: (query?: DatasetListQuery, opts?: RequestOptions) => Promise<Dataset[]>;
@@ -1165,6 +1275,33 @@ export class CapabilitiesClient {
       }, requestOpts),
       unsubscribe: (recipient, requestOpts) => this.http.request<NotificationPreference>('/v1/capabilities/notifications/unsubscribe', {
         method: 'POST', body: JSON.stringify({ recipient }),
+      }, requestOpts),
+    };
+
+
+    this.knowledge = {
+      index: (input, requestOpts) => this.http.request<KnowledgeIndexResult>('/v1/capabilities/knowledge/documents', {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
+      ingestPdf: (input, requestOpts) => this.http.request<KnowledgeIndexResult>('/v1/capabilities/knowledge/ingest/pdf', {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
+      list: (query = {}, requestOpts) => this.http.request<{ items: Array<{ id: string; title: string; source: string; url: string; kind: string; publishedAt: string }>; total: number }>(
+        `/v1/capabilities/knowledge/documents${queryString({ limit: query.limit })}`, {}, requestOpts,
+      ),
+      query: (input, requestOpts) => this.http.request<KnowledgeAnswer>('/v1/capabilities/knowledge/query', {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
+      status: (requestOpts) => this.http.request<KnowledgeStatus>('/v1/capabilities/knowledge/status', {}, requestOpts),
+    };
+
+    this.hazards = {
+      today: (query = {}, requestOpts) => this.http.request<HazardFeed>(
+        `/v1/capabilities/hazards/today${queryString({ hours: query.hours, limit: query.limit })}`, {}, requestOpts,
+      ),
+      status: (requestOpts) => this.http.request<HazardCrawlStatus>('/v1/capabilities/hazards/status', {}, requestOpts),
+      runCrawler: (requestOpts) => this.http.request<HazardCrawlResult>('/v1/capabilities/crawlers/kttv/run', {
+        method: 'POST', body: '{}',
       }, requestOpts),
     };
 

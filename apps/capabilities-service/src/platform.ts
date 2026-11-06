@@ -58,6 +58,10 @@ export const COLLECTIONS = {
   ragDocuments: 'synapsedx_capability_rag_documents',
   ragChunks: 'synapsedx_capability_rag_chunks',
   ragQueries: 'synapsedx_capability_rag_queries',
+  knowledgeDocuments: 'synapsedx_knowledge_documents',
+  knowledgeChunks: 'synapsedx_knowledge_chunks',
+  kttvHazards: 'synapsedx_kttv_hazards',
+  kttvState: 'synapsedx_kttv_state',
 } as const;
 
 export type DatasetStatus = 'draft' | 'published' | 'revoked';
