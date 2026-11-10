@@ -408,7 +408,8 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.data.filename)}`);
     res.setHeader('cache-control', 'public, max-age=300');
     if (found.data.checksumSha256) res.setHeader('x-checksum-sha256', found.data.checksumSha256);
-    res.status(200).end();
+    res.status(200).flushHeaders();
+    res.end();
   }));
 
   app.get('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
