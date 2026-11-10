@@ -44,9 +44,15 @@ jobs:
       - name: Compose config
         run: docker compose config >/dev/null
       - name: Compose build
-        run: docker compose build
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          SYNAPSEDX_IMAGE_OWNER="$OWNER" docker compose build
       - name: Console nginx config
-        run: docker run --rm synapsedx-console nginx -t
+        run: |
+          OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          docker run --rm "ghcr.io/${OWNER}/synapsedx/console:latest" nginx -t
       - name: SDK tarball contents
         run: |
           mkdir -p /tmp/sdk-pack
