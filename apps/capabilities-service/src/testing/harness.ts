@@ -5,6 +5,7 @@ import { Server } from 'node:http';
 import { createServer } from '../server';
 import { ServiceConfig, loadConfig } from '../config';
 import { resetLicenseCache } from '../licenses';
+import { resetEmbeddingProviderCache } from '../rag';
 import { FakeTier1, FakeTier1Options } from './fake-tier1';
 
 export interface Harness {
@@ -76,6 +77,18 @@ export async function startHarness(
     SYNAPSEDX_FILES_ALLOWED_TYPES: undefined,
     SYNAPSEDX_FILES_PRESIGN_TTL_SECONDS: undefined,
     SYNAPSEDX_FILES_PREFIX: undefined,
+    SYNAPSEDX_OCR_ENGINE: undefined,
+    SYNAPSEDX_OCR_LANGUAGES: undefined,
+    SYNAPSEDX_TESSERACT_BIN: undefined,
+    SYNAPSEDX_OCR_TIMEOUT_MS: undefined,
+    SYNAPSEDX_OCR_MAX_BYTES: undefined,
+    SYNAPSEDX_OCR_MAX_QUEUE: undefined,
+    SYNAPSEDX_RAG_GENERATE: undefined,
+    SYNAPSEDX_RAG_TIER1_EMBEDDINGS: undefined,
+    SYNAPSEDX_RAG_LLM_TIMEOUT_MS: undefined,
+    FAKE_TIER1_EMBEDDING_REAL: undefined,
+    FAKE_TIER1_EMBEDDING_MOCK: undefined,
+    FAKE_TIER1_CHAT_REPLY: undefined,
     ...overrides,
   };
   for (const [key, value] of Object.entries(env)) {
@@ -83,6 +96,7 @@ export async function startHarness(
     else process.env[key] = value;
   }
   resetLicenseCache();
+  resetEmbeddingProviderCache();
   const config = loadConfig();
   const server: Server = createServer(config).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));

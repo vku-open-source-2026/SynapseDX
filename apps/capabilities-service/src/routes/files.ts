@@ -153,7 +153,7 @@ function visible(record: FileRecord, ctx: WriteContext | { principal: { tenantKe
   return isAdmin(ctx.principal as any) || record.tenant === ctx.principal.tenantKey;
 }
 
-async function loadFile(
+export async function loadFile(
   client: any,
   id: string,
   ctx: { principal: { tenantKey: string; scopes: string[] } },
@@ -242,7 +242,7 @@ async function migrateLegacyObject(client: any, config: ServiceConfig, found: St
   return found;
 }
 
-async function readFileBytes(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<Uint8Array> {
+export async function readFileBytes(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<Uint8Array> {
   if (found.data.ocsBucket) return client.ocs.getObject(found.data.ocsBucket, found.data.storageKey);
   const migrated = await migrateLegacyObject(client, config, found);
   return client.ocs.getObject(config.filesBucket, migrated.data.storageKey);

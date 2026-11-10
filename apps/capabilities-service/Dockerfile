@@ -9,6 +9,12 @@ COPY apps/capabilities-service/src ./apps/capabilities-service/src
 RUN npm ci && npm run build --workspace=@synapsedx/capabilities-service
 FROM node:20-bookworm-slim
 ENV NODE_ENV=production
+# OCR engine for file-backed OCR jobs: Tesseract 5 (Apache-2.0) from Debian,
+# with English (pulled in by default) and Vietnamese language data. It runs
+# only while a job is processing, so idle memory stays unchanged.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-vie \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /workspace/package*.json ./
 COPY --from=build /workspace/node_modules ./node_modules
