@@ -161,12 +161,12 @@ access or a production credential.
 ## Release status
 
 - Tier-2 API/service: versioned in `CHANGELOG.md`.
-- SDK `@synapsedx/capabilities@0.3.0`: packaging is release-ready
-  (LICENSE/NOTICE, no test artifacts, `engines.node >= 20`), but it is **not
-  yet published** to npm because no `NPM_TOKEN` is available. Tier-3 currently
-  uses a `file:` dependency; the local `npm pack`/consumer-install checks pass.
-  Operator publish steps are in [`docs/RELEASE.md`](docs/RELEASE.md). See issue
-  #14 for the remaining registry publication and Tier-3 adoption steps.
+- SDK `@synapsedx/capabilities@0.6.0`: release tarball is published through
+  the same Tier-2 files capability into Tier-1 SynapseOCS:
+  <https://synapsedx.sbs/v1/capabilities/public/files/synapsedx-capabilities-0.6.0/content>
+  (`SHA-256 e036f511390cd3e6a1d772bd818ca4f7ed1c2b18360dceac71a7411d3b75f676`).
+  npm registry publication still requires `NPM_TOKEN`; the tarball is the
+  reproducible release artifact until that is available.
 - License: Apache-2.0 (`LICENSE`) with per-source SPDX headers and attribution
   in `NOTICE`.
 - Issue tracker: [GitHub Issues](https://github.com/vku-open-source-2026/SynapseDX/issues).
