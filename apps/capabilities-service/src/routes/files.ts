@@ -394,6 +394,23 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     res.json(publicView(found.data));
   }));
 
+  app.head('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    let object: any;
+    try {
+      object = await headFileObject(client, config, found);
+    } catch (error) {
+      mapStorageError(error);
+    }
+    res.setHeader('content-type', found.data.contentType);
+    res.setHeader('content-length', String(object?.size || found.data.size));
+    res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.data.filename)}`);
+    res.setHeader('cache-control', 'public, max-age=300');
+    if (found.data.checksumSha256) res.setHeader('x-checksum-sha256', found.data.checksumSha256);
+    res.status(200).end();
+  }));
+
   app.get('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
     const client = serviceClient(config);
     const found = await loadPublicFile(client, String(req.params.id));
