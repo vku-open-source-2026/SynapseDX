@@ -3,6 +3,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { api, createDataset, startHarness } from './testing/harness';
+import { redactCredentialFields } from './routes/auth';
+
+test('proxied identity payloads never carry password material', () => {
+  const payload = {
+    accessToken: 'a',
+    user: { id: 'u1', email: 'admin@example.com', password_hash: 'scrypt$16384$8$1$salt$hash', nested: [{ passwordHash: 'x' }] },
+  };
+  const clean = redactCredentialFields(payload);
+  assert.equal(clean.user.email, 'admin@example.com');
+  assert.equal(clean.user.id, 'u1');
+  assert.ok(!JSON.stringify(clean).includes('scrypt$'));
+  assert.ok(!JSON.stringify(clean).includes('password'));
+  // Original payload is not mutated.
+  assert.equal(payload.user.password_hash.startsWith('scrypt$'), true);
+});
 
 test('anonymous callers see only published public datasets', async () => {
   const harness = await startHarness();

@@ -32,6 +32,25 @@ function emailField(body: Record<string, unknown>): string {
   return email;
 }
 
+const CREDENTIAL_FIELDS = new Set(['password_hash', 'passwordHash', 'password_updated_at', 'passwordUpdatedAt']);
+
+/**
+ * Defence in depth: Tier-1 strips credential material from user payloads, but
+ * Tier-2 must never forward a password hash to a browser even if an older
+ * upstream build starts including it again. Applied to every proxied
+ * identity response that can carry a user object.
+ */
+export function redactCredentialFields<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => redactCredentialFields(item)) as unknown as T;
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (CREDENTIAL_FIELDS.has(key)) continue;
+    out[key] = redactCredentialFields(item);
+  }
+  return out as T;
+}
+
 /** Bind every credential flow to the deployment organization (no slug hopping). */
 export function boundOrgSlug(config: ServiceConfig, raw: unknown): string | undefined {
   const requested = raw === undefined || raw === null ? '' : String(raw).trim();
@@ -112,7 +131,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
       mapAuthError(error);
     }
     res.setHeader('cache-control', 'no-store');
-    res.status(201).json(result);
+    res.status(201).json(redactCredentialFields(result));
   }));
 
   app.post('/v1/capabilities/auth/login', handler(async (req, res) => {
@@ -134,7 +153,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
       mapAuthError(error);
     }
     res.setHeader('cache-control', 'no-store');
-    res.json(result);
+    res.json(redactCredentialFields(result));
   }));
 
   app.post('/v1/capabilities/auth/refresh', handler(async (req, res) => {
@@ -148,7 +167,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
       mapAuthError(error);
     }
     res.setHeader('cache-control', 'no-store');
-    res.json(result as Record<string, unknown>);
+    res.json(redactCredentialFields(result as Record<string, unknown>));
   }));
 
   app.post('/v1/capabilities/auth/logout', handler(async (req, res) => {
@@ -298,7 +317,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
         mapAuthError(error);
       }
       res.setHeader('cache-control', 'no-store');
-      res.json(result as Record<string, unknown>);
+      res.json(redactCredentialFields(result as Record<string, unknown>));
       return;
     }
     res.setHeader('cache-control', 'no-store');
@@ -385,6 +404,6 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
       mapAuthError(error);
     }
     res.setHeader('cache-control', 'no-store');
-    res.status(201).json(result);
+    res.status(201).json(redactCredentialFields(result));
   }));
 }

@@ -5,6 +5,11 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Security
+- Proxied identity responses (`register`, `login`, `refresh`, `auth/me`, OIDC
+  callback) are passed through `redactCredentialFields()` so a `password_hash`
+  from Tier-1 can never reach a browser, even against an older IAM build.
+
 ### Added
 - **Public release files**: `POST /v1/capabilities/files` accepts
   `public: true` for credentials carrying `files:publish` (or platform admin),
