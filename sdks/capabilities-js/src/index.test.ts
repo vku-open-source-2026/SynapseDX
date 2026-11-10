@@ -268,8 +268,14 @@ test('files namespace uploads raw bytes, downloads them and requests presigned U
     if (request.url.endsWith('/content') && request.method === 'PUT') {
       return { body: { id: 'f1', filename: 'a.bin', contentType: 'application/octet-stream', size: 3, checksumSha256: 'abc', downloadUrl: '/x', createdAt: 'c', updatedAt: 'u' } };
     }
+    if (request.url.includes('/public/files/f1/content')) {
+      return { bytes: new Uint8Array([4, 5]), headers: { 'x-checksum-sha256': 'def' } };
+    }
     if (request.url.endsWith('/content') && request.method === 'GET') {
       return { bytes: new Uint8Array([1, 2, 3]), headers: { 'x-checksum-sha256': 'abc' } };
+    }
+    if (request.url.endsWith('/public/files/f1')) {
+      return { body: { id: 'f1', filename: 'release.apk', contentType: 'application/vnd.android.package-archive', size: 2, public: true, publicUrl: '/v1/capabilities/public/files/f1/content', downloadUrl: '/x', createdAt: 'c', updatedAt: 'u' } };
     }
     return { body: { fileId: 'f1', method: 'GET', url: 'https://s3.example/x', expiresIn: 900 } };
   });
@@ -286,6 +292,12 @@ test('files namespace uploads raw bytes, downloads them and requests presigned U
   const presigned = await client.files.presign('f1', { method: 'PUT', expiresIn: 600 });
   assert.equal(presigned.method, 'GET');
   assert.equal((requests[3].body as any).method, 'PUT');
+  const publicMeta = await client.files.publicGet('f1');
+  assert.equal(publicMeta.public, true);
+  assert.equal(publicMeta.publicUrl, '/v1/capabilities/public/files/f1/content');
+  const publicBytes = await client.files.publicDownload('f1');
+  assert.deepEqual(Array.from(publicBytes.data), [4, 5]);
+  assert.equal(publicBytes.checksumSha256, 'def');
 });
 
 test('notifications namespace sends templates and manages preferences', async () => {

@@ -6,6 +6,13 @@ Keep a Changelog format and version tags use Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- **Public release files**: `POST /v1/capabilities/files` accepts
+  `public: true` for credentials carrying `files:publish` (or platform admin),
+  and `GET /v1/capabilities/public/files/:id[/content]` serves that object
+  anonymously. Release artifacts still live in Tier-1 SynapseOCS through the
+  Tier-2 files capability; clients never receive S3 credentials.
+- `@synapsedx/capabilities@0.6.0` exposes `files.publicGet` and
+  `files.publicDownload`, plus `public` metadata on file records.
 - **LLM situation brief**: `POST /v1/capabilities/hazards/brief` summarises the
   live NCHMF/VNDMS feed with `[H1]` citations and a deterministic fallback when
   the provider is rate-limited. `@synapsedx/capabilities@0.5.1` exposes

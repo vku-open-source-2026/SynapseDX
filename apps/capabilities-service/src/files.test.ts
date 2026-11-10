@@ -209,6 +209,55 @@ test('presigned URLs are exposed only when the Tier-1 backend supports them', as
   }
 });
 
+test('public release files are readable anonymously only when explicitly published', async () => {
+  const harness = await startHarness({}, { storagePresign: true });
+  try {
+    const denied = await api(harness, '/v1/capabilities/files', {
+      method: 'POST', token: 'user-token',
+      body: { filename: 'release.apk', contentType: 'application/vnd.android.package-archive', public: true },
+    });
+    assert.equal(denied.status, 403);
+    assert.equal(denied.body.error.code, 'insufficient_scope');
+
+    const created = await api(harness, '/v1/capabilities/files', {
+      method: 'POST', token: 'admin-token',
+      body: {
+        id: 'synapsecity-android-0.1.0',
+        filename: 'SynapseCity-0.1.0-release.apk',
+        contentType: 'application/vnd.android.package-archive',
+        public: true,
+      },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.public, true);
+    assert.match(created.body.publicUrl, /^\/v1\/capabilities\/public\/files\//);
+
+    const bytes = Buffer.from('android-release-bytes');
+    const upload = await api(harness, `/v1/capabilities/files/${created.body.id}/content`, {
+      method: 'PUT', token: 'admin-token',
+      headers: { 'content-type': 'application/vnd.android.package-archive' }, buffer: bytes,
+    });
+    assert.equal(upload.status, 200);
+
+    const anonymous = await api(harness, `/v1/capabilities/public/files/${created.body.id}`);
+    assert.equal(anonymous.status, 200);
+    assert.equal(anonymous.body.filename, 'SynapseCity-0.1.0-release.apk');
+
+    const download = await apiBinary(harness, `/v1/capabilities/public/files/${created.body.id}/content`);
+    assert.equal(download.status, 200);
+    assert.deepEqual(download.body, bytes);
+    assert.match(download.headers.get('content-disposition') || '', /SynapseCity-0\.1\.0-release\.apk/);
+
+    const privateCreated = await api(harness, '/v1/capabilities/files', {
+      method: 'POST', token: 'user-token', body: { filename: 'private.bin', contentType: 'application/octet-stream' },
+    });
+    const privatePublic = await api(harness, `/v1/capabilities/public/files/${privateCreated.body.id}`);
+    assert.equal(privatePublic.status, 404);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('legacy default-bucket files are lazily migrated to SynapseOCS', async () => {
   const harness = await startHarness();
   try {

@@ -22,7 +22,7 @@ import { handler } from '../http';
 import { parsePagination, setPageHeaders } from '../pagination';
 import {
   COLLECTIONS, StoredDocument, claimIdempotency, correlationIdOf, ensureCollections,
-  getDocumentOrNull, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint,
+  getDocumentOrNull, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint, serviceClient,
 } from '../platform';
 import { WriteContext, authenticatedReadContext, writeContext } from './shared';
 
@@ -40,6 +40,8 @@ export interface FileRecord {
   ocsBucket?: string;
   datasetId?: string;
   recordId?: string;
+  /** Explicitly public release/media objects may be read without a credential. */
+  public?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,7 +55,20 @@ export interface FileView {
   owner: string;
   datasetId?: string;
   recordId?: string;
+  public?: boolean;
   downloadUrl: string;
+  publicUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicFileView {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  checksumSha256?: string;
+  publicUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,10 +120,33 @@ function view(record: FileRecord): FileView {
     ...(record.checksumSha256 ? { checksumSha256: record.checksumSha256 } : {}),
     ...(record.datasetId ? { datasetId: record.datasetId } : {}),
     ...(record.recordId ? { recordId: record.recordId } : {}),
+    ...(record.public ? { public: true, publicUrl: publicUrl(record.id) } : {}),
     downloadUrl: `/v1/capabilities/files/${encodeURIComponent(record.id)}/content`,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+function publicUrl(id: string): string {
+  return `/v1/capabilities/public/files/${encodeURIComponent(id)}/content`;
+}
+
+function publicView(record: FileRecord): PublicFileView {
+  return {
+    id: record.id,
+    filename: record.filename,
+    contentType: record.contentType,
+    size: record.size,
+    ...(record.checksumSha256 ? { checksumSha256: record.checksumSha256 } : {}),
+    publicUrl: publicUrl(record.id),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function canPublish(principal: { scopes: string[] }): boolean {
+  return isAdmin(principal as any)
+    || principal.scopes.some((scope) => scope === 'files:publish' || scope === 'storage:publish');
 }
 
 function visible(record: FileRecord, ctx: WriteContext | { principal: { tenantKey: string; scopes: string[] } }): boolean {
@@ -122,6 +160,14 @@ async function loadFile(
 ): Promise<StoredDocument<FileRecord>> {
   const found = await getDocumentOrNull<FileRecord>(client, COLLECTIONS.files, id);
   if (!found || !visible(found.data, ctx)) {
+    throw apiError(404, 'file_not_found', 'file not found');
+  }
+  return found;
+}
+
+async function loadPublicFile(client: any, id: string): Promise<StoredDocument<FileRecord>> {
+  const found = await getDocumentOrNull<FileRecord>(client, COLLECTIONS.files, id);
+  if (!found || found.data.public !== true) {
     throw apiError(404, 'file_not_found', 'file not found');
   }
   return found;
@@ -264,8 +310,12 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       throw apiError(400, 'invalid_request', 'checksumSha256 must be 64 hex characters');
     }
     const requestedId = body.id === undefined ? undefined : String(body.id);
-    if (requestedId && !/^[A-Za-z0-9_-]{1,80}$/.test(requestedId)) {
-      throw apiError(400, 'invalid_request', 'id must match [A-Za-z0-9_-]{1,80}');
+    if (requestedId && !/^[A-Za-z0-9._-]{1,80}$/.test(requestedId)) {
+      throw apiError(400, 'invalid_request', 'id must match [A-Za-z0-9._-]{1,80}');
+    }
+    const isPublic = body.public === true;
+    if (isPublic && !canPublish(principal)) {
+      throw apiError(403, 'insufficient_scope', 'publishing a public file requires files:publish');
     }
 
     const idempotencyKey = idempotencyKeyOf(req);
@@ -303,6 +353,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
         ocsBucket: config.filesBucket,
         ...(body.datasetId ? { datasetId: String(body.datasetId) } : {}),
         ...(body.recordId ? { recordId: String(body.recordId) } : {}),
+        ...(isPublic ? { public: true } : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -334,6 +385,31 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       await claim?.release();
       throw error;
     }
+  }));
+
+  app.get('/v1/capabilities/public/files/:id', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    res.setHeader('cache-control', 'public, max-age=300');
+    res.json(publicView(found.data));
+  }));
+
+  app.get('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    let bytes: Uint8Array;
+    try {
+      bytes = await readFileBytes(client, config, found);
+    } catch (error) {
+      mapStorageError(error);
+    }
+    const buffer = Buffer.from(bytes);
+    res.setHeader('content-type', found.data.contentType);
+    res.setHeader('content-length', String(buffer.length));
+    res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.data.filename)}`);
+    res.setHeader('cache-control', 'public, max-age=300');
+    if (found.data.checksumSha256) res.setHeader('x-checksum-sha256', found.data.checksumSha256);
+    res.status(200).send(buffer);
   }));
 
   app.get('/v1/capabilities/files/:id', handler(async (req, res) => {
@@ -476,8 +552,13 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     }
     let signed: any;
     try {
-      const migrated = await migrateLegacyObject(client, config, found);
-      signed = await client.ocs.presign(config.filesBucket, migrated.data.storageKey, { method: method as any, expiresIn });
+      if (method === 'GET' || method === 'HEAD') {
+        const migrated = await migrateLegacyObject(client, config, found);
+        signed = await client.ocs.presign(migrated.data.ocsBucket || config.filesBucket, migrated.data.storageKey, { method: method as any, expiresIn });
+      } else {
+        await ensureOcsBucket(client, config);
+        signed = await client.ocs.presign(config.filesBucket, found.data.storageKey, { method: method as any, expiresIn });
+      }
     } catch (error) {
       mapStorageError(error);
     }

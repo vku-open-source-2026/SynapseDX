@@ -413,9 +413,11 @@ other `SYNAPSEDX_FILES_*` settings are enforced before the OCS call.
 
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
-| POST | `/v1/capabilities/files` | write | `{filename,contentType?,size?,checksumSha256?,datasetId?,recordId?,id?}` → `201` metadata + `upload` instructions. Supports `Idempotency-Key`. |
+| POST | `/v1/capabilities/files` | write | `{filename,contentType?,size?,checksumSha256?,datasetId?,recordId?,id?,public?}` → `201` metadata + `upload` instructions. `public:true` requires `files:publish` (or platform admin). Supports `Idempotency-Key`. |
 | PUT | `/v1/capabilities/files/:id/content` | write | Raw binary body (`Content-Type`, optional `X-Checksum-SHA256`). Verifies checksum/quota and uploads to SynapseOCS. |
 | GET | `/v1/capabilities/files/:id/content` | verified | Streams the object with `Content-Type`, `Content-Length`, `Content-Disposition` and `X-Checksum-SHA256`. |
+| GET | `/v1/capabilities/public/files/:id` | anonymous | Public metadata for a file created with `public:true`; private/unpublished ids return 404. |
+| GET | `/v1/capabilities/public/files/:id/content` | anonymous | Stable public download for an explicitly published file. The bytes remain in Tier-1 SynapseOCS. |
 | GET | `/v1/capabilities/files/:id` | verified | Metadata (size, MIME, checksum, dataset/record link). |
 | GET | `/v1/capabilities/files` | verified | Tenant list (`prefix`, pagination). |
 | GET | `/v1/capabilities/files/quota` | verified | `{usedBytes,quotaBytes,remainingBytes,files,maxFileBytes,allowedTypes}`. |

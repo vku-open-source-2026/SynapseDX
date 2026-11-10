@@ -344,6 +344,8 @@ export interface FileUploadInput {
   checksumSha256?: string;
   recordId?: string;
   datasetId?: string;
+  /** Publish a release/media object for anonymous download (requires files:publish). */
+  public?: boolean;
 }
 
 export interface FileObject {
@@ -355,7 +357,9 @@ export interface FileObject {
   owner?: string;
   datasetId?: string;
   recordId?: string;
+  public?: boolean;
   downloadUrl: string;
+  publicUrl?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -924,6 +928,10 @@ export class CapabilitiesClient {
     uploadBytes: (id: string, content: Uint8Array | ArrayBuffer | string, opts?: RequestOptions & { contentType?: string; checksumSha256?: string }) => Promise<FileObject>;
     download: (id: string, opts?: RequestOptions) => Promise<{ data: Uint8Array; contentType?: string; checksumSha256?: string }>;
     get: (id: string, opts?: RequestOptions) => Promise<FileObject>;
+    /** Anonymous metadata for an explicitly public file. */
+    publicGet: (id: string, opts?: RequestOptions) => Promise<FileObject>;
+    /** Anonymous download of an explicitly public file. */
+    publicDownload: (id: string, opts?: RequestOptions) => Promise<{ data: Uint8Array; contentType?: string; checksumSha256?: string }>;
     list: (query?: { prefix?: string; limit?: number; offset?: number }, opts?: RequestOptions) => Promise<FilePage>;
     quota: (opts?: RequestOptions) => Promise<FileQuota>;
     presign: (id: string, opts?: RequestOptions & { method?: 'GET' | 'HEAD' | 'PUT' | 'DELETE'; expiresIn?: number }) => Promise<PresignResult>;
@@ -1235,6 +1243,20 @@ export class CapabilitiesClient {
         };
       },
       get: (id, requestOpts) => this.http.request<FileObject>(filePath(id), {}, requestOpts),
+      publicGet: (id, requestOpts) => this.http.request<FileObject>(
+        `/v1/capabilities/public/files/${encodeURIComponent(id)}`, {}, { ...requestOpts, token: undefined, apiKey: undefined },
+      ),
+      publicDownload: async (id, requestOpts) => {
+        const response = await this.http.requestBytes(
+          `/v1/capabilities/public/files/${encodeURIComponent(id)}/content`, {},
+          { ...requestOpts, token: undefined, apiKey: undefined },
+        );
+        return {
+          data: response.data,
+          ...(response.headers.get('content-type') ? { contentType: String(response.headers.get('content-type')) } : {}),
+          ...(response.headers.get('x-checksum-sha256') ? { checksumSha256: String(response.headers.get('x-checksum-sha256')) } : {}),
+        };
+      },
       list: (query = {}, requestOpts) => this.http.request<FilePage>(
         `/v1/capabilities/files${queryString({ prefix: query.prefix, limit: query.limit, offset: query.offset })}`, {}, requestOpts,
       ),
