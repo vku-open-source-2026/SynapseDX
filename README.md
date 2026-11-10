@@ -29,6 +29,54 @@ gateway at `https://synapsedx.sbs`.
 > gateway listens on `8080` and is reachable as `synapsedx-gateway:8080`; the
 > capabilities service listens on `8082` and is not published.
 
+## Self-host
+
+Three public GHCR images are published for every release (Apache-2.0, no
+registry login required):
+
+- `ghcr.io/vku-open-source-2026/synapsedx/capabilities`
+- `ghcr.io/vku-open-source-2026/synapsedx/gateway`
+- `ghcr.io/vku-open-source-2026/synapsedx/console`
+
+Tier 2 always uses a live Tier-1 SynapseOne API. For the public demo that is
+`https://api.synapseone.space`; for a private stack point `SYNAPSEONE_BASE_URL`
+at your own SynapseOne gateway and issue a scoped `SYNAPSEONE_API_KEY` there.
+
+### 1. Run the published images (recommended)
+
+```bash
+git clone https://github.com/vku-open-source-2026/SynapseDX.git
+cd SynapseDX
+cp .env.example .env        # set SYNAPSEONE_BASE_URL + SYNAPSEONE_API_KEY
+export SYNAPSEDX_VERSION=v0.6.1   # or latest
+
+docker compose pull
+docker compose up -d --no-build
+curl http://127.0.0.1:8082/health
+```
+
+The gateway is bound to loopback by default; terminate TLS with your own edge
+(see `infra/`) and keep the capabilities service private.
+
+### 2. Build from source
+
+Requirements: Node.js 20+, Docker Engine 24+ and Compose v2.24+.
+
+```bash
+git clone https://github.com/vku-open-source-2026/SynapseDX.git
+cd SynapseDX
+cp .env.example .env        # set SYNAPSEONE_BASE_URL + SYNAPSEONE_API_KEY
+npm ci
+npm run build
+npm test
+docker compose build
+docker compose up -d --no-build
+```
+
+`docker compose up -d --build` combines the last two steps. The Compose images
+are the published GHCR names, so a local build and a registry pull produce the
+same stack.
+
 ## Authentication and tenancy
 
 A caller must present a Tier-1-verifiable credential:
@@ -160,7 +208,9 @@ access or a production credential.
 
 ## Release status
 
-- Tier-2 API/service: versioned in `CHANGELOG.md`.
+- Tier-2 API/service: versioned in `CHANGELOG.md`; current release `v0.6.1`.
+- Public container images:
+  `ghcr.io/vku-open-source-2026/synapsedx/{capabilities,gateway,console}`.
 - SDK `@synapsedx/capabilities@0.6.0`: release tarball is attached to
   <https://github.com/vku-open-source-2026/SynapseDX/releases/tag/v0.6.0> and
   mirrored through the same Tier-2 files capability into Tier-1 SynapseOCS:

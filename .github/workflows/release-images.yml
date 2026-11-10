@@ -32,7 +32,11 @@ jobs:
           npm test
 
       - name: Build images
-        run: docker compose build
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          SYNAPSEDX_IMAGE_OWNER="$OWNER" SYNAPSEDX_VERSION=latest docker compose build
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -45,17 +49,29 @@ jobs:
         run: |
           set -euo pipefail
           OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
-          pairs="synapsedx-capabilities:synapsedx/capabilities synapsedx-gateway:synapsedx/gateway synapsedx-console:synapsedx/console"
-          for pair in $pairs; do
-            local_image="${pair%%:*}"
-            image="${pair##*:}"
-            remote="ghcr.io/${OWNER}/${image}"
-            docker tag "${local_image}:latest" "${remote}:${TAG}"
-            docker tag "${local_image}:latest" "${remote}:latest"
-            docker tag "${local_image}:latest" "${remote}:sha-${SHA}"
+          for svc in capabilities gateway console; do
+            local_image="ghcr.io/${OWNER}/synapsedx/${svc}:latest"
+            remote="ghcr.io/${OWNER}/synapsedx/${svc}"
+            docker tag "${local_image}" "${remote}:${TAG}"
+            docker tag "${local_image}" "${remote}:latest"
+            docker tag "${local_image}" "${remote}:sha-${SHA}"
             docker push "${remote}:${TAG}"
             docker push "${remote}:latest"
             docker push "${remote}:sha-${SHA}"
+          done
+
+      - name: Make GHCR packages public
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GHCR_PAT || secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -uo pipefail
+          OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          for svc in capabilities gateway console; do
+            if ! gh api --method PATCH "/orgs/${OWNER}/packages/container/synapsedx%2F${svc}" -f visibility=public >/dev/null 2>&1; then
+              echo "::warning::Could not set synapsedx/${svc} public; set it in GitHub package settings."
+            fi
           done
 
       - name: Pack SDK

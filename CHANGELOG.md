@@ -5,6 +5,13 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-10
+
+### Added
+- Public GHCR images for `capabilities`, `gateway` and `console` with
+  `vX.Y.Z`, `latest` and `sha-<commit>` tags, plus a self-host guide covering
+  `docker compose pull` and building from source.
+
 ### Security
 - Proxied identity responses (`register`, `login`, `refresh`, `auth/me`, OIDC
   callback) are passed through `redactCredentialFields()` so a `password_hash`
