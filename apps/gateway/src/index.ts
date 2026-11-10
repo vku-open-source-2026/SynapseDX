@@ -186,6 +186,10 @@ export function createGateway(options: GatewayOptions = {}): express.Express {
           res.setHeader(name, value);
         }
       });
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
       const buffer = Buffer.from(await response.arrayBuffer());
       res.send(buffer);
     } catch (error) {
