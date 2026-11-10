@@ -38,6 +38,11 @@ registry login required):
 - `ghcr.io/vku-open-source-2026/synapsedx/gateway`
 - `ghcr.io/vku-open-source-2026/synapsedx/console`
 
+> If `docker pull` returns `unauthorized`, the GHCR packages have not been
+> switched to public yet. An organization admin must add a `GHCR_PAT` secret
+> (package admin) and run the `packages-public` workflow in the SynapseOne
+> repository once.
+
 Tier 2 always uses a live Tier-1 SynapseOne API. For the public demo that is
 `https://api.synapseone.space`; for a private stack point `SYNAPSEONE_BASE_URL`
 at your own SynapseOne gateway and issue a scoped `SYNAPSEONE_API_KEY` there.
