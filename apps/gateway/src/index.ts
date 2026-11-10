@@ -181,7 +181,7 @@ export function createGateway(options: GatewayOptions = {}): express.Express {
       const response = await callUpstream(req, req.originalUrl, Buffer.isBuffer(req.body) ? req.body : undefined);
       res.status(response.status);
       response.headers.forEach((value, name) => {
-        if (HOP_BY_HOP.has(name.toLowerCase())) return;
+        if (HOP_BY_HOP.has(name.toLowerCase()) && !(req.method === 'HEAD' && name.toLowerCase() === 'content-length')) return;
         if (FORWARDED_RESPONSE_HEADERS.includes(name.toLowerCase()) || name.toLowerCase().startsWith('x-')) {
           res.setHeader(name, value);
         }
