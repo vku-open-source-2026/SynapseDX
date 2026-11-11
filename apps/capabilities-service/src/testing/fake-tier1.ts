@@ -207,6 +207,8 @@ export class FakeTier1 {
   readonly topics = new Map<string, Array<{ id: string; payload: unknown }>>();
   readonly faststore = new Map<string, unknown>();
   readonly workflows = new Map<string, Workflow>();
+  readonly warehouseDatasets = new Map<string, Json>();
+  readonly warehouseJobs = new Map<string, Json>();
   readonly executions: Json[] = [];
   readonly requests: Array<{ method: string; path: string; headers: Record<string, string>; body: any }> = [];
   readonly tokens = new Map<string, Json>();
@@ -216,6 +218,7 @@ export class FakeTier1 {
   failQueue = false;
   failStream = false;
   failFaststore = false;
+  failWarehouse = false;
   private server?: Server;
   private seq = 0;
 
@@ -267,6 +270,9 @@ export class FakeTier1 {
     this.failQueue = false;
     this.failStream = false;
     this.failFaststore = false;
+    this.failWarehouse = false;
+    this.warehouseDatasets.clear();
+    this.warehouseJobs.clear();
   }
 
   private json(res: ServerResponse, status: number, body: unknown): void {
@@ -767,6 +773,9 @@ export class FakeTier1 {
       return this.json(res, 200, [{ id: 'role-operator', slug: 'operator' }]);
     }
 
+    // ---- Warehouse ----
+    if (path.startsWith('/v1/warehouse/')) return this.handleWarehouse(method, path, url, body, res);
+
     // ---- Base ----
     if (path.startsWith('/v1/base/')) return this.handleBase(method, path, url, body, res);
 
@@ -818,6 +827,73 @@ export class FakeTier1 {
     if (path === '/ready' && method === 'GET') return this.json(res, 200, { status: 'ready' });
 
     this.json(res, 404, { error: 'not_found', path });
+  }
+
+  private handleWarehouse(method: string, path: string, _url: URL, body: any, res: ServerResponse): void {
+    if (this.failWarehouse) return this.json(res, 503, { error: 'unavailable' });
+    if (path === '/v1/warehouse/datasets' && method === 'GET') {
+      return this.json(res, 200, { items: [...this.warehouseDatasets.values()] });
+    }
+    if (path === '/v1/warehouse/datasets' && method === 'POST') {
+      const id = String(body?.id || body?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (!id) return this.json(res, 400, { error: 'invalid_id', message: 'id is required' });
+      if (this.warehouseDatasets.has(id)) return this.json(res, 409, { error: 'dataset_exists', message: 'exists' });
+      const now = nowIso();
+      const dataset = {
+        id,
+        name: String(body?.name || id),
+        description: String(body?.description || ''),
+        columns: Array.isArray(body?.columns) ? body.columns : [],
+        mode: body?.mode === 'stream' ? 'stream' : 'batch',
+        streamTopic: body?.streamTopic || null,
+        rowCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.warehouseDatasets.set(id, dataset);
+      return this.json(res, 201, dataset);
+    }
+    const rowsMatch = path.match(/^\/v1\/warehouse\/datasets\/([^/]+)\/rows$/);
+    if (rowsMatch && method === 'POST') {
+      const dataset = this.warehouseDatasets.get(decodeURIComponent(rowsMatch[1]));
+      if (!dataset) return this.json(res, 404, { error: 'dataset_not_found' });
+      const rows = Array.isArray(body?.rows) ? body.rows : [];
+      dataset.rowCount = Number(dataset.rowCount || 0) + rows.length;
+      return this.json(res, 201, { ok: true, inserted: rows.length });
+    }
+    if (path === '/v1/warehouse/query' && method === 'POST') {
+      return this.json(res, 200, {
+        columns: ['city', 'incidents'],
+        types: ['VARCHAR', 'BIGINT'],
+        rows: [{ city: 'Hanoi', incidents: 2 }, { city: 'Da Nang', incidents: 1 }],
+        rowCount: 2,
+        truncated: false,
+        durationMs: 1,
+      });
+    }
+    if (path === '/v1/warehouse/templates' && method === 'GET') {
+      return this.json(res, 200, { items: [{ id: 'batch-daily-rollup', mode: 'batch' }, { id: 'stream-sensor-ingest', mode: 'stream' }] });
+    }
+    if (path === '/v1/warehouse/jobs' && method === 'GET') {
+      return this.json(res, 200, { items: [...this.warehouseJobs.values()] });
+    }
+    if (path === '/v1/warehouse/jobs' && method === 'POST') {
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: body?.mode || 'batch', status: 'running', targetDatasetId: body?.targetDatasetId };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, job);
+    }
+    if (path === '/v1/warehouse/etl/batch' && method === 'POST') {
+      return this.json(res, 201, { ok: true, rows: 2, durationMs: 1, job: { id: `job-${++this.seq}` } });
+    }
+    if (path === '/v1/warehouse/etl/stream' && method === 'POST') {
+      return this.json(res, 201, { ok: true, created: true, job: { id: `job-${++this.seq}`, mode: 'stream' } });
+    }
+    const runMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/run$/);
+    if (runMatch && method === 'POST') return this.json(res, 200, { ok: true, rows: 2 });
+    const pauseMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/pause$/);
+    if (pauseMatch && method === 'POST') return this.json(res, 200, { id: decodeURIComponent(pauseMatch[1]), status: 'paused' });
+    return this.json(res, 404, { error: 'not_found' });
   }
 
   private handleBase(method: string, path: string, url: URL, body: any, res: ServerResponse): void {

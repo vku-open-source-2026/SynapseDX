@@ -350,6 +350,40 @@ owned by the caller; this capability only records the human decision.
 | POST | `/v1/capabilities/ai/decision` | verified | `{state,questions}` |
 | POST | `/v1/capabilities/ai/route` | verified | `{input,choices,instruction?}` |
 
+## Warehouse (OLAP + ETL)
+
+Tier-2 manager data studio over the Tier-1 Synapse Warehouse. Data operations
+are forwarded with the caller's credential, so Tier-1 tenant isolation and
+scopes apply. Reports and dashboards are tenant-scoped records in SynapseBase;
+publishing stores an immutable snapshot for Tier-3 sites.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/v1/capabilities/warehouse/status` | Dependency status |
+| GET/POST | `/v1/capabilities/warehouse/datasets` | List/create datasets |
+| POST | `/v1/capabilities/warehouse/datasets/:id/rows` | Append 1..5000 rows |
+| POST | `/v1/capabilities/warehouse/query` | Read-only `SELECT`/`WITH` |
+| GET | `/v1/capabilities/warehouse/templates` | Batch/stream ETL recipes |
+| GET | `/v1/capabilities/warehouse/jobs` | List ETL jobs |
+| POST | `/v1/capabilities/warehouse/etl/batch` | Run a batch transform |
+| POST | `/v1/capabilities/warehouse/etl/stream` | Ensure a stream ingest job |
+| POST | `/v1/capabilities/warehouse/jobs/:id/run` | Run a batch job |
+| POST | `/v1/capabilities/warehouse/jobs/:id/pause` | Stop a stream job |
+| GET/POST | `/v1/capabilities/warehouse/reports` | List/create saved reports |
+| POST | `/v1/capabilities/warehouse/reports/:id/run` | Execute and return rows |
+| POST | `/v1/capabilities/warehouse/reports/:id/publish` | Snapshot + public share id |
+| GET/POST | `/v1/capabilities/warehouse/dashboards` | List/create dashboards |
+| POST | `/v1/capabilities/warehouse/dashboards/:id/run` | Run all widgets |
+| POST | `/v1/capabilities/warehouse/dashboards/:id/publish` | Snapshot all widgets |
+| GET | `/v1/capabilities/warehouse/public/reports/:shareId` | Public snapshot |
+| GET | `/v1/capabilities/warehouse/public/dashboards/:shareId` | Public dashboard snapshot |
+| GET | `/v1/capabilities/warehouse/use-cases` | Seedable demo catalog |
+| POST | `/v1/capabilities/warehouse/use-cases/:id/seed` | Seed datasets/ETL/reports/dashboard |
+
+Use cases: `city-operations` (batch daily rollup + manager dashboard),
+`iot-sensors` (SynapseStream ingest + averages) and `open-data-air-quality`
+(published public snapshot).
+
 ## KTTV hazards and knowledge base
 
 The Tier-2 KTTV base feeds both the hazard map and the LLM features. Normalised

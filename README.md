@@ -124,6 +124,7 @@ production.
 | audit / usage | available | Tier-2 mutation audit + Tier-1 IAM usage projection |
 | files | available | binary upload/download, metadata, checksum, quota, presigned URLs via Tier-1 storage |
 | notifications | available | templates, send, status, cancel, preferences via Tier-1 notifications |
+| warehouse | available | Tier-1 DuckDB OLAP datasets, read-only SQL, batch/stream ETL, saved reports and published snapshots |
 | geo | provider-configured | provider-neutral adapter (generic REST or VietMap preset); configure `SYNAPSEDX_GEOCODER_*` |
 
 See [`docs/API.md`](docs/API.md) for the full route, error-code, pagination and
@@ -216,7 +217,7 @@ access or a production credential.
 - Tier-2 API/service: versioned in `CHANGELOG.md`; current release `v0.6.1`.
 - Public container images:
   `ghcr.io/vku-open-source-2026/synapsedx/{capabilities,gateway,console}`.
-- SDK `@synapsedx/capabilities@0.6.0`: release tarball is attached to
+- SDK `@synapsedx/capabilities@0.7.0`: release tarball is attached to
   <https://github.com/vku-open-source-2026/SynapseDX/releases/tag/v0.6.0> and
   mirrored through the same Tier-2 files capability into Tier-1 SynapseOCS:
   <https://synapsedx.sbs/v1/capabilities/public/files/synapsedx-capabilities-0.6.0/content>

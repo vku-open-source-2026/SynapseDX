@@ -23,6 +23,7 @@ import { Route as AdminModulesRouteImport } from './routes/admin/modules'
 import { Route as AdminRecordsRouteImport } from './routes/admin/records'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminTeamRouteImport } from './routes/admin/team'
+import { Route as AdminWarehouseRouteImport } from './routes/admin/warehouse'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -94,6 +95,11 @@ const AdminTeamRoute = AdminTeamRouteImport.update({
   path: '/team',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminWarehouseRoute = AdminWarehouseRouteImport.update({
+  id: '/warehouse',
+  path: '/warehouse',
+  getParentRoute: () => AdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/admin/records': typeof AdminRecordsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/admin/warehouse': typeof AdminWarehouseRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
@@ -124,6 +131,7 @@ export interface FileRoutesByTo {
   '/admin/records': typeof AdminRecordsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/admin/warehouse': typeof AdminWarehouseRoute
   '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/admin/records': typeof AdminRecordsRoute
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
+  '/admin/warehouse': typeof AdminWarehouseRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
@@ -159,6 +168,7 @@ export interface FileRouteTypes {
     | '/admin/records'
     | '/admin/settings'
     | '/admin/team'
+    | '/admin/warehouse'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -174,6 +184,7 @@ export interface FileRouteTypes {
     | '/admin/records'
     | '/admin/settings'
     | '/admin/team'
+    | '/admin/warehouse'
     | '/admin'
   id:
     | '__root__'
@@ -190,6 +201,7 @@ export interface FileRouteTypes {
     | '/admin/records'
     | '/admin/settings'
     | '/admin/team'
+    | '/admin/warehouse'
     | '/admin/'
   fileRoutesById: FileRoutesById
 }
@@ -300,6 +312,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminTeamRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/warehouse': {
+      id: '/admin/warehouse'
+      path: '/warehouse'
+      fullPath: '/admin/warehouse'
+      preLoaderRoute: typeof AdminWarehouseRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
@@ -313,6 +332,7 @@ interface AdminRouteChildren {
   AdminRecordsRoute: typeof AdminRecordsRoute
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTeamRoute: typeof AdminTeamRoute
+  AdminWarehouseRoute: typeof AdminWarehouseRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -326,6 +346,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminRecordsRoute: AdminRecordsRoute,
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTeamRoute: AdminTeamRoute,
+  AdminWarehouseRoute: AdminWarehouseRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 

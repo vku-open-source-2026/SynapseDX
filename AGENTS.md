@@ -28,7 +28,9 @@ The repository is intentionally split like SynapseOne:
 
 The initial API provides generic datasets, records, public publication through
 SynapseLDS, and an event queue. Domain fields stay in the record payload; no
-OpenInfra-specific rule belongs here.
+OpenInfra-specific rule belongs here. The warehouse capability adds
+manager-facing OLAP datasets, SQL templates, saved reports, dashboards and
+published snapshots; it delegates all data work to Tier-1 Synapse Warehouse.
 
 ## Commands
 

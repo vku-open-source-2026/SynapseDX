@@ -185,6 +185,7 @@ export const en: Messages = {
     nav: {
       overview: 'Overview',
       datasets: 'Datasets',
+      warehouse: 'Warehouse',
       records: 'Records',
       moderation: 'Moderation',
       approvals: 'Approvals',

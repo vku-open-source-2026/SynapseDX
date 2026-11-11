@@ -554,6 +554,90 @@ interface RawResponse<T> {
   status: number;
 }
 
+export type WarehouseColumnType = 'string' | 'number' | 'boolean' | 'timestamp' | 'json';
+
+export interface WarehouseColumn {
+  name: string;
+  type: WarehouseColumnType;
+}
+
+export interface WarehouseDataset {
+  id: string;
+  name: string;
+  description?: string;
+  columns: WarehouseColumn[];
+  mode: 'batch' | 'stream';
+  streamTopic?: string | null;
+  rowCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WarehouseQueryResult {
+  columns: string[];
+  types: string[];
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  truncated: boolean;
+  durationMs: number;
+}
+
+export interface WarehouseTemplate {
+  id: string;
+  name: string;
+  mode: 'batch' | 'stream';
+  description: string;
+  sqlTemplate?: string;
+  targetColumns?: WarehouseColumn[];
+  streamTopicHint?: string;
+  writeMode?: 'append' | 'replace';
+}
+
+export interface WarehouseJob {
+  id: string;
+  name: string;
+  mode: 'batch' | 'stream';
+  status: 'running' | 'paused';
+  targetDatasetId: string;
+  sql?: string | null;
+  streamTopic?: string | null;
+  batchSize: number;
+  intervalMs: number;
+  writeMode: 'append' | 'replace';
+  lastRunAt?: string | null;
+  lastError?: string | null;
+}
+
+export interface WarehouseReport {
+  id: string;
+  name: string;
+  description?: string;
+  sql: string;
+  limit: number;
+  visibility: 'private' | 'published';
+  shareId?: string;
+  publishedAt?: string;
+  snapshot?: WarehouseQueryResult & { generatedAt: string };
+}
+
+export interface WarehouseDashboard {
+  id: string;
+  name: string;
+  description?: string;
+  widgets: Array<{ id: string; reportId: string; title?: string; x?: number; y?: number; w?: number; h?: number }>;
+  visibility: 'private' | 'published';
+  shareId?: string;
+  snapshots?: Record<string, WarehouseQueryResult>;
+}
+
+export interface WarehouseUseCase {
+  id: string;
+  name: string;
+  description: string;
+  datasets: string[];
+  queries: Array<{ name: string; sql: string }>;
+}
+
 class Http {
   readonly baseUrl: string;
   private readonly token?: string;
@@ -824,6 +908,33 @@ export interface HazardCrawlResult {
 
 export class CapabilitiesClient {
   private readonly http: Http;
+
+  readonly warehouse: {
+    status: (opts?: RequestOptions) => Promise<{ capability: string; status: string; datasetCount?: number }>;
+    datasets: (opts?: RequestOptions) => Promise<{ items: WarehouseDataset[] }>;
+    dataset: (id: string, opts?: RequestOptions) => Promise<WarehouseDataset>;
+    createDataset: (input: { id?: string; name: string; description?: string; columns: WarehouseColumn[]; mode?: 'batch' | 'stream'; streamTopic?: string }, opts?: RequestOptions) => Promise<WarehouseDataset>;
+    ingest: (id: string, rows: Array<Record<string, unknown>>, opts?: RequestOptions) => Promise<{ ok: boolean; inserted: number }>;
+    query: (sql: string, query?: { limit?: number }, opts?: RequestOptions) => Promise<WarehouseQueryResult>;
+    templates: (opts?: RequestOptions) => Promise<{ items: WarehouseTemplate[] }>;
+    jobs: (opts?: RequestOptions) => Promise<{ items: WarehouseJob[] }>;
+    runBatch: (input: { name?: string; targetDatasetId: string; sql: string; writeMode?: 'append' | 'replace' }, opts?: RequestOptions) => Promise<any>;
+    ensureStream: (input: { name?: string; targetDatasetId: string; streamTopic: string; batchSize?: number; intervalMs?: number }, opts?: RequestOptions) => Promise<any>;
+    runJob: (id: string, opts?: RequestOptions) => Promise<any>;
+    pauseJob: (id: string, opts?: RequestOptions) => Promise<WarehouseJob>;
+    reports: (opts?: RequestOptions) => Promise<{ items: WarehouseReport[]; total: number }>;
+    createReport: (input: { name: string; sql: string; description?: string; limit?: number; datasetId?: string }, opts?: RequestOptions) => Promise<WarehouseReport>;
+    runReport: (id: string, opts?: RequestOptions) => Promise<any>;
+    publishReport: (id: string, opts?: RequestOptions) => Promise<WarehouseReport>;
+    publicReport: (shareId: string, opts?: RequestOptions) => Promise<any>;
+    dashboards: (opts?: RequestOptions) => Promise<{ items: WarehouseDashboard[]; total: number }>;
+    createDashboard: (input: { name: string; description?: string; widgets: Array<{ reportId: string; title?: string; x?: number; y?: number; w?: number; h?: number }> }, opts?: RequestOptions) => Promise<WarehouseDashboard>;
+    runDashboard: (id: string, opts?: RequestOptions) => Promise<any>;
+    publishDashboard: (id: string, opts?: RequestOptions) => Promise<WarehouseDashboard>;
+    publicDashboard: (shareId: string, opts?: RequestOptions) => Promise<any>;
+    useCases: (opts?: RequestOptions) => Promise<{ items: WarehouseUseCase[] }>;
+    seedUseCase: (id: string, opts?: RequestOptions) => Promise<any>;
+  };
 
   readonly knowledge: {
     index: (input: KnowledgeDocumentInput, opts?: RequestOptions) => Promise<KnowledgeIndexResult>;
@@ -1311,6 +1422,61 @@ export class CapabilitiesClient {
       }, requestOpts),
     };
 
+
+    this.warehouse = {
+      status: (opts) => this.http.request('/v1/capabilities/warehouse/status', {}, opts),
+      datasets: (opts) => this.http.request('/v1/capabilities/warehouse/datasets', {}, opts),
+      dataset: (id, opts) => this.http.request(`/v1/capabilities/warehouse/datasets/${encodeURIComponent(id)}`, {}, opts),
+      createDataset: (input, opts) => this.http.request('/v1/capabilities/warehouse/datasets', {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
+      ingest: (id, rows, opts) => this.http.request(`/v1/capabilities/warehouse/datasets/${encodeURIComponent(id)}/rows`, {
+        method: 'POST', body: JSON.stringify({ rows }),
+      }, opts),
+      query: (sql, query = {}, opts) => this.http.request('/v1/capabilities/warehouse/query', {
+        method: 'POST', body: JSON.stringify({ sql, limit: query.limit }),
+      }, opts),
+      templates: (opts) => this.http.request('/v1/capabilities/warehouse/templates', {}, opts),
+      jobs: (opts) => this.http.request('/v1/capabilities/warehouse/jobs', {}, opts),
+      runBatch: (input, opts) => this.http.request('/v1/capabilities/warehouse/etl/batch', {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
+      ensureStream: (input, opts) => this.http.request('/v1/capabilities/warehouse/etl/stream', {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
+      runJob: (id, opts) => this.http.request(`/v1/capabilities/warehouse/jobs/${encodeURIComponent(id)}/run`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      pauseJob: (id, opts) => this.http.request(`/v1/capabilities/warehouse/jobs/${encodeURIComponent(id)}/pause`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      reports: (opts) => this.http.request('/v1/capabilities/warehouse/reports', {}, opts),
+      createReport: (input, opts) => this.http.request('/v1/capabilities/warehouse/reports', {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
+      runReport: (id, opts) => this.http.request(`/v1/capabilities/warehouse/reports/${encodeURIComponent(id)}/run`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      publishReport: (id, opts) => this.http.request(`/v1/capabilities/warehouse/reports/${encodeURIComponent(id)}/publish`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      publicReport: (shareId, opts) => this.http.request(`/v1/capabilities/warehouse/public/reports/${encodeURIComponent(shareId)}`, {}, opts),
+      dashboards: (opts) => this.http.request('/v1/capabilities/warehouse/dashboards', {}, opts),
+      createDashboard: (input, opts) => this.http.request('/v1/capabilities/warehouse/dashboards', {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
+      runDashboard: (id, opts) => this.http.request(`/v1/capabilities/warehouse/dashboards/${encodeURIComponent(id)}/run`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      publishDashboard: (id, opts) => this.http.request(`/v1/capabilities/warehouse/dashboards/${encodeURIComponent(id)}/publish`, {
+        method: 'POST', body: '{}',
+      }, opts),
+      publicDashboard: (shareId, opts) => this.http.request(`/v1/capabilities/warehouse/public/dashboards/${encodeURIComponent(shareId)}`, {}, opts),
+      useCases: (opts) => this.http.request('/v1/capabilities/warehouse/use-cases', {}, opts),
+      seedUseCase: (id, opts) => this.http.request(`/v1/capabilities/warehouse/use-cases/${encodeURIComponent(id)}/seed`, {
+        method: 'POST', body: '{}',
+      }, opts),
+    };
 
     this.knowledge = {
       index: (input, requestOpts) => this.http.request<KnowledgeIndexResult>('/v1/capabilities/knowledge/documents', {

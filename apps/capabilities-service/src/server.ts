@@ -31,6 +31,7 @@ import { registerDataInsightRoutes } from './routes/data-insights';
 import { registerIntelligenceRoutes } from './routes/intelligence';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerHazardRoutes, startKttvScheduler } from './routes/hazards';
+import { registerWarehouseRoutes } from './routes/warehouse';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
   const app = express();
@@ -69,6 +70,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerIntelligenceRoutes(app, config);
   registerKnowledgeRoutes(app, config);
   registerHazardRoutes(app, config);
+  registerWarehouseRoutes(app, config);
 
   app.use(notFoundMiddleware());
   app.use(errorMiddleware());

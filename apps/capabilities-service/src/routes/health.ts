@@ -90,6 +90,7 @@ function probesFor(config: ServiceConfig): Probe[] {
     { name: 'faststore', critical: false, run: async (client) => { await client.faststore.stats(); } },
     { name: 'storage', critical: false, run: async (client) => { await client.storage.listObjects({ limit: 1 }); } },
     { name: 'notifications', critical: false, run: async (client) => { await client.notifications.list({ limit: 1 }); } },
+    { name: 'warehouse', critical: false, run: async (client) => { await client.call('GET', '/v1/warehouse/datasets'); } },
   ];
 }
 
@@ -171,6 +172,7 @@ export function registerCapabilityAdvertisement(app: Express, config: ServiceCon
         { name: 'usage', status: 'available' },
         { name: 'files', status: 'available', backend: 'synapseone-storage' },
         { name: 'notifications', status: 'available', backend: 'synapseone-notifications' },
+        { name: 'warehouse', status: 'available', backend: 'synapseone-warehouse', modes: ['batch', 'stream'], reports: true, dashboards: true },
         { name: 'geo', status: config.geocoder ? 'available' : 'unconfigured', provider: config.geocoder?.provider, dependency: config.geocoder ? undefined : 'SYNAPSEDX_GEOCODER_BASE_URL' },
       ],
       cors: { origins: config.corsOrigins },

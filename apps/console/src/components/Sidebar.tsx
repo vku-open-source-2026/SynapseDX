@@ -5,6 +5,7 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router';
 import {
   LayoutDashboard,
   Database,
+  BarChart3,
   Table2,
   Scale,
   LayoutGrid,
@@ -29,6 +30,7 @@ import { BrandMark } from './BrandMark';
 const ICONS: Record<NavItem['icon'], React.ComponentType<{ size?: number; className?: string }>> = {
   dashboard: LayoutDashboard,
   datasets: Database,
+  warehouse: BarChart3,
   records: Table2,
   moderation: Scale,
   modules: LayoutGrid,
@@ -42,6 +44,7 @@ const ICONS: Record<NavItem['icon'], React.ComponentType<{ size?: number; classN
 const PATH_PREFIX: Record<NavItem['view'], string> = {
   overview: '/admin',
   datasets: '/admin/datasets',
+  warehouse: '/admin/warehouse',
   records: '/admin/records',
   moderation: '/admin/moderation',
   approvals: '/admin/approvals',

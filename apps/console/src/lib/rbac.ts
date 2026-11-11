@@ -43,6 +43,7 @@ export function roleLabel(context: ManagementContext | null): string {
 export type ConsoleView =
   | 'overview'
   | 'datasets'
+  | 'warehouse'
   | 'records'
   | 'moderation'
   | 'approvals'
@@ -56,7 +57,7 @@ export interface NavItem {
   view: ConsoleView;
   label: string;
   /** lucide-react icon name as rendered by the sidebar. */
-  icon: 'dashboard' | 'datasets' | 'records' | 'moderation' | 'modules' | 'approvals' | 'team' | 'events' | 'audit' | 'settings';
+  icon: 'dashboard' | 'datasets' | 'warehouse' | 'records' | 'moderation' | 'modules' | 'approvals' | 'team' | 'events' | 'audit' | 'settings';
 }
 
 /**
@@ -67,6 +68,7 @@ export function navigationFor(context: ManagementContext | null): NavItem[] {
   const items: NavItem[] = [
     { view: 'overview', label: 'Overview', icon: 'dashboard' },
     { view: 'datasets', label: 'Datasets', icon: 'datasets' },
+    { view: 'warehouse', label: 'Warehouse', icon: 'warehouse' },
   ];
   if (can(context, 'records:read')) items.push({ view: 'records', label: 'Records', icon: 'records' });
   if (can(context, 'records:read') || can(context, 'datasets:read')) {

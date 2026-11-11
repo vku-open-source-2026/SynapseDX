@@ -183,6 +183,7 @@ export const vi = {
     nav: {
       overview: 'Tổng quan',
       datasets: 'Bộ dữ liệu',
+      warehouse: 'Kho dữ liệu',
       records: 'Bản ghi',
       moderation: 'Kiểm duyệt',
       approvals: 'Phê duyệt',

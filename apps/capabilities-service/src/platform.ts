@@ -58,6 +58,8 @@ export const COLLECTIONS = {
   ragDocuments: 'synapsedx_capability_rag_documents',
   ragChunks: 'synapsedx_capability_rag_chunks',
   ragQueries: 'synapsedx_capability_rag_queries',
+  warehouseReports: 'synapsedx_capability_warehouse_reports',
+  warehouseDashboards: 'synapsedx_capability_warehouse_dashboards',
   knowledgeDocuments: 'synapsedx_knowledge_documents',
   knowledgeChunks: 'synapsedx_knowledge_chunks',
   kttvHazards: 'synapsedx_kttv_hazards',
