@@ -366,6 +366,31 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
     res.json(await callWarehouse(config, caller, 'GET', '/v1/warehouse/templates'));
   }));
 
+  // SynapseFlow ETL templates (the drag/drop half of the Tier-2 story).
+  app.get('/v1/capabilities/warehouse/workflow-templates', handler(async (req, res) => {
+    const { caller } = await readContext(req, config);
+    const templates: any = await warehouseClient(config, caller).workflow.listTemplates();
+    const items = (Array.isArray(templates) ? templates : [])
+      .filter((item: any) => String(item?.name || '').startsWith('etl-'))
+      .map((item: any) => ({ name: String(item.name), description: String(item.description || '') }));
+    res.setHeader('cache-control', 'no-store');
+    res.json({ items });
+  }));
+
+  app.post('/v1/capabilities/warehouse/workflow-templates/:name/instantiate', handler(async (req, res) => {
+    const { caller } = await writeContext(req, config);
+    const name = String(req.params.name || '');
+    if (!/^etl-[a-z0-9-]{1,64}$/.test(name)) {
+      throw apiError(400, 'invalid_request', 'unknown SynapseFlow ETL template');
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const created = await warehouseClient(config, caller).workflow.createWorkflowFromTemplate(
+      name,
+      body.name !== undefined ? String(body.name).slice(0, 160) : undefined,
+    );
+    res.status(201).json(created);
+  }));
+
   // ---- ETL jobs ----
   app.get('/v1/capabilities/warehouse/jobs', handler(async (req, res) => {
     const { caller } = await readContext(req, config);

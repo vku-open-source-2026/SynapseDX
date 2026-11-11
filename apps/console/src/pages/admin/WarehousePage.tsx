@@ -120,6 +120,7 @@ export function WarehousePage() {
   const status = useQuery({ queryKey: ['warehouse', 'status'], queryFn: () => api.get<any>('/v1/capabilities/warehouse/status') });
   const datasets = useQuery({ queryKey: ['warehouse', 'datasets'], queryFn: () => api.get<{ items: Dataset[] }>('/v1/capabilities/warehouse/datasets') });
   const templates = useQuery({ queryKey: ['warehouse', 'templates'], queryFn: () => api.get<{ items: Template[] }>('/v1/capabilities/warehouse/templates') });
+  const workflowTemplates = useQuery({ queryKey: ['warehouse', 'workflow-templates'], queryFn: () => api.get<{ items: Array<{ name: string; description: string }> }>('/v1/capabilities/warehouse/workflow-templates') });
   const useCases = useQuery({ queryKey: ['warehouse', 'use-cases'], queryFn: () => api.get<{ items: UseCase[] }>('/v1/capabilities/warehouse/use-cases') });
   const reports = useQuery({ queryKey: ['warehouse', 'reports'], queryFn: () => api.get<{ items: Report[] }>('/v1/capabilities/warehouse/reports') });
   const dashboards = useQuery({ queryKey: ['warehouse', 'dashboards'], queryFn: () => api.get<{ items: Dashboard[] }>('/v1/capabilities/warehouse/dashboards') });
@@ -208,8 +209,20 @@ export function WarehousePage() {
     }
   };
 
-  const runDashboard = async (id: string) => {
+  const instantiateWorkflow = async (template: string) => {
     if (busy) return;
+    setBusy(`workflow:${template}`);
+    try {
+      const created = await api.post<any>(`/v1/capabilities/warehouse/workflow-templates/${encodeURIComponent(template)}/instantiate`, {});
+      push(created?.id ? `Workflow ${created.id.slice(0, 8)}… created.` : 'Workflow created.');
+    } catch (error) {
+      push((error as Error).message || 'Could not create the workflow.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runDashboard = async (id: string) => {    if (busy) return;
     setBusy(`dashboard:${id}`);
     try {
       setDashboardRun(await api.post<DashboardRun>(`/v1/capabilities/warehouse/dashboards/${encodeURIComponent(id)}/run`));
@@ -285,6 +298,26 @@ export function WarehousePage() {
             </div>
           ))}
           {useCases.isLoading ? <p className="text-sm text-slate-500">Loading use cases…</p> : null}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          eyebrow="SynapseFlow"
+          title="ETL workflow templates"
+          description="Tier-1 owns batch/stream orchestration. Instantiate a template here, then edit the graph in SynapseFlow."
+        />
+        <div className="grid gap-3 px-5 py-4 lg:grid-cols-3">
+          {(workflowTemplates.data?.items || []).map((template) => (
+            <div key={template.name} className="flex flex-col gap-2 rounded-xl border border-slate-200 p-4 dark:border-[#26354d]">
+              <p className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">{template.name}</p>
+              <p className="flex-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{template.description}</p>
+              <Button variant="ghost" onClick={() => void instantiateWorkflow(template.name)} disabled={Boolean(busy)}>
+                <Plus size={14} /> {busy === `workflow:${template.name}` ? 'Creating…' : 'Create workflow'}
+              </Button>
+            </div>
+          ))}
+          {!workflowTemplates.data?.items?.length ? <p className="text-sm text-slate-500 dark:text-slate-400">No ETL workflow templates advertised by Tier 1.</p> : null}
         </div>
       </Card>
 

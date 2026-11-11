@@ -792,7 +792,7 @@ export class FakeTier1 {
     if (path.startsWith('/v1/faststore/')) return this.handleFaststore(method, path, body, res);
 
     // ---- Workflow ----
-    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions')) return this.handleWorkflow(method, path, url, body, res);
+    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions') || path === '/v1/templates') return this.handleWorkflow(method, path, url, body, res);
 
     // ---- Inference ----
     if (path === '/v1/inference/health' && method === 'GET') {
@@ -1193,6 +1193,13 @@ export class FakeTier1 {
   }
 
   private handleWorkflow(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
+    if (path === '/v1/templates' && method === 'GET') {
+      return this.json(res, 200, [
+        { name: 'etl-batch-warehouse', description: 'Warehouse batch ETL' },
+        { name: 'etl-stream-microbatch', description: 'Stream micro-batch ETL' },
+        { name: 'webhook-to-log', description: 'Not an ETL template' },
+      ]);
+    }
     if (path === '/v1/workflows' && method === 'GET') {
       return this.json(res, 200, { data: [...this.workflows.values()] });
     }

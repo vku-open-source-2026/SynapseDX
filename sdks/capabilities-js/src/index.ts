@@ -917,6 +917,8 @@ export class CapabilitiesClient {
     ingest: (id: string, rows: Array<Record<string, unknown>>, opts?: RequestOptions) => Promise<{ ok: boolean; inserted: number }>;
     query: (sql: string, query?: { limit?: number }, opts?: RequestOptions) => Promise<WarehouseQueryResult>;
     templates: (opts?: RequestOptions) => Promise<{ items: WarehouseTemplate[] }>;
+    workflowTemplates: (opts?: RequestOptions) => Promise<{ items: Array<{ name: string; description: string }> }>;
+    instantiateWorkflowTemplate: (name: string, input?: { name?: string }, opts?: RequestOptions) => Promise<any>;
     jobs: (opts?: RequestOptions) => Promise<{ items: WarehouseJob[] }>;
     runBatch: (input: { name?: string; targetDatasetId: string; sql: string; writeMode?: 'append' | 'replace' }, opts?: RequestOptions) => Promise<any>;
     ensureStream: (input: { name?: string; targetDatasetId: string; streamTopic: string; batchSize?: number; intervalMs?: number }, opts?: RequestOptions) => Promise<any>;
@@ -1437,6 +1439,10 @@ export class CapabilitiesClient {
         method: 'POST', body: JSON.stringify({ sql, limit: query.limit }),
       }, opts),
       templates: (opts) => this.http.request('/v1/capabilities/warehouse/templates', {}, opts),
+      workflowTemplates: (opts) => this.http.request('/v1/capabilities/warehouse/workflow-templates', {}, opts),
+      instantiateWorkflowTemplate: (name, input = {}, opts) => this.http.request(`/v1/capabilities/warehouse/workflow-templates/${encodeURIComponent(name)}/instantiate`, {
+        method: 'POST', body: JSON.stringify(input),
+      }, opts),
       jobs: (opts) => this.http.request('/v1/capabilities/warehouse/jobs', {}, opts),
       runBatch: (input, opts) => this.http.request('/v1/capabilities/warehouse/etl/batch', {
         method: 'POST', body: JSON.stringify(input),

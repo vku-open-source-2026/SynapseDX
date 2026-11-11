@@ -113,3 +113,22 @@ test('city operations use case seeds datasets, ETL, reports and a dashboard', as
     await harness.close();
   }
 });
+
+test('Tier-1 ETL workflow templates are listed and instantiated through Tier 2', async () => {
+  const harness = await startHarness();
+  try {
+    const listed = await api(harness, '/v1/capabilities/warehouse/workflow-templates', { token: 'user-token' });
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body.items.map((item: any) => item.name), ['etl-batch-warehouse', 'etl-stream-microbatch']);
+
+    const created = await api(harness, '/v1/capabilities/warehouse/workflow-templates/etl-batch-warehouse/instantiate', {
+      method: 'POST',
+      token: 'user-token',
+      body: { name: 'Demo ETL' },
+    });
+    assert.equal(created.status, 201);
+    assert.ok(created.body.id);
+  } finally {
+    await harness.close();
+  }
+});
