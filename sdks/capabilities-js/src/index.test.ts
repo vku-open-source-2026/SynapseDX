@@ -350,3 +350,19 @@ test('geo namespace returns normalized provider items', async () => {
   const place = await client.geo.place('p1');
   assert.equal(place, null);
 });
+
+test('warehouse queries and report publishing use the stable capability paths', async () => {
+  const { impl, requests } = mockFetch((request) => ({
+    body: request.url.includes('/query')
+      ? { columns: ['n'], rows: [{ n: 1 }], rowCount: 1, truncated: false, durationMs: 1 }
+      : { id: 'report-1', visibility: 'published', shareId: 'share-1' },
+  }));
+  const client = new CapabilitiesClient({ baseUrl: 'https://dx.example', token: 'tok', fetch: impl });
+  const result = await client.warehouse.query('SELECT 1 AS n', { limit: 10 });
+  assert.equal(result.rowCount, 1);
+  const published = await client.warehouse.publishReport('report-1');
+  assert.equal(published.shareId, 'share-1');
+  assert.equal(requests[0].url, 'https://dx.example/v1/capabilities/warehouse/query');
+  assert.deepEqual(requests[0].body, { sql: 'SELECT 1 AS n', limit: 10 });
+  assert.equal(requests[1].url, 'https://dx.example/v1/capabilities/warehouse/reports/report-1/publish');
+});
