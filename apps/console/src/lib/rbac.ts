@@ -68,8 +68,10 @@ export function navigationFor(context: ManagementContext | null): NavItem[] {
   const items: NavItem[] = [
     { view: 'overview', label: 'Overview', icon: 'dashboard' },
     { view: 'datasets', label: 'Datasets', icon: 'datasets' },
-    { view: 'warehouse', label: 'Warehouse', icon: 'warehouse' },
   ];
+  if (context && (hasRole(context, 'manager') || hasRole(context, 'admin') || hasRole(context, 'operator') || can(context, 'datasets:read'))) {
+    items.push({ view: 'warehouse', label: 'Warehouse', icon: 'warehouse' });
+  }
   if (can(context, 'records:read')) items.push({ view: 'records', label: 'Records', icon: 'records' });
   if (can(context, 'records:read') || can(context, 'datasets:read')) {
     items.push({ view: 'modules', label: 'Modules', icon: 'modules' });
