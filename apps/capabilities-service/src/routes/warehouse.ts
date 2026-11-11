@@ -294,7 +294,7 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
   app.get('/v1/capabilities/warehouse/status', handler(async (req, res) => {
     const { caller } = await readContext(req, config);
     try {
-      const datasets: any = await callWarehouse(config, caller, 'GET', '/v1/warehouse/datasets');
+      const datasets: any = await warehouseClient(config, caller).call('GET', '/v1/warehouse/datasets');
       res.setHeader('cache-control', 'no-store');
       res.json({
         capability: 'warehouse',
@@ -302,13 +302,9 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
         dependency: 'synapseone-warehouse',
         datasetCount: Array.isArray(datasets?.items) ? datasets.items.length : 0,
       });
-    } catch (error) {
-      if (error instanceof SynapseOneError) {
-        res.setHeader('cache-control', 'no-store');
-        res.status(200).json({ capability: 'warehouse', status: 'degraded', dependency: 'synapseone-warehouse' });
-        return;
-      }
-      throw error;
+    } catch {
+      res.setHeader('cache-control', 'no-store');
+      res.json({ capability: 'warehouse', status: 'degraded', dependency: 'synapseone-warehouse' });
     }
   }));
 
