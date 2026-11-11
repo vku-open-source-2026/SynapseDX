@@ -1,10 +1,53 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* SPDX-FileCopyrightText: 2026 VKU.VIC */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600;700&display=swap");
 @import "tailwindcss";
 
-@theme {
-  --font-sans: "Inter", "Noto Sans", system-ui, -apple-system, sans-serif;
+/* `dark:` follows the .dark class set by public/theme-init.js and src/lib/theme.tsx. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Site tokens shared with the other Synapse sites (light values; dark values below). */
+:root {
+  --dx-bg: #f6f8fb;
+  --dx-surface: #ffffff;
+  --dx-subtle: #f1f4f9;
+  --dx-fg: #0f1b2d;
+  --dx-muted: #566275;
+  --dx-faint: #7a8597;
+  --dx-line: #e2e7ef;
+  --dx-accent: #0a72c4;
+  --dx-accent-soft: #e9f3fc;
+  --dx-code: #0c1626;
+  --dx-code-fg: #d3deec;
+}
+html.dark {
+  --dx-bg: #0a111d;
+  --dx-surface: #101a2a;
+  --dx-subtle: #142136;
+  --dx-fg: #e4ebf5;
+  --dx-muted: #a3afc1;
+  --dx-faint: #8794a8;
+  --dx-line: #1f2c40;
+  --dx-accent: #5db2fb;
+  --dx-accent-soft: #11253d;
+  --dx-code: #060c16;
+  --dx-code-fg: #d3deec;
+}
+
+@theme inline {
+  /* Be Vietnam Pro draws stacked Vietnamese diacritics cleanly (same face as SynapseOne). */
+  --font-sans: "Be Vietnam Pro", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-dx-bg: var(--dx-bg);
+  --color-dx-surface: var(--dx-surface);
+  --color-dx-subtle: var(--dx-subtle);
+  --color-dx-fg: var(--dx-fg);
+  --color-dx-muted: var(--dx-muted);
+  --color-dx-faint: var(--dx-faint);
+  --color-dx-line: var(--dx-line);
+  --color-dx-accent: var(--dx-accent);
+  --color-dx-accent-soft: var(--dx-accent-soft);
+  --color-dx-code: var(--dx-code);
+  --color-dx-code-fg: var(--dx-code-fg);
 }
 
 html,
@@ -16,14 +59,37 @@ body,
 }
 
 body {
-  background: #f4f8fd;
-  color: #0f172a;
+  background: var(--dx-bg);
+  color: var(--dx-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--dx-accent) 22%, transparent);
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--dx-accent);
+  outline-offset: 2px;
+}
+
+/* Thin, quiet scrollbars everywhere (console tables, sidebar, page). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--dx-faint) 45%, transparent) transparent;
 }
 
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: rgb(203 213 225) transparent;
+    scrollbar-color: rgb(71 85 105 / 0.6) transparent;
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
   }
 }
 
@@ -41,4 +107,61 @@ body {
 
 .status-dot {
   animation: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Dark fallback for the console pages that were written light-only.
+ * Scoped to the console main area, dialogs and toasts; anything that carries
+ * its own `dark:` class is skipped so explicit styling always wins.
+ */
+html.dark :is(#admin-main, [role='dialog'], [aria-live]) {
+  & .bg-white:not([class*='dark:']) { background-color: var(--dx-surface); }
+  & :is(.bg-slate-50, .bg-slate-50\/60, .bg-slate-50\/70):not([class*='dark:']) { background-color: var(--dx-subtle); }
+  & .bg-slate-100:not([class*='dark:']) { background-color: #1a2840; }
+  & .bg-slate-200\/70:not([class*='dark:']) { background-color: #1c2a42; }
+  & :is(.bg-\[\#f4f8fd\], .bg-\[\#f6f8fb\]):not([class*='dark:']) { background-color: var(--dx-bg); }
+  & .bg-slate-900:not([class*='dark:']) { background-color: #1e3a5f; }
+
+  & :is(.text-slate-900, .text-slate-800):not([class*='dark:']) { color: var(--dx-fg); }
+  & .text-slate-700:not([class*='dark:']) { color: #cdd6e3; }
+  & :is(.text-slate-600, .text-slate-500):not([class*='dark:']) { color: var(--dx-muted); }
+  & :is(.text-slate-400, .text-slate-300):not([class*='dark:']) { color: var(--dx-faint); }
+
+  & :is(.border-slate-200, .border-slate-100, .border-slate-300):not([class*='dark:']) { border-color: var(--dx-line); }
+  & :is(.divide-slate-100, .divide-slate-200):not([class*='dark:']) > :not(:last-child) { border-color: var(--dx-line); }
+  & .border-dashed.border-slate-200 { border-color: #2a3a52; }
+
+  & .bg-blue-50:not([class*='dark:']) { background-color: var(--dx-accent-soft); }
+  & :is(.text-blue-600, .text-blue-700, .text-blue-800):not([class*='dark:']) { color: #7cc0ff; }
+  & .border-blue-200:not([class*='dark:']) { border-color: #1d4166; }
+
+  & .bg-emerald-50:not([class*='dark:']) { background-color: #0d2a22; }
+  & :is(.text-emerald-700, .text-emerald-800):not([class*='dark:']) { color: #6ee7b7; }
+  & :is(.border-emerald-200, .ring-emerald-200):not([class*='dark:']) { border-color: #134e3a; --tw-ring-color: #134e3a; }
+  & .bg-amber-50:not([class*='dark:']) { background-color: #2d2210; }
+  & :is(.text-amber-700, .text-amber-800):not([class*='dark:']) { color: #fcd34d; }
+  & :is(.border-amber-200, .border-amber-300, .ring-amber-200):not([class*='dark:']) { border-color: #5c4313; --tw-ring-color: #5c4313; }
+  & .bg-red-50:not([class*='dark:']) { background-color: #2e1416; }
+  & .text-red-700:not([class*='dark:']) { color: #fca5a5; }
+  & :is(.border-red-200, .ring-red-200):not([class*='dark:']) { border-color: #5f1d22; --tw-ring-color: #5f1d22; }
+  & .ring-slate-200:not([class*='dark:']) { --tw-ring-color: var(--dx-line); }
+
+  & :is(.hover\:bg-slate-50, .hover\:bg-slate-50\/60, .hover\:bg-slate-100):not([class*='dark:']):hover { background-color: #1a2840; }
+  & :is(.hover\:text-slate-900, .hover\:text-slate-800, .hover\:text-slate-700, .hover\:text-slate-600):not([class*='dark:']):hover { color: var(--dx-fg); }
+
+  & :is(input, textarea, select):not([class*='dark:']) {
+    color-scheme: dark;
+  }
+  & :is(input, textarea)::placeholder { color: #6f7f95; }
+  & .shadow-sm:not([class*='dark:']) { --tw-shadow-color: rgb(0 0 0 / 0.4); }
 }

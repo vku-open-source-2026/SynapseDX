@@ -14,6 +14,12 @@ Keep a Changelog format and version tags use Semantic Versioning.
 - The console OCR lane can upload an image and start a job; the assistant
   shows whether an answer was written by the LLM or quoted, and how sources
   were retrieved.
+- Console public pages follow the SynapseOne/SynapseCity look: Vietnamese and
+  English copy (Vietnamese by default), light/dark/system theme applied before
+  first paint, Be Vietnam Pro type, a multi-column footer and a new About page
+  (H-P-D-I groups, tier stack, releases, team and partners).
+- The console shell (sidebar, top bar, footer, shared components) is
+  translated and has a dark theme; inner pages get a dark fallback.
 
 ### Changed
 - RAG retrieval uses Tier-1 embeddings when InferenceService reports a real
