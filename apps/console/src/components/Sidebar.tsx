@@ -24,7 +24,6 @@ import { useAuthStore } from '../stores/authStore';
 import { cn } from '../lib/utils';
 import { navigationFor, primaryRole, type NavItem } from '../lib/rbac';
 import { useI18n } from '../lib/i18n-context';
-import { API_DOCS } from '../lib/site';
 import { BrandMark } from './BrandMark';
 
 const ICONS: Record<NavItem['icon'], React.ComponentType<{ size?: number; className?: string }>> = {
@@ -134,7 +133,7 @@ export function Sidebar() {
             <a href="/" className={SECONDARY_LINK}>
               <Globe size={15} aria-hidden="true" /> {m.shell.publicCatalog}
             </a>
-            <a href={API_DOCS} target="_blank" rel="noreferrer" className={SECONDARY_LINK}>
+            <a href="/docs" className={SECONDARY_LINK}>
               <BookOpen size={15} aria-hidden="true" /> {m.shell.apiRef}
             </a>
           </div>

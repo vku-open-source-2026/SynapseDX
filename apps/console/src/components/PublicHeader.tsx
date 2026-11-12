@@ -5,7 +5,6 @@ import { Link, useLocation } from '@tanstack/react-router';
 import { LogIn, Menu, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useI18n } from '../lib/i18n-context';
-import { API_DOCS } from '../lib/site';
 import type { Messages } from '../locales/vi';
 import { cn } from '../lib/utils';
 import { BrandMark } from './BrandMark';
@@ -15,8 +14,7 @@ import { StableLabel } from './StableLabel';
 const LINKS: Array<{ to: string; pick: (m: Messages) => string; external?: boolean }> = [
   { to: '/', pick: (m) => m.nav.home },
   { to: '/about', pick: (m) => m.nav.about },
-  { to: '/docs', pick: (m) => m.nav.docs },
-  { to: API_DOCS, pick: (m) => m.nav.apiDocs, external: true },
+  { to: '/docs', pick: (m) => m.nav.apiDocs },
 ];
 
 const NAV_LINK = 'rounded-lg px-3 py-1.5 text-sm transition-colors hover:text-dx-fg';

@@ -22,7 +22,9 @@
             }
           },
           "additionalProperties": false
-        }
+        },
+        "public": true,
+        "readOnly": true
       }
     },
     {

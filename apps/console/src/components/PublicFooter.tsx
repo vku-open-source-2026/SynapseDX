@@ -3,7 +3,7 @@
 import React from 'react';
 import { Link } from '@tanstack/react-router';
 import { useI18n } from '../lib/i18n-context';
-import { API_DOCS, HEALTH, REPO, SDK, SELF_HOST } from '../lib/site';
+import { HEALTH, REPO, SDK, SELF_HOST } from '../lib/site';
 import { BrandMark } from './BrandMark';
 
 // py-1 gives each link a finger-sized tap area on phones without changing the look.
@@ -46,7 +46,7 @@ export function PublicFooter() {
         </div>
         <Column title={f.product}>
           <Link to="/admin" className={LINK}>{l.console}</Link>
-          <Ext href={API_DOCS}>{l.apiDocs}</Ext>
+          <Link to="/docs" className={LINK}>{l.apiDocs}</Link>
           <Link to="/about" className={LINK}>{l.about}</Link>
           <a href={HEALTH} className={LINK}>{l.health}</a>
         </Column>

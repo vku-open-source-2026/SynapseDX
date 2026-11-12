@@ -12,7 +12,6 @@ export const en: Messages = {
   nav: {
     home: 'Home',
     about: 'About',
-    docs: 'Docs',
     apiDocs: 'API docs',
     signIn: 'Sign in',
     console: 'Console',
