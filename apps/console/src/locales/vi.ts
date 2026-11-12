@@ -10,6 +10,7 @@ export const vi = {
   nav: {
     home: 'Trang chủ',
     about: 'Giới thiệu',
+    docs: 'Tài liệu',
     apiDocs: 'Tài liệu API',
     signIn: 'Đăng nhập',
     console: 'Console',

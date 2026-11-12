@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Validate git-managed workflows
+        run: npm run workflows:validate
       - name: Test (contract suites, no network)
         run: npm test
       - name: Audit production dependencies

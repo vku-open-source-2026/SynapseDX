@@ -14,6 +14,7 @@
     "build:service": "npm run build --workspace=@synapsedx/capabilities-service",
     "start:service": "npm run start --workspace=@synapsedx/capabilities-service",
     "build:sdk": "npm run build --workspace=@synapsedx/capabilities",
-    "test:sdk": "npm run test --workspace=@synapsedx/capabilities"
+    "test:sdk": "npm run test --workspace=@synapsedx/capabilities",
+    "workflows:validate": "node workflows/validate.mjs"
   }
 }

@@ -1,0 +1,112 @@
+{
+  "name": "synapsedx-mcp-docs-reader",
+  "nodes": [
+    {
+      "id": "mcp-trigger",
+      "name": "MCP Trigger",
+      "type": "mcpTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "toolName": "read_synapsedx_docs",
+        "description": "Read SynapseDX documentation pages. Pass a repository docs path such as docs/API.md.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Docs path inside the SynapseOne repository (for example docs/api.md)"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "id": "build-docs-url",
+      "name": "Build docs URL",
+      "type": "code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        300
+      ],
+      "parameters": {
+        "code": "const raw = String($input.path || 'docs/API.md').replace(/^\\/+/, '');\nif (!raw || raw.includes('..')) throw new Error('invalid docs path');\nreturn { path: raw, url: `https://raw.githubusercontent.com/vku-open-source-2026/SynapseDX/main/${raw}` };"
+      }
+    },
+    {
+      "id": "fetch-docs",
+      "name": "Fetch docs",
+      "type": "httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        300
+      ],
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "method": "GET",
+        "timeoutMs": 30000,
+        "retry": {
+          "attempts": 2,
+          "delayMs": 500
+        }
+      }
+    },
+    {
+      "id": "format-docs",
+      "name": "Format docs",
+      "type": "code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        300
+      ],
+      "parameters": {
+        "code": "const body = $json.body;\nconst text = typeof body === 'string' ? body : JSON.stringify(body, null, 2);\nreturn { content: String(text || '').slice(0, 400000) };"
+      }
+    }
+  ],
+  "connections": {
+    "MCP Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build docs URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build docs URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch docs": {
+      "main": [
+        [
+          {
+            "node": "Format docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "timeoutMs": 60000
+  }
+}

@@ -7,7 +7,8 @@ gateway listens on `8080` inside the compose network). The gateway forwards to
 `cloud.synapsedx.sbs` host.
 
 The public API reference, auth model and error codes are in
-[`docs/API.md`](API.md).
+[`docs/API.md`](API.md). The rendered web docs live at
+`https://synapsedx.sbs/docs` (source: `apps/console/src/pages/DocsPage.tsx`).
 
 ## Configuration
 

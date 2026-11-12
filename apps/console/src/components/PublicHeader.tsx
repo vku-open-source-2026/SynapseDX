@@ -15,6 +15,7 @@ import { StableLabel } from './StableLabel';
 const LINKS: Array<{ to: string; pick: (m: Messages) => string; external?: boolean }> = [
   { to: '/', pick: (m) => m.nav.home },
   { to: '/about', pick: (m) => m.nav.about },
+  { to: '/docs', pick: (m) => m.nav.docs },
   { to: API_DOCS, pick: (m) => m.nav.apiDocs, external: true },
 ];
 
