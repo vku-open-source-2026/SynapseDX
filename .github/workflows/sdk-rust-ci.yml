@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+name: Rust SDK CI
+
+on:
+  pull_request:
+    paths:
+      - 'sdks/capabilities-rust/**'
+      - '.github/workflows/sdk-rust-ci.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'sdks/capabilities-rust/**'
+      - '.github/workflows/sdk-rust-ci.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-rust-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sdks/capabilities-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sdks/capabilities-rust
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
