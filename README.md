@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/console/public/brand/logo-lockup-dark.png">
+    <img src="apps/console/public/brand/logo-lockup-light.png" width="420" alt="SynapseDX">
+  </picture>
+</p>
+
 # SynapseDX — Tier 2
 
 ![CI](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml/badge.svg)
@@ -228,3 +235,9 @@ access or a production credential.
   in `NOTICE`.
 - Issue tracker: [GitHub Issues](https://github.com/vku-open-source-2026/SynapseDX/issues).
 - Dependency inventory: [`THIRD-PARTY.md`](THIRD-PARTY.md).
+
+## Brand
+
+Logo, icon and social-preview assets live in [`apps/console/public/brand`](apps/console/public/brand). The console serves the favicon, web app manifest and icons from `apps/console/public`.
+
+To set the GitHub repository social preview, upload [`apps/console/public/brand/social-preview.png`](apps/console/public/brand/social-preview.png) in **Settings → Social preview**.
