@@ -929,6 +929,45 @@ export class FakeTier1 {
         return this.json(res, 200, docs.map((doc) => this.docView(doc, 'data')));
       }
     }
+    const batchMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/documents:batch$/);
+    if (batchMatch && method === 'POST') {
+      const name = batchMatch[1];
+      const map = this.collection(name);
+      const ops = Array.isArray(body?.operations) ? body.operations : [];
+      const results = ops.map((op: any, index: number) => {
+        try {
+          const id = String(op?.id || randomUUID());
+          const current = map.get(id);
+          if (op?.op === 'create') {
+            if (current) return { index, ok: false, op: 'create', error: 'conflict', message: 'document exists' };
+            const doc = this.saveDoc(name, id, (op?.data ?? op?.object ?? {}) as Json, 1, nowIso());
+            return { index, ok: true, op: 'create', document: this.docView(doc, 'data') };
+          }
+          if (op?.op === 'set' || op?.op === 'update') {
+            const data = (op?.data ?? op?.object ?? {}) as Json;
+            const merged = op?.op === 'update' && current ? { ...current.data, ...data } : data;
+            const doc = this.saveDoc(name, id, merged as Json, current ? current.version + 1 : 1, current?.createdAt || nowIso());
+            return { index, ok: true, op: op.op, created: !current, document: this.docView(doc, 'data') };
+          }
+          if (op?.op === 'delete') {
+            const existed = map.delete(id);
+            return { index, ok: existed, op: 'delete', id };
+          }
+          if (op?.op === 'increment') {
+            if (!current) return { index, ok: false, op: 'increment', error: 'not_found', message: 'document not found' };
+            const next = { ...current.data } as Record<string, any>;
+            const field = String(op.field || '');
+            next[field] = Number(next[field] || 0) + Number(op.by ?? 1);
+            const doc = this.saveDoc(name, id, next as Json, current.version + 1, current.createdAt);
+            return { index, ok: true, op: 'increment', document: this.docView(doc, 'data') };
+          }
+          return { index, ok: false, op: op?.op, error: 'invalid', message: 'unknown op' };
+        } catch (error) {
+          return { index, ok: false, op: op?.op, error: 'error', message: (error as Error).message };
+        }
+      });
+      return this.json(res, 200, { results, ok: results.every((result: any) => result.ok) });
+    }
     const queryMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/query$/);
     if (queryMatch && method === 'POST') {
       const name = queryMatch[1];

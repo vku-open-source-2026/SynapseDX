@@ -5,6 +5,11 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- The public gateway is now a Rust/Axum service (`apps/gateway/src/main.rs`);
+  it keeps the existing proxy, CORS, correlation-ID, timeout and header
+  contract while the Docker image builds a release binary instead of Node.js.
+
 ### Added
 - OCR jobs now read the stored Tier-2 image and run Tesseract 5 (`vie+eng`)
   when no pre-extracted text is sent. Fields keep per-line bbox and

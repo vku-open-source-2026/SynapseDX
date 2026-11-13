@@ -24,14 +24,16 @@ import { registerManagementRoutes } from './routes/management';
 import { registerRecordRoutes } from './routes/records';
 import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
+import { registerSecurityRoutes } from './routes/security';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerCollaborationRoutes } from './routes/collaboration';
 import { registerPeopleProcessRoutes } from './routes/people-process';
 import { registerDataInsightRoutes } from './routes/data-insights';
 import { registerIntelligenceRoutes } from './routes/intelligence';
 import { registerKnowledgeRoutes } from './routes/knowledge';
-import { registerHazardRoutes, startKttvScheduler } from './routes/hazards';
+import { registerHazardRoutes } from './routes/hazards';
 import { registerWarehouseRoutes } from './routes/warehouse';
+import { ensureKttvSchedule } from './kttv-schedule';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
   const app = express();
@@ -64,6 +66,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerFileRoutes(app, config);
   registerNotificationRoutes(app, config);
   registerGeoRoutes(app, config);
+  registerSecurityRoutes(app, config);
   registerCollaborationRoutes(app, config);
   registerPeopleProcessRoutes(app, config);
   registerDataInsightRoutes(app, config);
@@ -82,6 +85,8 @@ if (require.main === module) {
   const app = createServer(config);
   app.listen(config.port, () => {
     console.log(`[synapsedx] Tier-2 capabilities listening on :${config.port}; Tier-1=${config.tier1BaseUrl}; auth=${config.authMode}`);
-    startKttvScheduler(config);
+    ensureKttvSchedule(config).catch((error) => {
+      console.error('[kttv] failed to provision the SynapseFlow schedule:', error?.message || error);
+    });
   });
 }

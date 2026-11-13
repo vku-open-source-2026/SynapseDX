@@ -6,10 +6,11 @@ capabilities and uses SynapseOne for all persistence and messaging.
 
 The repository is intentionally split like SynapseOne:
 
-- `apps/gateway`: public API boundary;
+- `apps/gateway`: public API boundary (Rust/Axum);
 - `apps/capabilities-service`: backend capability service;
 - `apps/console`: frontend shell;
 - `sdks/capabilities-js`: published Tier-2 SDK;
+- `sdks/capabilities-rust`: local Rust Tier-2 client (`synapsedx`);
 - `infra`: edge/deployment files.
 
 ## Dependency contract
@@ -38,6 +39,7 @@ published snapshots; it delegates all data work to Tier-1 Synapse Warehouse.
 npm install
 npm run build
 npm test
+(cd apps/gateway && cargo test)
 npm start
 ```
 

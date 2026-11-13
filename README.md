@@ -16,10 +16,11 @@ organization/open-data capabilities and uses SynapseOne for all persistence,
 identity verification and messaging.
 
 ```text
-apps/gateway             public HTTPS API boundary (container :8080, host :8082)
+apps/gateway             public HTTPS API boundary (Rust/Axum, container :8080, host :8082)
 apps/capabilities-service reusable capability backend (container :8082)
 apps/console              React console (Vite + TanStack Router + Tailwind, container :80, optional cloud. host)
 sdks/capabilities-js      @synapsedx/capabilities client SDK
+sdks/capabilities-rust    synapsedx (Rust, async reqwest/tokio)
 infra/                    public-edge snippets and deployment material
 ```
 
@@ -224,6 +225,8 @@ access or a production credential.
 - Tier-2 API/service: versioned in `CHANGELOG.md`; current release `v0.6.1`.
 - Public container images:
   `ghcr.io/vku-open-source-2026/synapsedx/{capabilities,gateway,console}`.
+- Rust SDK `synapsedx` (`sdks/capabilities-rust`, version `0.7.0`) is ready
+  for crates.io publication.
 - SDK `@synapsedx/capabilities@0.7.0`: release tarball is attached to
   <https://github.com/vku-open-source-2026/SynapseDX/releases/tag/v0.6.0> and
   mirrored through the same Tier-2 files capability into Tier-1 SynapseOCS:

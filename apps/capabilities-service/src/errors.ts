@@ -89,6 +89,8 @@ export type ErrorCode =
   | 'file_storage_unavailable'
   | 'notification_delivery_unavailable'
   | 'geocoder_unavailable'
+  | 'map_tiles_unavailable'
+  | 'turnstile_token_required'
   | 'tier1_capability_unavailable'
   | 'forbidden'
   | 'workspace_not_found'

@@ -28,6 +28,22 @@ export interface GeocoderConfig {
   authQueryParam?: string;
   /** Endpoint paths; presets fill these for known providers. */
   endpoints: { autocomplete: string; geocode: string; reverse: string; place: string };
+  /** Optional raster tile path with `{style}`, `{z}`, `{x}` and `{y}` placeholders. */
+  tilesPath?: string;
+  /** Optional tile origin when it differs from the geocoder base (VietMap). */
+  tilesBaseUrl?: string;
+  /** Tile provider credential when tiles use a different key than geocoding. */
+  tilesApiKey?: string;
+  /** Tile credential transport (VietMap uses `apikey`). */
+  tilesAuthQueryParam?: string;
+  tilesAuthHeader?: string;
+  /** Tile style allowlist (VietMap: tm|lm|dm|hm|st). */
+  tileStyle?: string;
+}
+
+export interface TurnstileConfig {
+  secret: string;
+  verifyUrl: string;
 }
 
 export interface ServiceConfig {
@@ -47,7 +63,18 @@ export interface ServiceConfig {
   idempotencyEnabled: boolean;
   maxPageSize: number;
   requestTimeoutMs: number;
+  /** Public Tier-2 origin used when Tier-1 schedules call back into Tier 2. */
+  publicUrl: string;
   geocoder?: GeocoderConfig;
+  /** Faststore TTL for normalized geocoder responses. */
+  geoCacheTtlSeconds: number;
+  /** Upper bound for a cached provider tile; larger tiles are streamed uncached. */
+  geoTileCacheMaxBytes: number;
+  /** Verify CAPTCHA tokens through the shared Tier-2 provider adapter. */
+  turnstile?: TurnstileConfig;
+  /** Provision the KTTV crawler as a Tier-1 SynapseFlow workflow on startup. */
+  kttvScheduleEnabled: boolean;
+  kttvScheduleEverySeconds: number;
   auditEnabled: boolean;
   /** Bind every Tier-2 password/OIDC flow to one Tier-1 organization. */
   authOrgSlug?: string;
@@ -148,6 +175,13 @@ const GENERIC_ENDPOINTS = {
   place: '/place',
 };
 
+const TILE_STYLES = new Set(['tm', 'lm', 'dm', 'hm', 'st']);
+
+function parseTileStyle(raw: string | undefined): string {
+  const value = String(raw || 'tm').trim().toLowerCase();
+  return TILE_STYLES.has(value) ? value : 'tm';
+}
+
 function parseGeocoder(env: NodeJS.ProcessEnv, allowLocal: boolean): GeocoderConfig | undefined {
   const provider = env.SYNAPSEDX_GEOCODER_PROVIDER?.trim().toLowerCase() || '';
   const rawBase = env.SYNAPSEDX_GEOCODER_BASE_URL?.trim()
@@ -155,6 +189,14 @@ function parseGeocoder(env: NodeJS.ProcessEnv, allowLocal: boolean): GeocoderCon
   if (!rawBase) return undefined;
   const apiKey = env.SYNAPSEDX_GEOCODER_API_KEY?.trim() || undefined;
   const isVietMap = provider === 'vietmap';
+  const tilesPath = env.SYNAPSEDX_GEOCODER_TILES_PATH?.trim()
+    || (isVietMap ? '/maps/tiles/{style}/{z}/{x}/{y}.png' : '');
+  const tilesBaseUrl = env.SYNAPSEDX_GEOCODER_TILES_BASE_URL?.trim()
+    || (isVietMap ? 'https://maps.vietmap.vn' : '');
+  const tilesApiKey = env.SYNAPSEDX_GEOCODER_TILES_API_KEY?.trim() || (isVietMap ? apiKey : '');
+  const tilesAuthQueryParam = env.SYNAPSEDX_GEOCODER_TILES_AUTH_QUERY?.trim()
+    || (tilesBaseUrl.includes('vietmap.vn') ? 'apikey' : '');
+  const tilesAuthHeader = env.SYNAPSEDX_GEOCODER_TILES_AUTH_HEADER?.trim() || env.SYNAPSEDX_GEOCODER_AUTH_HEADER?.trim() || 'x-api-key';
   return {
     provider: provider || 'generic',
     baseUrl: assertPublicDependency(rawBase, 'SYNAPSEDX_GEOCODER_BASE_URL', allowLocal),
@@ -167,6 +209,15 @@ function parseGeocoder(env: NodeJS.ProcessEnv, allowLocal: boolean): GeocoderCon
       reverse: env.SYNAPSEDX_GEOCODER_REVERSE_PATH?.trim() || (isVietMap ? VIETMAP_ENDPOINTS.reverse : GENERIC_ENDPOINTS.reverse),
       place: env.SYNAPSEDX_GEOCODER_PLACE_PATH?.trim() || (isVietMap ? VIETMAP_ENDPOINTS.place : GENERIC_ENDPOINTS.place),
     },
+    ...(tilesPath ? { tilesPath, tileStyle: parseTileStyle(env.SYNAPSEDX_GEOCODER_TILE_STYLE) } : {}),
+    ...(tilesPath && tilesBaseUrl
+      ? {
+          tilesBaseUrl: assertPublicDependency(tilesBaseUrl, 'SYNAPSEDX_GEOCODER_TILES_BASE_URL', allowLocal),
+          ...(tilesApiKey ? { tilesApiKey } : {}),
+          ...(tilesAuthQueryParam ? { tilesAuthQueryParam } : {}),
+          tilesAuthHeader,
+        }
+      : {}),
   };
 }
 
@@ -199,6 +250,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
   const serviceToken = env.SYNAPSEONE_TOKEN?.trim() || undefined;
   const serviceApiKey = env.SYNAPSEONE_API_KEY?.trim() || undefined;
   const geocoder = parseGeocoder(env, allowLocal);
+  const publicUrl = assertPublicDependency(
+    env.SYNAPSEDX_PUBLIC_URL || 'https://synapsedx.sbs',
+    'SYNAPSEDX_PUBLIC_URL',
+    allowLocal,
+  );
+  const turnstileSecret = env.SYNAPSEDX_TURNSTILE_SECRET_KEY?.trim() || '';
+  const turnstile = turnstileSecret
+    ? {
+        secret: turnstileSecret,
+        verifyUrl: assertPublicDependency(
+          env.SYNAPSEDX_TURNSTILE_VERIFY_URL || 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+          'SYNAPSEDX_TURNSTILE_VERIFY_URL',
+          allowLocal,
+        ),
+      }
+    : undefined;
   const authAudience = env.SYNAPSEDX_AUTH_AUDIENCE?.trim() || 'synapsedx';
   const authAllowedAudiences = listValue(
     env.SYNAPSEDX_AUTH_ALLOWED_AUDIENCES,
@@ -230,7 +297,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     idempotencyEnabled: boolValue(env.SYNAPSEDX_IDEMPOTENCY_ENABLED, true),
     maxPageSize: intValue(env.SYNAPSEDX_MAX_PAGE_SIZE, 500, 1, 1000),
     requestTimeoutMs: intValue(env.SYNAPSEDX_REQUEST_TIMEOUT_MS, 20000, 1000, 120000),
+    publicUrl,
     ...(geocoder ? { geocoder } : {}),
+    geoCacheTtlSeconds: intValue(env.SYNAPSEDX_GEO_CACHE_TTL_SECONDS, 300, 0, 86400),
+    geoTileCacheMaxBytes: intValue(env.SYNAPSEDX_GEO_TILE_CACHE_MAX_BYTES, 512 * 1024, 0, 2 * 1024 * 1024),
+    ...(turnstile ? { turnstile } : {}),
+    kttvScheduleEnabled: boolValue(env.SYNAPSEDX_KTTV_SCHEDULE_ENABLED, true),
+    kttvScheduleEverySeconds: intValue(env.SYNAPSEDX_KTTV_SCHEDULE_EVERY_SECONDS, 1800, 60, 86400),
     auditEnabled: boolValue(env.SYNAPSEDX_AUDIT_ENABLED, true),
     ...(env.SYNAPSEDX_AUTH_ORG_SLUG?.trim() ? { authOrgSlug: env.SYNAPSEDX_AUTH_ORG_SLUG.trim() } : {}),
     authAudience,

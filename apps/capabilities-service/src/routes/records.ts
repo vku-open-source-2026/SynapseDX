@@ -15,7 +15,7 @@ import {
   requestFingerprint,
 } from '../platform';
 import {
-  ingestRecord, isRecordPublished, listDatasetRecords, rebuildProjection,
+  ingestRecord, ingestRecords, isRecordPublished, listDatasetRecords, rebuildProjection,
 } from '../publication';
 import {
   accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
@@ -240,10 +240,10 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       return;
     }
     try {
-      const created: RecordResponse[] = [];
       const errors: Array<{ index: number; code: string; message: string }> = [];
       let pendingEvents = false;
       let datasetVersion = document.version;
+      const prepared: Array<{ index: number; record: CapabilityRecord }> = [];
       for (let index = 0; index < entries.length; index += 1) {
         const entry = (entries[index] || {}) as Record<string, unknown>;
         try {
@@ -252,24 +252,13 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
           if (publish === true) requirePublishable(dataset);
           const id = entry.id !== undefined ? validateRecordId(entry.id) : randomUUID();
           const now = new Date().toISOString();
-          const record: CapabilityRecord = {
-            id, datasetId, data: recordData, createdAt: now, updatedAt: now,
-            ...(publish !== undefined ? { published: publish } : {}),
-          };
-          const saved = await client.base.createDocument(COLLECTIONS.records, {
-            id, data: record as unknown as Record<string, unknown>,
+          prepared.push({
+            index,
+            record: {
+              id, datasetId, data: recordData, createdAt: now, updatedAt: now,
+              ...(publish !== undefined ? { published: publish } : {}),
+            },
           });
-          const projected = await projectNewRecord(
-            client, dataset, record, correlationIdOf(req), idempotencyKey,
-          );
-          dataset.ldsDatasourceId = projected.ldsDatasourceId;
-          datasetVersion = Math.max(datasetVersion, saved.version);
-          const event = buildEvent('record.created', {
-            datasetId, recordId: id, at: now, correlationId: correlationIdOf(req),
-          }, idempotencyKey ? `${idempotencyKey}:${index}` : undefined);
-          const emitted = await emitEvent(client, config, projected, event);
-          if (!emitted.delivered) pendingEvents = true;
-          created.push(recordResponse({ id: saved.id, version: saved.version, data: saved.data as unknown as CapabilityRecord }));
         } catch (error) {
           const status = error instanceof ApiError ? error.status : 500;
           errors.push({
@@ -279,6 +268,84 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
           });
         }
       }
+
+      const savedByIndex = new Map<number, StoredDocument<CapabilityRecord>>();
+      if (prepared.length) {
+        // One Base batch instead of one HTTP request per record. The old loop
+        // was the dominant cost of large CSV imports (and could exceed the
+        // gateway timeout before the first projection was built).
+        const batch = await client.base.batch(
+          COLLECTIONS.records,
+          prepared.map((entry) => ({
+            op: 'create',
+            id: entry.record.id,
+            data: entry.record as unknown as Record<string, unknown>,
+          })),
+        );
+        for (const result of batch.results || []) {
+          const index = Number(result.index);
+          const entry = prepared[index];
+          if (!entry) continue;
+          if (!result.ok) {
+            const message = String(result.message || '');
+            const duplicate = result.error === 'conflict' || /already[_\s-]?exists|document_exists/i.test(message);
+            errors.push({
+              index: entry.index,
+              code: duplicate ? 'record_already_exists' : 'internal_error',
+              message: duplicate ? 'record already exists' : 'internal error',
+            });
+            continue;
+          }
+          const documentView = result.document || {};
+          const saved: StoredDocument<CapabilityRecord> = {
+            id: String(documentView.id || entry.record.id),
+            version: Number(documentView.version) || 1,
+            data: (documentView.data || entry.record) as CapabilityRecord,
+          };
+          savedByIndex.set(index, saved);
+          datasetVersion = Math.max(datasetVersion, saved.version);
+        }
+      }
+
+      const created: RecordResponse[] = [];
+      for (const entry of prepared) {
+        const saved = savedByIndex.get(entry.index);
+        if (saved) created.push(recordResponse(saved));
+      }
+
+      // Project all newly published records with one LDS batch (or one rebuild
+      // when the dataset has no datasource yet).
+      const publishedRecords = prepared
+        .map((entry) => savedByIndex.get(entry.index)?.data)
+        .filter((record): record is CapabilityRecord => !!record && isRecordPublished(dataset, record));
+      let projected = dataset;
+      if (publishedRecords.length) {
+        if (dataset.ldsDatasourceId) {
+          await ingestRecords(client, dataset, dataset.ldsDatasourceId, publishedRecords);
+        } else {
+          projected = (await rebuildProjection(client, dataset, undefined, {
+            correlationId: correlationIdOf(req), idempotencyKey,
+          })).data;
+        }
+      }
+
+      // Publish record events with bounded concurrency. A sequential loop of
+      // 100 queue publishes dominated the import latency; five in flight keeps
+      // the per-record event contract without making the caller wait seconds.
+      const eventEntries = prepared.filter((entry) => savedByIndex.has(entry.index));
+      for (let offset = 0; offset < eventEntries.length; offset += 5) {
+        const wave = eventEntries.slice(offset, offset + 5);
+        const delivered = await Promise.all(wave.map(async (entry) => {
+          const saved = savedByIndex.get(entry.index)!;
+          const event = buildEvent('record.created', {
+            datasetId, recordId: saved.id, at: saved.data.createdAt, correlationId: correlationIdOf(req),
+          }, idempotencyKey ? `${idempotencyKey}:${entry.index}` : undefined);
+          const emitted = await emitEvent(client, config, projected, event);
+          return emitted.delivered;
+        }));
+        if (delivered.some((ok) => !ok)) pendingEvents = true;
+      }
+
       const response = { created, errors, total: created.length };
       await recordAudit(client, config, {
         actor: principal.subject, tenant: principal.tenantKey, action: 'record.bulk_create',
