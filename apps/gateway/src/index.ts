@@ -35,6 +35,8 @@ export const FORWARDED_REQUEST_HEADERS = [
   'x-synapseone-tenant',
   'x-synapsedx-product',
   'x-checksum-sha256',
+  // Server-only workspace runtime credential; not advertised in browser CORS.
+  'x-workspace-token',
 ];
 
 /** Response headers copied back to the caller. */

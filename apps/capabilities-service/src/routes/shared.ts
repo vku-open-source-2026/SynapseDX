@@ -3,7 +3,10 @@
 /** Shared route guards: authentication, tenancy and version preconditions. */
 import { Request } from 'express';
 import { SynapseOneClient } from '@synapseone/sdk';
-import { Caller, CallerPrincipal, assertWriteScope, authenticate, canAccessDataset, isAdmin, requireAuthenticated } from '../auth';
+import {
+  Caller, CallerPrincipal, assertWriteScope, authenticate, canAccessDataset, canReadPrivateDatasetData, hasWriteScope,
+  isAdmin, isTenantAdmin, requireAuthenticated,
+} from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { DatasetRecord, serviceClient } from '../platform';
@@ -55,12 +58,47 @@ export async function writeContext(req: Request, config: ServiceConfig): Promise
 export function canReadRecords(dataset: DatasetRecord, caller: Caller): boolean {
   if (!caller.authenticated || !caller.principal) return false;
   if (isAdmin(caller.principal)) return true;
-  if (!dataset.tenant) return true;
-  return dataset.tenant === caller.principal.tenantKey;
+  // Published public projections stay open to any authenticated caller.
+  if (dataset.public === true && dataset.status === 'published') return true;
+  if (dataset.tenant && dataset.tenant !== caller.principal.tenantKey) return false;
+  if (!dataset.tenant) {
+    // Legacy tenancy-less document: exact verified owner only.
+    return !!dataset.owner && dataset.owner === caller.principal.subject;
+  }
+  return canReadPrivateDatasetData(dataset, caller.principal);
 }
 
+/**
+ * Write authorization is **distinct** from read visibility. In particular a
+ * public published dataset is readable by everyone but writable only inside its
+ * own tenant (or by a deployment admin); otherwise an organization-B operator
+ * could mutate organization-A's public data.
+ */
 export function canWriteDataset(dataset: DatasetRecord, caller: Caller): boolean {
-  return canReadRecords(dataset, caller);
+  const principal = caller.principal;
+  if (!caller.authenticated || !principal) return false;
+  if (isAdmin(principal)) return true;
+  if (!dataset.tenant) {
+    // Legacy tenancy-less document: the exact verified owner may keep writing,
+    // never "any role". Cross-tenant access requires an explicit migration.
+    return !!dataset.owner && dataset.owner === principal.subject && hasWriteScope(principal);
+  }
+  if (dataset.tenant !== principal.tenantKey) return false;
+  return hasWriteScope(principal);
+}
+
+/**
+ * Whether the caller may see *unpublished* rows of this dataset (drafts).
+ * Anonymous and plain-member readers of a public projection must only ever see
+ * published rows.
+ */
+export function canReadRecordDrafts(dataset: DatasetRecord, caller: Caller): boolean {
+  const principal = caller.principal;
+  if (!caller.authenticated || !principal) return false;
+  if (isAdmin(principal) || isTenantAdmin(principal)) return true;
+  if (!dataset.tenant) return !!dataset.owner && dataset.owner === principal.subject;
+  if (dataset.tenant !== principal.tenantKey) return false;
+  return canReadPrivateDatasetData(dataset, principal);
 }
 
 /** Explicit route-level dataset visibility decision (never leaks existence). */

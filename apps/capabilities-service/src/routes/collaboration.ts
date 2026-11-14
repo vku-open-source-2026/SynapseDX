@@ -75,8 +75,6 @@ function canEditWorkspace(ws: WorkspaceRecord, subject: string, admin: boolean):
 
 async function loadWorkspace(client: any, id: string, tenantKey: string): Promise<WorkspaceRecord> {
   const document = await getDocumentOrNull<WorkspaceRecord>(client, COLLECTIONS.workspaces, id);
-  if (!document) console.error('[debug] ws missing', id);
-  if (document) console.error('[debug] ws tenant', document.data.tenant, 'want', tenantKey, 'members', JSON.stringify(document.data.members));
   if (!document || document.data.tenant !== tenantKey) throw apiError(404, 'workspace_not_found', 'workspace not found');
   return document.data;
 }

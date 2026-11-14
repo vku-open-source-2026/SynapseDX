@@ -20,6 +20,8 @@ const PAGE_PREFIX: Array<{ prefix: string; key: PageKey }> = [
   { prefix: '/admin/modules', key: 'modules' },
   { prefix: '/admin/team', key: 'team' },
   { prefix: '/admin/events', key: 'events' },
+  { prefix: '/admin/workspaces', key: 'workspaces' },
+  { prefix: '/admin/workflows', key: 'workflows' },
   { prefix: '/admin/audit', key: 'audit' },
   { prefix: '/admin/settings', key: 'settings' },
   { prefix: '/admin', key: 'overview' },

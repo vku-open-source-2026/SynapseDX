@@ -5,7 +5,7 @@
  * definitions (#37), projects/portfolio with HITL stage gates (#38).
  */
 import { Express } from 'express';
-import { isAdmin, hasWriteScope } from '../auth';
+import { isAdmin, hasWriteScope, isTenantAdmin } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -164,7 +164,7 @@ export function registerPeopleProcessRoutes(app: Express, config: ServiceConfig)
   app.get('/v1/capabilities/people', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
     const { items } = await listScoped<PersonRecord>(client, COLLECTIONS.people, principal, { limit: 1000 });
-    const visible = isAdmin(principal) ? items : items.filter((person) =>
+    const visible = isTenantAdmin(principal) ? items : items.filter((person) =>
       person.subject === principal.subject || person.manager === principal.subject);
     res.json({ items: visible, total: visible.length });
   }));
@@ -234,7 +234,7 @@ export function registerPeopleProcessRoutes(app: Express, config: ServiceConfig)
     const b = (req.body || {}) as Record<string, unknown>;
     const personId = requiredString(b.personId, 'personId', 1, 128);
     const { record: person } = await getScoped<PersonRecord>(client, COLLECTIONS.people, personId, principal, 'person_not_found');
-    if (!isAdmin(principal) && person.subject !== principal.subject && person.manager !== principal.subject) {
+    if (!isTenantAdmin(principal) && person.subject !== principal.subject && person.manager !== principal.subject) {
       throw apiError(403, 'forbidden', 'only the person or their manager may submit a timesheet');
     }
     const period = validatePeriod(requiredString(b.period, 'period', 7, 7));
@@ -291,7 +291,7 @@ export function registerPeopleProcessRoutes(app: Express, config: ServiceConfig)
     if (record.createdBy === principal.subject) throw apiError(403, 'self_approval_forbidden', 'the submitter cannot approve their own timesheet');
     const approvalDoc = await getDocumentOrNull<ApprovalLike>(client, COLLECTIONS.approvals, record.approvalId);
     if (!approvalDoc || approvalDoc.data.status !== 'pending') throw apiError(409, 'approval_not_pending', 'approval is no longer pending');
-    if (!isAdmin(principal) && !hasWriteScope(principal) && approvalDoc.data.approverRoles.length
+    if (!isTenantAdmin(principal) && !hasWriteScope(principal) && approvalDoc.data.approverRoles.length
       && !approvalDoc.data.approverRoles.includes(principal.subject)) {
       throw apiError(403, 'approver_role_required', 'you do not hold an approver role');
     }
@@ -326,7 +326,7 @@ export function registerPeopleProcessRoutes(app: Express, config: ServiceConfig)
     const { items } = await listScoped<TimesheetRecord>(client, COLLECTIONS.timesheets, principal, { where, limit: 1000 });
     const people = await queryDocuments<PersonRecord>(client, COLLECTIONS.people, { where: { tenant: principal.tenantKey }, limit: 2000 });
     const personById = new Map(people.items.map((item) => [item.data.id, item.data]));
-    const visible = isAdmin(principal) ? items : items.filter((ts) => {
+    const visible = isTenantAdmin(principal) ? items : items.filter((ts) => {
       const person = personById.get(ts.personId);
       return ts.createdBy === principal.subject || person?.subject === principal.subject || person?.manager === principal.subject;
     });

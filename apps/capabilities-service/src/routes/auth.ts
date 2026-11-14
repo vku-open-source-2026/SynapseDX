@@ -11,7 +11,7 @@
  */
 import { Express } from 'express';
 import { SynapseOneError } from '@synapseone/sdk';
-import { CallerCredential, authenticate, credentialClient, isAdmin, requireAuthenticated } from '../auth';
+import { CallerCredential, authenticate, credentialClient, isAdmin, isMachineCredential, requireAuthenticated } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -368,7 +368,10 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
     const caller = await authenticate(req, config, true);
     const principal = requireAuthenticated(caller);
     // Tier-1 only accepts a service-account/API-key caller for /v1/auth/exchange.
-    const serviceCaller = principal.type === 'apikey' || principal.kind === 'service-account';
+    // Only an operator-minted machine credential may mint delegated tokens.
+    // A user-bound API key is self-mintable by an ordinary member; allowing it
+    // here would let a member impersonate any user of its organization.
+    const serviceCaller = isMachineCredential(principal);
     const exchangeAllowed = serviceCaller && (isAdmin(principal)
       || principal.scopes.includes('synapsedx:auth:exchange')
       || principal.scopes.includes('auth:exchange'));

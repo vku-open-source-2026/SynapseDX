@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: 2026 VKU.VIC
 FROM rust:1-bookworm AS builder
+ARG CARGO_BUILD_JOBS=1
 WORKDIR /workspace
 COPY apps/gateway/Cargo.toml apps/gateway/Cargo.lock ./
 COPY apps/gateway/src ./src
-RUN cargo build --release
+RUN cargo build --release --locked --jobs=${CARGO_BUILD_JOBS}
 
 FROM debian:bookworm-slim
 RUN apt-get update \

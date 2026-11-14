@@ -19,7 +19,7 @@ import { handler } from '../http';
 import { COLLECTIONS, queryDocuments, serviceClient } from '../platform';
 import { readContext, writeContext } from './shared';
 import {
-  createScoped, getScoped, listScoped, newId, nowIso, optionalString, requiredString,
+  createScoped, deleteScoped, getScoped, listScoped, newId, nowIso, optionalString, requiredString,
   updateScoped,
 } from './module-helpers';
 
@@ -75,6 +75,17 @@ interface WarehouseDashboard {
 
 const DATASET_ID_RE = /^[a-z][a-z0-9_]{1,40}$/;
 const MAX_SQL = 100_000;
+const MAX_SNAPSHOT_BYTES = 220_000;
+
+function assertSnapshotFits(rows: unknown, label: string): void {
+  if (Buffer.byteLength(JSON.stringify(rows ?? null)) > MAX_SNAPSHOT_BYTES) {
+    throw apiError(
+      413,
+      'payload_too_large',
+      `${label} exceeds ${MAX_SNAPSHOT_BYTES} bytes; lower the report limit before publishing`,
+    );
+  }
+}
 
 function warehouseClient(config: ServiceConfig, caller: Caller): SynapseOneClient {
   if (!caller.authenticated || !caller.credential) {
@@ -142,6 +153,30 @@ function reportBody(body: Record<string, unknown>) {
     limit: limitValue(body.limit),
     ...(body.datasetId !== undefined ? { datasetId: datasetId(body.datasetId) } : {}),
   };
+}
+
+function reportPatch(body: Record<string, unknown>): Partial<WarehouseReport> {
+  const patch: Partial<WarehouseReport> = {};
+  if (body.name !== undefined) patch.name = requiredString(body.name, 'name', 1, 160);
+  if (body.description !== undefined) patch.description = optionalString(body.description, 'description', 500);
+  if (body.sql !== undefined) patch.sql = sqlText(body.sql);
+  if (body.limit !== undefined) patch.limit = limitValue(body.limit);
+  if (body.datasetId !== undefined) patch.datasetId = datasetId(body.datasetId);
+  if (!Object.keys(patch).length) {
+    throw apiError(400, 'invalid_request', 'provide at least one of name, description, sql, limit or datasetId');
+  }
+  return patch;
+}
+
+function dashboardPatch(body: Record<string, unknown>): Partial<WarehouseDashboard> {
+  const patch: Partial<WarehouseDashboard> = {};
+  if (body.name !== undefined) patch.name = requiredString(body.name, 'name', 1, 160);
+  if (body.description !== undefined) patch.description = optionalString(body.description, 'description', 500);
+  if (body.widgets !== undefined) patch.widgets = widgetList(body.widgets);
+  if (!Object.keys(patch).length) {
+    throw apiError(400, 'invalid_request', 'provide at least one of name, description or widgets');
+  }
+  return patch;
 }
 
 function widgetList(value: unknown): DashboardWidget[] {
@@ -334,6 +369,19 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
     res.status(201).json(created);
   }));
 
+  app.get('/v1/capabilities/warehouse/datasets/:id', handler(async (req, res) => {
+    const { caller } = await readContext(req, config);
+    const id = datasetId(String(req.params.id));
+    res.setHeader('cache-control', 'no-store');
+    res.json(await callWarehouse(config, caller, 'GET', `/v1/warehouse/datasets/${encodeURIComponent(id)}`));
+  }));
+
+  app.delete('/v1/capabilities/warehouse/datasets/:id', handler(async (req, res) => {
+    const { caller } = await writeContext(req, config);
+    const id = datasetId(String(req.params.id));
+    res.json(await callWarehouse(config, caller, 'DELETE', `/v1/warehouse/datasets/${encodeURIComponent(id)}`));
+  }));
+
   app.post('/v1/capabilities/warehouse/datasets/:id/rows', handler(async (req, res) => {
     const { caller } = await writeContext(req, config);
     const id = datasetId(String(req.params.id));
@@ -416,7 +464,7 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
       ...(body.batchSize !== undefined ? { batchSize: Number(body.batchSize) } : {}),
       ...(body.intervalMs !== undefined ? { intervalMs: Number(body.intervalMs) } : {}),
     });
-    res.status(201).json(result);
+    res.status(result?.created === false ? 200 : 201).json(result);
   }));
 
   app.post('/v1/capabilities/warehouse/jobs/:id/run', handler(async (req, res) => {
@@ -428,6 +476,22 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
   app.post('/v1/capabilities/warehouse/jobs/:id/pause', handler(async (req, res) => {
     const { caller } = await writeContext(req, config);
     res.json(await callWarehouse(config, caller, 'POST', `/v1/warehouse/jobs/${encodeURIComponent(String(req.params.id))}/pause`, {}));
+  }));
+
+  app.get('/v1/capabilities/warehouse/jobs/:id', handler(async (req, res) => {
+    const { caller } = await readContext(req, config);
+    res.setHeader('cache-control', 'no-store');
+    res.json(await callWarehouse(config, caller, 'GET', `/v1/warehouse/jobs/${encodeURIComponent(String(req.params.id))}`));
+  }));
+
+  app.post('/v1/capabilities/warehouse/jobs/:id/resume', handler(async (req, res) => {
+    const { caller } = await writeContext(req, config);
+    res.json(await callWarehouse(config, caller, 'POST', `/v1/warehouse/jobs/${encodeURIComponent(String(req.params.id))}/resume`, {}));
+  }));
+
+  app.delete('/v1/capabilities/warehouse/jobs/:id', handler(async (req, res) => {
+    const { caller } = await writeContext(req, config);
+    res.json(await callWarehouse(config, caller, 'DELETE', `/v1/warehouse/jobs/${encodeURIComponent(String(req.params.id))}`));
   }));
 
   // ---- saved reports ----
@@ -456,6 +520,33 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
     res.json(found.record);
   }));
 
+  app.patch('/v1/capabilities/warehouse/reports/:id', handler(async (req, res) => {
+    const { principal, client } = await writeContext(req, config);
+    const body = (req.body || {}) as Record<string, unknown>;
+    const found = await getScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, String(req.params.id), principal, 'report_not_found');
+    // Editing a query invalidates its published snapshot until it is published again.
+    const updated = await updateScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, found.record.id, principal, {
+      ...reportPatch(body),
+      visibility: 'private',
+      shareId: undefined,
+      publishedAt: undefined,
+      snapshot: undefined,
+    } as Partial<WarehouseReport>);
+    res.json(updated);
+  }));
+
+  app.delete('/v1/capabilities/warehouse/reports/:id', handler(async (req, res) => {
+    const { principal, client } = await writeContext(req, config);
+    const id = String(req.params.id);
+    const found = await getScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, id, principal, 'report_not_found');
+    const dashboards = await listScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, principal, { limit: 1000 });
+    if (dashboards.items.some((dashboard) => dashboard.widgets.some((widget) => widget.reportId === id))) {
+      throw apiError(409, 'report_in_use', 'remove the report from its dashboards before deleting it');
+    }
+    await deleteScoped(client, COLLECTIONS.warehouseReports, found.record.id, principal);
+    res.json({ ok: true, id });
+  }));
+
   app.post('/v1/capabilities/warehouse/reports/:id/run', handler(async (req, res) => {
     const { caller, principal, client } = await writeContext(req, config);
     const found = await getScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, String(req.params.id), principal, 'report_not_found');
@@ -468,6 +559,7 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
     const { caller, principal, client } = await writeContext(req, config);
     const found = await getScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, String(req.params.id), principal, 'report_not_found');
     const snapshot = await runSql(config, caller, found.record.sql, found.record.limit);
+    assertSnapshotFits(snapshot, 'report snapshot');
     const published = await updateScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, found.record.id, principal, {
       visibility: 'published',
       shareId: found.record.shareId || randomUUID(),
@@ -496,6 +588,36 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
     res.status(201).json(dashboard);
   }));
 
+  app.get('/v1/capabilities/warehouse/dashboards/:id', handler(async (req, res) => {
+    const { principal, client } = await readContext(req, config);
+    if (!principal) throw apiError(401, 'unauthorized', 'a verified credential is required');
+    const found = await getScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, String(req.params.id), principal, 'dashboard_not_found');
+    res.setHeader('cache-control', 'no-store');
+    res.json(found.record);
+  }));
+
+  app.patch('/v1/capabilities/warehouse/dashboards/:id', handler(async (req, res) => {
+    const { principal, client } = await writeContext(req, config);
+    const body = (req.body || {}) as Record<string, unknown>;
+    const found = await getScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, String(req.params.id), principal, 'dashboard_not_found');
+    const updated = await updateScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, found.record.id, principal, {
+      ...dashboardPatch(body),
+      visibility: 'private',
+      shareId: undefined,
+      publishedAt: undefined,
+      snapshots: undefined,
+    } as Partial<WarehouseDashboard>);
+    res.json(updated);
+  }));
+
+  app.delete('/v1/capabilities/warehouse/dashboards/:id', handler(async (req, res) => {
+    const { principal, client } = await writeContext(req, config);
+    const id = String(req.params.id);
+    const found = await getScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, id, principal, 'dashboard_not_found');
+    await deleteScoped(client, COLLECTIONS.warehouseDashboards, found.record.id, principal);
+    res.json({ ok: true, id });
+  }));
+
   app.post('/v1/capabilities/warehouse/dashboards/:id/run', handler(async (req, res) => {
     const { caller, principal, client } = await writeContext(req, config);
     const found = await getScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, String(req.params.id), principal, 'dashboard_not_found');
@@ -517,6 +639,7 @@ export function registerWarehouseRoutes(app: Express, config: ServiceConfig): vo
       const report = await getScoped<WarehouseReport>(client, COLLECTIONS.warehouseReports, widget.reportId, principal, 'report_not_found');
       snapshots[widget.reportId] = await runSql(config, caller, report.record.sql, report.record.limit);
     }
+    assertSnapshotFits(snapshots, 'dashboard snapshots');
     res.json(await updateScoped<WarehouseDashboard>(client, COLLECTIONS.warehouseDashboards, found.record.id, principal, {
       visibility: 'published',
       shareId: found.record.shareId || randomUUID(),

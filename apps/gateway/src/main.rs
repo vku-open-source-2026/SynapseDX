@@ -47,6 +47,9 @@ pub const FORWARDED_REQUEST_HEADERS: &[&str] = &[
     "x-synapseone-tenant",
     "x-synapsedx-product",
     "x-checksum-sha256",
+    // Server-to-server layout credentials must survive the public boundary.
+    // Deliberately absent from browser CORS headers.
+    "x-workspace-token",
 ];
 
 pub const FORWARDED_RESPONSE_HEADERS: &[&str] = &[
@@ -587,4 +590,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request as HttpRequest;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn forwards_workspace_token_through_public_gateway() {
+        let upstream = Router::new().fallback(any(|request: Request| async move {
+            if request.headers().get("x-workspace-token").and_then(|v| v.to_str().ok())
+                == Some("test-layout-credential")
+            {
+                StatusCode::NO_CONTENT
+            } else {
+                StatusCode::UNAUTHORIZED
+            }
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let gateway = create_app(AppState {
+            upstream: format!("http://{address}"),
+            timeout: Duration::from_secs(2),
+            cors_origins: vec!["https://synapsedx.sbs".into()],
+            client: reqwest::Client::new(),
+        });
+        let result = gateway.oneshot(HttpRequest::builder()
+            .uri("/v1/capabilities/workspaces/runtime/city")
+            .header("x-workspace-token", "test-layout-credential")
+            .body(Body::empty()).unwrap()).await.unwrap();
+        task.abort();
+        assert_eq!(result.status(), StatusCode::NO_CONTENT);
+        assert!(!result.headers().get("access-control-allow-headers").unwrap()
+            .to_str().unwrap().contains("x-workspace-token"));
+    }
 }

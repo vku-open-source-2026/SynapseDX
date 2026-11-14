@@ -18,8 +18,14 @@ import {
   ingestRecord, ingestRecords, isRecordPublished, listDatasetRecords, rebuildProjection,
 } from '../publication';
 import {
-  accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
+  accessibleDataset, canReadRecordDrafts, expectedVersion, readContext, requireVersionMatch, setVersionHeaders,
+  writeContext,
 } from './shared';
+
+/** Rows a non-draft reader (member, other authenticated caller, anonymous) may see. */
+function publishedRowFilter(): Record<string, unknown> {
+  return { or: [{ published: true }, { published: { exists: false } }] };
+}
 
 interface RecordResponse {
   id: string;
@@ -171,10 +177,13 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { caller, client } = await readContext(req, config);
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'records');
     const pagination = parsePagination(req, config.maxPageSize);
-    const publishedOnly = String(req.query.publishedOnly || '').toLowerCase() === 'true';
-    const where = publishedOnly
-      ? { and: [{ datasetId }, { or: [{ published: true }, { published: { exists: false } }] }] }
-      : { datasetId };
+    // A caller without draft rights can never widen visibility with a query
+    // parameter; a draft reader can still explicitly ask for published rows.
+    const drafts = canReadRecordDrafts(dataset, caller);
+    const publishedOnlyRequested = String(req.query.publishedOnly || '').toLowerCase() === 'true';
+    const where = drafts && !publishedOnlyRequested
+      ? { datasetId }
+      : { and: [{ datasetId }, publishedRowFilter()] };
     const result = await queryDocuments<CapabilityRecord>(client, COLLECTIONS.records, {
       where,
       orderBy: qualifiedOrderBy(req, req.query.orderBy) || { field: 'id', direction: 'asc' },
@@ -201,9 +210,11 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       throw apiError(400, 'invalid_request', 'where must be a filter object');
     }
     const pagination = bodyPagination(req, body, config.maxPageSize);
+    const drafts = canReadRecordDrafts(dataset, caller);
+    const draftFilter = drafts ? [] : [publishedRowFilter()];
     const where = body.where === undefined
-      ? { datasetId }
-      : { and: [{ datasetId }, qualifyRecordFilter(body.where)] };
+      ? { and: [{ datasetId }, ...draftFilter] }
+      : { and: [{ datasetId }, ...draftFilter, qualifyRecordFilter(body.where)] };
     const result = await queryDocuments<CapabilityRecord>(client, COLLECTIONS.records, {
       where,
       orderBy: qualifiedOrderBy(req, body.orderBy) || { field: 'id', direction: 'asc' },
@@ -425,6 +436,10 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { caller, client } = await readContext(req, config);
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'records');
     const document = await loadRecord({ client }, dataset, String(req.params.recordId));
+    if (!canReadRecordDrafts(dataset, caller) && !isRecordPublished(dataset, document.data)) {
+      // Never reveal an explicitly unpublished row to a projection reader.
+      throw apiError(404, 'record_not_found', 'record not found');
+    }
     setVersionHeaders(res, document.version);
     res.json(recordResponse(document));
   }));

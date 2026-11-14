@@ -33,6 +33,8 @@ import { registerIntelligenceRoutes } from './routes/intelligence';
 import { registerKnowledgeRoutes } from './routes/knowledge';
 import { registerHazardRoutes } from './routes/hazards';
 import { registerWarehouseRoutes } from './routes/warehouse';
+import { registerWorkspacePluginRoutes } from './routes/workspace-plugins';
+import { registerWorkflowArtifactRoutes } from './routes/workflow-artifacts';
 import { ensureKttvSchedule } from './kttv-schedule';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
@@ -74,6 +76,8 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerKnowledgeRoutes(app, config);
   registerHazardRoutes(app, config);
   registerWarehouseRoutes(app, config);
+  registerWorkspacePluginRoutes(app, config);
+  registerWorkflowArtifactRoutes(app, config);
 
   app.use(notFoundMiddleware());
   app.use(errorMiddleware());

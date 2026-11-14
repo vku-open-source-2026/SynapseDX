@@ -11,6 +11,17 @@ Keep a Changelog format and version tags use Semantic Versioning.
   contract while the Docker image builds a release binary instead of Node.js.
 
 ### Added
+- The low-code workspace builder can build a published plugin into a
+  repository-tracked Tier-3 artifact (`GET /plugins/:id/build`): immutable
+  published snapshot, canonical City/SOS provenance, pinned workflow reference
+  checksum, deterministic bundle checksum, target metadata headers and audit.
+  Export now defaults to the published snapshot; `?draft=1` is explicit.
+  The console exposes **Build for Tier 3** and the JS SDK exposes
+  `workspaces.buildPlugin()`.
+- Warehouse capability now exposes dataset detail/delete, job detail/resume/delete,
+  report edit/delete (blocked while a dashboard references the report), and
+  dashboard detail/edit/delete. The manager studio can create/delete datasets,
+  run/pause/resume/delete ETL jobs, and create/delete dashboards.
 - OCR jobs now read the stored Tier-2 image and run Tesseract 5 (`vie+eng`)
   when no pre-extracted text is sent. Fields keep per-line bbox and
   confidence; Vietnamese labels are recognised. The engine runs one job at a

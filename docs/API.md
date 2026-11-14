@@ -361,18 +361,23 @@ publishing stores an immutable snapshot for Tier-3 sites.
 | --- | --- | --- |
 | GET | `/v1/capabilities/warehouse/status` | Dependency status |
 | GET/POST | `/v1/capabilities/warehouse/datasets` | List/create datasets |
+| GET/DELETE | `/v1/capabilities/warehouse/datasets/:id` | Dataset detail/delete (cascade jobs) |
 | POST | `/v1/capabilities/warehouse/datasets/:id/rows` | Append 1..5000 rows |
 | POST | `/v1/capabilities/warehouse/query` | Read-only `SELECT`/`WITH` |
 | GET | `/v1/capabilities/warehouse/templates` | Batch/stream ETL recipes |
 | GET | `/v1/capabilities/warehouse/jobs` | List ETL jobs |
+| GET/DELETE | `/v1/capabilities/warehouse/jobs/:id` | Job detail/delete |
+| POST | `/v1/capabilities/warehouse/jobs/:id/resume` | Resume a paused stream job |
 | POST | `/v1/capabilities/warehouse/etl/batch` | Run a batch transform |
 | POST | `/v1/capabilities/warehouse/etl/stream` | Ensure a stream ingest job |
 | POST | `/v1/capabilities/warehouse/jobs/:id/run` | Run a batch job |
 | POST | `/v1/capabilities/warehouse/jobs/:id/pause` | Stop a stream job |
 | GET/POST | `/v1/capabilities/warehouse/reports` | List/create saved reports |
+| GET/PATCH/DELETE | `/v1/capabilities/warehouse/reports/:id` | Report detail/edit/delete |
 | POST | `/v1/capabilities/warehouse/reports/:id/run` | Execute and return rows |
 | POST | `/v1/capabilities/warehouse/reports/:id/publish` | Snapshot + public share id |
 | GET/POST | `/v1/capabilities/warehouse/dashboards` | List/create dashboards |
+| GET/PATCH/DELETE | `/v1/capabilities/warehouse/dashboards/:id` | Dashboard detail/edit/delete |
 | POST | `/v1/capabilities/warehouse/dashboards/:id/run` | Run all widgets |
 | POST | `/v1/capabilities/warehouse/dashboards/:id/publish` | Snapshot all widgets |
 | GET | `/v1/capabilities/warehouse/public/reports/:shareId` | Public snapshot |
@@ -383,6 +388,9 @@ publishing stores an immutable snapshot for Tier-3 sites.
 Use cases: `city-operations` (batch daily rollup + manager dashboard),
 `iot-sensors` (SynapseStream ingest + averages) and `open-data-air-quality`
 (published public snapshot).
+
+Published report/dashboard snapshots are stored in Base and capped at 220 KB;
+lower the report limit before publishing if Tier 2 returns `payload_too_large`.
 
 ## KTTV hazards and knowledge base
 

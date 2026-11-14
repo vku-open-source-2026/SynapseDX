@@ -132,3 +132,137 @@ test('Tier-1 ETL workflow templates are listed and instantiated through Tier 2',
     await harness.close();
   }
 });
+
+test('dataset detail and delete are proxied through Tier 2', async () => {
+  const harness = await startHarness();
+  try {
+    const created = await api(harness, '/v1/capabilities/warehouse/datasets', {
+      method: 'POST',
+      token: 'user-token',
+      body: { id: 'temp_ds', name: 'Temp dataset', columns: [{ name: 'value', type: 'number' }] },
+    });
+    assert.equal(created.status, 201);
+
+    const detail = await api(harness, '/v1/capabilities/warehouse/datasets/temp_ds', { token: 'user-token' });
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.id, 'temp_ds');
+    assert.equal(detail.body.columns[0].name, 'value');
+
+    const removed = await api(harness, '/v1/capabilities/warehouse/datasets/temp_ds', {
+      method: 'DELETE',
+      token: 'user-token',
+    });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.deleted, true);
+
+    const missing = await api(harness, '/v1/capabilities/warehouse/datasets/temp_ds', { token: 'user-token' });
+    assert.equal(missing.status, 404);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('stream job detail, resume and delete are exposed at Tier 2', async () => {
+  const harness = await startHarness();
+  try {
+    const created = await api(harness, '/v1/capabilities/warehouse/datasets', {
+      method: 'POST',
+      token: 'user-token',
+      body: { id: 'stream_ds', name: 'Stream dataset', columns: [{ name: 'value', type: 'number' }] },
+    });
+    assert.equal(created.status, 201);
+
+    const stream = await api(harness, '/v1/capabilities/warehouse/etl/stream', {
+      method: 'POST',
+      token: 'user-token',
+      body: { name: 'stream-job', targetDatasetId: 'stream_ds', streamTopic: 'iot-sensors' },
+    });
+    assert.equal(stream.status, 201);
+    const jobId = stream.body.job.id as string;
+
+    const detail = await api(harness, `/v1/capabilities/warehouse/jobs/${jobId}`, { token: 'user-token' });
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.mode, 'stream');
+
+    const resumed = await api(harness, `/v1/capabilities/warehouse/jobs/${jobId}/resume`, {
+      method: 'POST',
+      token: 'user-token',
+    });
+    assert.equal(resumed.status, 200);
+    assert.equal(resumed.body.status, 'running');
+
+    const removed = await api(harness, `/v1/capabilities/warehouse/jobs/${jobId}`, {
+      method: 'DELETE',
+      token: 'user-token',
+    });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.deleted, true);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('saved reports and dashboards can be edited and deleted through Tier 2', async () => {
+  const harness = await startHarness();
+  try {
+    const report = await api(harness, '/v1/capabilities/warehouse/reports', {
+      method: 'POST',
+      token: 'user-token',
+      body: { name: 'Draft', sql: 'SELECT 1 AS value', limit: 10 },
+    });
+    assert.equal(report.status, 201);
+
+    const patched = await api(harness, `/v1/capabilities/warehouse/reports/${report.body.id}`, {
+      method: 'PATCH',
+      token: 'user-token',
+      body: { name: 'Final', sql: 'SELECT 2 AS value' },
+    });
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.name, 'Final');
+    assert.equal(patched.body.visibility, 'private');
+
+    const dashboard = await api(harness, '/v1/capabilities/warehouse/dashboards', {
+      method: 'POST',
+      token: 'user-token',
+      body: {
+        name: 'Ops',
+        widgets: [{ reportId: report.body.id, title: 'Final' }],
+      },
+    });
+    assert.equal(dashboard.status, 201);
+
+    const blocked = await api(harness, `/v1/capabilities/warehouse/reports/${report.body.id}`, {
+      method: 'DELETE',
+      token: 'user-token',
+    });
+    assert.equal(blocked.status, 409);
+    assert.equal(blocked.body.error.code, 'report_in_use');
+
+    const dashboardPatched = await api(harness, `/v1/capabilities/warehouse/dashboards/${dashboard.body.id}`, {
+      method: 'PATCH',
+      token: 'user-token',
+      body: { name: 'Ops v2', widgets: [] },
+    });
+    assert.equal(dashboardPatched.status, 400);
+
+    const dashboardGet = await api(harness, `/v1/capabilities/warehouse/dashboards/${dashboard.body.id}`, {
+      token: 'user-token',
+    });
+    assert.equal(dashboardGet.status, 200);
+    assert.equal(dashboardGet.body.name, 'Ops');
+
+    const dashboardDeleted = await api(harness, `/v1/capabilities/warehouse/dashboards/${dashboard.body.id}`, {
+      method: 'DELETE',
+      token: 'user-token',
+    });
+    assert.equal(dashboardDeleted.status, 200);
+
+    const reportDeleted = await api(harness, `/v1/capabilities/warehouse/reports/${report.body.id}`, {
+      method: 'DELETE',
+      token: 'user-token',
+    });
+    assert.equal(reportDeleted.status, 200);
+  } finally {
+    await harness.close();
+  }
+});

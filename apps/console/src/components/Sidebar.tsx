@@ -19,6 +19,9 @@ import {
   LogOut,
   Globe,
   BookOpen,
+  LayoutTemplate,
+  Workflow,
+  Briefcase,
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { cn } from '../lib/utils';
@@ -36,6 +39,8 @@ const ICONS: Record<NavItem['icon'], React.ComponentType<{ size?: number; classN
   approvals: CheckCircle2,
   team: Users,
   events: Radio,
+  workspaces: LayoutTemplate,
+  workflows: Workflow,
   audit: ScrollText,
   settings: Settings,
 };
@@ -50,6 +55,8 @@ const PATH_PREFIX: Record<NavItem['view'], string> = {
   modules: '/admin/modules',
   team: '/admin/team',
   events: '/admin/events',
+  workspaces: '/admin/workspaces',
+  workflows: '/admin/workflows',
   audit: '/admin/audit',
   settings: '/admin/settings',
 };
@@ -105,31 +112,51 @@ export function Sidebar() {
         <nav id="primary-nav" aria-label={m.shell.sections} className="flex-1 space-y-0.5 overflow-y-auto px-3 py-3 scrollbar-thin">
           {items.map((item) => {
             const Icon = ICONS[item.icon];
-            const to = PATH_PREFIX[item.view];
+            const to = item.href ?? PATH_PREFIX[item.view];
             const active =
               item.view === 'overview'
                 ? location.pathname === '/admin' || location.pathname === '/admin/'
                 : location.pathname.startsWith(to);
-            return (
+            const content = (
+              <>
+                <Icon size={17} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{m.shell.nav[item.view] ?? item.label}</span>
+              </>
+            );
+            const className = cn(
+              'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+              active
+                ? 'bg-gradient-to-r from-cyan-500/90 to-blue-600 text-white shadow-md shadow-blue-950/40'
+                : 'text-slate-300 hover:bg-slate-800/70 hover:text-white',
+            );
+            return item.href ? (
+              <a
+                key={item.view}
+                href={item.href}
+                onClick={() => setIsMobileOpen(false)}
+                data-nav={item.view}
+                aria-current={active ? 'page' : undefined}
+                className={className}
+              >
+                {content}
+              </a>
+            ) : (
               <Link
                 key={item.view}
                 to={to}
                 onClick={() => setIsMobileOpen(false)}
                 data-nav={item.view}
                 aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                  active
-                    ? 'bg-gradient-to-r from-cyan-500/90 to-blue-600 text-white shadow-md shadow-blue-950/40'
-                    : 'text-slate-300 hover:bg-slate-800/70 hover:text-white',
-                )}
+                className={className}
               >
-                <Icon size={17} className="shrink-0" />
-                <span className="min-w-0 flex-1 truncate">{m.shell.nav[item.view] ?? item.label}</span>
+                {content}
               </Link>
             );
           })}
           <div className="mt-3 border-t border-slate-800 pt-3 dark:border-[#1a2638]">
+            <a href="/workspace" className={SECONDARY_LINK}>
+              <Briefcase size={15} aria-hidden="true" /> {m.shell.workspaceLink}
+            </a>
             <a href="/" className={SECONDARY_LINK}>
               <Globe size={15} aria-hidden="true" /> {m.shell.publicCatalog}
             </a>

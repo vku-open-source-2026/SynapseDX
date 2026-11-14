@@ -30,6 +30,14 @@ export const COLLECTIONS = {
   notificationPrefs: 'synapsedx_capability_notification_prefs',
   workspaces: 'synapsedx_capability_workspaces',
   pages: 'synapsedx_capability_pages',
+  /** Low-code workspace plugin definitions (draft) and their history. */
+  workspacePlugins: 'synapsedx_capability_workspace_plugins',
+  workspacePluginSnapshots: 'synapsedx_capability_workspace_plugin_snapshots',
+  workspacePluginRevisions: 'synapsedx_capability_workspace_plugin_revisions',
+  /** Organization installations, member roles and scoped runtime tokens. */
+  workspaceInstalls: 'synapsedx_capability_workspace_installs',
+  workspaceMembers: 'synapsedx_capability_workspace_members',
+  workspaceTokens: 'synapsedx_capability_workspace_tokens',
   people: 'synapsedx_capability_people',
   orgUnits: 'synapsedx_capability_org_units',
   kpis: 'synapsedx_capability_kpis',

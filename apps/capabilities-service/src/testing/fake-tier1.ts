@@ -63,11 +63,14 @@ interface Workflow {
   name: string;
   definition: Json;
   active: boolean;
+  orgId?: string | null;
+  accountId?: string | null;
+  ownerSub?: string | null;
 }
 
 export interface FakeTier1Options {
   tokens?: Record<string, Json>;
-  apiKeys?: Record<string, { account_id: string; scopes: string[] }>;
+  apiKeys?: Record<string, { account_id: string; user_id?: string | null; org_id?: string; scopes: string[] }>;
   /** Enable the S3-style presign endpoint (default: 501 like the fs backend). */
   storagePresign?: boolean;
   maxObjectBytes?: number;
@@ -207,18 +210,40 @@ export class FakeTier1 {
   readonly topics = new Map<string, Array<{ id: string; payload: unknown }>>();
   readonly faststore = new Map<string, unknown>();
   readonly workflows = new Map<string, Workflow>();
+  readonly credentials = new Map<string, {
+    id: string; account_id: string; name: string; kind: string; secret: string;
+    owner_sub: string | null; created_at: string; updated_at: string;
+  }>();
   readonly warehouseDatasets = new Map<string, Json>();
   readonly warehouseJobs = new Map<string, Json>();
   readonly executions: Json[] = [];
   readonly requests: Array<{ method: string; path: string; headers: Record<string, string>; body: any }> = [];
   readonly tokens = new Map<string, Json>();
-  readonly apiKeys = new Map<string, { account_id: string; scopes: string[] }>();
+  readonly apiKeys = new Map<string, { account_id: string; scopes: string[]; org_id?: string; user_id?: string | null }>();
   failBase = false;
   failLds = false;
   failQueue = false;
   failStream = false;
   failFaststore = false;
   failWarehouse = false;
+  /** Force workflow update failures (used to test compensation blockers). */
+  failWorkflowUpdate = false;
+  /** Allow this many workflow updates, then fail (tests rollback failure). */
+  failWorkflowUpdateAfter = 0;
+  workflowUpdateCalls = 0;
+  /** Fail exactly this Base document PUT call (tests finalize failure). */
+  failBaseUpdateOnCall = 0;
+  baseDocumentUpdateCalls = 0;
+  /** Mirror Tier-1 canAccessWorkflow (same org/account) for negative tests. */
+  enforceWorkflowTenant = false;
+  /** Mirror Tier-1 owner-only access policy for protected workflows. */
+  enforceWorkflowOwnerOnly = false;
+  /** Static engine capability advertisement (old images omit it). */
+  workflowEngineCapabilities: Record<string, unknown> | null = {
+    httpCredentialAllowedOrigins: true,
+    httpCredentialDestinationProtection: 1,
+    httpIncludeInput: true,
+  };
   private server?: Server;
   private seq = 0;
 
@@ -255,6 +280,7 @@ export class FakeTier1 {
     this.topics.clear();
     this.faststore.clear();
     this.workflows.clear();
+    this.credentials.clear();
     this.executions.length = 0;
     this.requests.length = 0;
     this.storage.clear();
@@ -271,6 +297,18 @@ export class FakeTier1 {
     this.failStream = false;
     this.failFaststore = false;
     this.failWarehouse = false;
+    this.failWorkflowUpdate = false;
+    this.failWorkflowUpdateAfter = 0;
+    this.workflowUpdateCalls = 0;
+    this.failBaseUpdateOnCall = 0;
+    this.baseDocumentUpdateCalls = 0;
+    this.enforceWorkflowTenant = false;
+    this.enforceWorkflowOwnerOnly = false;
+    this.workflowEngineCapabilities = {
+      httpCredentialAllowedOrigins: true,
+      httpCredentialDestinationProtection: 1,
+      httpIncludeInput: true,
+    };
     this.warehouseDatasets.clear();
     this.warehouseJobs.clear();
   }
@@ -735,7 +773,19 @@ export class FakeTier1 {
     }
     if (path === '/v1/auth/logout' && method === 'POST') return this.json(res, 200, { ok: true });
     if (path === '/v1/auth/logout-all' && method === 'POST') return this.json(res, 200, { ok: true, revoked: 1 });
-    if (path === '/v1/auth/me' && method === 'GET') return this.json(res, 200, { user: { id: 'user-1' }, kind: 'user' });
+    if (path === '/v1/auth/me' && method === 'GET') {
+      const claims = this.claimsOf(headers);
+      if (!claims) return this.json(res, 401, { error: 'unauthorized' });
+      return this.json(res, 200, {
+        user: {
+          id: String(claims.sub || ''),
+          ...(claims.email ? { email: String(claims.email) } : {}),
+          ...(claims.org ? { org_id: String(claims.org) } : {}),
+          is_org_admin: claims.is_org_admin === true,
+        },
+        kind: claims.kind || 'user',
+      });
+    }
     if (path === '/v1/auth/oidc/config' && method === 'GET') return this.json(res, 200, { enabled: true, issuer: 'https://idp.example' });
     if (path === '/v1/auth/oidc/start' && method === 'GET') return this.json(res, 200, { authorizeUrl: 'https://idp.example/authorize', state: 'signed-state' });
     if (path === '/v1/auth/oidc/callback' && method === 'POST') return this.json(res, 200, { accessToken: 'oidc-access', refreshToken: 'oidc-refresh', user: { id: 'oidc-user' } });
@@ -773,6 +823,11 @@ export class FakeTier1 {
       return this.json(res, 200, [{ id: 'role-operator', slug: 'operator' }]);
     }
 
+    // ---- Credentials (account-scoped, write-only secret) ----
+    if (path === '/v1/credentials' || path.startsWith('/v1/credentials/')) {
+      return this.handleCredentials(method, path, url, body, headers, res);
+    }
+
     // ---- Warehouse ----
     if (path.startsWith('/v1/warehouse/')) return this.handleWarehouse(method, path, url, body, res);
 
@@ -792,7 +847,12 @@ export class FakeTier1 {
     if (path.startsWith('/v1/faststore/')) return this.handleFaststore(method, path, body, res);
 
     // ---- Workflow ----
-    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions') || path === '/v1/templates') return this.handleWorkflow(method, path, url, body, res);
+    if (path === '/v1/workflow-runners/options' && method === 'GET') {
+      return this.json(res, 200, {
+        ...(this.workflowEngineCapabilities ? { engineCapabilities: this.workflowEngineCapabilities } : {}),
+      });
+    }
+    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions') || path === '/v1/templates') return this.handleWorkflow(method, path, url, body, headers, res);
 
     // ---- Inference ----
     if (path === '/v1/inference/health' && method === 'GET') {
@@ -853,6 +913,20 @@ export class FakeTier1 {
       this.warehouseDatasets.set(id, dataset);
       return this.json(res, 201, dataset);
     }
+    const datasetMatch = path.match(/^\/v1\/warehouse\/datasets\/([^/]+)$/);
+    if (datasetMatch) {
+      const id = decodeURIComponent(datasetMatch[1]);
+      const dataset = this.warehouseDatasets.get(id);
+      if (!dataset) return this.json(res, 404, { error: 'dataset_not_found' });
+      if (method === 'GET') return this.json(res, 200, dataset);
+      if (method === 'DELETE') {
+        this.warehouseDatasets.delete(id);
+        for (const [jobId, job] of this.warehouseJobs) {
+          if (String(job.targetDatasetId || '') === id) this.warehouseJobs.delete(jobId);
+        }
+        return this.json(res, 200, { ok: true, deleted: true });
+      }
+    }
     const rowsMatch = path.match(/^\/v1\/warehouse\/datasets\/([^/]+)\/rows$/);
     if (rowsMatch && method === 'POST') {
       const dataset = this.warehouseDatasets.get(decodeURIComponent(rowsMatch[1]));
@@ -884,15 +958,34 @@ export class FakeTier1 {
       return this.json(res, 201, job);
     }
     if (path === '/v1/warehouse/etl/batch' && method === 'POST') {
-      return this.json(res, 201, { ok: true, rows: 2, durationMs: 1, job: { id: `job-${++this.seq}` } });
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: 'batch', status: 'succeeded', targetDatasetId: body?.targetDatasetId };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, { ok: true, rows: 2, durationMs: 1, job });
     }
     if (path === '/v1/warehouse/etl/stream' && method === 'POST') {
-      return this.json(res, 201, { ok: true, created: true, job: { id: `job-${++this.seq}`, mode: 'stream' } });
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: 'stream', status: 'running', targetDatasetId: body?.targetDatasetId, streamTopic: body?.streamTopic };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, { ok: true, created: true, job });
     }
     const runMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/run$/);
     if (runMatch && method === 'POST') return this.json(res, 200, { ok: true, rows: 2 });
     const pauseMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/pause$/);
     if (pauseMatch && method === 'POST') return this.json(res, 200, { id: decodeURIComponent(pauseMatch[1]), status: 'paused' });
+    const resumeMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/resume$/);
+    if (resumeMatch && method === 'POST') return this.json(res, 200, { id: decodeURIComponent(resumeMatch[1]), status: 'running' });
+    const jobMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)$/);
+    if (jobMatch) {
+      const id = decodeURIComponent(jobMatch[1]);
+      const job = this.warehouseJobs.get(id);
+      if (!job) return this.json(res, 404, { error: 'job_not_found' });
+      if (method === 'GET') return this.json(res, 200, job);
+      if (method === 'DELETE') {
+        this.warehouseJobs.delete(id);
+        return this.json(res, 200, { ok: true, deleted: true });
+      }
+    }
     return this.json(res, 404, { error: 'not_found' });
   }
 
@@ -1011,6 +1104,10 @@ export class FakeTier1 {
       }
       if (method === 'PATCH' || method === 'PUT') {
         if (!current) return this.json(res, 404, { error: 'not_found' });
+        this.baseDocumentUpdateCalls += 1;
+        if (this.failBaseUpdateOnCall > 0 && this.baseDocumentUpdateCalls === this.failBaseUpdateOnCall) {
+          return this.json(res, 503, { error: 'base_unavailable' });
+        }
         if (body?.ifVersion !== undefined && Number(body.ifVersion) !== current.version) {
           return this.json(res, 409, { error: 'version_conflict', currentVersion: current.version });
         }
@@ -1231,7 +1328,135 @@ export class FakeTier1 {
     this.json(res, 404, { error: 'not_found', path });
   }
 
-  private handleWorkflow(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
+  private credentialView(credential: {
+    id: string; account_id: string; name: string; kind: string;
+    owner_sub: string | null; created_at: string; updated_at: string;
+  }): Json {
+    return {
+      id: credential.id,
+      accountId: credential.account_id,
+      name: credential.name,
+      kind: credential.kind,
+      createdAt: credential.created_at,
+      updatedAt: credential.updated_at,
+      ...(credential.owner_sub ? { owner: credential.owner_sub } : {}),
+    };
+  }
+
+  private handleCredentials(
+    method: string,
+    path: string,
+    url: URL,
+    body: any,
+    headers: Record<string, string>,
+    res: ServerResponse,
+  ): void {
+    const principal = this.workflowPrincipal(headers);
+    const ownerSub = principal?.sub || null;
+    if (path === '/v1/credentials' && method === 'GET') {
+      const accountId = String(url.searchParams.get('accountId') || principal?.account || '');
+      const items = [...this.credentials.values()]
+        .filter((credential) => credential.account_id === accountId)
+        .map((credential) => this.credentialView(credential));
+      return this.json(res, 200, { data: items });
+    }
+    if (path === '/v1/credentials' && method === 'POST') {
+      const accountId = String(body?.accountId || principal?.account || '');
+      const name = String(body?.name || '');
+      if (!accountId || !name || name.length > 100) return this.json(res, 400, { error: 'invalid_credential' });
+      if ([...this.credentials.values()].some((credential) => credential.account_id === accountId && credential.name === name)) {
+        return this.json(res, 409, { error: 'conflict', message: 'credential name already exists' });
+      }
+      const now = nowIso();
+      const credential = {
+        id: `cred-${this.credentials.size + 1}`,
+        account_id: accountId,
+        name,
+        kind: body?.kind === 'apiKey' ? 'api-key' : String(body?.kind || 'api-key'),
+        secret: String(body?.secret || ''),
+        owner_sub: ownerSub,
+        created_at: now,
+        updated_at: now,
+      };
+      this.credentials.set(credential.id, credential);
+      return this.json(res, 201, this.credentialView(credential));
+    }
+    const match = path.match(/^\/v1\/credentials\/([^/]+)(\/rotate)?$/);
+    if (match) {
+      const credential = this.credentials.get(decodeURIComponent(match[1]));
+      if (!credential) return this.json(res, 404, { error: 'not_found' });
+      if (credential.account_id !== principal?.account) return this.json(res, 403, { error: 'cross_account' });
+      if (match[2] && method === 'POST') {
+        if (typeof body?.secret !== 'string' || !body.secret) return this.json(res, 400, { error: 'invalid_secret' });
+        credential.secret = body.secret;
+        credential.updated_at = nowIso();
+        return this.json(res, 200, this.credentialView(credential));
+      }
+      if (method === 'GET') return this.json(res, 200, this.credentialView(credential));
+      if (method === 'DELETE') {
+        this.credentials.delete(credential.id);
+        return this.json(res, 200, { ok: true, id: credential.id });
+      }
+    }
+    this.json(res, 404, { error: 'not_found', path });
+  }
+
+  private workflowPrincipal(headers: Record<string, string>): { org?: string; account?: string; sub?: string } | null {
+    const claims = this.claimsOf(headers);
+    if (claims) {
+      return {
+        ...(claims.org ? { org: String(claims.org) } : {}),
+        ...(claims.account ? { account: String(claims.account) } : {}),
+        ...(claims.sub ? { sub: String(claims.sub) } : {}),
+      };
+    }
+    const apiKey = headers['x-api-key'] || '';
+    const record = this.apiKeys.get(apiKey);
+    if (record) {
+      return {
+        account: record.account_id,
+        sub: `apikey:${record.account_id}`,
+        ...(record.org_id ? { org: record.org_id } : {}),
+      };
+    }
+    return null;
+  }
+
+  /** Mirrors Tier-1 canAccessWorkflow + owner-only policy for protected graphs. */
+  private canAccessWorkflow(workflow: Workflow, headers: Record<string, string>): boolean {
+    const definition = (workflow.definition || {}) as Json;
+    const settings = (definition.settings || {}) as Json;
+    const access = (settings.access || {}) as Json;
+    const ownerOnly = String(access.mode || '') === 'owner-only';
+    if (ownerOnly && this.enforceWorkflowOwnerOnly) {
+      const principal = this.workflowPrincipal(headers);
+      if (!principal?.sub) return false;
+      return workflow.ownerSub === principal.sub;
+    }
+    if (!this.enforceWorkflowTenant) return true;
+    const principal = this.workflowPrincipal(headers);
+    if (!principal) return true; // direct dev/test call; production gateway requires auth
+    if (principal.account && workflow.accountId === principal.account) return true;
+    if (principal.org && workflow.orgId === principal.org) return true;
+    return false;
+  }
+
+  private workflowView(workflow: Workflow): Json {
+    const definition = (workflow.definition || {}) as Json;
+    return {
+      id: workflow.id,
+      name: workflow.name,
+      active: workflow.active,
+      revision: 1,
+      nodes: Array.isArray(definition.nodes) ? definition.nodes : [],
+      connections: definition.connections && typeof definition.connections === 'object' ? definition.connections : {},
+      settings: definition.settings && typeof definition.settings === 'object' ? definition.settings : {},
+      // Kept for tests that inspect the stored definition shape directly.
+      definition,
+    };
+  }
+
+  private handleWorkflow(method: string, path: string, url: URL, body: any, headers: Record<string, string>, res: ServerResponse): void {
     if (path === '/v1/templates' && method === 'GET') {
       return this.json(res, 200, [
         { name: 'etl-batch-warehouse', description: 'Warehouse batch ETL' },
@@ -1244,21 +1469,31 @@ export class FakeTier1 {
     }
     if (path === '/v1/workflows' && method === 'POST') {
       const id = `wf-${this.workflows.size + 1}`;
-      const workflow: Workflow = { id, name: String(body?.name || id), definition: (body?.definition || {}) as Json, active: false };
+      const definition = {
+        ...((body?.definition || {}) as Json),
+        ...(body?.settings && typeof body.settings === 'object' ? { settings: body.settings } : {}),
+      };
+      const principal = this.workflowPrincipal(headers);
+      const workflow: Workflow = {
+        id, name: String(body?.name || id), definition, active: false,
+        ...(principal?.org ? { orgId: principal.org } : {}),
+        ...(principal?.account ? { accountId: principal.account } : {}),
+        ...(principal?.sub ? { ownerSub: principal.sub } : {}),
+      };
       this.workflows.set(id, workflow);
-      return this.json(res, 201, workflow);
+      return this.json(res, 201, this.workflowView(workflow));
     }
     const activateMatch = path.match(/^\/v1\/workflows\/([^/]+)\/(activate|deactivate)$/);
     if (activateMatch && method === 'POST') {
       const workflow = this.workflows.get(activateMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
       workflow.active = activateMatch[2] === 'activate';
-      return this.json(res, 200, workflow);
+      return this.json(res, 200, this.workflowView(workflow));
     }
     const executeMatch = path.match(/^\/v1\/workflows\/([^/]+)\/execute$/);
     if (executeMatch && method === 'POST') {
       const workflow = this.workflows.get(executeMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
       const execution = {
         id: `exec-${this.executions.length + 1}`,
         workflowId: workflow.id,
@@ -1274,12 +1509,26 @@ export class FakeTier1 {
     const workflowMatch = path.match(/^\/v1\/workflows\/([^/]+)$/);
     if (workflowMatch) {
       const workflow = this.workflows.get(workflowMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
-      if (method === 'GET') return this.json(res, 200, workflow);
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
+      if (method === 'GET') return this.json(res, 200, this.workflowView(workflow));
       if (method === 'PUT') {
-        if (body?.definition) workflow.definition = body.definition;
+        this.workflowUpdateCalls += 1;
+        if (
+          this.failWorkflowUpdate
+          || (this.failWorkflowUpdateAfter > 0 && this.workflowUpdateCalls > this.failWorkflowUpdateAfter)
+        ) {
+          return this.json(res, 503, { error: 'workflow_unavailable' });
+        }
+        if (body?.definition) {
+          workflow.definition = {
+            ...(body.definition as Json),
+            ...(body?.settings && typeof body.settings === 'object' ? { settings: body.settings } : {}),
+          };
+        } else if (body?.settings && typeof body.settings === 'object') {
+          workflow.definition = { ...(workflow.definition || {}), settings: body.settings };
+        }
         if (body?.name) workflow.name = String(body.name);
-        return this.json(res, 200, workflow);
+        return this.json(res, 200, this.workflowView(workflow));
       }
       if (method === 'DELETE') {
         this.workflows.delete(workflow.id);

@@ -15,7 +15,7 @@
 import express, { Express } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
-import { isAdmin } from '../auth';
+import { isAdmin, isTenantAdmin } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -145,7 +145,7 @@ function publicView(record: FileRecord): PublicFileView {
 }
 
 function canPublish(principal: { scopes: string[] }): boolean {
-  return isAdmin(principal as any)
+  return isTenantAdmin(principal as any)
     || principal.scopes.some((scope) => scope === 'files:publish' || scope === 'storage:publish');
 }
 

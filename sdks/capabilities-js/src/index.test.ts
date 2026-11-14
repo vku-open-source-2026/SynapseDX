@@ -366,3 +366,62 @@ test('warehouse queries and report publishing use the stable capability paths', 
   assert.deepEqual(requests[0].body, { sql: 'SELECT 1 AS n', limit: 10 });
   assert.equal(requests[1].url, 'https://dx.example/v1/capabilities/warehouse/reports/report-1/publish');
 });
+
+test('workspace plugin management uses the fixed /workspaces paths and version payloads', async () => {
+  const { impl, requests } = mockFetch(() => ({ body: { id: 'p1', version: 2, widgets: [] } }));
+  const client = new CapabilitiesClient({ baseUrl: 'https://dx.example', token: 'tok', fetch: impl });
+  await client.workspaces.catalog();
+  await client.workspaces.listPlugins('city', { limit: 10 });
+  await client.workspaces.updatePlugin('p1', { version: 1, name: 'Ops' });
+  await client.workspaces.installPlugin('p1', ['volunteer']);
+  await client.workspaces.setMember('user-1', ['volunteer']);
+
+  assert.equal(requests[0].url, 'https://dx.example/v1/capabilities/workspaces/catalog');
+  assert.equal(requests[1].url, 'https://dx.example/v1/capabilities/workspaces/plugins?product=city&limit=10');
+  assert.equal(requests[2].method, 'PUT');
+  assert.equal(requests[2].url, 'https://dx.example/v1/capabilities/workspaces/plugins/p1');
+  assert.deepEqual(requests[2].body, { version: 1, name: 'Ops' });
+  assert.equal(requests[3].url, 'https://dx.example/v1/capabilities/workspaces/plugins/p1/install');
+  assert.deepEqual(requests[3].body, { roles: ['volunteer'] });
+  assert.equal(requests[4].url, 'https://dx.example/v1/capabilities/workspaces/members/user-1');
+  assert.deepEqual(requests[4].body, { roles: ['volunteer'] });
+});
+
+test('workspace export can request the draft and build always uses the Tier-3 build path', async () => {
+  const { impl, requests } = mockFetch(() => ({
+    body: {
+      format: 'synapsedx-plugin', formatVersion: 1,
+      plugin: { product: 'city', name: 'Ops', slug: 'ops', audience: 'member', roles: ['volunteer'], widgets: [] },
+      source: { repository: 'https://github.com/vku-open-source-2026/SynapseCity', path: 'plugins/ops.plugin.json' },
+      checksum: `sha256:${'a'.repeat(64)}`,
+    },
+  }));
+  const client = new CapabilitiesClient({ baseUrl: 'https://dx.example', token: 'tok', fetch: impl });
+  await client.workspaces.exportPlugin('p1');
+  await client.workspaces.exportPlugin('p1', { draft: true });
+  await client.workspaces.buildPlugin('p1');
+
+  assert.equal(requests[0].url, 'https://dx.example/v1/capabilities/workspaces/plugins/p1/export');
+  assert.equal(requests[1].url, 'https://dx.example/v1/capabilities/workspaces/plugins/p1/export?draft=1');
+  assert.equal(requests[2].url, 'https://dx.example/v1/capabilities/workspaces/plugins/p1/build');
+  assert.equal(requests[2].method, 'GET');
+});
+
+test('workspace widget execution sends exactly a values envelope', async () => {
+  const { impl, requests } = mockFetch(() => ({ body: { pluginId: 'p1', widgetId: 'w1', artifactId: 'a1', submittedAt: 'now', execution: {} } }));
+  const client = new CapabilitiesClient({ baseUrl: 'https://dx.example', token: 'member', fetch: impl });
+  await client.workspaces.executeWidget('p1', 'w1', { summary: 'Broken lamp', severity: 2 });
+  assert.equal(requests[0].method, 'POST');
+  assert.equal(requests[0].url, 'https://dx.example/v1/capabilities/workspaces/installed/p1/widgets/w1/execute');
+  assert.deepEqual(requests[0].body, { values: { summary: 'Broken lamp', severity: 2 } });
+  assert.equal(requests[0].headers.authorization, 'Bearer member');
+});
+
+test('workspace runtime uses X-Workspace-Token and no browser CORS header contract', async () => {
+  const { impl, requests } = mockFetch(() => ({ body: { items: [], total: 0 } }));
+  const client = new CapabilitiesClient({ baseUrl: 'https://dx.example', fetch: impl });
+  await client.workspaces.runtime('city', 'wsp_token');
+  assert.equal(requests[0].url, 'https://dx.example/v1/capabilities/workspaces/runtime/city');
+  assert.equal(requests[0].headers['x-workspace-token'], 'wsp_token');
+  assert.equal(requests[0].headers.authorization, undefined);
+});

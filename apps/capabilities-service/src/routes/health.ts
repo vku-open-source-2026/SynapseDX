@@ -41,8 +41,9 @@ function safeCode(error: unknown): string {
 
 async function probe(entry: Probe, client: SynapseOneClient, timeoutMs: number): Promise<DependencyHealth> {
   const started = Date.now();
+  let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    const timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'AbortError' })), timeoutMs);
+    timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'AbortError' })), timeoutMs);
     timer.unref?.();
   });
   try {
@@ -50,7 +51,7 @@ async function probe(entry: Probe, client: SynapseOneClient, timeoutMs: number):
     return { name: entry.name, status: 'ok', latency_ms: Date.now() - started, critical: entry.critical };
   } catch (error) {
     const code = safeCode(error);
-    // A lazily created queue/topic is not a failure for readiness.
+    // A lazily created queue/topic/collection is not a failure for readiness.
     if (!entry.critical && code === 'not_created') {
       return { name: entry.name, status: 'ok', latency_ms: Date.now() - started, critical: entry.critical };
     }
@@ -61,16 +62,34 @@ async function probe(entry: Probe, client: SynapseOneClient, timeoutMs: number):
       critical: entry.critical,
       error: code,
     };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+/** Exposed for the health contract tests (lazy-collection and timeout classes). */
+export { probe as probeDependency };
+
+/** The datasets collection is created on the first write; tolerate its absence. */
+export function baseDatasetsProbe(): Probe {
+  return {
+    name: 'base',
+    critical: true,
+    run: async (client) => {
+      try {
+        await client.base.queryDocuments('synapsedx_capability_datasets', { limit: 1 });
+      } catch (error) {
+        // A fresh deployment must not report the whole tier as down (503)
+        // before any dataset exists.
+        if (!(error instanceof SynapseOneError && error.status === 404)) throw error;
+      }
+    },
+  };
 }
 
 function probesFor(config: ServiceConfig): Probe[] {
   return [
-    {
-      name: 'base',
-      critical: true,
-      run: async (client) => { await client.base.queryDocuments('synapsedx_capability_datasets', { limit: 1 }); },
-    },
+    baseDatasetsProbe(),
     { name: 'lds', critical: true, run: async (client) => { await client.lds.licenses(); } },
     {
       name: 'queue',
@@ -105,6 +124,23 @@ export interface HealthReport {
   time: string;
 }
 
+/**
+ * Package version for the health/advertisement projections. The compiled file
+ * lives under `dist/src/routes` and the source under `src/routes`; try both
+ * package locations instead of hardcoding a version.
+ */
+function packageVersion(): string {
+  for (const candidate of ['../../package.json', '../../../package.json']) {
+    try {
+      const pkg = require(candidate) as { version?: unknown };
+      if (typeof pkg?.version === 'string' && pkg.version) return pkg.version;
+    } catch {
+      /* try the next layout */
+    }
+  }
+  return 'unknown';
+}
+
 export async function collectHealth(config: ServiceConfig): Promise<HealthReport> {
   const client = serviceClient(config, Math.min(config.requestTimeoutMs, 5000));
   const dependencies = await Promise.all(probesFor(config).map((entry) => probe(entry, client, 3000)));
@@ -119,7 +155,7 @@ export async function collectHealth(config: ServiceConfig): Promise<HealthReport
     status,
     service: 'synapsedx-capabilities',
     tier: 2,
-    version: '0.3.0',
+    version: packageVersion(),
     dependencies,
     credentials,
     time: new Date().toISOString(),
@@ -154,11 +190,11 @@ export function registerCapabilityAdvertisement(app: Express, config: ServiceCon
     res.json({
       service: 'synapsedx-capabilities',
       tier: 2,
-      version: '0.3.0',
+      version: packageVersion(),
       auth: {
         mode: config.authMode,
         callers: ['Authorization: Bearer', 'X-API-Key'],
-        verifiedBy: 'https://api.synapseone.space/v1/auth/verify',
+        verifiedBy: `${config.tier1BaseUrl}/v1/auth/verify`,
       },
       capabilities: [
         { name: 'datasets', status: 'available' },

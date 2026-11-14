@@ -11,7 +11,7 @@
 import { Express, Request } from 'express';
 import {
   CallerPrincipal, credentialClient, hasReadScope, hasWriteScope, isAdmin, isModerator,
-  requireAuthenticated,
+  isTenantAdmin, requireAuthenticated,
 } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
@@ -51,7 +51,7 @@ const ADMIN_PERMISSIONS = [
 /** Roles are additive: a moderator may also be a manager, an admin is all. */
 export function managementRoles(principal?: CallerPrincipal): ManagementRole[] {
   if (!principal) return [];
-  if (isAdmin(principal)) return ['admin'];
+  if (isTenantAdmin(principal)) return ['admin'];
   const roles = new Set<ManagementRole>();
   if (hasWriteScope(principal)) roles.add('operator');
   if (isModerator(principal)) roles.add('moderator');
@@ -230,7 +230,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.patch('/v1/capabilities/management/settings', handler(async (req, res) => {
     const { caller, client } = await writeContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) {
+    if (!isTenantAdmin(verified)) {
       throw apiError(403, 'insufficient_scope', 'only an administrator can change management settings');
     }
     const body = (req.body || {}) as Record<string, unknown>;
@@ -254,7 +254,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.get('/v1/capabilities/management/team', handler(async (req, res) => {
     const { caller } = await readContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!isTenantAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
     if (!verified.org) throw apiError(400, 'org_required', 'the caller credential has no organization claim');
     if (caller.credential?.kind !== 'bearer') {
       throw apiError(403, 'user_token_required', 'team administration requires a user bearer token');
@@ -275,7 +275,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.post('/v1/capabilities/management/team/roles', handler(async (req, res) => {
     const { caller, client } = await readContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!isTenantAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
     if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
     if (!verified.org) throw apiError(400, 'org_required', 'the caller credential has no organization claim');
     const body = (req.body || {}) as Record<string, unknown>;
@@ -305,7 +305,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.get('/v1/capabilities/management/team/:userId/roles', handler(async (req, res) => {
     const { caller } = await readContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!isTenantAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
     if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
     const roles = await credentialClient(config, caller.credential).iam.userRoles(String(req.params.userId));
     res.setHeader('cache-control', 'no-store');
@@ -315,7 +315,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.post('/v1/capabilities/management/team/:userId/roles', handler(async (req, res) => {
     const { caller, client } = await readContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!isTenantAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
     if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
     const roleId = String((req.body || {}).roleId || '').trim();
     if (!roleId) throw apiError(400, 'field_required', 'roleId is required');
@@ -333,7 +333,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
   app.delete('/v1/capabilities/management/team/:userId/roles/:roleId', handler(async (req, res) => {
     const { caller, client } = await readContext(req, config);
     const verified = requireAuthenticated(caller);
-    if (!isAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
+    if (!isTenantAdmin(verified)) throw apiError(403, 'insufficient_scope', 'team administration requires an administrator');
     if (caller.credential?.kind !== 'bearer') throw apiError(403, 'user_token_required');
     const result = await credentialClient(config, caller.credential).iam.unassignRole(
       String(req.params.userId),

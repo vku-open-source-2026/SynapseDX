@@ -36,17 +36,43 @@ export async function startHarness(
     ...fakeOptions,
     tokens: {
       'user-token': { sub: 'user-1', account: 'acct-a', org: 'org-a', scopes: ['write'] },
-      'read-token': { sub: 'reader', account: 'acct-a', scopes: ['read'] },
+      'read-token': { sub: 'reader', account: 'acct-a', org: 'org-a', scopes: ['read'] },
       'moderator-token': { sub: 'moderator-1', account: 'acct-a', org: 'org-a', scopes: ['synapsedx:moderator', 'read'] },
       'viewer-token': { sub: 'viewer-1', account: 'acct-a', org: 'org-a', scopes: ['datasets:list'] },
-      'admin-token': { sub: 'admin-1', account: 'acct-a', org: 'org-a', scopes: ['*'] },
+      // A plain organization member: Tier-1 user tokens carry `*` ("member
+      // authority"), which must never be treated as DX administration.
+      'member-token': { sub: 'member-1', email: 'member@example.com', account: 'acct-a', org: 'org-a', scopes: ['*'] },
+      // A verified IAM organization administrator (GET /v1/auth/me reports it).
+      'admin-token': { sub: 'admin-1', email: 'admin@example.com', account: 'acct-a', org: 'org-a', scopes: ['*'], is_org_admin: true },
       'other-token': { sub: 'user-b', account: 'acct-b', org: 'org-b', scopes: ['write'] },
+      // A second organization's verified administrator (cross-tenant tests).
+      'other-admin-token': { sub: 'admin-b', email: 'admin-b@example.com', org: 'org-b', scopes: ['*'], is_org_admin: true },
+      // Service-to-user delegation for the same organization: it must resolve to
+      // the same tenant as the user's own session (org-first, like Tier-1 Base).
+      'delegated-token': { sub: 'user-1', account: 'acct-a', org: 'org-a', scopes: ['write'], kind: 'delegated' },
+      // Machine delegation owned by a service account (product backend).
+      'writer-delegated-token': { sub: 'user-1', account: 'acct-a', org: 'org-a', scopes: ['*'], kind: 'delegated' },
+      // A narrowly-scoped machine credential with the explicit DX admin role.
+      'dx-admin-token': { sub: 'dx-admin-1', org: 'org-a', scopes: ['synapsedx:admin'] },
     },
     apiKeys: {
+      // Operator-minted, account-level machine credentials (user_id absent).
       'service-key': { account_id: 'service-account', scopes: ['*'] },
       'city-key': { account_id: 'acct-a', scopes: ['write'] },
       'sos-key': { account_id: 'acct-b', scopes: ['write'] },
       'read-key': { account_id: 'acct-a', scopes: ['read'] },
+      'account-key': { account_id: 'acct-a', user_id: null, scopes: ['*'] },
+      'exchange-key': { account_id: 'acct-a', user_id: null, scopes: ['auth:exchange'] },
+      // Self-minted by an ordinary member (user_id set): member authority only,
+      // even when the member asks for wildcard or an admin scope.
+      'user-key': { account_id: 'acct-a', user_id: 'user-1', scopes: ['*'] },
+      'user-admin-key': { account_id: 'acct-a', user_id: 'user-1', scopes: ['*', 'synapsedx:admin', 'write'] },
+      // Per-organization technical workflow identities used by DX workflow
+      // artifact tests. Account-level (no user_id), org-bound.
+      'workflow-org-key': { account_id: 'dx-workflow-acct-a', org_id: 'org-a', scopes: ['*'] },
+      'workflow-org-key-b': { account_id: 'dx-workflow-acct-b', org_id: 'org-b', scopes: ['*'] },
+      'workflow-wrong-org-key': { account_id: 'dx-workflow-mismatch', org_id: 'org-b', scopes: ['*'] },
+      'workflow-user-key': { account_id: 'dx-workflow-user', org_id: 'org-a', user_id: 'user-1', scopes: ['*'] },
     },
   });
   const baseUrl = await fake.start();
@@ -62,6 +88,12 @@ export async function startHarness(
     SYNAPSEDX_IDEMPOTENCY_ENABLED: 'true',
     SYNAPSEDX_EVENTS_QUEUE: 'synapsedx-capability-events',
     SYNAPSEDX_EVENTS_STREAM: 'synapsedx-capability-events',
+    SYNAPSEDX_WORKFLOW_API_KEYS: JSON.stringify({
+      'org-a': 'workflow-org-key',
+      'org-b': 'workflow-org-key-b',
+      'org-wrong': 'workflow-wrong-org-key',
+      'org-user': 'workflow-user-key',
+    }),
     CORS_ORIGINS: 'https://synapsecity.sbs,https://sos.synapsecity.sbs',
     CORS_ORIGIN: undefined,
     SYNAPSEDX_GEOCODER_BASE_URL: undefined,
@@ -70,6 +102,9 @@ export async function startHarness(
     SYNAPSEDX_GEOCODER_AUTH_HEADER: undefined,
     SYNAPSEDX_GEOCODER_AUTH_QUERY: undefined,
     SYNAPSEDX_AUTH_ORG_SLUG: undefined,
+    SYNAPSEDX_ADMIN_SUBJECTS: undefined,
+    SYNAPSEDX_RESOLVE_ORG_ADMIN: undefined,
+    SYNAPSEDX_TRUST_DELEGATED_TOKENS: undefined,
     SYNAPSEDX_AUTH_AUDIENCE: undefined,
     SYNAPSEDX_AUTH_ALLOWED_AUDIENCES: undefined,
     SYNAPSEDX_FILES_MAX_BYTES: undefined,

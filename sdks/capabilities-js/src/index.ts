@@ -40,6 +40,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   retries?: number;
+  /** Extra headers for this request only (overrides client defaults). */
+  headers?: Record<string, string>;
 }
 
 export interface DatasetInput {
@@ -707,6 +709,7 @@ class Http {
     if (opts.idempotencyKey) headers.set('idempotency-key', opts.idempotencyKey);
     if (opts.ifVersion !== undefined) headers.set('if-match', `"${opts.ifVersion}"`);
     for (const [key, value] of Object.entries(this.extraHeaders)) headers.set(key, value);
+    for (const [key, value] of Object.entries(opts.headers || {})) headers.set(key, value);
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -772,6 +775,7 @@ class Http {
     if (opts.idempotencyKey) headers.set('idempotency-key', opts.idempotencyKey);
     if (opts.ifVersion !== undefined) headers.set('if-match', `"${opts.ifVersion}"`);
     for (const [key, value] of Object.entries(this.extraHeaders)) headers.set(key, value);
+    for (const [key, value] of Object.entries(opts.headers || {})) headers.set(key, value);
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
@@ -904,6 +908,220 @@ export interface HazardCrawlResult {
   indexed: number;
   sources: Record<string, unknown>;
   error: string | null;
+}
+
+/* ------------------------------------------------------------------------- *
+ * Workspace plugins (organization-installed low-code pages)
+ * ------------------------------------------------------------------------- */
+
+export type WorkspaceProduct = 'city' | 'sos';
+export type WorkspaceAudience = 'admin' | 'member';
+export type WorkspaceWidgetType = 'text' | 'metric' | 'table' | 'form';
+export type WorkspaceWidgetFieldType = 'text' | 'number' | 'textarea';
+/** Declarative action vocabulary; the bound workflow defines the domain behaviour. */
+export type WorkspaceWidgetAction = 'create' | 'update' | 'delete' | 'execute';
+
+export interface WorkspaceWidgetField {
+  name: string;
+  label: string;
+  type: WorkspaceWidgetFieldType;
+  required?: boolean;
+}
+
+/** Portable workflow reference used only inside an import/export bundle. */
+export interface WorkspaceWorkflowRef {
+  name: string;
+  slug?: string;
+  checksum?: string;
+}
+
+export interface WorkspaceWidget {
+  id: string;
+  type: WorkspaceWidgetType;
+  title: string;
+  text?: string;
+  resource?: string;
+  columns?: string[];
+  fields?: WorkspaceWidgetField[];
+  action?: WorkspaceWidgetAction;
+  width?: 'full' | 'half';
+  /** Environment-specific artifact binding; never present in an export bundle. */
+  workflowArtifactId?: string;
+  /** Portable reference accepted on import; rebound server-side. */
+  workflowRef?: WorkspaceWorkflowRef;
+  /** Runtime only: true only for an authorized form bound to a pinned+protected workflow. */
+  canSubmit?: boolean;
+  /** Runtime only: why a form action is disabled (`ready` when enabled). */
+  canSubmitReason?: string;
+}
+
+export interface WorkspacePluginInput {
+  product: WorkspaceProduct;
+  name: string;
+  slug?: string;
+  audience: WorkspaceAudience;
+  roles: string[];
+  widgets: WorkspaceWidget[];
+  source?: { repository: string; path: string; revision?: string };
+}
+
+export interface WorkspacePlugin {
+  id: string;
+  product: WorkspaceProduct;
+  name: string;
+  slug: string;
+  audience: WorkspaceAudience;
+  roles: string[];
+  widgets: WorkspaceWidget[];
+  status: 'draft' | 'published';
+  version: number;
+  publishedVersion?: number;
+  publishedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+  /** Management views only. */
+  installed?: boolean;
+  installedRoles?: string[];
+}
+
+export interface PublishedWorkspacePlugin {
+  id: string;
+  product: WorkspaceProduct;
+  name: string;
+  slug: string;
+  audience: WorkspaceAudience;
+  roles: string[];
+  widgets: WorkspaceWidget[];
+  version: number;
+  publishedVersion: number;
+  publishedAt: string;
+  checksum: string;
+}
+
+export interface InstalledWorkspacePlugin extends PublishedWorkspacePlugin {
+  installedAt: string;
+  installationRoles: string[];
+}
+
+export interface WorkspaceInstallation {
+  id: string;
+  tenant: string;
+  pluginId: string;
+  product: WorkspaceProduct;
+  roles: string[];
+  installedBy: string;
+  installedAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceMember {
+  subject: string;
+  roles: string[];
+  updatedBy?: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceTokenMetadata {
+  id: string;
+  product: WorkspaceProduct;
+  name: string;
+  tokenPrefix: string;
+  createdAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  lastUsedAt?: string;
+}
+
+export interface WorkspaceCreatedToken extends WorkspaceTokenMetadata {
+  /** Returned exactly once; only a hash is stored. */
+  token: string;
+}
+
+export interface WorkspacePluginBundle {
+  format: 'synapsedx-plugin';
+  formatVersion: 1;
+  plugin: Omit<WorkspacePluginInput, 'source'>;
+  source?: { repository: string; path: string; revision?: string };
+  checksum?: string;
+}
+
+export interface WorkspaceWidgetData {
+  widgetId: string;
+  type: 'metric' | 'table';
+  title: string;
+  resource: string;
+  generatedAt: string;
+  count?: number;
+  columns?: string[];
+  items?: Array<Record<string, unknown>>;
+  total?: number;
+  limit?: number;
+  offset?: number;
+}
+
+export interface WorkspaceExecuteResult {
+  pluginId: string;
+  widgetId: string;
+  artifactId: string;
+  artifactRevision?: number;
+  artifactChecksum?: string;
+  executionId?: string;
+  submittedAt: string;
+  execution: unknown;
+}
+
+export interface WorkspaceCatalogResource {
+  key: string;
+  path: string;
+  dataset: string;
+}
+
+export interface WorkspaceCatalogProduct {
+  product: WorkspaceProduct;
+  roles: string[];
+  publicRoles: string[];
+  resources: WorkspaceCatalogResource[];
+  widgetTypes: WorkspaceWidgetType[];
+  actionTypes: WorkspaceWidgetAction[];
+}
+
+export interface WorkspaceCatalog {
+  products: WorkspaceCatalogProduct[];
+  widgetTypes: WorkspaceWidgetType[];
+  actionTypes: WorkspaceWidgetAction[];
+  audiences: WorkspaceAudience[];
+  roles: string[];
+  fieldTypes: WorkspaceWidgetFieldType[];
+  mutation: {
+    formExecution: boolean;
+    formRequiresWorkflowArtifact: boolean;
+    directDatasetWrites: boolean;
+    reason: string;
+  };
+  workflowExecution: {
+    ready: boolean;
+    installedVersion: string | null;
+    minimumVersion: string;
+    requirement: string;
+    canSubmit: boolean;
+  };
+  workflowOrgReadiness: {
+    ready: boolean;
+    reason?: string;
+    requirement: string;
+    configured: boolean;
+    verified: boolean;
+  };
+  limits: {
+    maxWidgets: number;
+    maxFields: number;
+    maxColumns: number;
+    maxTextLength: number;
+    maxPluginsPerOrg: number;
+    tokenDefaultDays: number;
+    tokenMaxDays: number;
+    widgetDataMaxRows: number;
+  };
 }
 
 export class CapabilitiesClient {
@@ -1072,6 +1290,43 @@ export class CapabilitiesClient {
     geocode: (address: string, opts?: RequestOptions) => Promise<GeoResult[]>;
     reverse: (lat: number | string, lon: number | string, opts?: RequestOptions) => Promise<GeoResult[]>;
     place: (id: string, opts?: RequestOptions) => Promise<GeoResult | null>;
+  };
+
+  /**
+   * Organization-installed low-code workspace plugins.
+   *
+   * Management calls need a verified organization administrator; member calls
+   * (`installed`, `widgetData`, `executeWidget`) need only a verified user with
+   * server-stored roles. `runtime` is server-to-server: it sends the workspace
+   * token in `X-Workspace-Token` and never uses the client bearer credential.
+   */
+  readonly workspaces: {
+    catalog: (opts?: RequestOptions) => Promise<WorkspaceCatalog>;
+    listPlugins: (product: WorkspaceProduct, query?: { limit?: number; offset?: number }, opts?: RequestOptions) => Promise<{ items: WorkspacePlugin[]; total: number; limit: number; offset: number }>;
+    getPlugin: (id: string, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    createPlugin: (input: WorkspacePluginInput, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    updatePlugin: (id: string, input: Partial<WorkspacePluginInput> & { version: number }, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    publishPlugin: (id: string, version?: number, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    unpublishPlugin: (id: string, version?: number, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    listPluginRevisions: (id: string, query?: { limit?: number; offset?: number }, opts?: RequestOptions) => Promise<{ items: Array<{ version: number; status: string; createdAt: string; createdBy: string; checksum: string }>; total: number; limit: number; offset: number }>;
+    /** Published snapshot for repository sync; `draft:true` is the explicit authoring view. */
+    exportPlugin: (id: string, opts?: RequestOptions & { draft?: boolean }) => Promise<WorkspacePluginBundle>;
+    /** Reproducible Tier-3 repository artifact built from the published snapshot. */
+    buildPlugin: (id: string, opts?: RequestOptions) => Promise<WorkspacePluginBundle>;
+    importPlugin: (bundle: WorkspacePluginBundle, opts?: RequestOptions) => Promise<WorkspacePlugin>;
+    provisionPlugin: (id: string, opts?: RequestOptions) => Promise<{ pluginId: string; ready: boolean; bound: number; items: Array<{ resource: string; dataset: string; status: string }> }>;
+    installPlugin: (id: string, roles?: string[], opts?: RequestOptions) => Promise<WorkspaceInstallation>;
+    uninstallPlugin: (id: string, opts?: RequestOptions) => Promise<void>;
+    installed: (opts?: RequestOptions) => Promise<{ items: InstalledWorkspacePlugin[]; total: number }>;
+    installedPlugin: (id: string, opts?: RequestOptions) => Promise<InstalledWorkspacePlugin>;
+    widgetData: (pluginId: string, widgetId: string, query?: { limit?: number; offset?: number }, opts?: RequestOptions) => Promise<WorkspaceWidgetData>;
+    executeWidget: (pluginId: string, widgetId: string, values: Record<string, string | number>, opts?: RequestOptions) => Promise<WorkspaceExecuteResult>;
+    listMembers: (query?: { limit?: number; offset?: number }, opts?: RequestOptions) => Promise<{ items: WorkspaceMember[]; total: number; limit: number; offset: number }>;
+    setMember: (subject: string, roles: string[], opts?: RequestOptions) => Promise<{ member: WorkspaceMember }>;
+    listTokens: (query?: { limit?: number; offset?: number }, opts?: RequestOptions) => Promise<{ items: WorkspaceTokenMetadata[]; total: number; limit: number; offset: number }>;
+    createToken: (input: { product: WorkspaceProduct; name: string; expiresInDays?: number }, opts?: RequestOptions) => Promise<WorkspaceCreatedToken>;
+    revokeToken: (id: string, opts?: RequestOptions) => Promise<void>;
+    runtime: (product: WorkspaceProduct, workspaceToken: string, opts?: RequestOptions) => Promise<{ items: Array<PublishedWorkspacePlugin & { widgets: WorkspaceWidget[] }>; total: number }>;
   };
 
   constructor(opts: CapabilitiesClientOptions = {}) {
@@ -1530,6 +1785,82 @@ export class CapabilitiesClient {
         const body = await this.http.request<{ result: GeoResult | null }>(`/v1/capabilities/geo/place${queryString({ id })}`, {}, requestOpts);
         return body.result;
       },
+    };
+
+    const workspaceBase = '/v1/capabilities/workspaces';
+    const pluginPath = (id: string) => `${workspaceBase}/plugins/${encodeURIComponent(id)}`;
+    const installedPath = (id: string) => `${workspaceBase}/installed/${encodeURIComponent(id)}`;
+
+    this.workspaces = {
+      catalog: (requestOpts) => this.http.request<WorkspaceCatalog>(`${workspaceBase}/catalog`, {}, requestOpts),
+      listPlugins: (product, query = {}, requestOpts) => this.http.request<{ items: WorkspacePlugin[]; total: number; limit: number; offset: number }>(
+        `${workspaceBase}/plugins${queryString({ product, limit: query.limit, offset: query.offset })}`, {}, requestOpts,
+      ),
+      getPlugin: (id, requestOpts) => this.http.request<WorkspacePlugin>(pluginPath(id), {}, requestOpts),
+      createPlugin: (input, requestOpts) => this.http.request<WorkspacePlugin>(`${workspaceBase}/plugins`, {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
+      updatePlugin: (id, input, requestOpts) => this.http.request<WorkspacePlugin>(pluginPath(id), {
+        method: 'PUT', body: JSON.stringify(input),
+      }, requestOpts),
+      publishPlugin: (id, version, requestOpts) => this.http.request<WorkspacePlugin>(`${pluginPath(id)}/publish`, {
+        method: 'POST', body: JSON.stringify(version === undefined ? {} : { version }),
+      }, requestOpts),
+      unpublishPlugin: (id, version, requestOpts) => this.http.request<WorkspacePlugin>(`${pluginPath(id)}/unpublish`, {
+        method: 'POST', body: JSON.stringify(version === undefined ? {} : { version }),
+      }, requestOpts),
+      listPluginRevisions: (id, query = {}, requestOpts) => this.http.request<{ items: Array<{ version: number; status: string; createdAt: string; createdBy: string; checksum: string }>; total: number; limit: number; offset: number }>(
+        `${pluginPath(id)}/revisions${queryString({ limit: query.limit, offset: query.offset })}`, {}, requestOpts,
+      ),
+      exportPlugin: (id, requestOpts) => this.http.request<WorkspacePluginBundle>(
+        `${pluginPath(id)}/export${requestOpts?.draft ? '?draft=1' : ''}`, {}, requestOpts,
+      ),
+      buildPlugin: (id, requestOpts) => this.http.request<WorkspacePluginBundle>(`${pluginPath(id)}/build`, {}, requestOpts),
+      importPlugin: (bundle, requestOpts) => this.http.request<WorkspacePlugin>(`${workspaceBase}/import`, {
+        method: 'POST', body: JSON.stringify(bundle),
+      }, requestOpts),
+      provisionPlugin: (id, requestOpts) => this.http.request<{ pluginId: string; ready: boolean; bound: number; items: Array<{ resource: string; dataset: string; status: string }> }>(
+        `${pluginPath(id)}/provision`, { method: 'POST', body: '{}' }, requestOpts,
+      ),
+      installPlugin: (id, roles, requestOpts) => this.http.request<WorkspaceInstallation>(`${pluginPath(id)}/install`, {
+        method: 'POST', body: JSON.stringify(roles === undefined ? {} : { roles }),
+      }, requestOpts),
+      uninstallPlugin: async (id, requestOpts) => {
+        await this.http.request<null>(`${pluginPath(id)}/install`, { method: 'DELETE' }, requestOpts);
+      },
+      installed: (requestOpts) => this.http.request<{ items: InstalledWorkspacePlugin[]; total: number }>(`${workspaceBase}/installed`, {}, requestOpts),
+      installedPlugin: (id, requestOpts) => this.http.request<InstalledWorkspacePlugin>(installedPath(id), {}, requestOpts),
+      widgetData: (pluginId, widgetId, query = {}, requestOpts) => this.http.request<WorkspaceWidgetData>(
+        `${installedPath(pluginId)}/widgets/${encodeURIComponent(widgetId)}/data${queryString({ limit: query.limit, offset: query.offset })}`,
+        {}, requestOpts,
+      ),
+      executeWidget: (pluginId, widgetId, values, requestOpts) => this.http.request<WorkspaceExecuteResult>(
+        `${installedPath(pluginId)}/widgets/${encodeURIComponent(widgetId)}/execute`,
+        { method: 'POST', body: JSON.stringify({ values }) },
+        requestOpts,
+      ),
+      listMembers: (query = {}, requestOpts) => this.http.request<{ items: WorkspaceMember[]; total: number; limit: number; offset: number }>(
+        `${workspaceBase}/members${queryString({ limit: query.limit, offset: query.offset })}`, {}, requestOpts,
+      ),
+      setMember: (subject, roles, requestOpts) => this.http.request<{ member: WorkspaceMember }>(
+        `${workspaceBase}/members/${encodeURIComponent(subject)}`,
+        { method: 'PUT', body: JSON.stringify({ roles }) },
+        requestOpts,
+      ),
+      listTokens: (query = {}, requestOpts) => this.http.request<{ items: WorkspaceTokenMetadata[]; total: number; limit: number; offset: number }>(
+        `${workspaceBase}/tokens${queryString({ limit: query.limit, offset: query.offset })}`, {}, requestOpts,
+      ),
+      createToken: (input, requestOpts) => this.http.request<WorkspaceCreatedToken>(`${workspaceBase}/tokens`, {
+        method: 'POST', body: JSON.stringify(input),
+      }, requestOpts),
+      revokeToken: async (id, requestOpts) => {
+        await this.http.request<null>(`${workspaceBase}/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }, requestOpts);
+      },
+      runtime: (product, workspaceToken, requestOpts = {}) => this.http.request<{ items: Array<PublishedWorkspacePlugin & { widgets: WorkspaceWidget[] }>; total: number }>(
+        `${workspaceBase}/runtime/${product}`,
+        {},
+        { ...requestOpts, headers: { ...(requestOpts.headers || {}), 'x-workspace-token': workspaceToken } },
+      ),
     };
   }
 

@@ -13,7 +13,7 @@ import { PRIMARY_BTN } from '../components/public-styles';
 import { useI18n, fill } from '../lib/i18n-context';
 import { cn } from '../lib/utils';
 
-const REDIRECT_TARGETS = new Set(['/admin', '/admin/datasets', '/admin/records', '/admin/modules', '/admin/settings']);
+const REDIRECT_TARGETS = new Set(['/admin', '/admin/datasets', '/admin/records', '/admin/modules', '/admin/settings', '/admin/workspaces', '/workspace']);
 const POINT_ICONS = [Layers, ShieldCheck, ScrollText];
 
 export function LoginPage() {

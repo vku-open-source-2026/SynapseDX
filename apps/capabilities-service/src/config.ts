@@ -116,21 +116,138 @@ function intValue(raw: string | undefined, fallback: number, min: number, max: n
   return Math.min(Math.max(Math.floor(parsed), min), max);
 }
 
-/** Hostnames that never belong in a production dependency URL. */
-export function isPrivateHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host) return true;
-  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
-  if (host === 'host.docker.internal' || host === 'gateway.docker.internal') return true;
-  if (host === '0.0.0.0' || host === '::' || host === '::1') return true;
-  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-  if (!v4) return false;
-  const [a, b] = [Number(v4[1]), Number(v4[2])];
-  if (a === 127 || a === 10 || a === 0) return true;
+/**
+ * Hostnames that never belong in a production dependency URL.
+ *
+ * Everything that a container runtime, an internal DNS zone or a link-local
+ * network can resolve must be rejected: a Tier-2 dependency has to be a public
+ * HTTPS endpoint, never a Docker service name, a private DNS suffix or an
+ * RFC 1918 / CGNAT / IPv6 ULA address. A false positive only makes the
+ * deployment fail fast at start-up; a false negative would route Tier-2 traffic
+ * to a private service and break the tier contract, so the check is strict.
+ */
+const PRIVATE_SUFFIXES = [
+  '.localhost',
+  '.local',
+  '.localdomain',
+  '.internal',
+  '.intranet',
+  '.corp',
+  '.lan',
+  '.home.arpa',
+  '.svc',
+  '.consul',
+  '.cluster.local',
+  '.docker.internal',
+];
+
+function isPrivateIpv4(host: string): boolean {
+  const parts = host.split('.');
+  if (parts.length !== 4) return false;
+  const [a, b, c] = parts.map((part) => {
+    if (!/^\d{1,3}$/.test(part)) return Number.NaN;
+    return Number(part);
+  });
+  if (![a, b, c].every((value) => Number.isInteger(value) && value >= 0 && value <= 255)) {
+    // Not a valid dotted quad; treat it as a name and let the caller decide.
+    return false;
+  }
+  if (a === 0 || a === 10 || a === 127) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT 100.64.0.0/10
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 0) return true; // 192.0.0.0/24, 192.0.2.0/24 documentation
+  if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking 198.18.0.0/15
+  if (a === 198 && b === 51 && c === 100) return true; // TEST-NET-2
+  if (a === 203 && b === 0 && c === 113) return true; // TEST-NET-3
+  if (a >= 224) return true; // multicast, reserved, broadcast
   return false;
+}
+
+/** Expand an IPv6 literal to eight 16-bit groups (null when invalid). */
+function ipv6Groups(input: string): number[] | null {
+  const value = input.split('%')[0];
+  if (!value.includes(':')) return null;
+  const halves = value.split('::');
+  if (halves.length > 2) return null;
+  const parse = (part: string): number[] | null => {
+    if (!part) return [];
+    const out: number[] = [];
+    const items = part.split(':');
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item.includes('.')) {
+        // Embedded IPv4 is only legal in the last group.
+        if (index !== items.length - 1) return null;
+        const v4 = item.split('.').map(Number);
+        if (v4.length !== 4 || v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+        out.push((v4[0] << 8) | v4[1], (v4[2] << 8) | v4[3]);
+        continue;
+      }
+      if (!/^[0-9a-f]{1,4}$/.test(item)) return null;
+      out.push(parseInt(item, 16));
+    }
+    return out;
+  };
+  const head = parse(halves[0]);
+  const tail = halves.length === 2 ? parse(halves[1]) : [];
+  if (!head || !tail) return null;
+  if (halves.length === 2) {
+    const fill = 8 - head.length - tail.length;
+    if (fill < 0) return null;
+    return [...head, ...new Array<number>(fill).fill(0), ...tail];
+  }
+  return head.length === 8 ? head : null;
+}
+
+function ipv4FromGroups(high: number, low: number): string {
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff].join('.');
+}
+
+function isPrivateIpv6(groups: number[]): boolean {
+  const firstFiveZero = groups.slice(0, 5).every((group) => group === 0);
+  if (groups.every((group) => group === 0)) return true; // ::
+  if (firstFiveZero && groups[5] === 0 && groups[6] === 0 && groups[7] === 1) return true; // ::1
+  if (groups.slice(0, 6).every((group) => group === 0) && (groups[6] !== 0 || groups[7] !== 0)) {
+    // Deprecated IPv4-compatible ::a.b.c.d
+    return true;
+  }
+  if (firstFiveZero && groups[5] === 0xffff) {
+    return isPrivateIpv4(ipv4FromGroups(groups[6], groups[7])); // ::ffff:a.b.c.d
+  }
+  if (groups[0] === 0x64 && groups[1] === 0xff9b && groups.slice(2, 6).every((group) => group === 0)) {
+    return isPrivateIpv4(ipv4FromGroups(groups[6], groups[7])); // NAT64 64:ff9b::/96
+  }
+  if (groups[0] === 0x100 && groups.slice(1, 4).every((group) => group === 0)) {
+    return true; // 100::/64 discard-only
+  }
+  if (groups[0] === 0x2001 && groups[1] === 0xdb8) return true; // documentation 2001:db8::/32
+  if (groups[0] === 0x2002) {
+    return isPrivateIpv4(ipv4FromGroups(groups[1], groups[2])); // 6to4 embeds IPv4
+  }
+  if ((groups[0] & 0xfe00) === 0xfc00) return true; // fc00::/7 unique-local
+  if ((groups[0] & 0xffc0) === 0xfe80) return true; // fe80::/10 link-local
+  if ((groups[0] & 0xff00) === 0xff00) return true; // ff00::/8 multicast
+  return false;
+}
+
+export function isPrivateHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  for (const suffix of PRIVATE_SUFFIXES) {
+    if (host === suffix.slice(1) || host.endsWith(suffix)) return true;
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return isPrivateIpv4(host);
+  if (host.includes(':')) {
+    const groups = ipv6Groups(host);
+    if (!groups) return true; // malformed IPv6 literal: never a public dependency
+    return isPrivateIpv6(groups);
+  }
+  // A hostname without a dot is a Docker/Kubernetes/compose service name; it can
+  // resolve only inside the private network (e.g. `capabilities`, `postgres`).
+  return !host.includes('.');
 }
 
 /** Validate and normalize a dependency URL, failing fast on a non-public host. */

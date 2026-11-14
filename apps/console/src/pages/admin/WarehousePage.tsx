@@ -6,7 +6,7 @@
  */
 import { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BarChart3, Database, Play, Plus, RefreshCw, Send, Table2 } from 'lucide-react';
+import { BarChart3, Database, Play, Plus, RefreshCw, Send, Table2, Pause, RotateCcw, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { useToastStore } from '../../stores/toastStore';
 import {
@@ -73,6 +73,15 @@ interface DashboardRun {
     result: QueryResult;
   }>;
 }
+interface Job {
+  id: string;
+  name: string;
+  mode: 'batch' | 'stream';
+  status: string;
+  targetDatasetId: string;
+  streamTopic?: string | null;
+  lastError?: string | null;
+}
 
 const DEFAULT_SQL = "SELECT city, count(*) AS incidents, avg(severity) AS avg_severity\nFROM city_incidents\nGROUP BY city\nORDER BY incidents DESC";
 
@@ -116,6 +125,15 @@ export function WarehousePage() {
   const [reportName, setReportName] = useState('');
   const [dashboardRun, setDashboardRun] = useState<DashboardRun | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showDatasetForm, setShowDatasetForm] = useState(false);
+  const [datasetForm, setDatasetForm] = useState({
+    id: '',
+    name: '',
+    description: '',
+    mode: 'batch' as 'batch' | 'stream',
+    streamTopic: '',
+    columns: '[\n  {"name":"value","type":"number"}\n]',
+  });
 
   const status = useQuery({ queryKey: ['warehouse', 'status'], queryFn: () => api.get<any>('/v1/capabilities/warehouse/status') });
   const datasets = useQuery({ queryKey: ['warehouse', 'datasets'], queryFn: () => api.get<{ items: Dataset[] }>('/v1/capabilities/warehouse/datasets') });
@@ -124,6 +142,7 @@ export function WarehousePage() {
   const useCases = useQuery({ queryKey: ['warehouse', 'use-cases'], queryFn: () => api.get<{ items: UseCase[] }>('/v1/capabilities/warehouse/use-cases') });
   const reports = useQuery({ queryKey: ['warehouse', 'reports'], queryFn: () => api.get<{ items: Report[] }>('/v1/capabilities/warehouse/reports') });
   const dashboards = useQuery({ queryKey: ['warehouse', 'dashboards'], queryFn: () => api.get<{ items: Dashboard[] }>('/v1/capabilities/warehouse/dashboards') });
+  const jobs = useQuery({ queryKey: ['warehouse', 'jobs'], queryFn: () => api.get<{ items: Job[] }>('/v1/capabilities/warehouse/jobs') });
 
   const template = useMemo(
     () => templates.data?.items.find((item) => item.id === templateId),
@@ -217,6 +236,129 @@ export function WarehousePage() {
       push(created?.id ? `Workflow ${created.id.slice(0, 8)}… created.` : 'Workflow created.');
     } catch (error) {
       push((error as Error).message || 'Could not create the workflow.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createDataset = async () => {
+    if (busy) return;
+    let columns: Column[];
+    try {
+      columns = JSON.parse(datasetForm.columns) as Column[];
+      if (!Array.isArray(columns) || !columns.length) throw new Error('columns must be a non-empty array');
+    } catch (error) {
+      push(`Invalid columns JSON: ${(error as Error).message}`);
+      return;
+    }
+    setBusy('dataset:create');
+    try {
+      await api.post('/v1/capabilities/warehouse/datasets', {
+        ...(datasetForm.id.trim() ? { id: datasetForm.id.trim() } : {}),
+        name: datasetForm.name.trim(),
+        ...(datasetForm.description.trim() ? { description: datasetForm.description.trim() } : {}),
+        mode: datasetForm.mode,
+        ...(datasetForm.mode === 'stream' && datasetForm.streamTopic.trim()
+          ? { streamTopic: datasetForm.streamTopic.trim() }
+          : {}),
+        columns,
+      });
+      push('Dataset created.');
+      setShowDatasetForm(false);
+      setDatasetForm({ id: '', name: '', description: '', mode: 'batch', streamTopic: '', columns: '[\n  {"name":"value","type":"number"}\n]' });
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || 'Could not create the dataset.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteDataset = async (id: string) => {
+    if (busy || !window.confirm(`Delete dataset "${id}" and all its jobs?`)) return;
+    setBusy(`dataset:delete:${id}`);
+    try {
+      await api.del(`/v1/capabilities/warehouse/datasets/${encodeURIComponent(id)}`);
+      push('Dataset deleted.');
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || 'Could not delete the dataset.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const jobAction = async (id: string, action: 'run' | 'pause' | 'resume' | 'delete') => {
+    if (busy) return;
+    if (action === 'delete' && !window.confirm(`Delete job "${id}"?`)) return;
+    setBusy(`job:${action}:${id}`);
+    try {
+      const path = `/v1/capabilities/warehouse/jobs/${encodeURIComponent(id)}${action === 'delete' ? '' : `/${action}`}`;
+      if (action === 'delete') await api.del(path);
+      else await api.post(path);
+      push(`Job ${action === 'delete' ? 'deleted' : action === 'pause' ? 'paused' : action === 'resume' ? 'resumed' : 'started'}.`);
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || `Could not ${action} the job.`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteReport = async (id: string) => {
+    if (busy || !window.confirm('Delete this report?')) return;
+    setBusy(`report:delete:${id}`);
+    try {
+      await api.del(`/v1/capabilities/warehouse/reports/${encodeURIComponent(id)}`);
+      push('Report deleted.');
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || 'Could not delete the report.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createDashboard = async () => {
+    if (busy) return;
+    const name = window.prompt('Dashboard name:');
+    if (!name || !name.trim()) return;
+    const available = reports.data?.items || [];
+    if (!available.length) {
+      push('Save at least one report before creating a dashboard.');
+      return;
+    }
+    setBusy('dashboard:create');
+    try {
+      await api.post('/v1/capabilities/warehouse/dashboards', {
+        name: name.trim(),
+        widgets: available.map((report, index) => ({
+          reportId: report.id,
+          title: report.name,
+          x: 0,
+          y: index * 4,
+          w: 12,
+          h: 4,
+        })).slice(0, 12),
+      });
+      push('Dashboard created.');
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || 'Could not create the dashboard.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteDashboard = async (id: string) => {
+    if (busy || !window.confirm('Delete this dashboard?')) return;
+    setBusy(`dashboard:delete:${id}`);
+    try {
+      await api.del(`/v1/capabilities/warehouse/dashboards/${encodeURIComponent(id)}`);
+      push('Dashboard deleted.');
+      await refresh();
+    } catch (error) {
+      push((error as Error).message || 'Could not delete the dashboard.');
     } finally {
       setBusy(null);
     }
@@ -367,7 +509,44 @@ export function WarehousePage() {
         </Card>
 
         <Card>
-          <CardHeader eyebrow="Datasets" title="Warehouse tables" description="Tier-1 DuckDB tables in this tenant." />
+          <CardHeader
+            eyebrow="Datasets"
+            title="Warehouse tables"
+            description="Tier-1 DuckDB tables in this tenant."
+            actions={
+              <Button variant="ghost" onClick={() => setShowDatasetForm((value) => !value)} disabled={Boolean(busy)}>
+                <Plus size={14} /> New dataset
+              </Button>
+            }
+          />
+          {showDatasetForm ? (
+            <div className="space-y-2 border-b border-slate-100 px-5 py-4 dark:border-[#1f2c40]">
+              <div className="grid gap-2 md:grid-cols-2">
+                <input className={inputClassName} placeholder="id (optional; slug)" value={datasetForm.id} onChange={(event) => setDatasetForm((value) => ({ ...value, id: event.target.value }))} />
+                <input className={inputClassName} placeholder="name" value={datasetForm.name} onChange={(event) => setDatasetForm((value) => ({ ...value, name: event.target.value }))} />
+                <input className={inputClassName} placeholder="description (optional)" value={datasetForm.description} onChange={(event) => setDatasetForm((value) => ({ ...value, description: event.target.value }))} />
+                <select className={selectClassName} value={datasetForm.mode} onChange={(event) => setDatasetForm((value) => ({ ...value, mode: event.target.value as 'batch' | 'stream' }))}>
+                  <option value="batch">batch</option>
+                  <option value="stream">stream</option>
+                </select>
+                {datasetForm.mode === 'stream' ? (
+                  <input className={inputClassName} placeholder="stream topic" value={datasetForm.streamTopic} onChange={(event) => setDatasetForm((value) => ({ ...value, streamTopic: event.target.value }))} />
+                ) : null}
+              </div>
+              <textarea
+                className={`${inputClassName} min-h-[90px] font-mono text-xs`}
+                value={datasetForm.columns}
+                onChange={(event) => setDatasetForm((value) => ({ ...value, columns: event.target.value }))}
+                spellCheck={false}
+              />
+              <div className="flex gap-2">
+                <Button variant="primary" onClick={() => void createDataset()} disabled={Boolean(busy) || !datasetForm.name.trim()}>
+                  <Plus size={14} /> Create dataset
+                </Button>
+                <Button variant="ghost" onClick={() => setShowDatasetForm(false)} disabled={Boolean(busy)}>Cancel</Button>
+              </div>
+            </div>
+          ) : null}
           <div className="space-y-2 px-5 py-4">
             {(datasets.data?.items || []).map((dataset) => (
               <div key={dataset.id} className="rounded-xl border border-slate-200 p-3 dark:border-[#26354d]">
@@ -379,6 +558,9 @@ export function WarehousePage() {
                   <div className="flex gap-1">
                     <Pill tone={dataset.mode === 'stream' ? 'warn' : 'neutral'}>{dataset.mode}</Pill>
                     <Pill tone="ok">{dataset.rowCount} rows</Pill>
+                    <Button variant="ghost" onClick={() => void deleteDataset(dataset.id)} disabled={Boolean(busy)}>
+                      <Trash2 size={13} className="text-red-500" />
+                    </Button>
                   </div>
                 </div>
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -397,6 +579,42 @@ export function WarehousePage() {
           </div>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader
+          eyebrow="ETL jobs"
+          title="Batch and stream jobs"
+          description="Run, pause, resume or delete Tier-1 materialization jobs."
+          actions={<Button variant="ghost" onClick={() => void refresh()} disabled={Boolean(busy)}><RefreshCw size={14} /> Refresh</Button>}
+        />
+        <div className="space-y-2 px-5 py-4">
+          {(jobs.data?.items || []).map((job) => (
+            <div key={job.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 p-3 dark:border-[#26354d]">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{job.name}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {job.id} · {job.mode} → {job.targetDatasetId}
+                  {job.streamTopic ? ` · ${job.streamTopic}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Pill tone={job.status === 'running' ? 'ok' : job.status === 'paused' ? 'warn' : 'neutral'}>{job.status}</Pill>
+                {job.mode === 'batch' ? (
+                  <Button variant="ghost" onClick={() => void jobAction(job.id, 'run')} disabled={Boolean(busy)}><Play size={13} /> Run</Button>
+                ) : job.status === 'paused' ? (
+                  <Button variant="ghost" onClick={() => void jobAction(job.id, 'resume')} disabled={Boolean(busy)}><RotateCcw size={13} /> Resume</Button>
+                ) : (
+                  <Button variant="ghost" onClick={() => void jobAction(job.id, 'pause')} disabled={Boolean(busy)}><Pause size={13} /> Pause</Button>
+                )}
+                <Button variant="ghost" onClick={() => void jobAction(job.id, 'delete')} disabled={Boolean(busy)}>
+                  <Trash2 size={13} className="text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+          {!jobs.data?.items?.length ? <EmptyState icon={<Play size={18} />} title="No jobs" message="Create an ETL job from a use case or stream template." /> : null}
+        </div>
+      </Card>
 
       {result ? (
         <Card>
@@ -419,6 +637,9 @@ export function WarehousePage() {
                   <Pill tone={report.visibility === 'published' ? 'ok' : 'neutral'}>{report.visibility}</Pill>
                   <Button variant="ghost" onClick={() => void runReport(report.id)} disabled={Boolean(busy)}><Play size={13} /> Run</Button>
                   <Button variant="ok" onClick={() => void publishReport(report.id)} disabled={Boolean(busy)}>Publish</Button>
+                  <Button variant="ghost" onClick={() => void deleteReport(report.id)} disabled={Boolean(busy)}>
+                    <Trash2 size={13} className="text-red-500" />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -427,7 +648,12 @@ export function WarehousePage() {
         </Card>
 
         <Card>
-          <CardHeader eyebrow="Dashboards" title="Manager dashboards" description="A dashboard is a small set of reports; publish stores the snapshots." />
+          <CardHeader
+            eyebrow="Dashboards"
+            title="Manager dashboards"
+            description="A dashboard is a small set of reports; publish stores the snapshots."
+            actions={<Button variant="ghost" onClick={() => void createDashboard()} disabled={Boolean(busy)}><Plus size={14} /> New dashboard</Button>}
+          />
           <div className="space-y-2 px-5 py-4">
             {(dashboards.data?.items || []).map((dashboard) => (
               <div key={dashboard.id} className="rounded-xl border border-slate-200 p-3 dark:border-[#26354d]">
@@ -440,6 +666,9 @@ export function WarehousePage() {
                     <Pill tone={dashboard.visibility === 'published' ? 'ok' : 'neutral'}>{dashboard.visibility}</Pill>
                     <Button variant="ghost" onClick={() => void runDashboard(dashboard.id)} disabled={Boolean(busy)}><BarChart3 size={13} /> Run</Button>
                     <Button variant="ok" onClick={() => void publishDashboard(dashboard.id)} disabled={Boolean(busy)}>Publish</Button>
+                    <Button variant="ghost" onClick={() => void deleteDashboard(dashboard.id)} disabled={Boolean(busy)}>
+                      <Trash2 size={13} className="text-red-500" />
+                    </Button>
                   </div>
                 </div>
               </div>

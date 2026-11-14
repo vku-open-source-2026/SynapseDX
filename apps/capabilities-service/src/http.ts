@@ -171,6 +171,23 @@ export const KNOWN_ROUTES: KnownRoute[] = [
   { pattern: /^\/v1\/capabilities\/audit$/, methods: ['GET'] },
   { pattern: /^\/v1\/capabilities\/usage$/, methods: ['GET'] },
   { pattern: /^\/v1\/capabilities\/usage\/events$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/catalog$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins$/, methods: ['GET', 'POST'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins\/[^/]+$/, methods: ['GET', 'PUT'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins\/[^/]+\/(publish|unpublish|provision)$/, methods: ['POST'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins\/[^/]+\/revisions$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins\/[^/]+\/export$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/plugins\/[^/]+\/install$/, methods: ['POST', 'DELETE'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/installed$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/installed\/[^/]+$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/installed\/[^/]+\/widgets\/[^/]+\/data$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/installed\/[^/]+\/widgets\/[^/]+\/execute$/, methods: ['POST'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/members$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/members\/[^/]+$/, methods: ['PUT'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/tokens$/, methods: ['GET', 'POST'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/tokens\/[^/]+$/, methods: ['DELETE'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/runtime\/(city|sos)$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/workspaces\/import$/, methods: ['POST'] },
 ];
 
 export function notFoundMiddleware() {
