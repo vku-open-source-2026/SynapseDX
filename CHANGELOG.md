@@ -5,10 +5,40 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- A saved console session is verified before `/login` renders, then continues to
+  the role-appropriate page (`/admin` for management roles, `/workspace` for
+  members/volunteers). Public header/home links and the root route resolve the
+  same destination instead of sending an authenticated member back to the
+  login form or into the admin shell.
+- The admin shell now refuses a verified member without a management role and
+  shows a recoverable error boundary instead of a blank page. Wildcard member
+  tokens are no longer projected as a management `viewer`; only verified
+  organization administration or an explicit management scope opens the
+  control plane.
+- Organization-admin verification and IAM profile enrichment use a bounded
+  short-TTL projection cache. Several console requests on one page no longer
+  trigger repeated `/v1/auth/me` calls that hit the Tier-1 rate limit and made
+  an administrator intermittently look unauthenticated.
+- Workspace widget reads no longer list every installed plugin and snapshot per
+  widget. Requested-install lookup, member roles, plugin/snapshot metadata and
+  dataset metadata are read through short TTL caches invalidated by the
+  corresponding mutations, preventing edge `503`/rate-limit failures on pages
+  with many widgets.
+- Portable plugin export/build now uses the workflow artifact's
+  `portableChecksum` (credential-id independent) for `workflowRef.checksum`,
+  while execution pins continue to use the deployed graph checksum. A bundle
+  synced between DX deployments no longer carries an environment-specific
+  checksum.
+
 ### Changed
 - The public gateway is now a Rust/Axum service (`apps/gateway/src/main.rs`);
   it keeps the existing proxy, CORS, correlation-ID, timeout and header
   contract while the Docker image builds a release binary instead of Node.js.
+- The workspace catalog now exposes the full City and SOS operational resource
+  sets (`iotReadings`, `budgetTransactions`, `users`, `geofences`, `ingest`,
+  `files`, `notifications`; `hazards`, `hazardIngest`, `mutualAid`) so the
+  admin/member page catalog can bind every product-owned dataset.
 
 ### Added
 - The low-code workspace builder can build a published plugin into a

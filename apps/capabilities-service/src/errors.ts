@@ -157,6 +157,7 @@ export type ErrorCode =
   | 'crawl_running'
   | 'admin_required'
   | 'admin_verification_unavailable'
+  | 'management_forbidden'
   | 'workspace_tenant_required'
   | 'plugin_not_found'
   | 'plugin_slug_exists'

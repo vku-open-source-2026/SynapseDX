@@ -8,6 +8,7 @@ import { Topbar } from './Topbar';
 import { Footer } from './Footer';
 import { Toaster } from './Toaster';
 import { Skeleton, Button } from './ui';
+import { hasManagementAccess } from '../lib/landing';
 import { useI18n } from '../lib/i18n-context';
 
 /** Protected console shell: session gate + admin layout + outbox health. */
@@ -48,6 +49,13 @@ export function AdminLayout() {
         </div>
       </div>
     );
+  }
+
+  // A verified member without a management role must never see the control
+  // plane shell. This is a navigation guard, not authorization: every admin
+  // API still rejects the caller server-side.
+  if (status === 'ready' && context && !hasManagementAccess(context)) {
+    return <Navigate to="/workspace" replace />;
   }
 
   const ready = status === 'ready' && Boolean(context);

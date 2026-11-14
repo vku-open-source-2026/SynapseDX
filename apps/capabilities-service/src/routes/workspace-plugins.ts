@@ -28,7 +28,8 @@ import {
   COLLECTIONS, CapabilityRecord, correlationIdOf, getDocumentOrNull, isConflict,
   isNotFound, queryDocuments, recordAudit, serviceClient,
 } from '../platform';
-import { loadDataset } from '../publication';
+import { loadDataset, type DatasetDocument } from '../publication';
+import { TtlCache } from '../ttl-cache';
 import {
   ADMIN_TIER_ROLES, MEMBER_ROLES, PRODUCT_RESOURCES, PUBLIC_ROLES, TOKEN_PREFIX, WIDGET_ACTIONS,
   WorkspaceInstallRecord, WorkspaceLimits, WorkspaceMemberRecord, WorkspacePluginRecord,
@@ -61,6 +62,53 @@ const WORKSPACE_COLLECTIONS = [
   COLLECTIONS.workspaceMembers,
   COLLECTIONS.workspaceTokens,
 ];
+
+/**
+ * Read-through projections for a console page load. Every widget request
+ * previously re-listed every install and re-read every plugin/snapshot from
+ * Tier-1; a 15-widget page could issue hundreds of upstream reads and trip the
+ * edge rate limit. These caches are short-lived, tenant-keyed and explicitly
+ * invalidated by the mutation paths below. They are not a database.
+ */
+const CACHE_READS = process.env.NODE_ENV !== 'test';
+const cacheTtl = (milliseconds: number): number => (CACHE_READS ? milliseconds : 0);
+const memberRolesCache = new TtlCache<string[]>(cacheTtl(5_000), 1_000);
+const installCache = new TtlCache<WorkspaceInstallRecord>(cacheTtl(5_000), 1_000);
+const installListCache = new TtlCache<Map<string, WorkspaceInstallRecord>>(cacheTtl(3_000), 100);
+const pluginCache = new TtlCache<PluginDocument>(cacheTtl(3_000), 500);
+const snapshotCache = new TtlCache<WorkspaceSnapshotRecord>(cacheTtl(60_000), 1_000);
+const datasetCache = new TtlCache<DatasetDocument>(cacheTtl(3_000), 200);
+
+/** Test-only: clear workspace read-through caches between harnesses. */
+export function resetWorkspaceCachesForTests(): void {
+  memberRolesCache.clear();
+  installCache.clear();
+  installListCache.clear();
+  pluginCache.clear();
+  snapshotCache.clear();
+  datasetCache.clear();
+}
+
+async function loadWorkspaceDataset(client: SynapseOneClient, id: string): Promise<DatasetDocument | null> {
+  const cached = datasetCache.get(id);
+  if (cached) return cached;
+  const found = await loadDataset(client, id);
+  if (found) datasetCache.set(id, found);
+  return found;
+}
+
+function invalidateWorkspaceCaches(tenant: string, pluginId?: string): void {
+  memberRolesCache.deletePrefix(`${tenant}:`);
+  installListCache.deletePrefix(`${tenant}:`);
+  if (pluginId) {
+    pluginCache.delete(`${tenant}:${pluginId}`);
+    installCache.delete(`${tenant}:${pluginId}`);
+  } else {
+    pluginCache.deletePrefix(`${tenant}:`);
+    installCache.deletePrefix(`${tenant}:`);
+  }
+  snapshotCache.deletePrefix(`${tenant}:`);
+}
 
 interface WorkspaceContext {
   caller: Caller;
@@ -177,9 +225,14 @@ function memberDocumentId(tenant: string, subject: string): string {
 }
 
 async function loadPlugin(client: SynapseOneClient, tenant: string, id: string): Promise<PluginDocument> {
+  const cacheKey = `${tenant}:${id}`;
+  const cached = pluginCache.get(cacheKey);
+  if (cached) return cached;
   const document = await getDocumentOrNull<WorkspacePluginRecord>(client, COLLECTIONS.workspacePlugins, id);
   if (!document || document.data.tenant !== tenant) throw apiError(404, 'plugin_not_found', 'plugin not found');
-  return { record: document.data, version: document.version };
+  const value = { record: document.data, version: document.version };
+  pluginCache.set(cacheKey, value);
+  return value;
 }
 
 async function loadSnapshot(
@@ -189,22 +242,32 @@ async function loadSnapshot(
   version: number | undefined,
 ): Promise<WorkspaceSnapshotRecord | null> {
   if (version === undefined) return null;
+  const cacheKey = `${tenant}:${pluginId}:${version}`;
+  const cached = snapshotCache.get(cacheKey);
+  if (cached) return cached;
   const document = await getDocumentOrNull<WorkspaceSnapshotRecord>(
     client, COLLECTIONS.workspacePluginSnapshots, snapshotDocumentId(pluginId, version),
   );
   if (!document || document.data.tenant !== tenant) return null;
+  snapshotCache.set(cacheKey, document.data);
   return document.data;
 }
 
 async function loadInstall(client: SynapseOneClient, tenant: string, pluginId: string): Promise<WorkspaceInstallRecord | null> {
+  const cacheKey = `${tenant}:${pluginId}`;
+  const cached = installCache.get(cacheKey);
+  if (cached) return cached;
   const document = await getDocumentOrNull<WorkspaceInstallRecord>(
     client, COLLECTIONS.workspaceInstalls, installDocumentId(tenant, pluginId),
   );
   if (!document || document.data.tenant !== tenant) return null;
+  installCache.set(cacheKey, document.data);
   return document.data;
 }
 
 async function listInstalls(client: SynapseOneClient, tenant: string): Promise<Map<string, WorkspaceInstallRecord>> {
+  const cached = installListCache.get(tenant);
+  if (cached) return cached;
   const result = await queryDocuments<WorkspaceInstallRecord>(client, COLLECTIONS.workspaceInstalls, {
     where: { tenant }, limit: 1000,
   });
@@ -212,6 +275,7 @@ async function listInstalls(client: SynapseOneClient, tenant: string): Promise<M
   for (const item of result.items) {
     if (item.data.tenant === tenant) map.set(item.data.pluginId, item.data);
   }
+  installListCache.set(tenant, map);
   return map;
 }
 
@@ -278,10 +342,16 @@ async function memberRolesFor(
   principal: CallerPrincipal,
   req: Request,
 ): Promise<string[]> {
+  const cacheKey = `${tenant}:${principal.subject}`;
+  const cached = memberRolesCache.get(cacheKey);
+  if (cached) return cached;
   const member = await loadMember(client, tenant, principal.subject);
-  if (member) return member.roles.filter((role) => !PUBLIC_ROLES.includes(role));
-  const bootstrapped = await ensureAdminMembership(client, config, tenant, principal, req);
-  return (bootstrapped?.roles || []).filter((role) => !PUBLIC_ROLES.includes(role));
+  const roles = member
+    ? member.roles.filter((role) => !PUBLIC_ROLES.includes(role))
+    : ((await ensureAdminMembership(client, config, tenant, principal, req))?.roles || [])
+      .filter((role) => !PUBLIC_ROLES.includes(role));
+  memberRolesCache.set(cacheKey, roles);
+  return roles;
 }
 
 /* ------------------------------------------------------------------------- *
@@ -294,6 +364,7 @@ interface WorkflowArtifactRecordLike {
   name?: string;
   slug?: string;
   checksum?: string;
+  portableChecksum?: string;
   revision?: number;
   workflowRevision?: number;
   workflowId?: string;
@@ -356,7 +427,9 @@ async function artifactRefsFor(
     refs.set(widget.workflowArtifactId, {
       name: String(artifact.name || artifact.id).slice(0, 160),
       ...(artifact.slug ? { slug: artifact.slug } : {}),
-      ...(artifact.checksum && /^[a-f0-9]{64}$/.test(artifact.checksum) ? { checksum: artifact.checksum } : {}),
+      ...(artifact.portableChecksum && /^[a-f0-9]{64}$/.test(artifact.portableChecksum)
+        ? { checksum: artifact.portableChecksum }
+        : artifact.checksum && /^[a-f0-9]{64}$/.test(artifact.checksum) ? { checksum: artifact.checksum } : {}),
     });
   }
   return refs;
@@ -382,7 +455,11 @@ async function resolveArtifactRefs(
     let matches = artifacts.filter((artifact) => (
       ref.slug ? artifact.slug === ref.slug : String(artifact.name || '') === ref.name
     ));
-    if (ref.checksum) matches = matches.filter((artifact) => artifact.checksum === ref.checksum);
+    if (ref.checksum) {
+      matches = matches.filter((artifact) =>
+        (artifact.portableChecksum || artifact.checksum) === ref.checksum,
+      );
+    }
     if (matches.length === 0) {
       throw apiError(409, 'workflow_artifact_not_found', 'import the referenced workflow artifact before this plugin', {
         widgetId: widget.id, ref,
@@ -462,6 +539,7 @@ async function pinArtifactBindings(
       ...widget,
       workflowArtifactRevision: artifact.revision as number,
       workflowArtifactChecksum: String(artifact.checksum),
+      workflowArtifactPortableChecksum: String(artifact.portableChecksum || artifact.checksum),
     });
   }
   return pinned;
@@ -472,6 +550,7 @@ function publicWidget(widget: WorkspaceWidget): WorkspaceWidget {
   const {
     workflowArtifactRevision: _revision,
     workflowArtifactChecksum: _checksum,
+    workflowArtifactPortableChecksum: _portableChecksum,
     ...rest
   } = widget;
   return rest;
@@ -688,10 +767,30 @@ async function installedEntry(
   req: Request,
   pluginId: string,
 ): Promise<InstalledEntry> {
-  const entries = await installedEntries(client, config, tenant, principal, req);
-  const found = entries.find((entry) => entry.snapshot.pluginId === pluginId);
-  if (!found) throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
-  return found;
+  // Load exactly the requested install instead of every install owned by the
+  // organization. A widget data request used to read all N plugins and
+  // snapshots, which made a page with a dozen widgets exceed the Tier-1 edge
+  // rate limit before the first render completed.
+  const memberRoles = await memberRolesFor(client, config, tenant, principal, req);
+  if (!memberRoles.length) {
+    throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  }
+  const install = await loadInstall(client, tenant, pluginId);
+  if (!install) throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  const plugin = await loadPlugin(client, tenant, pluginId);
+  if (plugin.record.status !== 'published' || plugin.record.publishedVersion === undefined) {
+    throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  }
+  const snapshot = await loadSnapshot(client, tenant, pluginId, plugin.record.publishedVersion);
+  if (!snapshot || snapshot.pluginId !== pluginId) {
+    throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  }
+  const roles = effectiveRoles(memberRoles, install.roles, snapshot.roles);
+  if (!roles.length) throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  if (snapshot.audience === 'admin' && !intersectRoles(memberRoles, ADMIN_TIER_ROLES).length) {
+    throw apiError(404, 'plugin_not_installed', 'this plugin is not installed for your organization');
+  }
+  return { snapshot, install, effectiveRoles: roles };
 }
 
 /* ------------------------------------------------------------------------- *
@@ -884,6 +983,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       id: record.id, data: record as unknown as Record<string, unknown>,
     });
     await persistRevision(context.client, record, 'draft');
+    invalidateWorkspaceCaches(context.tenant, record.id);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -963,6 +1063,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       throw error;
     }
     await persistRevision(context.client, updated, updated.status);
+    invalidateWorkspaceCaches(context.tenant, id);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1045,6 +1146,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       throw error;
     }
     await persistRevision(context.client, published, 'published');
+    invalidateWorkspaceCaches(context.tenant, id);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1088,6 +1190,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       if (isConflict(error)) throw apiError(409, 'version_conflict', 'plugin was modified by another request');
       throw error;
     }
+    invalidateWorkspaceCaches(context.tenant, id);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1272,6 +1375,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       id: record.id, data: record as unknown as Record<string, unknown>,
     });
     await persistRevision(context.client, record, 'draft');
+    invalidateWorkspaceCaches(context.tenant, record.id);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1335,6 +1439,8 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
         if (isConflict(error)) throw apiError(409, 'version_conflict', 'the installation was modified by another request');
         throw error;
       }
+      installCache.delete(`${context.tenant}:${id}`);
+      installListCache.delete(context.tenant);
       await recordAudit(context.client, config, {
         actor: context.principal.subject,
         tenant: context.tenant,
@@ -1364,6 +1470,8 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
       if (isConflict(error)) throw apiError(409, 'installation_exists', 'this plugin is already installed');
       throw error;
     }
+    installCache.delete(`${context.tenant}:${id}`);
+    installListCache.delete(context.tenant);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1384,6 +1492,8 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
     } catch (error) {
       if (!isNotFound(error)) throw error;
     }
+    installCache.delete(`${context.tenant}:${id}`);
+    installListCache.delete(context.tenant);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,
@@ -1417,7 +1527,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
     }
     const items: Array<{ resource: string; dataset: string; status: string }> = [];
     for (const entry of resources.values()) {
-      const found = await loadDataset(context.client, entry.dataset);
+      const found = await loadWorkspaceDataset(context.client, entry.dataset);
       if (!found) {
         items.push({ ...entry, status: 'missing' });
         continue;
@@ -1500,7 +1610,7 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
     if (!widget.resource) throw apiError(400, 'widget_data_unavailable', 'this widget has no bound resource');
     const mapping = resourceFor(entry.snapshot.product, widget.resource);
     if (!mapping) throw apiError(409, 'resource_not_allowed', 'this widget resource is no longer allowed');
-    const dataset = await loadDataset(context.client, mapping.dataset);
+    const dataset = await loadWorkspaceDataset(context.client, mapping.dataset);
     if (!dataset || dataset.data.tenant !== context.tenant) {
       throw apiError(404, 'widget_data_unavailable', 'the bound dataset is not provisioned for this organization');
     }
@@ -1775,6 +1885,8 @@ export function registerWorkspacePluginRoutes(app: Express, config: ServiceConfi
         throw error;
       }
     }
+    memberRolesCache.delete(`${context.tenant}:${subject}`);
+    installListCache.delete(context.tenant);
     await recordAudit(context.client, config, {
       actor: context.principal.subject,
       tenant: context.tenant,

@@ -226,6 +226,112 @@ let orgAdminLookupWarned = false;
  * exact claimed organization, and a literal `is_org_admin === true`. A payload
  * with a missing org or a different user id is never accepted.
  */
+/**
+ * Per-credential organization-admin projection cache.
+ *
+ * Every admin request used to call Tier-1 IAM `GET /v1/auth/me`. A normal page
+ * load issues several parallel requests and the IAM rate limiter answered 429;
+ * the projection then fell back to "member", the UI treated an administrator
+ * as unauthenticated for admin routes and the page looked broken. The cache is
+ * keyed by a hash of the presented credential (never the secret itself) and a
+ * short TTL keeps revocation/role changes bounded. Failed lookups are not
+ * cached, and concurrent lookups for one credential share a promise.
+ */
+const ORG_ADMIN_CACHE_MAX = 500;
+const orgAdminCache = new Map<string, { value: boolean; expiresAt: number }>();
+const orgAdminInFlight = new Map<string, Promise<boolean>>();
+const iamMeCache = new Map<string, { value: unknown; expiresAt: number }>();
+const iamMeInFlight = new Map<string, Promise<unknown>>();
+
+/** Test-only: clear the module-level projection cache between harnesses. */
+export function resetAuthCachesForTests(): void {
+  orgAdminCache.clear();
+  orgAdminInFlight.clear();
+  iamMeCache.clear();
+  iamMeInFlight.clear();
+  orgAdminLookupWarned = false;
+}
+
+/**
+ * Cached `GET /v1/auth/me` projection for the presented credential.
+ *
+ * A single console page can issue ten authenticated requests; each one used to
+ * call IAM twice (admin verification plus profile enrichment) and quickly hit
+ * the upstream rate limit, which made admin pages intermittently appear
+ * unauthenticated. The cache is keyed by a hash of the secret and bounded by a
+ * short TTL; errors are never cached.
+ */
+async function loadIamMe(config: ServiceConfig, credential: CallerCredential): Promise<unknown> {
+  const key = createHash('sha256').update(credential.value).digest('hex');
+  const ttlMs = orgAdminCacheTtlMs();
+  const now = Date.now();
+  const cached = iamMeCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+  if (cached) iamMeCache.delete(key);
+  const inFlight = iamMeInFlight.get(key);
+  if (inFlight) return inFlight;
+  const lookup = (async () => {
+    try {
+      const value = await credentialClient(config, credential).iam.me();
+      if (ttlMs > 0) {
+        if (iamMeCache.size >= ORG_ADMIN_CACHE_MAX) {
+          const first = iamMeCache.keys().next().value;
+          if (first !== undefined) iamMeCache.delete(first);
+        }
+        iamMeCache.set(key, { value, expiresAt: Date.now() + ttlMs });
+      }
+      return value;
+    } finally {
+      iamMeInFlight.delete(key);
+    }
+  })();
+  iamMeInFlight.set(key, lookup);
+  return lookup;
+}
+
+/** Best-effort verified profile (email/display name) for a caller. */
+export async function verifiedCallerProfile(
+  config: ServiceConfig,
+  credential: CallerCredential | undefined,
+): Promise<any> {
+  if (!credential || credential.kind !== 'bearer') return {};
+  try {
+    return (await loadIamMe(config, credential)) as any;
+  } catch {
+    return {};
+  }
+}
+
+function orgAdminCacheTtlMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.SYNAPSEDX_ORG_ADMIN_CACHE_SECONDS ?? 60);
+  const seconds = Number.isFinite(raw) ? Math.min(Math.max(raw, 0), 300) : 60;
+  return Math.max(0, seconds) * 1000;
+}
+
+function credentialCacheKey(credential: CallerCredential, principal: CallerPrincipal): string {
+  const digest = createHash('sha256').update(credential.value).digest('hex');
+  return `${credential.kind}:${principal.org || ''}:${principal.subject}:${digest}`;
+}
+
+function readOrgAdminCache(key: string, now: number): boolean | undefined {
+  const cached = orgAdminCache.get(key);
+  if (!cached) return undefined;
+  if (cached.expiresAt <= now) {
+    orgAdminCache.delete(key);
+    return undefined;
+  }
+  return cached.value;
+}
+
+function writeOrgAdminCache(key: string, value: boolean, now: number, ttlMs: number): void {
+  if (ttlMs <= 0) return;
+  if (orgAdminCache.size >= ORG_ADMIN_CACHE_MAX) {
+    const first = orgAdminCache.keys().next().value;
+    if (first !== undefined) orgAdminCache.delete(first);
+  }
+  orgAdminCache.set(key, { value, expiresAt: now + ttlMs });
+}
+
 async function resolveOrgAdmin(
   config: ServiceConfig,
   credential: CallerCredential,
@@ -233,20 +339,44 @@ async function resolveOrgAdmin(
 ): Promise<boolean> {
   if (!principal.org || !principal.subject) return false;
   if (!orgAdminLookupEnabled()) return false;
-  try {
-    const me = (await credentialClient(config, credential).iam.me()) as any;
-    const user = (me && me.user) || {};
-    // `publicUser()` in Tier-1 IAM exposes `is_org_admin`.
-    return user.is_org_admin === true
-      && String(user.id || '') === principal.subject
-      && String(user.org_id || '') === principal.org;
-  } catch (error) {
-    if (!orgAdminLookupWarned) {
-      orgAdminLookupWarned = true;
-      console.warn(`[synapsedx] organization-admin lookup failed; user sessions keep member privileges: ${(error as Error).message}`);
+  const ttlMs = orgAdminCacheTtlMs();
+  const key = credentialCacheKey(credential, principal);
+  const cached = readOrgAdminCache(key, Date.now());
+  if (cached !== undefined) return cached;
+
+  const inFlight = orgAdminInFlight.get(key);
+  if (inFlight) return inFlight;
+
+  const lookup = (async () => {
+    try {
+      const me = (await loadIamMe(config, credential)) as any;
+      const user = (me && me.user) || {};
+      // `publicUser()` in Tier-1 IAM exposes `is_org_admin`.
+      const value = user.is_org_admin === true
+        && String(user.id || '') === principal.subject
+        && String(user.org_id || '') === principal.org;
+      writeOrgAdminCache(key, value, Date.now(), ttlMs);
+      return value;
+    } catch (error) {
+      // A 429 is a transient upstream limit, not proof that the caller is not
+      // an administrator. Keep the last successful projection for this
+      // credential when one exists; otherwise fail closed to member.
+      if (!orgAdminLookupWarned) {
+        orgAdminLookupWarned = true;
+        console.warn(`[synapsedx] organization-admin lookup failed; user sessions keep member privileges: ${(error as Error).message}`);
+      }
+      if (cached !== undefined) {
+        // Keep the verified projection alive through a transient IAM limit
+        // instead of demoting a real administrator mid-page.
+        writeOrgAdminCache(key, cached, Date.now(), ttlMs);
+      }
+      return cached ?? false;
+    } finally {
+      orgAdminInFlight.delete(key);
     }
-    return false;
-  }
+  })();
+  orgAdminInFlight.set(key, lookup);
+  return lookup;
 }
 
 /** Constant-time comparison of two opaque credential strings. */

@@ -3,6 +3,8 @@
 /** Test harness: capabilities service against an in-memory Tier-1 fake. */
 import { Server } from 'node:http';
 import { createServer } from '../server';
+import { resetAuthCachesForTests } from '../auth';
+import { resetWorkspaceCachesForTests } from '../routes/workspace-plugins';
 import { ServiceConfig, loadConfig } from '../config';
 import { resetLicenseCache } from '../licenses';
 import { resetEmbeddingProviderCache } from '../rag';
@@ -32,6 +34,8 @@ export async function startHarness(
   overrides: Record<string, string | undefined> = {},
   fakeOptions: FakeTier1Options = {},
 ): Promise<Harness> {
+  resetAuthCachesForTests();
+  resetWorkspaceCachesForTests();
   const fake = new FakeTier1({
     ...fakeOptions,
     tokens: {

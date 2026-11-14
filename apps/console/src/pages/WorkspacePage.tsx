@@ -21,7 +21,7 @@ import { formReasonMessage, type InstalledPlugin, type WorkspaceProduct } from '
 
 const PRODUCT_LABELS: Record<WorkspaceProduct, string> = { city: 'SynapseCity', sos: 'SynapseCity SOS' };
 
-function WorkspaceHeader({ onSignOut }: { onSignOut: () => void }) {
+function WorkspaceHeader({ onSignOut, canManage }: { onSignOut: () => void; canManage: boolean }) {
   return (
     <header className="sticky top-0 z-40 border-b border-dx-line bg-dx-surface/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
@@ -29,6 +29,14 @@ function WorkspaceHeader({ onSignOut }: { onSignOut: () => void }) {
           <BrandMark />
         </a>
         <div className="flex items-center gap-2">
+          {canManage ? (
+            <a
+              href="/admin"
+              className="hidden rounded-lg px-3 py-1.5 text-sm font-semibold text-dx-accent transition-colors hover:underline sm:block"
+            >
+              Management console
+            </a>
+          ) : null}
           <a
             href="/"
             className="hidden rounded-lg px-3 py-1.5 text-sm text-dx-muted transition-colors hover:text-dx-fg sm:block"
@@ -158,6 +166,7 @@ function PageRenderer({
 export function WorkspacePage() {
   const navigate = useNavigate();
   const session = useAuthStore((state) => state.session);
+  const context = useAuthStore((state) => state.context);
   const logout = useAuthStore((state) => state.logout);
   const [product, setProduct] = useState<WorkspaceProduct>('city');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -224,7 +233,10 @@ export function WorkspacePage() {
 
   return (
     <div className="flex min-h-full flex-col bg-dx-bg text-dx-fg">
-      <WorkspaceHeader onSignOut={() => void signOut()} />
+      <WorkspaceHeader
+        onSignOut={() => void signOut()}
+        canManage={Boolean(context?.roles?.some((role) => ['admin', 'manager', 'operator', 'moderator'].includes(role)))}
+      />
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>

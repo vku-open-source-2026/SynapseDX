@@ -74,9 +74,16 @@ export const PRODUCT_RESOURCES: Record<WorkspaceProduct, readonly ProductResourc
     { key: 'incidents', path: '/v1/incidents', dataset: 'city-incidents' },
     { key: 'maintenance', path: '/v1/maintenance', dataset: 'city-maintenance' },
     { key: 'iot', path: '/v1/iot/sensors', dataset: 'city-iot-sensors' },
+    { key: 'iotReadings', path: '/v1/iot/readings', dataset: 'city-iot-readings' },
     { key: 'alerts', path: '/v1/alerts', dataset: 'city-alerts' },
     { key: 'budgets', path: '/v1/budgets', dataset: 'city-budgets' },
+    { key: 'budgetTransactions', path: '/v1/budgets/transactions', dataset: 'city-budget-transactions' },
     { key: 'reports', path: '/v1/reports', dataset: 'city-reports' },
+    { key: 'users', path: '/v1/users', dataset: 'city-users' },
+    { key: 'geofences', path: '/v1/geofences', dataset: 'city-geofences' },
+    { key: 'ingest', path: '/v1/ingest', dataset: 'city-ingest-jobs' },
+    { key: 'files', path: '/v1/files', dataset: 'city-files' },
+    { key: 'notifications', path: '/v1/notifications', dataset: 'city-notifications' },
   ],
   sos: [
     { key: 'events', path: '/v1/emergency/events', dataset: 'sos-emergency-events' },
@@ -85,6 +92,9 @@ export const PRODUCT_RESOURCES: Record<WorkspaceProduct, readonly ProductResourc
     { key: 'sitrep', path: '/v1/emergency/sitrep', dataset: 'sos-sitreps' },
     { key: 'eop', path: '/v1/emergency/eop', dataset: 'sos-eop-plans' },
     { key: 'afterAction', path: '/v1/emergency/after-action', dataset: 'sos-after-action-reports' },
+    { key: 'hazards', path: '/v1/hazards', dataset: 'sos-hazard-layers' },
+    { key: 'hazardIngest', path: '/v1/hazards/ingest/status', dataset: 'sos-hazard-ingest-runs' },
+    { key: 'mutualAid', path: '/v1/emergency/mutual-aid', dataset: 'sos-mutual-aid-requests' },
   ],
 };
 
@@ -173,6 +183,12 @@ export interface WorkspaceWidget {
    */
   workflowArtifactRevision?: number;
   workflowArtifactChecksum?: string;
+  /**
+   * Stable checksum of the scrubbed portable graph. It is deployment-neutral
+   * and is the value exported in `workflowRef.checksum`; the deployed checksum
+   * above may differ when credential ids are rebound in another deployment.
+   */
+  workflowArtifactPortableChecksum?: string;
   /** Portable reference used only inside an import/export bundle. */
   workflowRef?: WorkflowArtifactRef;
 }
@@ -454,7 +470,8 @@ export function normalizeMemberRoles(value: unknown, limits: WorkspaceLimits): s
 
 const WIDGET_KEYS = [
   'id', 'type', 'title', 'text', 'resource', 'columns', 'fields', 'action', 'width',
-  'workflowArtifactId', 'workflowArtifactRevision', 'workflowArtifactChecksum', 'workflowRef',
+  'workflowArtifactId', 'workflowArtifactRevision', 'workflowArtifactChecksum',
+  'workflowArtifactPortableChecksum', 'workflowRef',
 ] as const;
 
 const WORKFLOW_ARTIFACT_ID_RE = /^[A-Za-z0-9_-]{8,120}$/;
@@ -617,8 +634,9 @@ function validateWidget(
   if (raw.workflowArtifactId !== undefined && raw.workflowRef !== undefined) {
     throw apiError(400, 'invalid_widget', 'a form binds either workflowArtifactId or workflowRef, not both');
   }
-  if (raw.workflowArtifactRevision !== undefined || raw.workflowArtifactChecksum !== undefined) {
-    throw apiError(400, 'invalid_widget', 'workflowArtifactRevision/workflowArtifactChecksum are server-owned pins and cannot be set');
+  if (raw.workflowArtifactRevision !== undefined || raw.workflowArtifactChecksum !== undefined
+    || raw.workflowArtifactPortableChecksum !== undefined) {
+    throw apiError(400, 'invalid_widget', 'workflowArtifactRevision/workflowArtifactChecksum/workflowArtifactPortableChecksum are server-owned pins and cannot be set');
   }
   if (raw.workflowArtifactId !== undefined) {
     if (!options.allowWorkflowArtifactId) {
@@ -758,6 +776,7 @@ export function portableDefinition(plugin: WorkspacePluginRecord, refs: Map<stri
     const {
       workflowArtifactRevision: _revision,
       workflowArtifactChecksum: _checksum,
+      workflowArtifactPortableChecksum: _portableChecksum,
       workflowRef: _previousRef,
       ...base
     } = widget;
@@ -768,8 +787,8 @@ export function portableDefinition(plugin: WorkspacePluginRecord, refs: Map<stri
     }
     // The published snapshot pinned the reviewed graph. Exporting a newer
     // checksum would launder later artifact edits into a "reviewed" bundle.
-    if (widget.workflowArtifactChecksum !== undefined
-      && (ref.checksum === undefined || ref.checksum !== widget.workflowArtifactChecksum)) {
+    if (widget.workflowArtifactPortableChecksum !== undefined
+      && (ref.checksum === undefined || ref.checksum !== widget.workflowArtifactPortableChecksum)) {
       throw apiError(409, 'artifact_out_of_sync',
         'the bound workflow artifact changed after this layout was published; republish the plugin before export or build',
         { widgetId: widget.id });
@@ -779,7 +798,9 @@ export function portableDefinition(plugin: WorkspacePluginRecord, refs: Map<stri
       ...rest,
       workflowRef: {
         ...ref,
-        ...(widget.workflowArtifactChecksum ? { checksum: widget.workflowArtifactChecksum } : {}),
+        ...(widget.workflowArtifactPortableChecksum
+          ? { checksum: widget.workflowArtifactPortableChecksum }
+          : widget.workflowArtifactChecksum ? { checksum: widget.workflowArtifactChecksum } : {}),
       },
     };
   });
@@ -987,6 +1008,7 @@ export function publishedView(snapshot: WorkspaceSnapshotRecord): PublishedPlugi
       const {
         workflowArtifactRevision: _revision,
         workflowArtifactChecksum: _checksum,
+        workflowArtifactPortableChecksum: _portableChecksum,
         ...rest
       } = widget;
       return rest;
