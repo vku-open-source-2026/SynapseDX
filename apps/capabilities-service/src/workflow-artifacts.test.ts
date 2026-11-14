@@ -823,6 +823,7 @@ test('imported code is stored as data and never executed by Tier 2', async () =>
 
 test('plugin delegation lets a same-tenant member execute without granting artifact ownership', async () => {
   const harness = await startWorkflowHarness();
+  __setWorkflowSdkVersionForTests('0.9.0');
   try {
     const created = await importArtifact(harness);
     assert.equal(created.status, 201, created.text);
@@ -963,6 +964,7 @@ test('plugin delegation lets a same-tenant member execute without granting artif
     });
     assert.equal(direct.status, 403);
   } finally {
+    __setWorkflowSdkVersionForTests(null);
     await harness.close();
   }
 });
