@@ -23,6 +23,7 @@ sdkPackage.version = '0.9.1';
 import { api, Harness, startHarness } from './testing/harness';
 import { COLLECTIONS } from './platform';
 import { workflowGraphChecksum } from './routes/workflow-artifacts';
+import { checksumOf } from './workspace-plugins';
 
 const WORKFLOW_ARTIFACTS = 'synapsedx_capability_workflow_artifacts';
 const ORG_KEY = 'workflow-org-key';
@@ -32,6 +33,7 @@ const DEFINITION = {
   settings: { access: { mode: 'owner-only' } },
 };
 const CHECKSUM = workflowGraphChecksum(DEFINITION);
+const PORTABLE_CHECKSUM = 'a'.repeat(64);
 
 interface Fixture {
   harness: Harness;
@@ -52,6 +54,7 @@ async function fixture(options: { withOrgKey?: boolean; protectedArtifact?: bool
     updatedAt: now,
     data: {
       id: 'artifact-0001', tenant: 'org-a', revision: 1, workflowRevision: 1, checksum: CHECKSUM,
+      portableChecksum: PORTABLE_CHECKSUM,
       workflowId: 'wf-1', name: 'Incident intake', slug: 'incident-intake',
       createdBy: 'admin-1', createdAt: now, updatedAt: now,
       managedBy: options.protectedArtifact === false ? 'user' : 'technical',
@@ -146,7 +149,12 @@ test('a non-create action executes only through the protected pinned artifact', 
     harness.fake.workflows.set('wf-1', { id: 'wf-1', name: 'Incident intake', definition: DEFINITION, active: true });
     artifacts.set('artifact-0001', {
       ...artifacts.get('artifact-0001'),
-      data: { ...artifacts.get('artifact-0001').data, revision: 2, checksum: 'b'.repeat(64) },
+      data: {
+        ...artifacts.get('artifact-0001').data,
+        revision: 2,
+        checksum: 'b'.repeat(64),
+        portableChecksum: 'c'.repeat(64),
+      },
     });
     const changed = await api(harness, `/v1/capabilities/workspaces/installed/${id}/widgets/report/execute`, {
       method: 'POST', token: 'member-token', body: { values: { summary: 'Broken lamp' } },
@@ -269,6 +277,33 @@ test('non-create actions cannot bypass role, tenant or artifact-protection check
     assert.equal(unprotected.status, 409);
     assert.equal(unprotected.body.error.code, 'workflow_not_protected');
     assert.equal(harness.fake.executions.length, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('portable workflow checksums survive build, export and import rebinding', async () => {
+  const { harness } = await fixture();
+  try {
+    const id = await setupPlugin(harness, 'update');
+    const built = await api(harness, `/v1/capabilities/workspaces/plugins/${id}/build`, { token: 'admin-token' });
+    assert.equal(built.status, 200, JSON.stringify(built.body));
+    const form = built.body.plugin.widgets.find((widget: any) => widget.id === 'report');
+    assert.equal(form.workflowRef.name, 'Incident intake');
+    assert.equal(form.workflowRef.checksum, PORTABLE_CHECKSUM);
+    assert.notEqual(form.workflowRef.checksum, CHECKSUM);
+
+    const imported = JSON.parse(JSON.stringify(built.body));
+    imported.plugin.name = 'Imported intake';
+    imported.plugin.slug = 'imported-intake';
+    imported.source.path = 'plugins/imported-intake.plugin.json';
+    imported.checksum = checksumOf(imported.plugin);
+    const created = await api(harness, '/v1/capabilities/workspaces/import', {
+      method: 'POST', token: 'admin-token', body: imported,
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    assert.equal(created.body.widgets[0].workflowArtifactId, 'artifact-0001');
+    assert.equal(created.body.widgets[0].workflowArtifactPortableChecksum, undefined);
   } finally {
     await harness.close();
   }
