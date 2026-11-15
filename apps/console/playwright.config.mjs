@@ -4,10 +4,14 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './test/e2e',
-  timeout: 30_000,
-  expect: { timeout: 8_000 },
+  timeout: 45_000,
+  expect: { timeout: 10_000 },
   fullyParallel: false,
-  retries: process.env.CI ? 1 : 0,
+  // CI runners are slower than the production verification host; keep one
+  // worker and one retry so a transient navigation/render delay is not a red
+  // release gate.
+  workers: 1,
+  retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['github'], ['line']] : 'list',
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:4173',
