@@ -624,6 +624,23 @@ itself remains the provider/edge policy; Tier-2 does not add a second shared
 counter. When no provider is configured the routes return the typed 503 naming
 `SYNAPSEDX_GEOCODER_BASE_URL`; this is configuration, not a Tier-1 gap.
 
+## Resource assignment (optimization)
+
+A domain-neutral, deterministic resource-to-demand solver. It requires a
+verified caller but no write scope; it persists no capability data and records
+only a count-only `optimization.assign` audit row. SOS dispatch must still apply
+the result through its reviewed product workflow.
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/v1/capabilities/optimization/assign` | verified | `{resources[],demands[],options?}` → assignments, unassigned reasons, usage, limits. |
+
+At most 200 resources, 200 demands, 4,000 available slots and 1e12 per edge; the
+body is limited to 256 KB. Costs come from `options.costMatrix[demandIndex][resourceIndex]`
+(`null` = unusable) or haversine distance. The objective maximizes served
+demands, then minimizes total cost; priority is an equal-cost tie-break. Full
+contract, determinism rules and bounded complexity: [OPTIMIZATION.md](OPTIMIZATION.md).
+
 ## CORS
 
 Allowed origins are the comma-separated `CORS_ORIGINS` allow-list (defaults:

@@ -1759,8 +1759,102 @@ export interface WorkspaceCatalog {
   };
 }
 
+/**
+ * Domain-neutral resource-to-demand assignment. The algorithm knows nothing
+ * about incidents, dispatch units or responder roles; callers map their own
+ * domain model onto these arrays.
+ */
+export interface OptimizationResource {
+  id: string;
+  lat?: number;
+  lng?: number;
+  /** Number of simultaneous demands the resource can serve (1..20, default 1). */
+  capacity?: number;
+  skills?: string[];
+  /** `false` removes every slot from the problem (default `true`). */
+  available?: boolean;
+}
+
+export interface OptimizationDemand {
+  id: string;
+  lat?: number;
+  lng?: number;
+  /** 1 (lowest) .. 5 (highest), default 3. */
+  priority?: number;
+  requiredSkills?: string[];
+  serviceMinutes?: number;
+}
+
+export interface OptimizationOptions {
+  /** `matrix[demandIndex][resourceIndex]`; `null` marks an unusable edge. */
+  costMatrix?: Array<Array<number | null>>;
+  /** Excludes edges whose cost is greater than this value. */
+  maxDistanceMeters?: number;
+  /** Declared cost of leaving a demand unassigned (default 1e9, max 1e12). */
+  unassignedPenalty?: number;
+}
+
+export interface OptimizationInput {
+  resources: OptimizationResource[];
+  demands: OptimizationDemand[];
+  options?: OptimizationOptions;
+}
+
+export type OptimizationUnassignedReason =
+  | "no_resource"
+  | "capacity"
+  | "distance"
+  | "skills";
+
+export interface OptimizationAssignment {
+  demandId: string;
+  resourceId: string;
+  cost: number;
+  /** Present when both endpoints have coordinates. */
+  distanceMeters?: number;
+}
+
+export interface OptimizationUnassigned {
+  demandId: string;
+  reason: OptimizationUnassignedReason;
+}
+
+export interface OptimizationResourceUsage {
+  resourceId: string;
+  capacity: number;
+  used: number;
+  remaining: number;
+  available: boolean;
+}
+
+export interface OptimizationAssignResult {
+  assignments: OptimizationAssignment[];
+  unassigned: OptimizationUnassigned[];
+  totalCost: number;
+  assignedCount: number;
+  demandCount: number;
+  resourceSlots: number;
+  resourceUsage: OptimizationResourceUsage[];
+  algorithm: "min_cost_flow";
+  /** Server response time. */
+  at: string;
+  limits: {
+    maxResources: number;
+    maxDemands: number;
+    maxSlots: number;
+    maxCost: number;
+  };
+}
+
 export class CapabilitiesClient {
   private readonly http: Http;
+
+  readonly optimization: {
+    assign: (
+      input: OptimizationInput,
+      opts?: RequestOptions,
+    ) => Promise<OptimizationAssignResult>;
+  };
 
   readonly warehouse: {
     status: (
@@ -2544,6 +2638,15 @@ export class CapabilitiesClient {
     this.http = new Http(opts);
     const datasetPath = (id: string) =>
       `/v1/capabilities/datasets/${encodeURIComponent(id)}`;
+
+    this.optimization = {
+      assign: (input, requestOpts) =>
+        this.http.request<OptimizationAssignResult>(
+          "/v1/capabilities/optimization/assign",
+          { method: "POST", body: JSON.stringify(input) },
+          requestOpts,
+        ),
+    };
 
     this.datasets = {
       list: (query = {}, requestOpts) =>

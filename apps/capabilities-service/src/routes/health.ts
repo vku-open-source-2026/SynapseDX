@@ -11,6 +11,7 @@ import { Express } from 'express';
 import { SynapseOneClient, SynapseOneError } from '@synapseone/sdk';
 import { ServiceConfig } from '../config';
 import { handler } from '../http';
+import { OPTIMIZATION_LIMITS } from '../optimization';
 import { serviceClient } from '../platform';
 
 export type DependencyStatus = 'ok' | 'degraded' | 'down';
@@ -210,9 +211,20 @@ export function registerCapabilityAdvertisement(app: Express, config: ServiceCon
         { name: 'notifications', status: 'available', backend: 'synapseone-notifications' },
         { name: 'warehouse', status: 'available', backend: 'synapseone-warehouse', modes: ['batch', 'stream'], reports: true, dashboards: true },
         { name: 'spatial', status: 'available', backend: 'synapseone-base-postgis', modes: ['near', 'bbox', 'within'], indexed: 'dataset.geo' },
-        { name: 'optimization', status: 'available', modes: ['assignment'], algorithm: 'min-cost-flow' },
         { name: 'plans', status: 'available', modes: ['template', 'activate', 'task-status', 'brief', 'draft'], ai: ['brief', 'draft'], persistence: 'synapseone-base' },
         { name: 'geo', status: config.geocoder ? 'available' : 'unconfigured', provider: config.geocoder?.provider, dependency: config.geocoder ? undefined : 'SYNAPSEDX_GEOCODER_BASE_URL' },
+        {
+          name: 'optimization',
+          status: 'available',
+          modes: ['assignment'],
+          algorithm: 'min_cost_flow',
+          limits: {
+            maxResources: OPTIMIZATION_LIMITS.maxResources,
+            maxDemands: OPTIMIZATION_LIMITS.maxDemands,
+            maxSlots: OPTIMIZATION_LIMITS.maxSlots,
+            maxCost: OPTIMIZATION_LIMITS.maxCost,
+          },
+        },
       ],
       cors: { origins: config.corsOrigins },
       dependencies: { tier1: config.tier1BaseUrl },

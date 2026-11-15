@@ -99,7 +99,10 @@ CRUD/execute form exists. Some legacy UI paths themselves used mock/stub results
   incident comments/upvotes and duplicate/merge workflows; preventive schedules;
   IoT batch/statistics; actual CSV upload/preview; generated report download;
   spatial nearby/bounds/polygon queries.
-- SOS: dispatch optimization; AI brief/ask and EOP draft generation; rich EOP
+- SOS: applying/animating dispatch plans through the product workflow over the
+  generic Tier-2 `optimization.assign` solver (the solver contract is in
+  [OPTIMIZATION.md](OPTIMIZATION.md); SOS must still review and apply results
+  through its own actions); AI brief/ask and EOP draft generation; rich EOP
   editing; live hazard timeline/deploy/expire; SITREP deltas and event-related views.
 - Identity: app-grant editor stores tenant-scoped verified subject IDs, but does
   not yet validate target-subject existence in IAM when creating a grant.

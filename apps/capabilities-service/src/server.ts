@@ -30,6 +30,7 @@ import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
 import { registerSecurityRoutes } from './routes/security';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerOptimizationRoutes } from './routes/optimization';
 import { registerCollaborationRoutes } from './routes/collaboration';
 import { registerPeopleProcessRoutes } from './routes/people-process';
 import { registerDataInsightRoutes } from './routes/data-insights';
@@ -75,6 +76,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerFileRoutes(app, config);
   registerTabularFileRoutes(app, config);
   registerNotificationRoutes(app, config);
+  registerOptimizationRoutes(app, config);
   registerGeoRoutes(app, config);
   registerSecurityRoutes(app, config);
   registerCollaborationRoutes(app, config);

@@ -36,7 +36,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/index.test.js",
+    "test": "npm run build && node --test dist/index.test.js dist/optimization.test.js",
     "prepack": "npm run build"
   },
   "keywords": [

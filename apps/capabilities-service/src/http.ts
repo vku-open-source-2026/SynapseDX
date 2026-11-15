@@ -176,6 +176,7 @@ export const KNOWN_ROUTES: KnownRoute[] = [
   { pattern: /^\/v1\/capabilities\/notifications\/[^/]+$/, methods: ['GET'] },
   { pattern: /^\/v1\/capabilities\/notifications\/[^/]+\/cancel$/, methods: ['POST'] },
   { pattern: /^\/v1\/capabilities\/geo\/(autocomplete|geocode|reverse|place)$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/optimization\/assign$/, methods: ['POST'] },
   { pattern: /^\/v1\/capabilities\/jobs$/, methods: ['GET', 'POST'] },
   { pattern: /^\/v1\/capabilities\/jobs\/kinds$/, methods: ['GET'] },
   { pattern: /^\/v1\/capabilities\/jobs\/lease$/, methods: ['POST'] },
