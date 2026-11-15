@@ -141,8 +141,9 @@ capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
 - City and SOS now call the Tier-2 spatial index for nearby/bounds/polygon
   before falling back to the bounded in-process scan. The product services were
   rebuilt and deployed; their Rust test suites remain green.
-- SOS still polls the hazard dataset; adopting the SSE feed requires the Rust
-  SDK/event client release and a product workflow change.
+- SOS now wakes its live hazard snapshot from the Tier-2 SSE feed and keeps the
+  periodic ticker as the fallback. The public frame remains a sanitized
+  snapshot, not a raw record payload.
 - SOS applies dispatch plans through its own reviewed workflow; this capability
   only returns a deterministic recommendation.
 - SOS owns EOP approvals, publication and AI policy; the generic plan lifecycle

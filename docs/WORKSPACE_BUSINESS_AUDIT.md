@@ -136,11 +136,11 @@ CRUD/execute form exists. Some legacy UI paths themselves used mock/stub results
 - SOS: applying/animating dispatch plans through the product workflow over the
   generic Tier-2 `optimization.assign` solver (the solver contract is in
   [OPTIMIZATION.md](OPTIMIZATION.md); SOS must still review and apply results
-  through its own actions); adopting the Tier-2 SSE feed in place of the current
-  dataset poller; connecting the generic plan orchestration to SOS EOP approval,
-  publication and AI draft policy; rich EOP editing; live hazard
+  through its own actions); connecting the generic plan orchestration to SOS EOP
+  approval, publication and AI draft policy; rich EOP editing; live hazard
   timeline/deploy/expire; SITREP deltas and event-related views. SOS hazard
-  near/polygon now call the Tier-2 spatial index with an in-memory fallback.
+  near/polygon call the Tier-2 spatial index and the hazard SSE stream now wakes
+  the authoritative snapshot from the Tier-2 event feed; both retain fallbacks.
 - Identity: app-grant editor stores tenant-scoped verified subject IDs, but does
   not yet validate target-subject existence in IAM when creating a grant.
 - Migration: old organization-wide H-D-P-I records are preserved. Automatic
