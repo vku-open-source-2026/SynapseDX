@@ -106,6 +106,8 @@ export interface DatasetRecord {
   ldsDatasourceId?: string;
   retentionDays?: number;
   everPublished?: boolean;
+  /** Optional GeoJSON index binding; `field` is a dotted path inside record.data. */
+  geo?: { field: string };
   pendingEvents?: CapabilityEvent[];
   /** Optional peer-review lane; publication remains an operator action. */
   reviewStatus?: 'none' | 'pending' | 'approved' | 'rejected';

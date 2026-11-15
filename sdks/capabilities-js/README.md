@@ -73,6 +73,61 @@ await dx.records.delete(dataset.id, record.id);
 | `false` | never project the record; an existing projection is withdrawn |
 | omitted | inherit the dataset default |
 
+## Spatial queries
+
+Bind a dataset to a GeoJSON geometry inside each record, then query the
+server-side index instead of loading every record:
+
+```ts
+const dataset = await dx.datasets.create({
+  slug: 'city-assets',
+  name: 'City assets',
+  entityType: 'Asset',
+  license: 'CC-BY-4.0',
+  public: true,
+  geo: { field: 'geometry' }, // dotted path in record.data; e.g. 'metadata.area'
+});
+
+await dx.records.create(dataset.id, {
+  name: 'Pump station 12',
+  geometry: { type: 'Point', coordinates: [105.8542, 21.0285] },
+});
+
+const nearby = await dx.spatial.query(dataset.id, {
+  mode: 'near', lat: 21.0285, lng: 105.8542, radiusMeters: 2000, limit: 50,
+});
+const inBox = await dx.spatial.query(dataset.id, {
+  mode: 'bbox', bbox: [105.84, 21.02, 105.87, 21.04],
+});
+const inArea = await dx.spatial.query(dataset.id, {
+  mode: 'within',
+  geometry: { type: 'Polygon', coordinates: [[/* closed WGS84 ring */]] },
+});
+
+for (const record of nearby.items) {
+  // Same shape as records.list(): {id,data,version,published?,createdAt,updatedAt}
+  console.log(record.id);
+}
+console.log(nearby.features[0].properties.distanceMeters);
+
+const status = await dx.spatial.status(dataset.id);
+await dx.spatial.reindex(dataset.id); // repair after an index outage
+// More than 5,000 records: continue from the reported offset.
+const next = await dx.spatial.reindex(dataset.id, { offset: 5000 });
+```
+
+- `limit` is 1..500 (default 100); `radiusMeters` is 1..100000.
+- `bbox` is `[west, south, east, north]`; `within` accepts a Polygon or
+  MultiPolygon. Longitude/latitude must be valid WGS84 and bbox axes ordered.
+- `features` is a GeoJSON FeatureCollection; `items` uses the normal record
+  response shape. Draft readers (`canReadRecordDrafts`) also see withheld
+  records; every other caller only sees published/inherited-published rows.
+- Index maintenance is best-effort: a record write succeeds even when the
+  PostGIS index is down, and `spatial.reindex` repairs up to 5,000 records per
+  call (`truncated: true` when more remain).
+- Changing `geo.field` requires a reindex; `PATCH { geo: null }` removes the
+  binding.
+
 ## Knowledge & hazards (Tier-2 LLM base)
 
 ```ts

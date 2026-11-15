@@ -103,9 +103,9 @@ Dependencies probed: `base`, `lds`, `queue` (critical), `stream`, `iam`,
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/datasets` | optional | List visible datasets. `publicOnly=true` filters in the Tier-1 query. Anonymous callers are forced to public+published. |
-| POST | `/v1/capabilities/datasets` | write | Create a dataset (`name`, `entityType`, `license`, optional `slug`, `description`, `public`, `schemaVersion`, `retentionDays`, `licenseUrl`). |
+| POST | `/v1/capabilities/datasets` | write | Create a dataset (`name`, `entityType`, `license`, optional `slug`, `description`, `public`, `schemaVersion`, `retentionDays`, `licenseUrl`, `geo`). |
 | GET | `/v1/capabilities/datasets/:id` | optional | Dataset metadata. ETag carries the document version. |
-| PATCH | `/v1/capabilities/datasets/:id` | write | Update metadata/visibility. Supports `If-Match`/`ifVersion`. |
+| PATCH | `/v1/capabilities/datasets/:id` | write | Update metadata/visibility. Supports `If-Match`/`ifVersion`; `geo:{field}` binds a spatial index and `geo:null` removes it. |
 | DELETE | `/v1/capabilities/datasets/:id` | write | Delete a dataset. `?purgeRecords=true` cascades record deletion; otherwise `409 dataset_not_empty` when records exist. |
 | POST | `/v1/capabilities/datasets/:id/publish` | write | Publish/re-publish. `409 dataset_not_public` when `public:false`. |
 | POST | `/v1/capabilities/datasets/:id/revoke` | write | Revoke and delete the public projection. |
@@ -147,6 +147,9 @@ republishes it. `PATCH {public:true}` on a draft leaves it in `draft`; call
 | PATCH | `/v1/capabilities/datasets/:id/records/:recordId` | tenant write | Update data/publication. Supports `If-Match`/`ifVersion`. |
 | DELETE | `/v1/capabilities/datasets/:id/records/:recordId` | tenant write | Hard delete + withdraw the LDS entity. Repeat returns `404`. |
 | POST | `/v1/capabilities/datasets/:id/records/purge-expired` | tenant write | Delete records older than `retentionDays`; requires a retention policy. |
+| POST | `/v1/capabilities/datasets/:id/records/spatial` | tenant read | Near/bbox/within query over `dataset.geo.field`; returns a GeoJSON `FeatureCollection`, matching `items`, `total`, `limit` and `mode`. |
+| POST | `/v1/capabilities/datasets/:id/records/spatial/reindex` | tenant write | Rebuild/repair up to 5,000 records per call (`offset` continues); returns `{dataset_id,collection,offset,scanned,indexed,removed,skipped,failed,truncated}`. |
+| GET | `/v1/capabilities/datasets/:id/records/spatial/status` | tenant read | `{configured,field,collection,features?,extent?}`; stats are best-effort. |
 
 Record IDs must match `[A-Za-z0-9_@.:+-]{1,256}` (no `/`, `\`, newline, `.` or
 `..`). Invalid IDs return `400 invalid_record_id`; they are never rewritten.
@@ -160,6 +163,27 @@ Record IDs must match `[A-Za-z0-9_@.:+-]{1,256}` (no `/`, `\`, newline, `.` or
 | omitted | Inherit the dataset default (published dataset → projected). |
 
 Withheld records stay withheld across updates, republishes and LDS rebuilds.
+
+### Spatial records
+
+`dataset.geo.field` is a dotted path inside `record.data` and must match
+`[A-Za-z_][A-Za-z0-9_]{0,63}(\.[A-Za-z_][A-Za-z0-9_]{0,63}){0,5}`. The Tier-1
+PostGIS collection is `synapsedx_geo_<datasetId>`.
+
+```json
+{ "mode": "near", "lat": 21.0285, "lng": 105.8542, "radiusMeters": 2000, "limit": 100 }
+{ "mode": "bbox", "bbox": [105.84, 21.02, 105.87, 21.04], "limit": 100 }
+{ "mode": "within", "geometry": { "type": "Polygon", "coordinates": [] }, "limit": 100 }
+```
+
+`limit` is 1..500 (default 100), `radiusMeters` 1..100000, and bbox axes are
+`[west, south, east, north]` with WGS84 ranges and valid ordering. A dataset
+without `geo` returns `400 geo_not_configured`; invalid record geometry returns
+`400 invalid_geometry` before any write. Draft readers
+(`canReadRecordDrafts`) see withheld records; every other caller only sees
+published/inherited-published rows. Deleted records and records of another
+dataset are dropped even if the index is stale. Index writes are best-effort so
+a PostGIS outage never loses a Base record; `reindex` repairs the index.
 
 ## Idempotency, versioning and events
 

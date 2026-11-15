@@ -23,6 +23,7 @@ import { registerHealthRoutes, registerCapabilityAdvertisement } from './routes/
 import { registerJobRoutes } from './routes/jobs';
 import { registerManagementRoutes } from './routes/management';
 import { registerRecordRoutes } from './routes/records';
+import { registerSpatialRecordRoutes } from './routes/spatial';
 import { registerTabularFileRoutes } from './routes/tabular-files';
 import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
@@ -62,6 +63,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerManagementRoutes(app, config);
   registerApprovalRoutes(app, config);
   registerDatasetRoutes(app, config);
+  registerSpatialRecordRoutes(app, config);
   registerRecordRoutes(app, config);
   registerEventRoutes(app, config);
   registerEventStreamRoutes(app, config);

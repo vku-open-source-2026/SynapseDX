@@ -58,6 +58,14 @@ interface Entity {
   data?: Json;
 }
 
+interface FakeGeoFeature {
+  type: 'Feature';
+  id: string;
+  properties: Json;
+  geometry: Json;
+  updatedAt: string;
+}
+
 interface Workflow {
   id: string;
   name: string;
@@ -139,8 +147,103 @@ function matches(where: unknown, doc: StoredDoc): boolean {
   });
 }
 
-function parseBody(req: IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
+/* ------------------------------------------------------------------------- *
+ * Fake PostGIS geo helpers (only the shapes the capabilities service uses)
+ * ------------------------------------------------------------------------- */
+
+const FAKE_GEO_TYPES = new Set(['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon']);
+
+/** Flatten a GeoJSON geometry to [lng, lat] positions. */
+function geoPositions(geometry: Json): Array<[number, number]> {
+  const positions: Array<[number, number]> = [];
+  const visit = (node: unknown): void => {
+    if (!Array.isArray(node) || positions.length >= 5000) return;
+    if (node.length >= 2 && typeof node[0] === 'number' && typeof node[1] === 'number') {
+      positions.push([node[0], node[1]]);
+      return;
+    }
+    for (const child of node) visit(child);
+  };
+  visit((geometry as any)?.coordinates);
+  return positions;
+}
+
+function geoBBox(geometry: Json): [number, number, number, number] | null {
+  const positions = geoPositions(geometry);
+  if (!positions.length) return null;
+  let west = positions[0][0];
+  let east = positions[0][0];
+  let south = positions[0][1];
+  let north = positions[0][1];
+  for (const [lng, lat] of positions) {
+    if (lng < west) west = lng;
+    if (lng > east) east = lng;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  return [west, south, east, north];
+}
+
+/** Parse `west,south,east,north`; malformed values mean "no filter" like Tier-1. */
+function geoQueryBox(raw: string | null): [number, number, number, number] | null {
+  if (!raw) return null;
+  const parts = raw.split(',').map((value) => Number(value.trim()));
+  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value))) return null;
+  const [west, south, east, north] = parts;
+  if (west < -180 || east > 180 || south < -90 || north > 90 || west > east || south > north) return null;
+  return [west, south, east, north];
+}
+
+function boxesIntersect(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+): boolean {
+  return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radians = (value: number): number => value * Math.PI / 180;
+  const dLat = radians(lat2 - lat1);
+  const dLng = radians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371008.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function pointInRing(lng: number, lat: number, ring: unknown): boolean {
+  if (!Array.isArray(ring) || ring.length < 4) return false;
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const current = ring[index];
+    const last = ring[previous];
+    if (!Array.isArray(current) || !Array.isArray(last)) continue;
+    const [xi, yi] = current;
+    const [xj, yj] = last;
+    if (typeof xi !== 'number' || typeof yi !== 'number' || typeof xj !== 'number' || typeof yj !== 'number') continue;
+    if (((yi > lat) !== (yj > lat)) && (lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(lng: number, lat: number, rings: unknown): boolean {
+  if (!Array.isArray(rings) || !rings.length) return false;
+  if (!pointInRing(lng, lat, rings[0])) return false;
+  for (let index = 1; index < rings.length; index += 1) {
+    if (pointInRing(lng, lat, rings[index])) return false;
+  }
+  return true;
+}
+
+function pointInGeometry(lng: number, lat: number, geometry: Json): boolean {
+  const coordinates = geometry?.coordinates;
+  if (geometry?.type === 'Polygon') return pointInPolygon(lng, lat, coordinates);
+  if (geometry?.type === 'MultiPolygon' && Array.isArray(coordinates)) {
+    return coordinates.some((polygon) => pointInPolygon(lng, lat, polygon));
+  }
+  return false;
+}
+
+function parseBody(req: IncomingMessage): Promise<any> {  return new Promise((resolve, reject) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
@@ -206,6 +309,8 @@ export class FakeTier1 {
   readonly maxObjectBytes: number;
   readonly attributes = new Map<string, Array<{ name: string; visibility: string }>>();
   readonly entities = new Map<string, Map<string, Entity>>();
+  /** Per-collection PostGIS-equivalent feature store. */
+  readonly geo = new Map<string, Map<string, FakeGeoFeature>>();
   readonly queues = new Map<string, Json[]>();
   readonly topics = new Map<string, Array<{ id: string; payload: unknown }>>();
   readonly faststore = new Map<string, unknown>();
@@ -221,6 +326,7 @@ export class FakeTier1 {
   readonly tokens = new Map<string, Json>();
   readonly apiKeys = new Map<string, { account_id: string; scopes: string[]; org_id?: string; user_id?: string | null }>();
   failBase = false;
+  failGeo = false;
   failLds = false;
   failQueue = false;
   failStream = false;
@@ -276,6 +382,7 @@ export class FakeTier1 {
     this.datasources.clear();
     this.attributes.clear();
     this.entities.clear();
+    this.geo.clear();
     this.queues.clear();
     this.topics.clear();
     this.faststore.clear();
@@ -292,6 +399,7 @@ export class FakeTier1 {
     this.resetTokens.clear();
     this.exchanges.length = 0;
     this.failBase = false;
+    this.failGeo = false;
     this.failLds = false;
     this.failQueue = false;
     this.failStream = false;
@@ -991,6 +1099,7 @@ export class FakeTier1 {
 
   private handleBase(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
     if (this.failBase) return this.json(res, 503, { error: 'base_unavailable' });
+    if (path.includes('/geo/')) return this.handleBaseGeo(method, path, url, body, res);
     const collectionMatch = path.match(/^\/v1\/base\/collections\/([^/]+)$/);
     if (collectionMatch && method === 'GET') {
       const name = collectionMatch[1];
@@ -1122,6 +1231,138 @@ export class FakeTier1 {
         map.delete(id);
         return this.json(res, 200, { ok: true, id });
       }
+    }
+    this.json(res, 404, { error: 'not_found', path });
+  }
+
+  private geoMap(name: string): Map<string, FakeGeoFeature> {
+    let map = this.geo.get(name);
+    if (!map) {
+      map = new Map();
+      this.geo.set(name, map);
+    }
+    return map;
+  }
+
+  private geoView(feature: FakeGeoFeature, distanceMeters?: number): Json {
+    return {
+      type: 'Feature',
+      id: feature.id,
+      properties: feature.properties,
+      geometry: feature.geometry,
+      ...(distanceMeters !== undefined ? { distanceMeters } : {}),
+    };
+  }
+
+  /** SynapseBase `/v1/base/collections/:c/geo/*` PostGIS endpoints. */
+  private handleBaseGeo(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
+    if (this.failGeo) return this.json(res, 503, { error: 'geo_unavailable' });
+    const collectionMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/geo\/(features|near|within|stats)$/);
+    const featureMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/geo\/features\/([^/]+)$/);
+    const name = collectionMatch?.[1] || featureMatch?.[1];
+    if (!name || !this.collections.has(name)) return this.json(res, 404, { error: 'not_found' });
+    if (featureMatch && method === 'DELETE') {
+      const id = decodeURIComponent(featureMatch[2]);
+      const removed = this.geoMap(name).delete(id);
+      return removed ? this.json(res, 200, { ok: true, id }) : this.json(res, 404, { error: 'not_found' });
+    }
+    if (!collectionMatch) return this.json(res, 404, { error: 'not_found', path });
+    const action = collectionMatch[2];
+    const store = this.geoMap(name);
+    if (action === 'features' && method === 'POST') {
+      const list = Array.isArray(body?.features) ? body.features : Array.isArray(body) ? body : null;
+      if (!list) return this.json(res, 400, { error: 'invalid_geo', message: 'features must be an array' });
+      if (list.length > 1000) return this.json(res, 400, { error: 'invalid_geo', message: 'at most 1000 features per request' });
+      const out: Json[] = [];
+      for (const raw of list) {
+        const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Json : {};
+        const geometry = item.geometry && typeof item.geometry === 'object' && !Array.isArray(item.geometry)
+          ? item.geometry as Json : null;
+        const id = String(item.id ?? '');
+        if (!id || !geometry || !FAKE_GEO_TYPES.has(String(geometry.type))) {
+          return this.json(res, 400, { error: 'invalid_geo', message: 'each feature needs an id and a GeoJSON geometry' });
+        }
+        const properties = item.properties && typeof item.properties === 'object' && !Array.isArray(item.properties)
+          ? item.properties as Json : {};
+        const feature: FakeGeoFeature = {
+          type: 'Feature', id, properties, geometry, updatedAt: nowIso(),
+        };
+        store.set(id, feature);
+        out.push(this.geoView(feature));
+      }
+      return this.json(res, 201, { features: out });
+    }
+    if (action === 'features' && method === 'GET') {
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
+      const box = geoQueryBox(url.searchParams.get('bbox'));
+      const features = [...store.values()]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+        .filter((feature) => {
+          if (!box) return true;
+          const bbox = geoBBox(feature.geometry);
+          return !!bbox && boxesIntersect(bbox, box);
+        })
+        .slice(0, limit)
+        .map((feature) => this.geoView(feature));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'near' && method === 'POST') {
+      const lat = Number(body?.lat);
+      const lng = Number(body?.lng);
+      const radiusMeters = Number(body?.radiusMeters ?? body?.radius);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'lat/lng out of range' });
+      }
+      if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 200_000) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'radiusMeters must be between 1 and 200000' });
+      }
+      const limit = Math.min(Math.max(Number(body?.limit ?? 200), 1), 1000);
+      const features = [...store.values()]
+        .map((feature) => {
+          const positions = geoPositions(feature.geometry);
+          let distance = Number.POSITIVE_INFINITY;
+          for (const [featureLng, featureLat] of positions) {
+            distance = Math.min(distance, haversineMeters(lat, lng, featureLat, featureLng));
+          }
+          if (pointInGeometry(lng, lat, feature.geometry)) distance = 0;
+          return { feature, distance };
+        })
+        .filter((entry) => Number.isFinite(entry.distance) && entry.distance <= radiusMeters)
+        .sort((a, b) => a.distance - b.distance || a.feature.id.localeCompare(b.feature.id))
+        .slice(0, limit)
+        .map((entry) => this.geoView(entry.feature, Math.round(entry.distance * 100) / 100));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'within' && method === 'POST') {
+      const geometry = body?.geometry;
+      if (!geometry || typeof geometry !== 'object' || !['Polygon', 'MultiPolygon'].includes(String(geometry.type))) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'geometry must be a Polygon or MultiPolygon' });
+      }
+      const limit = Math.min(Math.max(Number(body?.limit ?? 200), 1), 1000);
+      const features = [...store.values()]
+        .filter((feature) => {
+          const positions = geoPositions(feature.geometry);
+          return positions.length > 0
+            && positions.every(([featureLng, featureLat]) => pointInGeometry(featureLng, featureLat, geometry));
+        })
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+        .slice(0, limit)
+        .map((feature) => this.geoView(feature));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'stats' && method === 'GET') {
+      let extent: [number, number, number, number] | null = null;
+      for (const feature of store.values()) {
+        const bbox = geoBBox(feature.geometry);
+        if (!bbox) continue;
+        extent = extent
+          ? [
+            Math.min(extent[0], bbox[0]), Math.min(extent[1], bbox[1]),
+            Math.max(extent[2], bbox[2]), Math.max(extent[3], bbox[3]),
+          ]
+          : bbox;
+      }
+      return this.json(res, 200, { features: store.size, extent });
     }
     this.json(res, 404, { error: 'not_found', path });
   }
