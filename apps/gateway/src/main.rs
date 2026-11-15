@@ -213,6 +213,7 @@ async fn cors_and_headers_middleware(
                 "etag,link,retry-after,www-authenticate,x-correlation-id,x-request-id,\
                  x-total-count,x-limit,x-offset,x-next-cursor,x-event-status,\
                  x-lds-license,x-lds-datasource,x-lds-total,x-lds-context,\
+                 x-spatial-field,x-spatial-collection,\
                  x-checksum-sha256,content-disposition,cache-control",
             ),
         );
@@ -250,6 +251,7 @@ async fn cors_and_headers_middleware(
             "etag,link,retry-after,www-authenticate,x-correlation-id,x-request-id,\
              x-total-count,x-limit,x-offset,x-next-cursor,x-event-status,\
              x-lds-license,x-lds-datasource,x-lds-total,x-lds-context,\
+             x-spatial-field,x-spatial-collection,\
              x-checksum-sha256,content-disposition,cache-control",
         ),
     );
