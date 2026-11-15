@@ -1001,6 +1001,71 @@ describe("workspace plugin routes", () => {
     assert.equal(noToken.status, 401);
   });
 
+  test("map widget bbox uses the server-side spatial index for a geo dataset", async () => {
+    await createDataset(
+      harness,
+      {
+        slug: "city-assets",
+        name: "Assets",
+        entityType: "Asset",
+        public: true,
+        geo: { field: "geometry" },
+      },
+      { token: "admin-token" },
+    );
+    await admin("POST", "/v1/capabilities/datasets/city-assets/publish");
+    const inside = await api(harness, "/v1/capabilities/datasets/city-assets/records", {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        publish: true,
+        data: {
+          name: "Inside",
+          geometry: { type: "Point", coordinates: [108.22, 16.06] },
+        },
+      },
+    });
+    assert.equal(inside.status, 201, JSON.stringify(inside.body));
+    const outside = await api(harness, "/v1/capabilities/datasets/city-assets/records", {
+      method: "POST",
+      token: "admin-token",
+      body: {
+        publish: true,
+        data: {
+          name: "Outside",
+          geometry: { type: "Point", coordinates: [106.7, 10.7] },
+        },
+      },
+    });
+    assert.equal(outside.status, 201, JSON.stringify(outside.body));
+
+    const { id } = await publishedInstalled({
+      slug: "asset-map",
+      widgets: [
+        {
+          id: "assets",
+          type: "map",
+          title: "Assets",
+          resource: "assets",
+          columns: ["name"],
+        },
+      ],
+    });
+    await admin("PUT", "/v1/capabilities/workspaces/members/member-1", {
+      productRoles: { city: ["volunteer"] },
+    });
+    const result = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/installed/${id}/widgets/assets/data?action=act-assets-load&bbox=108.1,16.0,108.3,16.1`,
+      undefined,
+      "member-token",
+    );
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.spatial, true);
+    assert.equal(result.body.total, 1);
+    assert.equal(result.body.items[0].name, "Inside");
+  });
+
   test("widget data is bound to the exact product dataset allowlist with tenant scope", async () => {
     await createDataset(
       harness,

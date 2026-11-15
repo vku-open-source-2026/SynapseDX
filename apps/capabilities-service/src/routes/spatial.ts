@@ -241,6 +241,37 @@ async function loadRecordsForReindex(
   return { items, truncated: total > startOffset + items.length };
 }
 
+/**
+ * Reusable spatial read used by the dataset route and the declarative map
+ * widget. Visibility is re-checked against the authoritative record, so the
+ * index cannot widen access.
+ */
+export async function querySpatialRecords(
+  client: SynapseOneClient,
+  dataset: DatasetRecord,
+  caller: Parameters<typeof canReadRecordDrafts>[1],
+  body: Record<string, unknown>,
+): Promise<{ query: SpatialQuery; features: SpatialFeatureResponse[]; items: RecordResponse[] }> {
+  requireGeo(dataset);
+  const query = parseSpatialQuery(body);
+  const collection = geoCollectionName(dataset.id);
+  const candidates = await queryTier1(client, collection, query);
+  const records = await loadCandidateRecords(client, dataset.id, [...new Set(candidates.map((item) => item.id))]);
+  const drafts = canReadRecordDrafts(dataset, caller);
+
+  const features: SpatialFeatureResponse[] = [];
+  const items: RecordResponse[] = [];
+  for (const feature of candidates) {
+    const document = records.get(feature.id);
+    if (!document) continue;
+    if (!drafts && !isRecordPublished(dataset, document.data)) continue;
+    features.push(featureResponse(feature));
+    items.push(recordResponse(document));
+    if (items.length >= query.limit) break;
+  }
+  return { query, features, items };
+}
+
 export function registerSpatialRecordRoutes(app: Express, config: ServiceConfig): void {
   // `/records/spatial` is also a syntactically valid record id, so the generic
   // record route would otherwise answer GET/PATCH/DELETE with 404. Reserve the
@@ -261,25 +292,12 @@ export function registerSpatialRecordRoutes(app: Express, config: ServiceConfig)
     const { caller, client } = await readContext(req, config);
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'records');
     const geo = requireGeo(dataset);
-    const query = parseSpatialQuery((req.body || {}) as Record<string, unknown>);
-    const collection = geoCollectionName(dataset.id);
-    const candidates = await queryTier1(client, collection, query);
-    const records = await loadCandidateRecords(client, datasetId, [...new Set(candidates.map((item) => item.id))]);
-    const drafts = canReadRecordDrafts(dataset, caller);
-
-    const features: SpatialFeatureResponse[] = [];
-    const items: RecordResponse[] = [];
-    for (const feature of candidates) {
-      const document = records.get(feature.id);
-      if (!document) continue;
-      // Authoritative visibility: the index flag is only a hint and may lag
-      // behind a dataset publication or an out-of-band repair.
-      if (!drafts && !isRecordPublished(dataset, document.data)) continue;
-      features.push(featureResponse(feature));
-      items.push(recordResponse(document));
-      if (items.length >= query.limit) break;
-    }
-
+    const { query, features, items } = await querySpatialRecords(
+      client,
+      dataset,
+      caller,
+      (req.body || {}) as Record<string, unknown>,
+    );
     const response: SpatialQueryResponse = {
       type: 'FeatureCollection',
       features,
@@ -289,7 +307,7 @@ export function registerSpatialRecordRoutes(app: Express, config: ServiceConfig)
       mode: query.mode,
     };
     res.setHeader('x-spatial-field', geo.field);
-    res.setHeader('x-spatial-collection', collection);
+    res.setHeader('x-spatial-collection', geoCollectionName(dataset.id));
     res.json(response);
   }));
 

@@ -60,6 +60,7 @@ export interface SafeWidgetProps {
   formUnavailableReason?: string | null;
   onFormSubmit?: (values: Record<string, unknown>) => Promise<unknown>;
   formBusy?: boolean;
+  onSpatialSearch?: (bbox: string) => void;
 }
 
 const ICONS: Partial<Record<RuntimeWidget["type"], typeof TypeIcon>> = {
@@ -643,6 +644,7 @@ export function SafeWidget({
   formUnavailableReason,
   onFormSubmit,
   formBusy,
+  onSpatialSearch,
 }: SafeWidgetProps) {
   const pageActions = useContext(WorkspaceActions);
   const allowedPages = useContext(WorkspaceNavigation);
@@ -824,7 +826,12 @@ export function SafeWidget({
         ) : dataError ? (
           <WidgetFeedback tone="bad" message={dataError} />
         ) : (
-          <MapWidget widget={widget} data={data} preview={preview} />
+          <MapWidget
+            widget={widget}
+            data={data}
+            preview={preview}
+            onSpatialSearch={onSpatialSearch}
+          />
         )
       ) : null}
       {widget.type === "table" ? (

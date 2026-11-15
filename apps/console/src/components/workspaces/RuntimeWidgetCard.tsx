@@ -34,7 +34,8 @@ export function RuntimeWidgetCard({
   const selection = useContext(RecordSelection);
   const [offset, setOffset] = useState(0),
     [search, setSearch] = useState(""),
-    [term, setTerm] = useState("");
+    [term, setTerm] = useState(""),
+    [bbox, setBbox] = useState("");
   const [previousOffsets, setPreviousOffsets] = useState<number[]>([]);
   const read = widgets.find(w => w.id === widget.onLoad)?.operation;
   const accepts = (field: string) => read?.kind === "function" || read?.mappings.some(m => m.field === field && m.source === "event" && m.value === field);
@@ -66,6 +67,7 @@ export function RuntimeWidgetCard({
       widget.id,
       offset,
       term,
+      bbox,
       widget.onLoad,
     ],
     queryFn: async () => {
@@ -73,7 +75,7 @@ export function RuntimeWidgetCard({
         throw new Error("Assign a query action in Studio before loading data");
       const value = (await actions.run(
         widget.onLoad,
-        { limit: 50, offset, search: term },
+        { limit: 50, offset, search: term, ...(bbox ? { bbox } : {}) },
         { silent: true },
       )) as WidgetData;
       if (
@@ -168,7 +170,10 @@ export function RuntimeWidgetCard({
                 placeholder="Search records…"
                 value={search}
                 disabled={!accepts("search")}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setBbox("");
+                }}
               />
               <div className="flex items-center gap-2 text-xs text-dx-muted">
                 <button
@@ -209,6 +214,11 @@ export function RuntimeWidgetCard({
             widget={widget}
             product={product}
             data={query.data}
+            onSpatialSearch={widget.type === "map" ? (value) => {
+              setBbox(value);
+              setOffset(0);
+              setPreviousOffsets([]);
+            } : undefined}
             dataLoading={query.isLoading}
             dataError={
               needsData && !widget.onLoad

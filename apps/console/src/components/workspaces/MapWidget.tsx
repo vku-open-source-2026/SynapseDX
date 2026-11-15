@@ -3,14 +3,14 @@
 import { useContext, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, Layers, MapPin, Maximize2 } from 'lucide-react';
+import { Crosshair, Layers, MapPin, Maximize2, Search } from 'lucide-react';
 import { httpClient } from '../../lib/httpClient';
 import { safeCellText, type RuntimeWidget, type WidgetData } from '../../lib/workspaces';
 import { RecordSelection } from './RecordSelection';
 
 import { recordGeometry } from '../../lib/mapGeometry';
 
-export function MapWidget({widget,data,preview}:{widget:RuntimeWidget;data?:WidgetData;preview?:boolean}) {
+export function MapWidget({widget,data,preview,onSpatialSearch}:{widget:RuntimeWidget;data?:WidgetData;preview?:boolean;onSpatialSearch?:(bbox:string)=>void}) {
   const node = useRef<HTMLDivElement>(null), mapRef = useRef<L.Map | null>(null);
   const {select} = useContext(RecordSelection);
   const [tilesFailed,setTilesFailed] = useState(false), [showLayer,setShowLayer] = useState(true);
@@ -62,6 +62,7 @@ export function MapWidget({widget,data,preview}:{widget:RuntimeWidget;data?:Widg
       <div className="absolute left-3 top-3 z-[401] flex gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
         <button className="map-control" type="button" aria-label="Fit all locations" onClick={()=>{if(boundsRef.current)mapRef.current?.fitBounds(boundsRef.current,{padding:[35,35],maxZoom:14});}}><Crosshair size={16}/></button>
         <button className="map-control" type="button" aria-label="Toggle map records" aria-pressed={showLayer} onClick={()=>setShowLayer(!showLayer)}><Layers size={16}/></button>
+        {onSpatialSearch?<button className="map-control" type="button" aria-label="Search this area" title="Search this area" onClick={()=>{const bounds=mapRef.current?.getBounds();if(!bounds)return;const sw=bounds.getSouthWest(),ne=bounds.getNorthEast();onSpatialSearch([sw.lng,sw.lat,ne.lng,ne.lat].map(value=>value.toFixed(6)).join(','));}}><Search size={16}/></button>:null}
         <button className="map-control" type="button" aria-label="Expand map" onClick={()=>{void node.current?.parentElement?.requestFullscreen?.();}}><Maximize2 size={16}/></button>
       </div>
       <div className="absolute bottom-4 left-3 z-[401] rounded-lg bg-white/95 px-3 py-2 text-[11px] font-medium text-slate-600 shadow-sm"><span className="mr-2 inline-block h-2 w-2 rounded-full bg-teal-500"/>{located.length} located · {rows.length-located.length} without location{preview?' · Layout preview':''}</div>

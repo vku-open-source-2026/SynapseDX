@@ -263,6 +263,7 @@ export async function fetchWidgetData(
     status?: string;
     sortBy?: string;
     sortDirection?: string;
+    bbox?: string;
   } = {},
   actionId?: string,
 ): Promise<WidgetData> {

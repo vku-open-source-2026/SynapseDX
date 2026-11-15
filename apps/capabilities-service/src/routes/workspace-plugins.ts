@@ -46,6 +46,7 @@ import { ServiceConfig } from "../config";
 import { apiError } from "../errors";
 import { handler } from "../http";
 import { parsePagination, setPageHeaders } from "../pagination";
+import { querySpatialRecords } from "./spatial";
 import {
   COLLECTIONS,
   CapabilityRecord,
@@ -179,14 +180,15 @@ function requireRegisteredAction(
 }
 /** Apply the same declared input contract to collection and reference queries. */
 function queryInput(req: Request, op: StudioAction) {
-  const allowed = new Set(["action", "limit", "offset", "search", "status", "sortBy", "sortDirection"]);
+  const allowed = new Set(["action", "limit", "offset", "search", "status", "sortBy", "sortDirection", "bbox"]);
   if (Object.keys(req.query).some(key => !allowed.has(key)))
     throw apiError(400, "query_input_invalid", "Undeclared query parameter");
   for (const [key, value] of Object.entries(req.query))
     if (typeof value !== "string" || value.length > 200)
       throw apiError(400, "query_input_invalid", `Invalid query value ${key}`);
+  // `bbox` is a server-validated map viewport, not a published action field.
   const input = Object.fromEntries(Object.entries(req.query)
-    .filter(([key]) => key !== "action")
+    .filter(([key]) => key !== "action" && key !== "bbox")
     .map(([key, value]) => [key, ["limit", "offset"].includes(key) ? Number(value) : value]));
   const issue = actionPayloadError(op, input);
   if (issue) throw apiError(400, "query_input_invalid", issue);
@@ -2678,6 +2680,7 @@ export function registerWorkspacePluginRoutes(
         "status",
         "sortBy",
         "sortDirection",
+        "bbox",
       ]);
       if (Object.keys(req.query).some((key) => !allowedQuery.has(key)))
         throw apiError(
@@ -2793,6 +2796,45 @@ export function registerWorkspacePluginRoutes(
         );
       }
       const pagination = parsePagination(req, context.limits.widgetDataMaxRows);
+      // A map viewport is a server-side spatial filter, not a client-supplied
+      // dataset or geometry path. The dataset binding and geo field stay server
+      // side; without a geo binding the normal query remains authoritative.
+      const bboxRaw = String(req.query.bbox || "").trim();
+      if (bboxRaw && widget.type === "map" && dataset.data.geo) {
+        const bbox = bboxRaw.split(",").map(Number);
+        if (bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) {
+          throw apiError(400, "query_input_invalid", "bbox must be west,south,east,north");
+        }
+        const spatial = await querySpatialRecords(
+          context.client,
+          dataset.data,
+          context.caller,
+          { mode: "bbox", bbox, limit: pagination.limit },
+        );
+        const spatialColumns = (widget.columns || []).slice(0, context.limits.maxColumns);
+        const rows = spatial.items.map((item) => {
+          const row: Record<string, unknown> = { id: item.id };
+          for (const column of spatialColumns) {
+            row[column] = column === "id" ? item.id : (item.data[column] ?? null);
+          }
+          return row;
+        });
+        res.setHeader("cache-control", "no-store");
+        res.json({
+          widgetId: widget.id,
+          type: widget.type,
+          title: widget.title,
+          resource: widget.resource,
+          columns: spatialColumns,
+          items: rows,
+          total: rows.length,
+          limit: pagination.limit,
+          offset: 0,
+          spatial: true,
+          generatedAt: new Date().toISOString(),
+        });
+        return;
+      }
       const clauses: any[] = [
         { datasetId: mapping.dataset },
         { deletedAt: { exists: false } },
