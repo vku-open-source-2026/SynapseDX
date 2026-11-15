@@ -154,5 +154,5 @@ capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
 The public browser gate now checks out the City/SOS source bundles into a
 scratch sibling directory and runs with one worker, two CI retries and a
 45-second test budget. The capability service's health-probe timer stays
-referenced so Node 20 does not cancel the awaited timeout. Release Images
-`v0.9.13` succeeded and published the tagged images.
+referenced so Node 20 does not cancel the awaited timeout. Release Images `v0.9.13` and `v0.9.14` succeeded; CI on `c8774c2` is green for
+build-test and the deterministic console smoke E2E.
