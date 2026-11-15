@@ -100,14 +100,38 @@ approval, publication and domain policy.
 
 ## Verification
 
-- Backend capability service: **234 tests passed** (includes 12 spatial, 11 SSE,
+- Backend capability service: **235 tests passed** (includes 12 spatial, 12 SSE,
   18 optimization and 12 plan tests).
 - JavaScript SDK: **31 tests passed**.
 - Console: **52 unit tests + 7 nginx/integrity tests passed**.
 - Rust gateway: **4 tests passed**, including SSE passthrough and
   `Last-Event-ID` forwarding.
+- Browser suite against `https://synapsedx.sbs`: **76 passed, 0 failed**.
 - Root `npm run build` and `npm run workflows:validate` passed.
-- Production: see the release evidence appended after deployment.
+
+### Production evidence
+
+Images deployed from local source on 2026-11-16:
+
+- `synapsedx-capabilities:0.9.12-capability-expansion-20261116`
+- `synapsedx-gateway:0.9.12-sse-20261116`
+- `synapsedx-console:0.9.12-capability-expansion-20261116`
+- `synapseone/edge:0.9.3-sse-20261116` (unbuffered SSE location)
+
+All three DX containers are healthy; `/ready`, `/v1/capabilities/health`,
+`api.synapsedx.sbs/health`, City `/ready` and SOS `/ready` return 200. The
+capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
+
+- SSE through the public edge returned `event: ready` with the real stream tail
+  as cursor and no replayed history. A local mock proved the gateway forwards a
+  second frame after a 2-second upstream delay instead of buffering it.
+- `city-assets.geo=geometry` indexed 1,618 features; `city-incidents.geo=
+  location.geometry` indexed 65. Production `bbox`/`near`/`within` queries
+  returned records with distances and FeatureCollections.
+- `optimization.assign` returned a two-demand match with `min_cost_flow`.
+- A temporary verification plan was created, activated (due dates computed),
+  briefed by the live model with two task citations, completed and archived.
+  No product business record was created or changed by these checks.
 
 ## Boundaries and remaining work
 
