@@ -887,3 +887,202 @@ test("registered workspace queries and writes carry the action identifier outsid
   );
   assert.deepEqual(requests[1].body, { values: { enabled: true } });
 });
+
+test("events.stream parses SSE frames incrementally and skips control frames", async () => {
+  const encoder = new TextEncoder();
+  const first = {
+    eventId: "evt-1",
+    type: "record.created",
+    schemaVersion: 1 as const,
+    datasetId: "city-incidents",
+    at: "2026-11-15T00:00:00.000Z",
+    correlationId: "corr-1",
+  };
+  const second = { ...first, eventId: "evt-2", recordId: "r-2" };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `retry: 3000\n\nevent: ready\ndata: {"cursor":null,"stream":"topic","filters":{"type":null,"datasetId":null}}\n\n`,
+        ),
+      );
+      controller.enqueue(encoder.encode(`: keepalive\n\n`));
+      controller.enqueue(
+        encoder.encode(
+          `id: 1700000000000-0\nevent: capability\ndata: ${JSON.stringify({ id: "1700000000000-0", event: first })}\n\n`,
+        ),
+      );
+      // Deliberately delivered in a later chunk: the generator must not wait
+      // for the whole response.
+      setTimeout(() => {
+        controller.enqueue(
+          encoder.encode(
+            `id: 1700000000000-1\nevent: capability\ndata: ${JSON.stringify({ id: "1700000000000-1", event: second })}\n\n`,
+          ),
+        );
+        controller.close();
+      }, 5);
+    },
+  });
+  let captured: { url: string; headers: Headers } | undefined;
+  const impl = (async (input: any, init: any = {}) => {
+    captured = { url: String(input), headers: new Headers(init.headers) };
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "read-token",
+    fetch: impl,
+  });
+
+  const items: Array<{ id: string; event: typeof first }> = [];
+  for await (const item of client.events.stream({
+    since: "0-0",
+    type: "record.created",
+  })) {
+    items.push(item as { id: string; event: typeof first });
+    if (items.length === 1) {
+      // The first frame is available before the second chunk was produced.
+      assert.equal(item.event.eventId, "evt-1");
+    }
+  }
+
+  assert.equal(items.length, 2);
+  assert.deepEqual(items[1], {
+    id: "1700000000000-1",
+    event: second,
+  });
+  assert.ok(captured);
+  assert.equal(
+    captured.url,
+    "https://dx.example/v1/capabilities/events/stream?since=0-0&type=record.created",
+  );
+  assert.equal(captured.headers.get("accept"), "text/event-stream");
+  assert.equal(captured.headers.get("authorization"), "Bearer read-token");
+  assert.equal(captured.headers.get("last-event-id"), null);
+});
+
+test("events.stream sends Last-Event-ID only when since is absent", async () => {
+  const encoder = new TextEncoder();
+  const body = () =>
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `retry: 3000\n\nevent: ready\ndata: {"cursor":"9-0","stream":"topic","filters":{"type":null,"datasetId":null}}\n\n`,
+          ),
+        );
+        controller.close();
+      },
+    });
+  const calls: Headers[] = [];
+  const impl = (async (_input: any, init: any = {}) => {
+    calls.push(new Headers(init.headers));
+    return new Response(body(), {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    apiKey: "read-key",
+    fetch: impl,
+  });
+
+  for await (const _item of client.events.stream({ lastEventId: "9-0" })) {
+    assert.fail("ready frames are not yielded");
+  }
+  for await (const _item of client.events.stream({
+    since: "8-0",
+    lastEventId: "9-0",
+  })) {
+    assert.fail("ready frames are not yielded");
+  }
+
+  assert.equal(calls[0].get("last-event-id"), "9-0");
+  assert.equal(calls[0].get("x-api-key"), "read-key");
+  assert.equal(calls[1].get("last-event-id"), null);
+});
+
+test("events.stream aborts without buffering the response", async () => {
+  const encoder = new TextEncoder();
+  const abortController = new AbortController();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `id: 1-0\nevent: capability\ndata: ${JSON.stringify({
+            id: "1-0",
+            event: {
+              eventId: "evt-1",
+              type: "record.created",
+              schemaVersion: 1,
+              datasetId: "ds",
+              at: "2026-11-15T00:00:00.000Z",
+              correlationId: "corr-1",
+            },
+          })}\n\n`,
+        ),
+      );
+      abortController.signal.addEventListener(
+        "abort",
+        () => controller.error(new DOMException("Aborted", "AbortError")),
+        { once: true },
+      );
+    },
+  });
+  const impl = (async (_input: any, init: any = {}) => {
+    assert.equal(init.signal, abortController.signal);
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "read-token",
+    fetch: impl,
+  });
+
+  const iterator = client.events.stream({}, { signal: abortController.signal });
+  const first = await iterator.next();
+  assert.equal(first.done, false);
+  assert.equal(first.value?.id, "1-0");
+  abortController.abort();
+  await assert.rejects(iterator.next(), /abort/i);
+});
+
+test("events.stream surfaces a JSON error before any frame is yielded", async () => {
+  const impl = (async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "unauthorized",
+          message: "a verified credential is required",
+          requestId: "req-1",
+        },
+      }),
+      {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      },
+    )) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    fetch: impl,
+  });
+  await assert.rejects(async () => {
+    for await (const _item of client.events.stream()) {
+      assert.fail("no event should be yielded");
+    }
+  }, (error: any) => {
+    assert.ok(error instanceof CapabilitiesError);
+    assert.equal(error.status, 401);
+    assert.equal(error.code, "unauthorized");
+    assert.equal(error.requestId, "req-1");
+    return true;
+  });
+});

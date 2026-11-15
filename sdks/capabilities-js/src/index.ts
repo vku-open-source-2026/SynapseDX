@@ -333,20 +333,36 @@ export interface AuditPage {
   nextCursor: string | null;
 }
 
+export interface CapabilityEvent {
+  eventId: string;
+  type: string;
+  schemaVersion: 1;
+  datasetId: string;
+  recordId?: string;
+  version?: string;
+  at: string;
+  correlationId: string;
+  idempotencyKey?: string;
+  payload?: Record<string, unknown>;
+}
+
 export interface EventFeedItem {
   id: string;
-  event: {
-    eventId: string;
-    type: string;
-    schemaVersion: 1;
-    datasetId: string;
-    recordId?: string;
-    version?: string;
-    at: string;
-    correlationId: string;
-    idempotencyKey?: string;
-    payload?: Record<string, unknown>;
-  };
+  event: CapabilityEvent;
+}
+
+/** One decoded `event: capability` frame from the live SSE feed. */
+export type EventStreamItem = EventFeedItem;
+
+export interface EventStreamQuery {
+  /** Explicit cursor; wins over `lastEventId`. */
+  since?: string;
+  /** Sent as `Last-Event-ID` when `since` is absent. */
+  lastEventId?: string;
+  /** CapabilityEvent.type filter. */
+  type?: string;
+  /** CapabilityEvent.datasetId filter. */
+  datasetId?: string;
 }
 
 export interface FileUploadInput {
@@ -571,6 +587,81 @@ function uuid(): string {
     return globalThis.crypto.randomUUID();
   } catch {
     return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+  }
+}
+
+/** Split an SSE line into its field/value pair (`data: value` -> `data`, `value`). */
+function sseField(line: string): { field: string; value: string } | null {
+  if (!line || line.startsWith(":")) return null;
+  const colon = line.indexOf(":");
+  const field = colon === -1 ? line : line.slice(0, colon);
+  let value = colon === -1 ? "" : line.slice(colon + 1);
+  if (value.startsWith(" ")) value = value.slice(1);
+  return { field: field.trim(), value };
+}
+
+function invalidFrame(message: string, cause?: unknown): CapabilitiesError {
+  return new CapabilitiesError(message, { code: "invalid_stream_frame", cause });
+}
+
+/**
+ * Decode an SSE byte stream incrementally. Only `event: capability` frames are
+ * yielded; comments (heartbeats), `retry` and the `ready`/`reconnect` control
+ * frames are consumed without buffering the whole response.
+ */
+async function* parseEventStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<EventStreamItem> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "message";
+  let frameId: string | undefined;
+  let data: string[] = [];
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line === "") {
+          if (data.length && eventName === "capability") {
+            const text = data.join("\n");
+            let parsed: any;
+            try {
+              parsed = JSON.parse(text);
+            } catch (error) {
+              throw invalidFrame("synapsedx event stream returned invalid JSON", error);
+            }
+            const id = typeof parsed?.id === "string" ? parsed.id : frameId;
+            if (typeof id !== "string" || !id || !parsed?.event || typeof parsed.event !== "object") {
+              throw invalidFrame("synapsedx event stream frame is missing id/event");
+            }
+            yield { id, event: parsed.event as CapabilityEvent };
+          }
+          eventName = "message";
+          frameId = undefined;
+          data = [];
+        } else {
+          const field = sseField(line);
+          if (field?.field === "event") eventName = field.value;
+          else if (field?.field === "data") data.push(field.value);
+          else if (field?.field === "id") frameId = field.value;
+          // `retry` is advisory; reconnection is driven by the caller.
+        }
+        newline = buffer.indexOf("\n");
+      }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      /* the caller aborted or the socket is already gone */
+    }
   }
 }
 
@@ -812,6 +903,77 @@ class Http {
       headers: response.headers,
       status: response.status,
     };
+  }
+
+  /**
+   * Open a long-lived SSE response.
+   *
+   * The normal request timeout does not apply: the caller owns the lifetime
+   * through `opts.signal`. The body is returned unread so the caller can parse
+   * frames as they arrive.
+   */
+  async openEventStream(
+    path: string,
+    opts: RequestOptions = {},
+  ): Promise<Response> {
+    const headers = new Headers();
+    headers.set("accept", "text/event-stream");
+    const token = opts.token ?? this.token;
+    const apiKey = opts.apiKey ?? this.apiKey;
+    const tenant = opts.tenant ?? this.tenant;
+    const correlationId = opts.correlationId ?? this.correlationId ?? uuid();
+    if (token) headers.set("authorization", `Bearer ${token}`);
+    if (apiKey) headers.set("x-api-key", apiKey);
+    if (tenant) headers.set("x-synapseone-tenant", tenant);
+    if (this.product) headers.set("x-synapsedx-product", this.product);
+    headers.set("x-correlation-id", correlationId);
+    for (const [key, value] of Object.entries(this.extraHeaders))
+      headers.set(key, value);
+    for (const [key, value] of Object.entries(opts.headers || {}))
+      headers.set(key, value);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+        headers,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+    } catch (error) {
+      throw new CapabilitiesError(`synapsedx network ${path}`, {
+        cause: error,
+        requestId: correlationId,
+      });
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      let body: unknown = null;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      const envelope =
+        (body && typeof body === "object" ? (body as any).error : undefined) ||
+        {};
+      throw new CapabilitiesError(
+        envelope.message || `synapsedx ${response.status} ${path}`,
+        {
+          status: response.status,
+          code: envelope.code,
+          requestId:
+            envelope.requestId ||
+            response.headers.get("x-correlation-id") ||
+            correlationId,
+          details: envelope.details,
+          body,
+        },
+      );
+    }
+    if (!response.body)
+      throw new CapabilitiesError("synapsedx event stream has no body", {
+        status: response.status,
+        requestId: correlationId,
+      });
+    return response;
   }
 
   async requestRaw<T>(
@@ -1634,6 +1796,15 @@ export class CapabilitiesClient {
       datasetId: string,
       opts?: RequestOptions,
     ) => Promise<{ datasetId: string; pending: number; flushed: boolean }>;
+    /**
+     * Live SSE feed. Yields `{id,event}` for each `event: capability` frame.
+     * The response is parsed incrementally. The request timeout is not
+     * applied; stop the stream with `opts.signal` or by breaking the loop.
+     */
+    stream: (
+      query?: EventStreamQuery,
+      opts?: RequestOptions,
+    ) => AsyncGenerator<EventStreamItem>;
   };
 
   readonly auth: {
@@ -2361,6 +2532,27 @@ export class CapabilitiesClient {
           { method: "POST" },
           requestOpts,
         ),
+      stream: async function* stream(
+        this: CapabilitiesClient,
+        query: EventStreamQuery = {},
+        requestOpts?: RequestOptions,
+      ): AsyncGenerator<EventStreamItem> {
+        const headers: Record<string, string> = {
+          ...(query.lastEventId && !query.since
+            ? { "last-event-id": query.lastEventId }
+            : {}),
+          ...(requestOpts?.headers || {}),
+        };
+        const response = await this.http.openEventStream(
+          `/v1/capabilities/events/stream${queryString({
+            since: query.since,
+            type: query.type,
+            datasetId: query.datasetId,
+          })}`,
+          { ...(requestOpts || {}), headers },
+        );
+        yield* parseEventStream(response.body!);
+      }.bind(this) as CapabilitiesClient["events"]["stream"],
     };
 
     this.auth = {

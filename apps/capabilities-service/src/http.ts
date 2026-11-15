@@ -14,6 +14,7 @@ export const ALLOWED_HEADERS = [
   'idempotency-key',
   'if-match',
   'if-none-match',
+  'last-event-id',
   'x-api-key',
   'x-correlation-id',
   'x-request-id',
@@ -42,6 +43,7 @@ export const EXPOSED_HEADERS = [
   'x-checksum-sha256',
   'content-disposition',
   'cache-control',
+  'last-event-id',
 ].join(',');
 
 function appendVary(res: Response, value: string): void {
@@ -140,6 +142,7 @@ export const KNOWN_ROUTES: KnownRoute[] = [
   { pattern: /^\/v1\/capabilities\/datasets\/[^/]+\/records\/purge-expired$/, methods: ['POST'] },
   { pattern: /^\/v1\/capabilities\/datasets\/[^/]+\/records\/[^/]+$/, methods: ['GET', 'PATCH', 'DELETE'] },
   { pattern: /^\/v1\/capabilities\/events$/, methods: ['GET'] },
+  { pattern: /^\/v1\/capabilities\/events\/stream$/, methods: ['GET'] },
   { pattern: /^\/v1\/capabilities\/events\/outbox\/flush$/, methods: ['POST'] },
   { pattern: /^\/v1\/capabilities\/auth\/(login|refresh|logout|logout-all|register|password-reset|password\/change|password\/forgot|password\/reset|email\/verify|email\/verify\/request|exchange)$/, methods: ['POST'] },
   { pattern: /^\/v1\/capabilities\/auth\/me$/, methods: ['GET'] },
