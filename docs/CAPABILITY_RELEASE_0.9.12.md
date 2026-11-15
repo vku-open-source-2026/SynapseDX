@@ -148,3 +148,11 @@ capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
   only returns a deterministic recommendation.
 - SOS owns EOP approvals, publication and AI policy; the generic plan lifecycle
   is a reusable substrate, not a replacement for those decisions.
+
+## CI follow-up
+
+The public browser gate now checks out the City/SOS source bundles into a
+scratch sibling directory and runs with one worker, two CI retries and a
+45-second test budget. The capability service's health-probe timer stays
+referenced so Node 20 does not cancel the awaited timeout. Release Images
+`v0.9.13` succeeded and published the tagged images.
