@@ -868,6 +868,7 @@ export class FakeTier1 {
     }
     if (path === '/v1/inference/chat/completions' && method === 'POST') {
       this.chatRequests.push(body);
+      if (process.env.FAKE_TIER1_CHAT_ERROR === 'true') return this.json(res, 503, { error: 'inference_unavailable' });
       const content = process.env.FAKE_TIER1_CHAT_REPLY ?? 'ok';
       return this.json(res, 200, { id: 'chat-1', object: 'chat.completion', created: 1, model: body?.model || 'fake', choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
     }

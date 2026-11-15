@@ -47,6 +47,7 @@ only for tests. `SYNAPSEDX_AUTH_MODE=optional` requires the same test override.
 | AI | `/v1/capabilities/ai/*` | `client.inference.*` |
 | audit/usage | `/v1/capabilities/audit`, `/usage` | `client.iam.*` + Base audit collection |
 | idempotency | `Idempotency-Key` header | `client.faststore.*` |
+| EOP plans | `/v1/capabilities/plans` | Base documents + `client.inference.*` (brief/draft) |
 | files | `/v1/capabilities/files` | `client.storage.*` |
 | notifications | `/v1/capabilities/notifications` | `client.notifications.*` |
 | geocoding | `/v1/capabilities/geo/*` | operator provider (server-side key) |

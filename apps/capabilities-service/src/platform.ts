@@ -25,6 +25,7 @@ export const COLLECTIONS = {
   audit: 'synapsedx_capability_audit',
   settings: 'synapsedx_capability_settings',
   approvals: 'synapsedx_capability_approvals',
+  plans: 'synapsedx_capability_plans',
   comments: 'synapsedx_capability_comments',
   inbox: 'synapsedx_capability_inbox',
   notificationPrefs: 'synapsedx_capability_notification_prefs',

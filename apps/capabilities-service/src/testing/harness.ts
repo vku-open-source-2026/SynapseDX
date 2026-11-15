@@ -128,6 +128,7 @@ export async function startHarness(
     FAKE_TIER1_EMBEDDING_REAL: undefined,
     FAKE_TIER1_EMBEDDING_MOCK: undefined,
     FAKE_TIER1_CHAT_REPLY: undefined,
+    FAKE_TIER1_CHAT_ERROR: undefined,
     ...overrides,
   };
   for (const [key, value] of Object.entries(env)) {

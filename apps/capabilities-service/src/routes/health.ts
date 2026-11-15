@@ -208,6 +208,7 @@ export function registerCapabilityAdvertisement(app: Express, config: ServiceCon
         { name: 'usage', status: 'available' },
         { name: 'files', status: 'available', backend: 'synapseone-storage' },
         { name: 'notifications', status: 'available', backend: 'synapseone-notifications' },
+        { name: 'plans', status: 'available', ai: ['brief', 'draft'], persistence: 'synapseone-base' },
         { name: 'warehouse', status: 'available', backend: 'synapseone-warehouse', modes: ['batch', 'stream'], reports: true, dashboards: true },
         { name: 'geo', status: config.geocoder ? 'available' : 'unconfigured', provider: config.geocoder?.provider, dependency: config.geocoder ? undefined : 'SYNAPSEDX_GEOCODER_BASE_URL' },
       ],
