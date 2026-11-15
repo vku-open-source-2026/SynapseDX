@@ -9,7 +9,7 @@
 
 use axum::body::Body;
 use axum::extract::{Request, State};
-use axum::http::header::HeaderValue;
+use axum::http::header::{HeaderValue, CONTENT_TYPE};
 use axum::http::{Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -39,6 +39,7 @@ pub const FORWARDED_REQUEST_HEADERS: &[&str] = &[
     "idempotency-key",
     "if-match",
     "if-none-match",
+    "last-event-id",
     "traceparent",
     "x-api-key",
     "x-correlation-id",
@@ -202,7 +203,7 @@ async fn cors_and_headers_middleware(
             "access-control-allow-headers",
             HeaderValue::from_static(
                 "accept,authorization,content-type,idempotency-key,if-match,if-none-match,\
-                 x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
+                 last-event-id,x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
                  x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256,x-workspace-app,x-file-name",
             ),
         );
@@ -239,7 +240,7 @@ async fn cors_and_headers_middleware(
         "access-control-allow-headers",
         HeaderValue::from_static(
             "accept,authorization,content-type,idempotency-key,if-match,if-none-match,\
-             x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
+             last-event-id,x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
              x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256,x-workspace-app",
         ),
     );
@@ -399,6 +400,10 @@ async fn proxy_handler(State(state): State<AppState>, req: Request) -> Response 
     let uri = req.uri().clone();
     let path_and_query = uri.path_and_query().map(|pq| pq.as_str()).unwrap_or(uri.path());
     let target_url = format!("{}{}", state.upstream, path_and_query);
+    // Server-Sent Events are long-lived by design. A total request timeout
+    // would terminate every stream at UPSTREAM_TIMEOUT_MS, so the SSE route is
+    // exempt and relies on the client/upstream heartbeat to detect failure.
+    let is_event_stream = uri.path() == "/v1/capabilities/events/stream";
 
     let mut upstream_req = state.client.request(
         reqwest::Method::from_bytes(method.as_str().as_bytes()).unwrap_or(reqwest::Method::GET),
@@ -413,8 +418,10 @@ async fn proxy_handler(State(state): State<AppState>, req: Request) -> Response 
     }
     upstream_req = upstream_req
         .header("x-correlation-id", &corr_id)
-        .header("x-request-id", &corr_id)
-        .timeout(state.timeout);
+        .header("x-request-id", &corr_id);
+    if !is_event_stream {
+        upstream_req = upstream_req.timeout(state.timeout);
+    }
 
     // Stream / pass body if not GET / HEAD
     if method != Method::GET && method != Method::HEAD {
@@ -464,6 +471,20 @@ async fn proxy_handler(State(state): State<AppState>, req: Request) -> Response 
 
             if method == Method::HEAD {
                 return response_builder.body(Body::empty()).unwrap();
+            }
+
+            // Never buffer an event stream: forward chunks as they arrive so
+            // heartbeat and event latency survive the public gateway.
+            let is_sse_response = res
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(|value| value.to_ascii_lowercase().starts_with("text/event-stream"))
+                .unwrap_or(false);
+            if is_sse_response {
+                return response_builder
+                    .body(Body::from_stream(res.bytes_stream()))
+                    .unwrap();
             }
 
             let body_bytes = res.bytes().await.unwrap_or_else(|_| Bytes::new());
@@ -678,5 +699,62 @@ mod tests {
         assert_eq!(result.status(), StatusCode::NO_CONTENT);
         assert!(!result.headers().get("access-control-allow-headers").unwrap()
             .to_str().unwrap().contains("x-workspace-token"));
+    }
+
+    #[tokio::test]
+    async fn forwards_sse_frames_without_buffering_the_content_type() {
+        let upstream = Router::new().fallback(any(|request: Request| async move {
+            assert_eq!(request.headers()["last-event-id"], "42-0");
+            (
+                StatusCode::OK,
+                [("content-type", "text/event-stream; charset=utf-8")],
+                "id: 43-0\nevent: capability\ndata: {\"ok\":true}\n\n",
+            )
+                .into_response()
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let gateway = create_app(AppState {
+            upstream: format!("http://{address}"),
+            timeout: Duration::from_secs(2),
+            cors_origins: vec!["https://synapsedx.sbs".into()],
+            client: reqwest::Client::new(),
+        });
+        let result = gateway
+            .clone()
+            .oneshot(
+                HttpRequest::builder()
+                    .uri("/v1/capabilities/events/stream?type=record.created")
+                    .header("last-event-id", "42-0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.status(), StatusCode::OK);
+        assert!(result.headers()[CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/event-stream"));
+        let body = axum::body::to_bytes(result.into_body(), 1024).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains("event: capability"));
+        let preflight = gateway
+            .oneshot(
+                HttpRequest::builder()
+                    .method("OPTIONS")
+                    .uri("/v1/capabilities/events/stream")
+                    .header("origin", "https://synapsedx.sbs")
+                    .header("access-control-request-headers", "last-event-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(preflight.headers()["access-control-allow-headers"]
+            .to_str()
+            .unwrap()
+            .contains("last-event-id"));
+        task.abort();
     }
 }
