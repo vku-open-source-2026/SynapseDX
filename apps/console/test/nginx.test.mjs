@@ -22,6 +22,15 @@ test('console nginx proxies the API and health to the gateway', () => {
   assert.match(config, /resolver 127\.0\.0\.11/);
 });
 
+test('console nginx keeps the capability event stream unbuffered', () => {
+  const stream = config.match(/location = \/v1\/capabilities\/events\/stream \{([\s\S]*?)\n  \}/)?.[1];
+  assert.ok(stream);
+  assert.match(stream, /proxy_buffering off;/);
+  assert.match(stream, /proxy_read_timeout 35m;/);
+  assert.match(stream, /Last-Event-ID \$http_last_event_id;/);
+  assert.match(config, /location \/v1\/[\s\S]*Last-Event-ID \$http_last_event_id;/);
+});
+
 test('console nginx sends a strict self-only CSP and permissions policy', () => {
   assert.match(config, /Content-Security-Policy[^;]*default-src 'self'/);
   assert.match(config, /script-src 'self'/);
