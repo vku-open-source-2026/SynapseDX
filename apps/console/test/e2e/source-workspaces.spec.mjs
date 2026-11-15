@@ -3,9 +3,14 @@
 // APIs are fixtures: this does not claim production business-write parity.
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import { actionGovernanceErrors } from "../../src/lib/studioActions.ts";
 import { parsePluginBundle, toWriteWidget } from "../../src/lib/workspaces.ts";
-const root = new URL("../../../../../", import.meta.url);
+// Local checkouts keep the sibling products next to SynapseDX. CI checks them
+// out under a scratch directory and points SYNAPSE_SOURCE_ROOT at it.
+const root = process.env.SYNAPSE_SOURCE_ROOT
+  ? pathToFileURL(process.env.SYNAPSE_SOURCE_ROOT.replace(/\/?$/, "/"))
+  : new URL("../../../../../", import.meta.url);
 const sources = ["SynapseCity", "SynapseCitySOS"].flatMap(repository => {
   const directory = new URL(repository + "/plugins/", root);
   return fs.readdirSync(directory).filter(file => file.endsWith(".plugin.json")).sort().map(file => JSON.parse(fs.readFileSync(new URL(file, directory), "utf8")));

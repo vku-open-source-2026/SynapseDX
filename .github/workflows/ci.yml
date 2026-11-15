@@ -81,6 +81,16 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout City source bundles
+        uses: actions/checkout@v4
+        with:
+          repository: vku-open-source-2026/SynapseCity
+          path: .siblings/SynapseCity
+      - name: Checkout SOS source bundles
+        uses: actions/checkout@v4
+        with:
+          repository: vku-open-source-2026/SynapseCitySOS
+          path: .siblings/SynapseCitySOS
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -92,6 +102,8 @@ jobs:
       - name: Build console
         run: npm run build --workspace=@synapsedx/console
       - name: Role-matrix and responsive console E2E
+        env:
+          SYNAPSE_SOURCE_ROOT: ${{ github.workspace }}/.siblings
         run: npm run test:e2e --workspace=@synapsedx/console
       - name: Upload Playwright artifacts on failure
         if: failure()
