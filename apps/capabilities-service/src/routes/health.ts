@@ -44,8 +44,10 @@ async function probe(entry: Probe, client: SynapseOneClient, timeoutMs: number):
   const started = Date.now();
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
+    // Do not unref this timer: the probe is awaited, and an unref'd timer can
+    // let Node 20's test runner observe an empty event loop and cancel the
+    // pending probe before the timeout resolves.
     timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { name: 'AbortError' })), timeoutMs);
-    timer.unref?.();
   });
   try {
     await Promise.race([entry.run(client), timeout]);
