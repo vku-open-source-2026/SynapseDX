@@ -65,6 +65,9 @@ export function kttvWorkflowDefinition(config: ServiceConfig, credentialId: stri
           auth: {
             credentialId,
             ...(config.serviceApiKey ? { header: 'x-api-key' } : {}),
+            // Credential-backed HTTP nodes may only send the secret to an
+            // explicitly declared exact origin.
+            allowedOrigins: [new URL(config.publicUrl).origin],
           },
         },
       },
@@ -72,7 +75,10 @@ export function kttvWorkflowDefinition(config: ServiceConfig, credentialId: stri
     connections: {
       Schedule: { main: [[{ node: 'Trigger KTTV crawler', type: 'main', index: 0 }]] },
     },
-    settings: { timeoutMs: 60000 },
+    // Run the short crawler trigger on the Tier-1 workflow service itself.
+    // Queue mode would require a healthy platform runner; when that pool is
+    // unavailable the cron queues forever and the hazard feed goes stale.
+    settings: { timeoutMs: 60000, execution: { mode: 'inline' } },
   };
 }
 
@@ -108,12 +114,15 @@ export async function ensureKttvSchedule(config: ServiceConfig): Promise<{ workf
   }
 
   const definition = kttvWorkflowDefinition(config, credential.id);
+  // Tier-1 ignores a `settings` key inside `definition`; it must be sent as the
+  // top-level workflow settings for the cron loop to choose inline execution.
+  const settings = { timeoutMs: 60000, execution: { mode: 'inline' } };
   const workflows = unwrapWorkflows(await client.workflow.listWorkflows());
   let workflow = workflows.find((item) => item.name === KTTV_WORKFLOW_NAME);
   if (!workflow) {
-    workflow = await client.workflow.createWorkflow(KTTV_WORKFLOW_NAME, definition) as WorkflowRecord;
+    workflow = await client.workflow.createWorkflow(KTTV_WORKFLOW_NAME, definition, settings) as WorkflowRecord;
   } else {
-    await client.workflow.updateWorkflow(workflow.id, { definition });
+    await client.workflow.updateWorkflow(workflow.id, { definition, settings });
   }
   if (!workflow?.id) throw new Error('Tier-1 did not return a workflow id');
   await client.workflow.activateWorkflow(workflow.id);
