@@ -152,6 +152,73 @@ documents + pgvector + graph) and returns `answer`, `citations` (with source
 URLs) and expanded `entities`. `hazards.brief` uses the same live feed and
 returns a deterministic, clearly-labelled fallback when the LLM is unavailable.
 
+## Emergency operations plans (EOP)
+
+`plans` is a generic phased-task capability, not SOS policy. It stores the plan
+in Tier-1 Base, computes task due times on activation, enforces task
+dependencies and can produce a grounded brief or an AI-assisted draft.
+
+```ts
+const created = await dx.plans.create({
+  title: 'Flood response plan',
+  objective: 'Coordinate the response to river flooding in District 1.',
+  severity: 'high',
+  phases: [
+    {
+      id: 'prepare',
+      title: 'Prepare',
+      startOffsetMinutes: 0,
+      tasks: [
+        {
+          id: 'confirm-roles',
+          title: 'Confirm command roles',
+          ownerRole: 'incident_commander',
+          dueOffsetMinutes: 15,
+          dependsOn: [],
+        },
+        {
+          id: 'check-resources',
+          title: 'Check response resources',
+          ownerRole: 'logistics_chief',
+          dueOffsetMinutes: 45,
+          dependsOn: ['confirm-roles'],
+        },
+      ],
+    },
+  ],
+});
+
+// Optimistic concurrency: send the version you read.
+const activated = await dx.plans.activate(created.plan.id, {
+  ifVersion: created.version,
+});
+
+// Hard dependencies are enforced; an organization/deployment admin may
+// override them explicitly and the bypass is audited.
+await dx.plans.taskStatus(created.plan.id, 'confirm-roles', {
+  status: 'in_progress',
+}, { ifVersion: activated.version });
+
+const brief = await dx.plans.brief(created.plan.id, { focus: 'flood' });
+console.log(brief.brief, brief.citations, brief.fallback);
+
+const draft = await dx.plans.draft({
+  objective: 'Coordinate flood response for District 1.',
+  eventType: 'flood',
+  phaseCount: 3,
+});
+if (draft.fallback) console.log(draft.reason);
+```
+
+`plans.list({status, tenant, limit, offset, cursor})` paginates tenant-scoped
+plans. Lifecycle transitions are `draft -> active`, `active <-> paused`,
+`active|paused -> completed` and `completed -> archived`; invalid transitions
+return `409 invalid_transition`. `plans.brief` cites only real task ids
+(`[T1]`...) and falls back deterministically; `plans.draft` validates the
+model JSON with the same plan validator and falls back to a three-phase
+Prepare/Respond/Recover template. Drafts are returned, never persisted. SOS
+must still own EOP approval, activation policy and dispatch decisions.
+
 ## Pagination, errors and events
 
 - `datasets.list()` keeps the historical `Dataset[]` return value.

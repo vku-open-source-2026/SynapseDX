@@ -14,6 +14,7 @@ import { ServiceConfig, loadConfig } from './config';
 import { correlationMiddleware, corsMiddleware, errorMiddleware, notFoundMiddleware, securityMiddleware } from './http';
 import { registerAiRoutes } from './routes/ai';
 import { registerApprovalRoutes } from './routes/approvals';
+import { registerPlanRoutes } from './routes/plans';
 import { registerAuditRoutes } from './routes/audit';
 import { registerAuthRoutes } from './routes/auth';
 import { registerDatasetRoutes } from './routes/datasets';
@@ -62,6 +63,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerAuthRoutes(app, config);
   registerManagementRoutes(app, config);
   registerApprovalRoutes(app, config);
+  registerPlanRoutes(app, config);
   registerDatasetRoutes(app, config);
   registerSpatialRecordRoutes(app, config);
   registerRecordRoutes(app, config);

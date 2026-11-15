@@ -356,6 +356,30 @@ accumulates independent approve decisions. Every transition is audited as
 `approval.create`, `approval.decide` or `approval.cancel`. Domain effects remain
 owned by the caller; this capability only records the human decision.
 
+## Emergency operations plans (EOP)
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/v1/capabilities/plans` | write | Create a draft phased plan (`title`, `objective`, `eventId?`, `severity?`, `context?`, `phases`). |
+| GET | `/v1/capabilities/plans` | verified | Tenant-scoped list (`status`, `tenant` for deployment admins, `limit`, `offset`, `cursor`). |
+| GET | `/v1/capabilities/plans/:id` | verified | One plan + ETag version. |
+| PATCH | `/v1/capabilities/plans/:id` | write | Draft-only `title`/`objective`/`eventId`/`severity`/`context` update. |
+| POST | `/v1/capabilities/plans/:id/activate` | write | `draft|paused -> active`; computes every task `dueAt`. Idempotent while active. |
+| POST | `/v1/capabilities/plans/:id/pause` | write | `active -> paused`. |
+| POST | `/v1/capabilities/plans/:id/complete` | write | `active|paused -> completed`. |
+| POST | `/v1/capabilities/plans/:id/archive` | write | `completed -> archived`. |
+| POST | `/v1/capabilities/plans/:id/tasks/:taskId/status` | write | `{status,note?,assignee?,override?}`; enforces task transitions and dependencies; admin-only audited override. |
+| POST | `/v1/capabilities/plans/:id/brief` | verified read | `{focus?}`; grounded `[T1]` task citations, one 450-token LLM attempt, deterministic fallback. |
+| POST | `/v1/capabilities/plans/draft` | write | `{objective,eventType?,context?,phaseCount?}`; strict-JSON AI draft validated by the plan validator, never persisted. |
+
+Invalid lifecycle/status transitions return `409 invalid_transition`; unmet
+dependencies return `409 dependency_incomplete` with `details.missing`. All
+writes are CAS-checked through `If-Match`/`ifVersion` and audited as
+`plan.create|update|activate|pause|complete|archive|task_status`. SOS still owns
+EOP policy, approvals, dispatch and SITREP/AAR. See
+[`PLAN_ORCHESTRATION.md`](PLAN_ORCHESTRATION.md) for the full model, limits and
+fallback rules. SDK: `dx.plans.*`.
+
 ## Collaboration (#32, #35)
 
 | Method | Route | Description |

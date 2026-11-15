@@ -1215,3 +1215,158 @@ test("dataset create forwards the geo binding", async () => {
     geo: { field: "geometry" },
   });
 });
+
+test("plans methods call the documented EOP orchestration routes", async () => {
+  const plan = {
+    id: "plan-1",
+    tenant: "org-a",
+    createdBy: "user-1",
+    createdAt: "2026-11-15T00:00:00.000Z",
+    updatedAt: "2026-11-15T00:00:00.000Z",
+    title: "Flood response plan",
+    objective: "Coordinate flood response.",
+    status: "draft",
+    phases: [{ id: "p1", title: "Prepare", startOffsetMinutes: 0, tasks: [] }],
+  };
+  const { impl, requests } = mockFetch((request) => {
+    if (request.url.endsWith("/brief")) {
+      return {
+        body: {
+          brief: "Plan is active [T1].",
+          citations: [
+            {
+              index: 1,
+              taskId: "task-1",
+              phaseId: "p1",
+              title: "Confirm roles",
+              status: "done",
+              dependsOn: [],
+            },
+          ],
+          language: "en",
+          model: "fake",
+          fallback: false,
+          generated_at: "2026-11-15T00:00:00.000Z",
+        },
+      };
+    }
+    if (request.url.endsWith("/draft")) {
+      return {
+        body: {
+          planDraft: {
+            title: "Draft EOP",
+            objective: "Coordinate flood response.",
+            phases: [
+              { id: "p1", title: "Prepare", startOffsetMinutes: 0, tasks: [] },
+            ],
+          },
+          model: null,
+          fallback: true,
+          reason: "invalid_json",
+        },
+      };
+    }
+    if (request.method === "GET" && request.url.includes("/v1/capabilities/plans")) {
+      return {
+        body: { items: [], total: 0, limit: 5, offset: 10, nextCursor: null },
+      };
+    }
+    return { body: { plan, version: 2 } };
+  });
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "member",
+    fetch: impl,
+  });
+
+  const created = await client.plans.create({
+    title: "Flood response plan",
+    objective: "Coordinate flood response.",
+    phases: [
+      {
+        id: "p1",
+        title: "Prepare",
+        startOffsetMinutes: 0,
+        tasks: [
+          {
+            id: "task-1",
+            title: "Confirm roles",
+            dueOffsetMinutes: 15,
+            dependsOn: [],
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(created.version, 2);
+
+  const page = await client.plans.list({
+    status: "active",
+    tenant: "org-a",
+    limit: 5,
+    offset: 10,
+  });
+  assert.equal(page.items.length, 0);
+
+  await client.plans.get("plan-1");
+  await client.plans.update(
+    "plan-1",
+    { title: "Revised plan", context: { locale: "vi" } },
+    { ifVersion: 2 },
+  );
+  await client.plans.activate("plan-1");
+  await client.plans.pause("plan-1");
+  await client.plans.complete("plan-1");
+  await client.plans.archive("plan-1");
+  await client.plans.taskStatus(
+    "plan-1",
+    "task-1",
+    { status: "in_progress", assignee: "commander-1", override: true },
+    { ifVersion: 3 },
+  );
+  const brief = await client.plans.brief("plan-1", { focus: "flood" });
+  const draft = await client.plans.draft({
+    objective: "Coordinate flood response.",
+    eventType: "flood",
+    phaseCount: 3,
+  });
+
+  assert.equal(brief.model, "fake");
+  assert.equal(brief.citations[0].taskId, "task-1");
+  assert.equal(draft.fallback, true);
+  assert.equal(draft.reason, "invalid_json");
+
+  assert.deepEqual(
+    requests.map((request) => `${request.method} ${request.url}`),
+    [
+      "POST https://dx.example/v1/capabilities/plans",
+      "GET https://dx.example/v1/capabilities/plans?status=active&tenant=org-a&limit=5&offset=10",
+      "GET https://dx.example/v1/capabilities/plans/plan-1",
+      "PATCH https://dx.example/v1/capabilities/plans/plan-1",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/activate",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/pause",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/complete",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/archive",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/tasks/task-1/status",
+      "POST https://dx.example/v1/capabilities/plans/plan-1/brief",
+      "POST https://dx.example/v1/capabilities/plans/draft",
+    ],
+  );
+  assert.equal(requests[3].headers["if-match"], '"2"');
+  assert.equal(requests[8].headers["if-match"], '"3"');
+  assert.deepEqual(requests[3].body, {
+    title: "Revised plan",
+    context: { locale: "vi" },
+  });
+  assert.deepEqual(requests[8].body, {
+    status: "in_progress",
+    assignee: "commander-1",
+    override: true,
+  });
+  assert.deepEqual(requests[9].body, { focus: "flood" });
+  assert.deepEqual(requests[10].body, {
+    objective: "Coordinate flood response.",
+    eventType: "flood",
+    phaseCount: 3,
+  });
+});

@@ -1266,6 +1266,166 @@ export interface HazardCrawlResult {
 }
 
 /* ------------------------------------------------------------------------- *
+ * Emergency operations plans (EOP orchestration)
+ * ------------------------------------------------------------------------- */
+
+export type PlanStatus =
+  | "draft"
+  | "active"
+  | "paused"
+  | "completed"
+  | "archived";
+export type PlanTaskStatus =
+  | "pending"
+  | "in_progress"
+  | "done"
+  | "blocked"
+  | "skipped";
+
+export interface PlanTask {
+  id: string;
+  title: string;
+  ownerRole?: string;
+  dueOffsetMinutes: number;
+  dependsOn: string[];
+  status: PlanTaskStatus;
+  assignee?: string;
+  notes?: string;
+  completedAt?: string;
+  dueAt?: string;
+}
+
+export interface PlanPhase {
+  id: string;
+  title: string;
+  objective?: string;
+  startOffsetMinutes: number;
+  tasks: PlanTask[];
+}
+
+export interface PlanRecord {
+  id: string;
+  tenant: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  title: string;
+  objective: string;
+  eventId?: string;
+  severity?: string;
+  status: PlanStatus;
+  context?: Record<string, unknown>;
+  activatedAt?: string;
+  completedAt?: string;
+  phases: PlanPhase[];
+}
+
+export interface PlanTaskInput {
+  id: string;
+  title: string;
+  ownerRole?: string;
+  dueOffsetMinutes: number;
+  dependsOn?: string[];
+}
+
+export interface PlanPhaseInput {
+  id: string;
+  title: string;
+  objective?: string;
+  startOffsetMinutes: number;
+  tasks: PlanTaskInput[];
+}
+
+export interface PlanInput {
+  title: string;
+  objective: string;
+  eventId?: string;
+  severity?: string;
+  context?: Record<string, unknown>;
+  phases: PlanPhaseInput[];
+}
+
+export interface PlanUpdateInput {
+  title?: string;
+  objective?: string;
+  eventId?: string | null;
+  severity?: string | null;
+  context?: Record<string, unknown> | null;
+}
+
+export interface PlanListQuery {
+  status?: PlanStatus;
+  tenant?: string;
+  limit?: number;
+  offset?: number;
+  cursor?: string;
+}
+
+export interface PlanPage {
+  items: PlanRecord[];
+  total: number;
+  limit: number;
+  offset: number;
+  nextCursor: string | null;
+}
+
+export interface PlanResponse {
+  plan: PlanRecord;
+  version: number;
+}
+
+export interface PlanTaskStatusInput {
+  status: PlanTaskStatus;
+  note?: string;
+  assignee?: string;
+  override?: boolean;
+}
+
+export interface PlanBriefCitation {
+  index: number;
+  taskId: string;
+  phaseId: string;
+  title: string;
+  status: PlanTaskStatus;
+  ownerRole?: string;
+  dueAt?: string;
+  dependsOn: string[];
+}
+
+export interface PlanBrief {
+  brief: string;
+  citations: PlanBriefCitation[];
+  language: "vi" | "en";
+  model: string | null;
+  fallback: boolean;
+  generated_at: string;
+}
+
+export interface PlanDraftRequest {
+  objective: string;
+  eventType?: string;
+  context?: Record<string, unknown>;
+  phaseCount?: number;
+}
+
+export interface PlanDraft {
+  title: string;
+  objective: string;
+  eventId?: string;
+  severity?: string;
+  context?: Record<string, unknown>;
+  phases: PlanPhase[];
+}
+
+export interface PlanDraftResult {
+  planDraft: PlanDraft;
+  model: string | null;
+  fallback: boolean;
+  /** Present when a deterministic template replaced the model draft. */
+  reason?: string;
+}
+
+/* ------------------------------------------------------------------------- *
  * Workspace plugins (organization-installed low-code pages)
  * ------------------------------------------------------------------------- */
 
@@ -1755,6 +1915,42 @@ export class CapabilitiesClient {
     ) => Promise<HazardBrief>;
     status: (opts?: RequestOptions) => Promise<HazardCrawlStatus>;
     runCrawler: (opts?: RequestOptions) => Promise<HazardCrawlResult>;
+  };
+
+  readonly plans: {
+    create: (
+      input: PlanInput,
+      opts?: RequestOptions,
+    ) => Promise<PlanResponse>;
+    list: (
+      query?: PlanListQuery,
+      opts?: RequestOptions,
+    ) => Promise<PlanPage>;
+    get: (id: string, opts?: RequestOptions) => Promise<PlanResponse>;
+    update: (
+      id: string,
+      input: PlanUpdateInput,
+      opts?: RequestOptions,
+    ) => Promise<PlanResponse>;
+    activate: (id: string, opts?: RequestOptions) => Promise<PlanResponse>;
+    pause: (id: string, opts?: RequestOptions) => Promise<PlanResponse>;
+    complete: (id: string, opts?: RequestOptions) => Promise<PlanResponse>;
+    archive: (id: string, opts?: RequestOptions) => Promise<PlanResponse>;
+    taskStatus: (
+      id: string,
+      taskId: string,
+      input: PlanTaskStatusInput,
+      opts?: RequestOptions,
+    ) => Promise<PlanResponse>;
+    brief: (
+      id: string,
+      input?: { focus?: string },
+      opts?: RequestOptions,
+    ) => Promise<PlanBrief>;
+    draft: (
+      input: PlanDraftRequest,
+      opts?: RequestOptions,
+    ) => Promise<PlanDraftResult>;
   };
 
   readonly datasets: {
@@ -3480,6 +3676,96 @@ export class CapabilitiesClient {
           {
             method: "POST",
             body: "{}",
+          },
+          requestOpts,
+        ),
+    };
+
+    this.plans = {
+      create: (input, requestOpts) =>
+        this.http.request<PlanResponse>(
+          "/v1/capabilities/plans",
+          {
+            method: "POST",
+            body: JSON.stringify(input),
+          },
+          requestOpts,
+        ),
+      list: (query = {}, requestOpts) =>
+        this.http.request<PlanPage>(
+          `/v1/capabilities/plans${queryString({
+            status: query.status,
+            tenant: query.tenant,
+            limit: query.limit,
+            offset: query.offset,
+            cursor: query.cursor,
+          })}`,
+          {},
+          requestOpts,
+        ),
+      get: (id, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}`,
+          {},
+          requestOpts,
+        ),
+      update: (id, input, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(input),
+          },
+          requestOpts,
+        ),
+      activate: (id, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/activate`,
+          { method: "POST", body: "{}" },
+          requestOpts,
+        ),
+      pause: (id, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/pause`,
+          { method: "POST", body: "{}" },
+          requestOpts,
+        ),
+      complete: (id, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/complete`,
+          { method: "POST", body: "{}" },
+          requestOpts,
+        ),
+      archive: (id, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/archive`,
+          { method: "POST", body: "{}" },
+          requestOpts,
+        ),
+      taskStatus: (id, taskId, input, requestOpts) =>
+        this.http.request<PlanResponse>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/tasks/${encodeURIComponent(taskId)}/status`,
+          {
+            method: "POST",
+            body: JSON.stringify(input),
+          },
+          requestOpts,
+        ),
+      brief: (id, input = {}, requestOpts) =>
+        this.http.request<PlanBrief>(
+          `/v1/capabilities/plans/${encodeURIComponent(id)}/brief`,
+          {
+            method: "POST",
+            body: JSON.stringify(input),
+          },
+          requestOpts,
+        ),
+      draft: (input, requestOpts) =>
+        this.http.request<PlanDraftResult>(
+          "/v1/capabilities/plans/draft",
+          {
+            method: "POST",
+            body: JSON.stringify(input),
           },
           requestOpts,
         ),
