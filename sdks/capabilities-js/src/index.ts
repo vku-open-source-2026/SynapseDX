@@ -55,6 +55,12 @@ export interface DatasetInput {
   owner?: string;
   schemaVersion?: string;
   retentionDays?: number;
+  /** Optional GeoJSON index binding; the field is a dotted path in record.data. */
+  geo?: DatasetGeo;
+}
+
+export interface DatasetGeo {
+  field: string;
 }
 
 export interface Dataset extends DatasetInput {
@@ -81,7 +87,10 @@ export type DatasetUpdateInput = Partial<
     | "schemaVersion"
     | "retentionDays"
   >
->;
+> & {
+  /** `null` removes the geo binding; a dataset must be reindexed after a field change. */
+  geo?: DatasetGeo | null;
+};
 
 export interface DatasetListQuery {
   publicOnly?: boolean;
@@ -114,6 +123,63 @@ export interface RecordPage<T = Record<string, unknown>> {
   limit: number;
   offset: number;
   nextCursor: string | null;
+}
+
+export type SpatialQueryInput =
+  | {
+    mode: "near";
+    lat: number;
+    lng: number;
+    radiusMeters: number;
+    limit?: number;
+  }
+  | {
+    mode: "bbox";
+    /** [west, south, east, north] in WGS84. */
+    bbox: [number, number, number, number];
+    limit?: number;
+  }
+  | {
+    mode: "within";
+    geometry: Record<string, unknown>;
+    limit?: number;
+  };
+
+export interface SpatialFeature {
+  type: "Feature";
+  id: string;
+  geometry: Record<string, unknown>;
+  properties: { recordId: string; distanceMeters?: number };
+}
+
+/** Matches the dataset record response shape; drafts are filtered server-side. */
+export interface SpatialQueryResult<T = Record<string, unknown>> {
+  type: "FeatureCollection";
+  features: SpatialFeature[];
+  items: Array<RecordItem<T>>;
+  total: number;
+  limit: number;
+  mode: SpatialQueryInput["mode"];
+}
+
+export interface SpatialReindexResult {
+  dataset_id: string;
+  collection: string;
+  offset: number;
+  scanned: number;
+  indexed: number;
+  removed: number;
+  skipped: number;
+  failed: number;
+  truncated: boolean;
+}
+
+export interface SpatialStatus {
+  configured: boolean;
+  field?: string;
+  collection?: string;
+  features?: number;
+  extent?: unknown;
 }
 
 export interface RecordQuery {
@@ -1616,6 +1682,23 @@ export class CapabilitiesClient {
     ) => AsyncGenerator<RecordItem<T>>;
   };
 
+  /**
+   * Server-side spatial queries over the dataset's PostGIS geo collection.
+   * Results are still filtered by record visibility (drafts vs published).
+   */
+  readonly spatial: {
+    query: <T = Record<string, unknown>>(
+      datasetId: string,
+      input: SpatialQueryInput,
+      opts?: RequestOptions,
+    ) => Promise<SpatialQueryResult<T>>;
+    reindex: (
+      datasetId: string,
+      opts?: RequestOptions & { offset?: number },
+    ) => Promise<SpatialReindexResult>;
+    status: (datasetId: string, opts?: RequestOptions) => Promise<SpatialStatus>;
+  };
+
   readonly events: {
     list: (
       query?: {
@@ -2339,6 +2422,36 @@ export class CapabilitiesClient {
       }
     }.bind(this) as typeof recordsApi.iterate;
     this.records = recordsApi;
+
+    this.spatial = {
+      query: <T = Record<string, unknown>>(
+        datasetId: string,
+        input: SpatialQueryInput,
+        requestOpts?: RequestOptions,
+      ) =>
+        this.http.request<SpatialQueryResult<T>>(
+          `${datasetPath(datasetId)}/records/spatial`,
+          { method: "POST", body: JSON.stringify(input) },
+          requestOpts,
+        ),
+      reindex: (datasetId, requestOpts = {}) => {
+        const { offset, ...rest } = requestOpts;
+        return this.http.request<SpatialReindexResult>(
+          `${datasetPath(datasetId)}/records/spatial/reindex`,
+          {
+            method: "POST",
+            body: JSON.stringify(offset !== undefined ? { offset } : {}),
+          },
+          rest,
+        );
+      },
+      status: (datasetId, requestOpts) =>
+        this.http.request<SpatialStatus>(
+          `${datasetPath(datasetId)}/records/spatial/status`,
+          {},
+          requestOpts,
+        ),
+    };
 
     this.events = {
       list: (query = {}, requestOpts) =>

@@ -887,3 +887,132 @@ test("registered workspace queries and writes carry the action identifier outsid
   );
   assert.deepEqual(requests[1].body, { values: { enabled: true } });
 });
+
+test("dataset spatial query, reindex and status use the documented routes", async () => {
+  const { impl, requests } = mockFetch((request) => {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/records/spatial")) {
+      return {
+        body: {
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              id: "asset-1",
+              geometry: { type: "Point", coordinates: [105.85, 21.03] },
+              properties: { recordId: "asset-1", distanceMeters: 12 },
+            },
+          ],
+          items: [
+            {
+              id: "asset-1",
+              data: { name: "Pump" },
+              version: 1,
+              createdAt: "2026-01-01T00:00:00.000Z",
+              updatedAt: "2026-01-01T00:00:00.000Z",
+            },
+          ],
+          total: 1,
+          limit: 10,
+          mode: "near",
+        },
+      };
+    }
+    if (url.pathname.endsWith("/records/spatial/reindex")) {
+      return {
+        body: {
+          dataset_id: "city-assets",
+          collection: "synapsedx_geo_city-assets",
+          offset: 5000,
+          scanned: 2,
+          indexed: 2,
+          removed: 0,
+          skipped: 0,
+          failed: 0,
+          truncated: false,
+        },
+      };
+    }
+    return {
+      body: {
+        configured: true,
+        field: "geometry",
+        collection: "synapsedx_geo_city-assets",
+        features: 2,
+        extent: [105.8, 21.0, 105.9, 21.1],
+      },
+    };
+  });
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "member",
+    fetch: impl,
+  });
+
+  const result = await client.spatial.query("city-assets", {
+    mode: "near",
+    lat: 21.03,
+    lng: 105.85,
+    radiusMeters: 500,
+    limit: 10,
+  });
+  assert.equal(result.features[0].properties.distanceMeters, 12);
+  assert.equal(result.items[0].data.name, "Pump");
+
+  const reindex = await client.spatial.reindex("city-assets", { offset: 5000 });
+  assert.equal(reindex.indexed, 2);
+  assert.equal(reindex.offset, 5000);
+
+  const status = await client.spatial.status("city-assets");
+  assert.equal(status.features, 2);
+
+  assert.equal(
+    requests[0].url,
+    "https://dx.example/v1/capabilities/datasets/city-assets/records/spatial",
+  );
+  assert.equal(requests[0].method, "POST");
+  assert.deepEqual(requests[0].body, {
+    mode: "near",
+    lat: 21.03,
+    lng: 105.85,
+    radiusMeters: 500,
+    limit: 10,
+  });
+  assert.equal(requests[0].headers.authorization, "Bearer member");
+  assert.equal(
+    requests[1].url,
+    "https://dx.example/v1/capabilities/datasets/city-assets/records/spatial/reindex",
+  );
+  assert.equal(requests[1].method, "POST");
+  assert.deepEqual(requests[1].body, { offset: 5000 });
+  assert.equal(
+    requests[2].url,
+    "https://dx.example/v1/capabilities/datasets/city-assets/records/spatial/status",
+  );
+  assert.equal(requests[2].method, "GET");
+});
+
+test("dataset create forwards the geo binding", async () => {
+  const { impl, requests } = mockFetch(() => ({
+    body: { id: "city-assets", slug: "city-assets", geo: { field: "geometry" } },
+  }));
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "member",
+    fetch: impl,
+  });
+  await client.datasets.create({
+    slug: "city-assets",
+    name: "City assets",
+    entityType: "Asset",
+    license: "CC-BY-4.0",
+    geo: { field: "geometry" },
+  });
+  assert.deepEqual(requests[0].body, {
+    slug: "city-assets",
+    name: "City assets",
+    entityType: "Asset",
+    license: "CC-BY-4.0",
+    geo: { field: "geometry" },
+  });
+});

@@ -18,6 +18,9 @@ import {
   ingestRecord, ingestRecords, isRecordPublished, listDatasetRecords, rebuildProjection,
 } from '../publication';
 import {
+  extractRecordGeometry, removeRecordGeo, syncRecordGeo, syncRecordsGeoBatch,
+} from '../spatial';
+import {
   accessibleDataset, canReadRecordDrafts, expectedVersion, readContext, requireVersionMatch, setVersionHeaders,
   writeContext,
 } from './shared';
@@ -27,7 +30,7 @@ function publishedRowFilter(): Record<string, unknown> {
   return { or: [{ published: true }, { published: { exists: false } }] };
 }
 
-interface RecordResponse {
+export interface RecordResponse {
   id: string;
   data: Record<string, unknown>;
   version: number;
@@ -36,7 +39,7 @@ interface RecordResponse {
   updatedAt: string;
 }
 
-function recordResponse(document: StoredDocument<CapabilityRecord>): RecordResponse {
+export function recordResponse(document: StoredDocument<CapabilityRecord>): RecordResponse {
   const record = document.data;
   return {
     id: record.id || document.id,
@@ -254,23 +257,29 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       const errors: Array<{ index: number; code: string; message: string }> = [];
       let pendingEvents = false;
       let datasetVersion = document.version;
-      const prepared: Array<{ index: number; record: CapabilityRecord }> = [];
+      const prepared: Array<{ index: number; record: CapabilityRecord; geometry?: Record<string, unknown> }> = [];
       for (let index = 0; index < entries.length; index += 1) {
         const entry = (entries[index] || {}) as Record<string, unknown>;
         try {
           const recordData = requireData(entry);
+          const geometry = dataset.geo ? extractRecordGeometry(recordData, dataset.geo.field) : {};
+          if (geometry.error) throw apiError(400, 'invalid_geometry', geometry.error, { index });
           const publish = publishFlag(entry);
           if (publish === true) requirePublishable(dataset);
           const id = entry.id !== undefined ? validateRecordId(entry.id) : randomUUID();
           const now = new Date().toISOString();
           prepared.push({
             index,
+            geometry: geometry.geometry,
             record: {
               id, datasetId, data: recordData, createdAt: now, updatedAt: now,
               ...(publish !== undefined ? { published: publish } : {}),
             },
           });
         } catch (error) {
+          // A bad geometry rejects the whole import before the single batch
+          // write; other per-entry errors keep the existing partial semantics.
+          if (error instanceof ApiError && error.code === 'invalid_geometry') throw error;
           const status = error instanceof ApiError ? error.status : 500;
           errors.push({
             index,
@@ -322,6 +331,18 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       for (const entry of prepared) {
         const saved = savedByIndex.get(entry.index);
         if (saved) created.push(recordResponse(saved));
+      }
+
+      // Mirror the new rows into the dataset geo collection; index failure is
+      // logged and repaired through the reindex route, never surfaced as a
+      // failed record write.
+      if (dataset.geo) {
+        await syncRecordsGeoBatch(client, dataset, prepared
+          .filter((entry) => savedByIndex.has(entry.index))
+          .map((entry) => ({
+            record: savedByIndex.get(entry.index)!.data,
+            geometry: entry.geometry,
+          })));
       }
 
       // Project all newly published records with one LDS batch (or one rebuild
@@ -380,6 +401,8 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'write');
     const body = (req.body || {}) as Record<string, unknown>;
     const data = requireData(body);
+    const extracted = dataset.geo ? extractRecordGeometry(data, dataset.geo.field) : {};
+    if (extracted.error) throw apiError(400, 'invalid_geometry', extracted.error);
     const publish = publishFlag(body);
     if (publish === true) requirePublishable(dataset);
     const id = body.id !== undefined ? validateRecordId(body.id) : randomUUID();
@@ -408,6 +431,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
         if (error instanceof SynapseOneError && error.status === 409) throw apiError(409, 'record_already_exists', 'record already exists');
         throw error;
       }
+      await syncRecordGeo(client, dataset, saved.data, extracted.geometry);
       const projected = await projectNewRecord(
         client, dataset, saved.data, correlationIdOf(req), idempotencyKey,
       );
@@ -450,6 +474,8 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'write');
     const body = (req.body || {}) as Record<string, unknown>;
     const data = requireData(body);
+    const extracted = dataset.geo ? extractRecordGeometry(data, dataset.geo.field) : {};
+    if (extracted.error) throw apiError(400, 'invalid_geometry', extracted.error);
     const publish = publishFlag(body);
     if (publish === true) requirePublishable(dataset);
     const document = await loadRecord({ client }, dataset, String(req.params.recordId));
@@ -486,6 +512,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       const saved: StoredDocument<CapabilityRecord> = {
         id: savedDoc.id, version: savedDoc.version, data: savedDoc.data as unknown as CapabilityRecord,
       };
+      await syncRecordGeo(client, dataset, saved.data, extracted.geometry);
       const projected = await projectAfterChange(
         client, dataset, saved.data, wasPublished, undefined, correlationIdOf(req), idempotencyKey,
       );
@@ -531,6 +558,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       if (error instanceof SynapseOneError && error.status === 409) throw apiError(409, 'version_conflict', 'the record was modified by another request');
       throw error;
     }
+    await removeRecordGeo(client, dataset, document.id);
     let projected = dataset;
     if (wasPublished) {
       projected = (await rebuildProjection(client, dataset, undefined, {
@@ -593,6 +621,7 @@ export async function purgeExpiredRecords(
     try {
       await client.base.deleteDocument(COLLECTIONS.records, record.id);
       purged += 1;
+      await removeRecordGeo(client, dataset, record.id);
       if (isRecordPublished(dataset, record.data)) projectionDirty = true;
     } catch (error) {
       if (!(error instanceof SynapseOneError && error.status === 404)) throw error;

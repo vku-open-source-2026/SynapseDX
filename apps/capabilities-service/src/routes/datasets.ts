@@ -18,6 +18,7 @@ import {
 import {
   listDatasetRecords, loadDataset, publishDataset, revokeDataset, revokeProjection, syncDatasourceMetadata,
 } from '../publication';
+import { removeAllRecordGeo, validateGeoConfig } from '../spatial';
 import {
   accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
 } from './shared';
@@ -122,6 +123,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         tenant: principal.tenantKey,
         schemaVersion: requested.schemaVersion || '1.0.0',
         ...(body.retentionDays !== undefined ? { retentionDays: validateRetentionDays(body.retentionDays) } : {}),
+        ...(body.geo !== undefined ? { geo: validateGeoConfig(body.geo) } : {}),
         status: 'draft',
         createdAt: now,
         updatedAt: now,
@@ -184,9 +186,17 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
       if (typeof body.public !== 'boolean') throw apiError(400, 'public_must_be_boolean', 'public must be a boolean');
       patch.public = body.public;
     }
-    if (Object.keys(patch).length === 0) throw apiError(400, 'no_updatable_fields', 'no updatable fields were supplied');
+    // `geo: null` explicitly removes the binding; an object replaces it.
+    let clearGeo = false;
+    if (body.geo !== undefined) {
+      if (body.geo === null) clearGeo = true;
+      else patch.geo = validateGeoConfig(body.geo);
+    }
+    if (Object.keys(patch).length === 0 && !clearGeo) throw apiError(400, 'no_updatable_fields', 'no updatable fields were supplied');
 
     const working: DatasetRecord = { ...data, ...patch, updatedAt: new Date().toISOString() };
+    if (clearGeo) delete working.geo;
+    const changes = [...Object.keys(patch), ...(clearGeo ? ['geo'] : [])];
     const correlationId = correlationIdOf(req);
     const idempotencyKey = idempotencyKeyOf(req);
     const claim = await claimIdempotency(
@@ -245,13 +255,13 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         }
         const event = buildEvent('dataset.updated', {
           datasetId: result.id, version: result.schemaVersion, at: result.updatedAt,
-          correlationId, payload: { changes: Object.keys(patch) },
+          correlationId, payload: { changes },
         }, idempotencyKey);
         emitted = await emitEvent(client, config, result, event);
       }
       await recordAudit(client, config, {
         actor: principal.subject, tenant: principal.tenantKey, action: 'dataset.update',
-        datasetId: result.id, correlationId, details: { changes: Object.keys(patch) },
+        datasetId: result.id, correlationId, details: { changes },
       });
       if (!emitted.delivered) res.setHeader('x-event-status', 'pending');
       setVersionHeaders(res, resultVersion);
@@ -357,6 +367,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
           if (!(error instanceof SynapseOneError && error.status === 404)) throw error;
         }
       }
+      await removeAllRecordGeo(client, data, records.map((record) => record.id));
     }
     await revokeProjection(client, data);
     try {

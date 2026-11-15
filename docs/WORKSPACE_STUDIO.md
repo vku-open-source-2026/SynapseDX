@@ -326,5 +326,85 @@ Multi geometries and polygons with holes. WGS84 coordinate ranges, closed rings
 and the 5,000-position limit are checked at the server boundary. Applying a shape
 changes the field; saving still requires its declared form action and workflow.
 Map tiles come from the platform's authenticated map capability. Tile failure is
-displayed and does not prevent coordinate editing. This editor does not add a
-server-side spatial-query connector.
+displayed and does not prevent coordinate editing. The geometry editor itself
+does not add a spatial-query connector; City GIS uses the dataset spatial API
+below.
+
+## Server-side spatial queries for GIS records
+
+City GIS can query records by location without loading a whole dataset into the
+browser. This is a generic Tier-2 dataset capability; no City-specific field or
+rule is stored in DX.
+
+Configure the geometry path on the dataset (a dotted path inside `record.data`,
+1..6 segments of `[A-Za-z_][A-Za-z0-9_]{0,63}`):
+
+```json
+POST /v1/capabilities/datasets
+{ "slug": "city-assets", "name": "City assets", "entityType": "Asset",
+  "license": "CC-BY-4.0", "public": true, "geo": { "field": "geometry" } }
+
+PATCH /v1/capabilities/datasets/city-assets
+{ "geo": { "field": "metadata.area" } }   // { "geo": null } removes the binding
+```
+
+Each configured dataset gets one SynapseBase PostGIS collection,
+`synapsedx_geo_<datasetId>` (sanitized and bounded to Tier-1's 64-character
+collection names). DX keeps no spatial database, cache or file of its own.
+Features store `{id: recordId, properties: {recordId, datasetId, published,
+updatedAt}, geometry}`.
+
+Record writes keep the index in step:
+
+- create, update and bulk create validate the geometry with the shared editor
+  validator before any record write; an invalid value returns
+  `400 invalid_geometry` and nothing is stored.
+- a missing/`null` geometry removes the feature; delete, retention purge and a
+  purging dataset delete remove it as well.
+- an update that changes `publish` refreshes the indexed `published` flag.
+- index sync is best-effort. If PostGIS is unavailable the Base record write
+  still succeeds, DX logs a warning, and `records/spatial/reindex` repairs the
+  index. Index operations are scoped to one dataset collection, so one tenant's
+  index failure can never expose or delete another dataset's features.
+
+Routes (read access uses the normal dataset record authorization):
+
+| Route | Method | Purpose |
+| --- | --- | --- |
+| `/v1/capabilities/datasets/:id/records/spatial` | POST | near / bbox / within query |
+| `/v1/capabilities/datasets/:id/records/spatial/reindex` | POST | write access; rebuild/repair the index |
+| `/v1/capabilities/datasets/:id/records/spatial/status` | GET | configured field, collection, feature count and extent |
+
+Query body is exactly one of:
+
+```json
+{ "mode": "near", "lat": 21.0285, "lng": 105.8542, "radiusMeters": 2000, "limit": 100 }
+{ "mode": "bbox", "bbox": [105.84, 21.02, 105.87, 21.04], "limit": 100 }
+{ "mode": "within", "geometry": { "type": "Polygon", "coordinates": ["closed WGS84 ring"] }, "limit": 100 }
+```
+
+`limit` is 1..500 (default 100), `radiusMeters` 1..100000, bbox is
+`[west, south, east, north]` with valid WGS84 ranges and ordered axes, and
+`within` accepts only Polygon or MultiPolygon. A dataset without `geo` returns
+`400 geo_not_configured`.
+
+The response is
+`{type: "FeatureCollection", features: [{type: "Feature", id, geometry,
+properties: {recordId, distanceMeters?}}], items, total, limit, mode}`.
+`items` is the normal record response shape. Hits are re-checked against the
+record store: deleted or reassigned ids are dropped, draft readers
+(`canReadRecordDrafts`) may see withheld rows, and every other caller only sees
+published or inherited-published rows. The indexed `published` flag is a hint;
+the record and dataset state at query time is authoritative, so a stale index
+never widens visibility.
+
+`reindex` pages at most 5,000 records per call and returns
+`{dataset_id, collection, offset, scanned, indexed, removed, skipped, failed,
+truncated}`. When `truncated` is true, call it again with
+`{ "offset": <previous offset + scanned> }`; stale-feature cleanup only runs on
+a complete pass from offset 0 because unread records cannot be distinguished
+from deleted ones. Reindex after changing `geo.field` or repairing a PostGIS
+outage.
+
+`status` returns `{configured, field, collection, features?, extent?}`; stats
+are best-effort, so `features` may be absent while PostGIS is unreachable.
