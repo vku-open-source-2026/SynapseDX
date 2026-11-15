@@ -35,7 +35,7 @@ The repair publishes new v7 snapshots using the exact pins from the prior review
 
 | Area | Current configuration can do | Still missing or not established as equivalent |
 | --- | --- | --- |
-| City assets / GIS | Registry, tables, record detail, CRUD forms, geometry display, native Point/LineString/Polygon drawing/vertex editing; City nearby/bounds/polygon call the Tier-2 PostGIS index with an in-memory fallback | Lifecycle health/risk/history panels; document/photo flows |
+| City assets / GIS | Registry, tables, record detail, CRUD forms, geometry display, native Point/LineString/Polygon drawing/vertex editing; City nearby/bounds/polygon and the map widget's **Search this area** call the Tier-2 PostGIS index with an in-memory fallback | Lifecycle health/risk/history panels; document/photo flows |
 | City incidents / technician work | Intake, assignment and workflow-backed transitions, contextual forms | Rich comments/internal visibility, upvotes, duplicate detection/merge; a generic note/status field is not equivalent |
 | City maintenance | Work orders and selected checked state transitions | Preventive schedules and full review/technician workflow parity |
 | City IoT / budgets / people | Declared registry/reading/decision forms | Batch sensor ingestion/statistics and exhaustive business validation/decision parity; creating an operator record does not create an IAM account |
