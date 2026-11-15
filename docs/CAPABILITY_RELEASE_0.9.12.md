@@ -131,12 +131,16 @@ capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
 - `optimization.assign` returned a two-demand match with `min_cost_flow`.
 - A temporary verification plan was created, activated (due dates computed),
   briefed by the live model with two task citations, completed and archived.
-  No product business record was created or changed by these checks.
+- `sos-hazard-layers` is bound to `geo.field=geometry`; SOS `hazards/geo/near`
+  and `in-polygon` return 200 through the public domain. City `city-assets`
+  indexed 1,618 features and its nearby/bounds endpoints call the same
+  capability. No product business record was created or changed by these checks.
 
 ## Boundaries and remaining work
 
-- City still serves its spatial API from an in-process scan; adopting the
-  Tier-2 index is a product change with its own acceptance test.
+- City and SOS now call the Tier-2 spatial index for nearby/bounds/polygon
+  before falling back to the bounded in-process scan. The product services were
+  rebuilt and deployed; their Rust test suites remain green.
 - SOS still polls the hazard dataset; adopting the SSE feed requires the Rust
   SDK/event client release and a product workflow change.
 - SOS applies dispatch plans through its own reviewed workflow; this capability

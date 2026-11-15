@@ -130,16 +130,17 @@ CRUD/execute form exists. Some legacy UI paths themselves used mock/stub results
 
 - City: lifecycle health/risk/history calculations; document/photo report flows;
   incident comments/upvotes and duplicate/merge workflows; preventive schedules;
-  IoT batch/statistics; actual CSV upload/preview; generated report download;
-  adopting the Tier-2 spatial index in the City API/page (the capability and
-  dataset binding exist; the current City endpoints still filter in process).
+  IoT batch/statistics; actual CSV upload/preview; generated report download.
+  City nearby/bounds/polygon now call the Tier-2 spatial index with an
+  in-memory fallback.
 - SOS: applying/animating dispatch plans through the product workflow over the
   generic Tier-2 `optimization.assign` solver (the solver contract is in
   [OPTIMIZATION.md](OPTIMIZATION.md); SOS must still review and apply results
   through its own actions); adopting the Tier-2 SSE feed in place of the current
   dataset poller; connecting the generic plan orchestration to SOS EOP approval,
   publication and AI draft policy; rich EOP editing; live hazard
-  timeline/deploy/expire; SITREP deltas and event-related views.
+  timeline/deploy/expire; SITREP deltas and event-related views. SOS hazard
+  near/polygon now call the Tier-2 spatial index with an in-memory fallback.
 - Identity: app-grant editor stores tenant-scoped verified subject IDs, but does
   not yet validate target-subject existence in IAM when creating a grant.
 - Migration: old organization-wide H-D-P-I records are preserved. Automatic
