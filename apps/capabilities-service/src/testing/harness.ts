@@ -5,6 +5,7 @@ import { Server } from 'node:http';
 import { createServer } from '../server';
 import { resetAuthCachesForTests } from '../auth';
 import { resetWorkspaceCachesForTests } from '../routes/workspace-plugins';
+import { resetEventStreamStateForTests } from '../routes/event-stream';
 import { ServiceConfig, loadConfig } from '../config';
 import { resetLicenseCache } from '../licenses';
 import { resetEmbeddingProviderCache } from '../rag';
@@ -36,6 +37,7 @@ export async function startHarness(
 ): Promise<Harness> {
   resetAuthCachesForTests();
   resetWorkspaceCachesForTests();
+  resetEventStreamStateForTests();
   const fake = new FakeTier1({
     ...fakeOptions,
     tokens: {

@@ -123,6 +123,37 @@ cursor = feed.nextCursor;
 Event delivery is at-least-once. Deduplicate on `event.eventId`; events carry
 `correlationId`, `schemaVersion: 1` and an optional `idempotencyKey`.
 
+### Live stream (SSE)
+
+`events.stream()` keeps a streaming `fetch` body open and yields
+`{id, event}` for each capability frame. It sends `Authorization`/`X-API-Key`
+as headers (never a query-string token), so it works where a browser
+`EventSource` would not. Pass `since` or `lastEventId` to resume; `since` wins,
+matching the server contract. Use `opts.signal` to stop.
+
+```ts
+const controller = new AbortController();
+for await (const item of dx.events.stream(
+  { datasetId: dataset.id, type: "record.created" },
+  { signal: controller.signal },
+)) {
+  apply(item.event); // at-least-once: dedupe on item.event.eventId
+}
+```
+
+The iterator ends when the server closes with `event: reconnect` (30-minute
+handover) or when the response ends. Restart it with the last seen `id`:
+
+```ts
+let cursor: string | undefined;
+for await (const item of dx.events.stream({ since: cursor })) cursor = item.id;
+```
+
+Heartbeat comments and the `ready`/`reconnect` control frames are consumed
+internally; only `event: capability` frames are yielded. Enable `since` on a
+fresh subscription to replay from a known point, or omit it to start at the
+current tail without history.
+
 ## Identity and sessions
 
 ```ts

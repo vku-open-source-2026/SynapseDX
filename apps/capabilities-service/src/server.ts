@@ -18,6 +18,7 @@ import { registerAuditRoutes } from './routes/audit';
 import { registerAuthRoutes } from './routes/auth';
 import { registerDatasetRoutes } from './routes/datasets';
 import { registerEventRoutes } from './routes/events';
+import { registerEventStreamRoutes } from './routes/event-stream';
 import { registerHealthRoutes, registerCapabilityAdvertisement } from './routes/health';
 import { registerJobRoutes } from './routes/jobs';
 import { registerManagementRoutes } from './routes/management';
@@ -63,6 +64,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerDatasetRoutes(app, config);
   registerRecordRoutes(app, config);
   registerEventRoutes(app, config);
+  registerEventStreamRoutes(app, config);
   registerAiRoutes(app, config);
   registerJobRoutes(app, config);
   registerAuditRoutes(app, config);

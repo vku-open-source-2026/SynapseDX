@@ -51,6 +51,44 @@ The shell/sidebar and reusable widget/interaction implementations remain coded.
 Opaque `capability` embeds cannot be published; use declarative components or a scoped code widget. See
 `WORKSPACE_STUDIO.md` for collection limits and the binary upload limitation.
 
+## Live capability event feed (SSE)
+
+SOS hazard/SITREP and City operations pages consume capability events without
+polling through `GET /v1/capabilities/events/stream`. This is a generic Tier-2
+transport over the existing Tier-1 capability stream; it adds no queue,
+database or product-specific logic.
+
+- **Auth model:** the caller supplies a verified Tier-1 `Authorization: Bearer`
+  or `X-API-Key` header. Tier-2 verifies it with IAM before any SSE header is
+  written and forwards that same credential to Tier-1. The credential is never
+  placed in a query string or an SSE `data:` field. A browser `EventSource`
+  cannot attach these headers, so it is not a supported client; Tier-3 uses the
+  capabilities SDK, which reads the body as a stream over `fetch`.
+- **Wire format:** `retry: 3000`, then `event: ready` with
+  `{cursor,stream,filters}`, then one frame per event:
+  `id: <Tier-1 stream id>`, `event: capability`,
+  `data: {"id":…,"event":{CapabilityEvent}}`. A `: keepalive` comment is sent
+  after 15 s of idleness. The response is
+  `text/event-stream; charset=utf-8`, `no-cache, no-transform`,
+  `x-accel-buffering: no`.
+- **Cursor and replay:** `Last-Event-ID` is the preferred cursor; explicit
+  `?since=` wins when both are present. With neither, the server resolves the
+  current tail with a one-record `range` read and never replays history. The
+  cursor advances for filtered-out records, so `type`/`datasetId` filters
+  cannot pin the reader to one record.
+- **Lifecycle:** polling uses non-blocking `read(cursor, 100)` calls no more
+  than once per second while idle (a full backlog is drained immediately); a
+  missing topic (404) keeps the connection open until it is created. The server
+  closes with `event: reconnect` after 30 minutes so clients reconnect with
+  their last id. Client disconnect, write errors and the per-process limit of
+  100 concurrent streams (503 `stream_capacity`) are enforced server-side; no
+  process-local event buffer is kept.
+- **Deployment prerequisite:** the public edge must forward `Last-Event-ID` and
+  pass `text/event-stream` responses through without buffering or applying a
+  whole-response timeout. The gateway currently buffers `/v1/capabilities/*`
+  bodies; until its streaming path is released, the SSE route is reachable on
+  the capabilities service boundary only.
+
 ## Parity gaps requiring product-owned implementation and verification
 
 The following advanced coded-console features are not established as equivalent

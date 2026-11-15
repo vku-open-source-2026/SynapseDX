@@ -193,7 +193,53 @@ Event types: `dataset.created`, `dataset.updated`, `dataset.published`,
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/events` | any verified credential | Non-destructive stream feed. `since` (cursor), `type`, `datasetId`, `limit` (1..500). Returns `{items,count,nextCursor}`. At-least-once: dedupe on `eventId`. |
+| GET | `/v1/capabilities/events/stream` | any verified credential | Live SSE feed with the same event shape. `since` or `Last-Event-ID` selects the cursor; `type`/`datasetId` filter. At-least-once: dedupe on `eventId`. |
 | POST | `/v1/capabilities/events/outbox/flush?datasetId=` | tenant write | Retry pending events and report the remaining count. |
+
+### Live event stream (SSE)
+
+`GET /v1/capabilities/events/stream` keeps one connection open and relays the
+Tier-1 capability stream. The caller credential is forwarded exactly like the
+polling feed; there is no token in the query string, so a browser `EventSource`
+(which cannot set `Authorization`) is not a supported client. Use `fetch` with
+a streaming body reader (the Tier-2 SDK does this for you with
+`dx.events.stream()`).
+
+Headers: `content-type: text/event-stream; charset=utf-8`,
+`cache-control: no-cache, no-transform`, `connection: keep-alive`,
+`x-accel-buffering: no`.
+
+Wire format:
+
+```text
+retry: 3000
+
+event: ready
+data: {"cursor":"1700000000000-0","stream":"synapsedx-capability-events","filters":{"type":null,"datasetId":null}}
+
+id: 1700000000000-1
+event: capability
+data: {"id":"1700000000000-1","event":{"eventId":"…","type":"record.created",…}}
+
+: keepalive
+
+```
+
+- `since` (`?since=<stream id>`) is the explicit cursor and wins over the
+  `Last-Event-ID` header. With neither, the feed starts at the current tail and
+  does not replay history.
+- The cursor advances for every stream record, including records removed by
+  `type`/`datasetId`; a filtered record can never stall the feed.
+- Poll interval is 1 s, heartbeat 15 s while idle, planned reconnect after
+  30 min (`event: reconnect`, then close). Reconnect with the last `id:` /
+  `data.id`.
+- A missing Tier-1 topic (404) keeps the connection open until events appear.
+- At most 100 concurrent streams per process; excess requests get
+  `503 stream_capacity`. Delivery is at-least-once; deduplicate on `eventId`.
+
+The public gateway must forward `Last-Event-ID` and pass `text/event-stream`
+through without buffering or a whole-response timeout; verify that edge
+behaviour before announcing this endpoint to Tier-3 clients.
 
 ## Identity/session
 

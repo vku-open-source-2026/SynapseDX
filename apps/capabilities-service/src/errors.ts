@@ -201,6 +201,7 @@ export type ErrorCode =
   | "artifact_out_of_sync"
   | "artifact_compensation_failed"
   | "delegated_trust_required"
+  | "stream_capacity"
   | "crawl_failed";
 
 export interface ErrorEnvelope {
