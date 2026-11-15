@@ -1525,6 +1525,21 @@ export class FakeTier1 {
       const events = (index >= 0 ? all.slice(index + 1) : all).slice(0, Number(body?.count || 100));
       return this.json(res, 200, { events, count: events.length });
     }
+    const statsMatch = path.match(/^\/v1\/stream\/topics\/([^/]+)\/stats$/);
+    if (statsMatch && method === 'GET') {
+      if (!this.topics.has(statsMatch[1])) return this.json(res, 404, { error: 'not_found' });
+      const all = this.topics.get(statsMatch[1])!;
+      return this.json(res, 200, {
+        stats: {
+          topic: statsMatch[1],
+          length: all.length,
+          first_id: all[0]?.id ?? null,
+          last_id: all[all.length - 1]?.id ?? null,
+          groups_count: 0,
+          groups: [],
+        },
+      });
+    }
     const rangeMatch = path.match(/^\/v1\/stream\/topics\/([^/]+)\/range$/);
     if (rangeMatch && method === 'GET') {
       if (!this.topics.has(rangeMatch[1])) return this.json(res, 404, { error: 'not_found' });

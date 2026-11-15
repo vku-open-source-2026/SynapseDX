@@ -196,6 +196,28 @@ test('connects with a read token and receives the retry/ready frames', { timeout
   }
 });
 
+test('a fresh subscription starts after the existing tail without replay', { timeout: 20000 }, async () => {
+  const harness = await startHarness();
+  try {
+    await publish(harness, capabilityEvent('record.created', 'feed-ds', 'old-event'), '90-0');
+    const stream = await openStream(harness, '/v1/capabilities/events/stream', { token: 'read-token' });
+    try {
+      await nextFrame(stream, READY_TIMEOUT_MS);
+      const ready = await readEvent(stream, 'ready', READY_TIMEOUT_MS);
+      assert.equal(ready.data.cursor, '90-0');
+
+      await publish(harness, capabilityEvent('record.created', 'feed-ds', 'new-event'), '91-0');
+      const delivered = await readEvent(stream, 'capability', 6000);
+      assert.equal(delivered.data.id, '91-0');
+      assert.equal((delivered.data.event as any).eventId, 'new-event');
+    } finally {
+      await closeStream(stream);
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
 test('delivers a capability event published after connect as id/event/data', { timeout: 20000 }, async () => {
   const harness = await startHarness();
   const stream = await openStream(harness, '/v1/capabilities/events/stream', { token: 'read-token' });

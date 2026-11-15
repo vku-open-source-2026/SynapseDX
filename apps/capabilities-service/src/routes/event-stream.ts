@@ -61,9 +61,12 @@ async function resolveCursor(
   if (since) return since;
   if (lastEventId) return lastEventId;
   try {
-    const tail = await client.stream.range(config.eventsStream, { start: '-', count: 1 });
-    const last = Array.isArray(tail?.events) ? tail.events[tail.events.length - 1] : undefined;
-    return last?.id ? String(last.id) : null;
+    // `range(start:'-', count:1)` returns the *oldest* event, not the tail.
+    // Topic stats expose the authoritative last id, so a fresh subscription
+    // starts after it and never replays history.
+    const stats = await client.stream.topicStats(config.eventsStream);
+    const lastId = stats?.stats?.lastId ?? stats?.stats?.last_id;
+    return lastId ? String(lastId) : null;
   } catch (error) {
     // No topic yet means no event has been published; wait for it instead of
     // failing the subscription.
