@@ -73,6 +73,51 @@ await dx.records.delete(dataset.id, record.id);
 | `false` | never project the record; an existing projection is withdrawn |
 | omitted | inherit the dataset default |
 
+## Resource assignment (optimization)
+
+`optimization.assign` is a generic, deterministic resource-to-demand solver. It
+has no incident/SOS fields: callers pass abstract resources and demands, with
+optional coordinates, skills, capacity, priority and a cost matrix.
+
+```ts
+const plan = await dx.optimization.assign({
+  resources: [
+    { id: 'unit-1', lat: 16.06, lng: 108.22, capacity: 1, skills: ['medical'] },
+    { id: 'unit-2', lat: 16.08, lng: 108.25, capacity: 2, skills: ['medical', 'driver'] },
+  ],
+  demands: [
+    { id: 'call-1', lat: 16.06, lng: 108.23, priority: 5, requiredSkills: ['medical'] },
+    { id: 'call-2', lat: 16.09, lng: 108.26, priority: 2 },
+  ],
+  options: {
+    // matrix[demandIndex][resourceIndex]; null marks an unusable edge.
+    // costMatrix: [[120, 480], [null, 90]],
+    maxDistanceMeters: 10_000,
+    unassignedPenalty: 1_000_000,
+  },
+});
+
+for (const assignment of plan.assignments) {
+  console.log(assignment.demandId, '->', assignment.resourceId, assignment.cost);
+}
+for (const item of plan.unassigned) {
+  console.log(item.demandId, item.reason); // no_resource | capacity | distance | skills
+}
+```
+
+Without `costMatrix`, the cost is the haversine distance in meters. A matrix,
+when supplied, must have exactly one row per demand and one column per resource.
+Limits are 200 resources, 200 demands, 4,000 available slots and 1e12 per edge.
+
+The objective is lexicographic: maximize served demands, then minimize total
+cost, then prefer higher-priority demands among equal-cost solutions. Priority
+never buys a more expensive assignment and never reduces the served count.
+`unassignedPenalty` is validated and accepted as the caller's opportunity cost;
+the fixed maximum-cardinality stage means it cannot cause an assignable demand
+to be dropped. Results are deterministic for the same input (input order is the
+final tie-break). SOS must still apply any plan through its own reviewed
+dispatch workflow; this capability does not mutate product state.
+
 ## Knowledge & hazards (Tier-2 LLM base)
 
 ```ts
