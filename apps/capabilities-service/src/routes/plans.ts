@@ -16,7 +16,7 @@ import { apiError } from '../errors';
 import { assertBodyIsObject, handler } from '../http';
 import { parsePagination, setPageHeaders, stringParam } from '../pagination';
 import {
-  COLLECTIONS, correlationIdOf, getDocumentOrNull, queryDocuments, recordAudit,
+  COLLECTIONS, correlationIdOf, getDocumentOrNull, isConflict, isNotFound, queryDocuments, recordAudit,
 } from '../platform';
 import {
   PlanRecord, PlanStatus, PlanTaskStatus,
@@ -33,6 +33,24 @@ import {
 interface LoadedPlan {
   plan: PlanRecord;
   version: number;
+}
+
+/** Plans are created lazily on the first write, like other capability collections. */
+async function ensurePlanCollection(client: SynapseOneClient): Promise<void> {
+  try {
+    await client.base.getCollection(COLLECTIONS.plans);
+    return;
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+  try {
+    await client.base.createCollection({
+      name: COLLECTIONS.plans,
+      description: 'SynapseDX EOP plan orchestration',
+    });
+  } catch (error) {
+    if (!isConflict(error)) throw error;
+  }
 }
 
 async function loadPlan(
@@ -115,6 +133,7 @@ export function registerPlanRoutes(app: Express, config: ServiceConfig): void {
     const { principal, client } = await writeContext(req, config);
     const input = normalizePlanInput(assertBodyIsObject(req.body || {}));
     const now = new Date().toISOString();
+    await ensurePlanCollection(client);
     const plan: PlanRecord = {
       id: randomUUID(),
       tenant: principal.tenantKey,
