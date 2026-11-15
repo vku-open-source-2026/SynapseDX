@@ -100,7 +100,7 @@ approval, publication and domain policy.
 
 ## Verification
 
-- Backend capability service: **236 tests passed** (includes 13 spatial, 12 SSE,
+- Backend capability service: **237 tests passed** (includes 13 spatial, 12 SSE,
   18 optimization and 12 plan tests).
 - JavaScript SDK: **31 tests passed**.
 - Console: **52 unit tests + 7 nginx/integrity tests passed**.
