@@ -67,7 +67,12 @@ Stable codes: `invalid_request`, `invalid_json`, `invalid_limit`,
 `upstream_auth_failed`, `upstream_conflict`, `upstream_unavailable`,
 `upstream_timeout`, `query_rejected`, `internal_error`, `route_not_found`,
 `method_not_allowed`, `job_not_found`, `job_kind_unknown`, `job_not_runnable`,
-`job_run_in_progress`, `job_run_not_found`, `job_lease_invalid`.
+`job_run_in_progress`, `job_run_not_found`, `job_lease_invalid`,
+`invalid_geo_field`, `invalid_geometry`, `geo_not_configured`,
+`stream_capacity`, `too_many_resources`, `too_many_demands`,
+`invalid_cost_matrix`, `cost_unavailable`, `plan_not_found`,
+`plan_task_not_found`, `dependency_incomplete`, `dependency_cycle`,
+`invalid_transition`.
 
 ## Pagination
 
@@ -648,5 +653,6 @@ Allowed origins are the comma-separated `CORS_ORIGINS` allow-list (defaults:
 `https://synapsedx.sbs`, `https://cloud.synapsedx.sbs`). The response echoes
 only an allowed `Origin`, sets `Vary: Origin`, allows
 `GET,POST,PUT,PATCH,DELETE,OPTIONS`, and exposes
-`idempotency-key`/`if-match`/correlation/licence/pagination headers. Unknown
-origins receive no `Access-Control-Allow-Origin`.
+`idempotency-key`/`if-match`/correlation/licence/pagination and spatial-index
+headers. `Last-Event-ID` is an allowed request header for SSE. Unknown origins
+receive no `Access-Control-Allow-Origin`.

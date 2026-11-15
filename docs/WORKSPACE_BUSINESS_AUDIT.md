@@ -83,11 +83,44 @@ database or product-specific logic.
   their last id. Client disconnect, write errors and the per-process limit of
   100 concurrent streams (503 `stream_capacity`) are enforced server-side; no
   process-local event buffer is kept.
-- **Deployment prerequisite:** the public edge must forward `Last-Event-ID` and
-  pass `text/event-stream` responses through without buffering or applying a
-  whole-response timeout. The gateway currently buffers `/v1/capabilities/*`
-  bodies; until its streaming path is released, the SSE route is reachable on
-  the capabilities service boundary only.
+- **Deployment prerequisite:** the public edge forwards `Last-Event-ID` and
+  passes `text/event-stream` responses through without buffering or applying a
+  whole-response timeout. The 0.9.12 release adds the streaming branch to the
+  Rust gateway, an exact unbuffered location to both nginx layers, and
+  `last-event-id` to CORS. The route is therefore reachable at
+  `https://synapsedx.sbs/v1/capabilities/events/stream`.
+
+## Server-side spatial queries
+
+A dataset may declare `geo: {field: "<dotted record.data path>"}`. Record
+writes validate WGS84 GeoJSON before the Base write and mirror the geometry into
+a per-dataset SynapseBase PostGIS collection (`synapsedx_geo_<datasetId>`).
+`POST /v1/capabilities/datasets/:id/records/spatial` accepts `near`, `bbox` or
+`within` (Polygon/MultiPolygon), returns a FeatureCollection plus the normal
+record response items, and re-checks record visibility so a stale index cannot
+expose a withheld draft. `spatial.reindex` repairs up to 5,000 records per call;
+`spatial.status` reports the collection and feature count. Index maintenance is
+best-effort and never fails the authoritative Base write. City assets
+(`geometry`) and incidents (`location.geometry`) can bind directly; page/API
+adoption is tracked separately from capability availability.
+
+## Deterministic assignment optimization
+
+`POST /v1/capabilities/optimization/assign` is a domain-neutral
+resource-to-demand solver: capacities, skills, optional `costMatrix` or
+haversine distance, priority as an equal-cost tie-break, distance limits and
+explicit unassigned reasons. It maximizes served demands with a b-flow stage,
+then minimizes total cost by successive shortest paths; 200×200 inputs are
+bounded and deterministic. It does not mutate SOS dispatch state; applying and
+approving a plan remains the product's reviewed workflow.
+
+## Plan orchestration (EOP)
+
+`/v1/capabilities/plans` provides tenant-scoped phased plans with CAS
+transitions, activation-time due dates, dependency-aware task status, a grounded
+brief and an AI-assisted draft with deterministic fallback. AI output is
+validated by the same plan validator and drafts are never persisted. SOS retains
+EOP policy, approvals, publication and dispatch semantics.
 
 ## Parity gaps requiring product-owned implementation and verification
 
@@ -98,12 +131,15 @@ CRUD/execute form exists. Some legacy UI paths themselves used mock/stub results
 - City: lifecycle health/risk/history calculations; document/photo report flows;
   incident comments/upvotes and duplicate/merge workflows; preventive schedules;
   IoT batch/statistics; actual CSV upload/preview; generated report download;
-  spatial nearby/bounds/polygon queries.
+  adopting the Tier-2 spatial index in the City API/page (the capability and
+  dataset binding exist; the current City endpoints still filter in process).
 - SOS: applying/animating dispatch plans through the product workflow over the
   generic Tier-2 `optimization.assign` solver (the solver contract is in
   [OPTIMIZATION.md](OPTIMIZATION.md); SOS must still review and apply results
-  through its own actions); AI brief/ask and EOP draft generation; rich EOP
-  editing; live hazard timeline/deploy/expire; SITREP deltas and event-related views.
+  through its own actions); adopting the Tier-2 SSE feed in place of the current
+  dataset poller; connecting the generic plan orchestration to SOS EOP approval,
+  publication and AI draft policy; rich EOP editing; live hazard
+  timeline/deploy/expire; SITREP deltas and event-related views.
 - Identity: app-grant editor stores tenant-scoped verified subject IDs, but does
   not yet validate target-subject existence in IAM when creating a grant.
 - Migration: old organization-wide H-D-P-I records are preserved. Automatic

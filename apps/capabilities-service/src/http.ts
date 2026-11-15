@@ -45,7 +45,6 @@ export const EXPOSED_HEADERS = [
   'x-checksum-sha256',
   'content-disposition',
   'cache-control',
-  'last-event-id',
 ].join(',');
 
 function appendVary(res: Response, value: string): void {

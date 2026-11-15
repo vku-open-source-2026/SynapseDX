@@ -35,20 +35,20 @@ The repair publishes new v7 snapshots using the exact pins from the prior review
 
 | Area | Current configuration can do | Still missing or not established as equivalent |
 | --- | --- | --- |
-| City assets / GIS | Registry, tables, record detail, CRUD forms, geometry display and native Point/LineString/Polygon drawing/vertex editing | Lifecycle health/risk/history panels; document/photo flows; server-side nearby/bounds/polygon queries |
+| City assets / GIS | Registry, tables, record detail, CRUD forms, geometry display, native Point/LineString/Polygon drawing/vertex editing and a Tier-2 PostGIS near/bbox/within capability | Lifecycle health/risk/history panels; document/photo flows; City API/page adoption of the spatial index (the current City endpoints still filter in process) |
 | City incidents / technician work | Intake, assignment and workflow-backed transitions, contextual forms | Rich comments/internal visibility, upvotes, duplicate detection/merge; a generic note/status field is not equivalent |
 | City maintenance | Work orders and selected checked state transitions | Preventive schedules and full review/technician workflow parity |
 | City IoT / budgets / people | Declared registry/reading/decision forms | Batch sensor ingestion/statistics and exhaustive business validation/decision parity; creating an operator record does not create an IAM account |
 | City ingest / reports | Native CSV preview/upload, validated resumable asset batches with duplicate/error results; five actual CSV/JSON report artifacts and governed download | Large-file streaming and formats beyond CSV/JSON; exhaustive archived report edge cases |
 | SOS dispatch / rescue | Orders, assignments, statuses, resource maps | Dispatch optimization and complete event-linked operational context |
-| SOS EOP / command | Plan/event records and lifecycle forms | Rich plan editor, AI draft/brief/ask and equivalent orchestration |
-| SOS hazards / SITREP | Layer/ingest metadata, maps and JSON fields | Live SSE/timeline, actual deploy/expire/ingest processing, calculated SITREP deltas and related-event views. Writing JSON fields alone does not implement these processes. |
+| SOS EOP / command | Plan/event records and lifecycle forms; generic Tier-2 phased-plan orchestration with CAS, dependency-aware tasks, grounded brief and validated AI draft | Rich plan editor; connecting the generic plan lifecycle to SOS EOP approval, publication and AI policy |
+| SOS hazards / SITREP | Layer/ingest metadata, maps, JSON fields and a Tier-2 SSE capability over the live event stream | Product adoption of SSE in place of its dataset poller; timeline, actual deploy/expire/ingest processing, calculated SITREP deltas and related-event views. Writing JSON fields alone does not implement these processes. |
 | Common workspace | Independent per-app declarative tasks/projects/wiki/inbox/forms/reports/OCR/assistant/files, native upload/download and visual schema/query editors with typed filters | Destination-aware migration of old organization H-D-P-I records |
 | Studio | Declarative native widgets, named actions/functions and a code editor per widget | Full Appsmith-equivalent authoring is not claimed. Native sequence/condition/mapping preview now runs a simulated interpreter, including declared reference fixtures; broad authoring coverage still needs extension. |
 
 The archived sources are evidence, not runtime dependencies: City `plugins/source/apps/console/src/pages/admin/{AssetDetail,DataIngest}.tsx`, `pages/incidents/IncidentDetail.tsx`; SOS `plugins/source/apps/console/src/pages/emergency/` and its archived components. Some original functions used stubs, so they also require business acceptance criteria rather than visual imitation.
 
-Custom widget/function code is an explicit extension point for presentation and declared bindings. It cannot access arbitrary network/DOM/npm or invent an unavailable backend operation. Missing business operations require product-owned reviewed workflows and, where needed, new reusable DX capability/widget contracts. A code widget cannot currently work around missing spatial-query or live-stream connectors.
+Custom widget/function code is an explicit extension point for presentation and declared bindings. It cannot access arbitrary network/DOM/npm or invent an unavailable backend operation. Missing business operations require product-owned reviewed workflows and, where needed, new reusable DX capability/widget contracts. The 0.9.12 release supplies the generic spatial-query, SSE and assignment/plan-orchestration connectors; page/runtime adoption and business acceptance remain separate work.
 
 Other limits remain explicit: 64 visual components and 128 actions per page; allowlisted catalog queries rather than general SQL/joins; Common collections have bounded loading; charts aggregate the loaded page. These are material limits when deciding whether an advanced page can be built completely.
 
@@ -164,12 +164,43 @@ portable product CLI: 30 per product; workflow artifact checks: six City and nin
 SOS. The local full browser suite passed 74 tests with two nginx-only skips;
 final editor regressions passed separately after the record-switch fix. Browser
 API requests use intercepted fixtures; inventory and live graph checks are
-separate read-only production evidence. Advanced domain parity gaps in the table
-above remain open; these editor features do not implement missing spatial-query,
-live-stream, dispatch-optimization or EOP orchestration operations.
+separate read-only production evidence. The subsequent 0.9.12 capability release
+adds spatial queries, SSE, deterministic assignment and generic plan
+orchestration; the table above still tracks product adoption and business
+acceptance rather than merely connector availability.
 
 Final public-domain browser suite: **76 passed, zero skips**, including native
 editor changes and both sandbox checks under the deployed nginx policy. The 11
 public console build/bootstrap files and five changed backend modules match the
 local build bytes. All four tier readiness endpoints return 200; affected
 containers are healthy and have no startup errors.
+
+## Capability expansion release (0.9.12)
+
+This release adds four Tier-2 capabilities without changing the product
+boundary:
+
+- **Spatial record queries.** `dataset.geo` binds a record-data field to a
+  per-dataset SynapseBase PostGIS collection. `POST
+  /v1/capabilities/datasets/:id/records/spatial` serves `near`, `bbox` and
+  `within`; candidates are re-checked against record visibility, so a stale
+  index cannot expose a draft. `reindex` and `status` support repair and
+  inspection. Geometry is validated before every authoritative Base write.
+- **Live SSE feed.** `GET /v1/capabilities/events/stream` relays the Tier-1
+  capability stream with `Last-Event-ID`/`since` resume, per-type/dataset
+  filters, 15-second heartbeats and a 30-minute planned reconnect. The Rust
+  gateway now streams `text/event-stream` instead of buffering it, and both
+  nginx layers pass it unbuffered.
+- **Deterministic assignment.** `POST /v1/capabilities/optimization/assign`
+  solves capacity/skill/distance-constrained resource-to-demand matching with a
+  maximum-flow stage followed by min-cost flow. It returns explicit unassigned
+  reasons and never mutates product state.
+- **Plan orchestration.** `/v1/capabilities/plans` provides tenant-scoped phased
+  plans, CAS transitions, activation-time due dates, dependency-aware task
+  status, a grounded brief and a validated AI draft with a deterministic
+  fallback. SOS remains the owner of EOP approvals, publication and policy.
+
+The capabilities are exposed through `@synapsedx/capabilities` and the public
+Tier-2 API. City and SOS page adoption is not claimed by capability
+availability; the remaining product work is listed in the table above and in
+`CAPABILITY_RELEASE_0.9.12.md`.
