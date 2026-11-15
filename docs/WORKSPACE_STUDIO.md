@@ -53,8 +53,11 @@ pending processing; the UI does not claim asynchronous mutations have completed.
 
 Map widgets use Leaflet with the configured DX VietMap tiles and real WGS84
 coordinates/GeoJSON. Invalid/missing locations do not become 0,0. Controls include
-fit, zoom, overlays and fullscreen. Maps paginate records and disclose the loaded
-range. Tile failures remain visible. Credentials use headers, never tile URLs.
+fit, zoom, overlays, fullscreen and **Search this area**: the current viewport is
+sent as a server-validated `bbox` and resolved through the dataset's PostGIS
+index when `dataset.geo` is configured, otherwise the normal paged read remains.
+Maps paginate records and disclose the loaded range. Tile failures remain visible.
+Credentials use headers, never tile URLs.
 
 Published snapshots are immutable. Draft changes reach members after publication.
 Product datasets/actions remain bound to that app's allowlist and protected
