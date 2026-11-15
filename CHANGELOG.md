@@ -5,7 +5,28 @@ Keep a Changelog format and version tags use Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+- **Spatial record queries.** Datasets can bind `geo.field`; Tier-2 maintains a
+  per-dataset SynapseBase PostGIS index and serves `near`, `bbox` and `within`
+  with record-visibility re-checks, reindex/status and best-effort index sync.
+  Map widgets expose **Search this area** using the same server-side index.
+- **Live capability events (SSE).** `GET /v1/capabilities/events/stream`
+  relays the Tier-1 stream with `Last-Event-ID`/`since`, real-tail start,
+  heartbeats and bounded concurrency. The Rust gateway streams the body and the
+  nginx layers are unbuffered.
+- **Assignment optimization.** `POST /v1/capabilities/optimization/assign`
+  provides deterministic capacity/skill/distance/cost matching with explicit
+  unassigned reasons.
+- **Plan orchestration.** `/v1/capabilities/plans` provides phased plans, CAS
+  lifecycle, dependency-aware task status, grounded briefs and validated AI
+  drafts with deterministic fallback.
+- City/SOS now consume the Tier-2 spatial capability; SOS hazard streaming is
+  woken by the Tier-2 SSE feed with a polling fallback.
+
 ### Fixed
+- Health probes keep their timeout timer referenced so Node 20 does not cancel
+  an awaited probe before the timeout resolves.
+- Spatial index headers are exposed through gateway CORS.
 - A saved console session is verified before `/login` renders, then continues to
   the role-appropriate page (`/admin` for management roles, `/workspace` for
   members/volunteers). Public header/home links and the root route resolve the
