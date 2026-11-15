@@ -241,3 +241,11 @@ excludes test artifacts, `LICENSE`/`NOTICE` are included, `engines.node >= 20`).
 The local `npm pack` + consumer-install checks pass. Publishing to npm requires
 the operator's `@synapsedx` scope token; the runbook is in
 `docs/RELEASE.md` in the SynapseDX repository.
+
+Workspace widget requests require a published registry binding. Pass
+`workspaces.widgetData(pluginId, widgetId, { action: "query-id", limit: 50 })` for
+reads and `workspaces.executeWidget(pluginId, formId, values, { actionId:
+"submit-id" })` for writes. The values envelope stays unchanged. The server
+checks declared sources,fields,fixed values,membership and workflow pins; a raw
+widget endpoint is not an execution fallback. SDK source supports the contract;
+use a package release containing these changes before consuming these options.

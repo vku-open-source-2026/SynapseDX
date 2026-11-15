@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-import { useEffect, useRef, useState } from 'react';
-import { Navigate, Outlet, useLocation } from '@tanstack/react-router';
-import { useAuthStore } from '../stores/authStore';
-import { Sidebar } from './Sidebar';
-import { Topbar } from './Topbar';
-import { Footer } from './Footer';
-import { Toaster } from './Toaster';
-import { Skeleton, Button } from './ui';
-import { hasManagementAccess } from '../lib/landing';
-import { useI18n } from '../lib/i18n-context';
+import { useEffect, useRef, useState } from "react";
+import { Navigate, Outlet, useLocation } from "@tanstack/react-router";
+import { useAuthStore } from "../stores/authStore";
+import { Sidebar } from "./Sidebar";
+import { Topbar } from "./Topbar";
+import { Footer } from "./Footer";
+import { Toaster } from "./Toaster";
+import { Skeleton, Button } from "./ui";
+import { hasManagementAccess } from "../lib/landing";
+import { useI18n } from "../lib/i18n-context";
 
 /** Protected console shell: session gate + admin layout + outbox health. */
 export function AdminLayout() {
@@ -36,15 +36,26 @@ export function AdminLayout() {
     return <Navigate to="/login" search={{ redirect: location.pathname }} />;
   }
 
-  if (status === 'unavailable') {
+  if (status === "unavailable") {
     return (
       <div className="flex h-full items-center justify-center bg-dx-bg p-6">
         <div className="max-w-md rounded-2xl border border-dx-line bg-dx-surface p-6 text-center shadow-sm">
-          <h1 className="text-xl font-semibold tracking-tight text-dx-fg">{m.shell.unavailableTitle}</h1>
-          <p className="mt-2 text-sm leading-6 text-dx-muted">{m.shell.unavailableText}</p>
+          <h1 className="text-xl font-semibold tracking-tight text-dx-fg">
+            {m.shell.unavailableTitle}
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-dx-muted">
+            {m.shell.unavailableText}
+          </p>
           <div className="mt-4 flex justify-center gap-2">
-            <Button variant="primary" onClick={() => void fetchContext()}>{m.shell.retry}</Button>
-            <Button variant="ghost" onClick={() => void useAuthStore.getState().logout()}>{m.shell.signOut}</Button>
+            <Button variant="primary" onClick={() => void fetchContext()}>
+              {m.shell.retry}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => void useAuthStore.getState().logout()}
+            >
+              {m.shell.signOut}
+            </Button>
           </div>
         </div>
       </div>
@@ -54,11 +65,23 @@ export function AdminLayout() {
   // A verified member without a management role must never see the control
   // plane shell. This is a navigation guard, not authorization: every admin
   // API still rejects the caller server-side.
-  if (status === 'ready' && context && !hasManagementAccess(context)) {
-    return <Navigate to="/workspace" replace />;
+  if (status === "ready" && context && !hasManagementAccess(context)) {
+    return (
+      <Navigate
+        to="/workspace"
+        search={{
+          product: "dx",
+          page: undefined,
+          section: undefined,
+          module: undefined,
+        }}
+        replace
+      />
+    );
   }
 
-  const ready = status === 'ready' && Boolean(context);
+  const isStudio = location.pathname === "/admin/workspaces";
+  const ready = status === "ready" && Boolean(context);
 
   return (
     <div className="flex h-full overflow-hidden bg-dx-bg text-dx-fg">
@@ -67,7 +90,13 @@ export function AdminLayout() {
         <Topbar context={ready ? context : null} />
         <main id="admin-main" className="min-w-0 flex-1 overflow-y-auto">
           {ready ? (
-            <div className="mx-auto w-full max-w-[1400px] px-5 py-6">
+            <div
+              className={
+                isStudio
+                  ? "w-full px-3 py-4 xl:px-4"
+                  : "mx-auto w-full max-w-[1400px] px-5 py-6"
+              }
+            >
               <Outlet />
             </div>
           ) : (

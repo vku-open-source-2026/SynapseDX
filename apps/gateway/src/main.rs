@@ -47,9 +47,12 @@ pub const FORWARDED_REQUEST_HEADERS: &[&str] = &[
     "x-synapseone-tenant",
     "x-synapsedx-product",
     "x-checksum-sha256",
+    "x-file-name",
     // Server-to-server layout credentials must survive the public boundary.
     // Deliberately absent from browser CORS headers.
     "x-workspace-token",
+    // App context selects the Common workspace; backend verifies membership.
+    "x-workspace-app",
 ];
 
 pub const FORWARDED_RESPONSE_HEADERS: &[&str] = &[
@@ -200,7 +203,7 @@ async fn cors_and_headers_middleware(
             HeaderValue::from_static(
                 "accept,authorization,content-type,idempotency-key,if-match,if-none-match,\
                  x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
-                 x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256",
+                 x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256,x-workspace-app,x-file-name",
             ),
         );
         headers.insert(
@@ -237,7 +240,7 @@ async fn cors_and_headers_middleware(
         HeaderValue::from_static(
             "accept,authorization,content-type,idempotency-key,if-match,if-none-match,\
              x-api-key,x-correlation-id,x-request-id,x-idempotency-key,\
-             x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256",
+             x-synapseone-tenant,x-synapsedx-product,x-checksum-sha256,x-workspace-app",
         ),
     );
     headers.insert(
@@ -597,6 +600,55 @@ mod tests {
     use super::*;
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn native_upload_forwards_filename_app_and_binary_body() {
+        let bytes = vec![173u8; 3 * 1024 * 1024];
+        let upstream = Router::new().fallback(any(|request: Request| async move {
+            assert_eq!(request.headers()["x-file-name"], "T%C3%A0i%20li%E1%BB%87u.csv");
+            assert_eq!(request.headers()["x-workspace-app"], "city");
+            assert_eq!(request.headers()["content-type"], "text/csv");
+            let received = axum::body::to_bytes(request.into_body(), 4 * 1024 * 1024).await.unwrap();
+            assert_eq!(received.len(), 3 * 1024 * 1024);
+            assert!(received.iter().all(|b| *b == 173));
+            StatusCode::CREATED
+        }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, upstream).await.unwrap() });
+        let gateway = create_app(AppState { upstream: format!("http://{address}"), timeout: Duration::from_secs(5), cors_origins: vec!["https://synapsedx.sbs".into()], client: reqwest::Client::new() });
+        let result = gateway.clone().oneshot(HttpRequest::builder().method("POST")
+            .uri("/v1/capabilities/workspaces/installed/page/widgets/form/upload?action=upload")
+            .header("x-file-name", "T%C3%A0i%20li%E1%BB%87u.csv").header("x-workspace-app", "city")
+            .header("content-type", "text/csv").body(Body::from(bytes)).unwrap()).await.unwrap();
+        assert_eq!(result.status(), StatusCode::CREATED);
+        let preflight = gateway.oneshot(HttpRequest::builder().method("OPTIONS").uri("/v1/capabilities/files")
+            .header("origin", "https://synapsedx.sbs").header("access-control-request-headers", "x-file-name")
+            .body(Body::empty()).unwrap()).await.unwrap();
+        assert!(preflight.headers()["access-control-allow-headers"].to_str().unwrap().contains("x-file-name"));
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn forwards_common_workspace_app_context_and_allows_browser_preflight() {
+        let upstream = Router::new().fallback(any(|request: Request| async move {
+            request.headers().get("x-workspace-app").and_then(|value|value.to_str().ok()).unwrap_or("missing").to_string()
+        }));
+        let listener=TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address=listener.local_addr().unwrap();
+        let task=tokio::spawn(async move {axum::serve(listener,upstream).await.unwrap()});
+        let gateway=create_app(AppState {upstream:format!("http://{address}"),timeout:Duration::from_secs(2),cors_origins:vec!["https://synapsedx.sbs".into()],client:reqwest::Client::new()});
+        for app in ["city","sos"] {
+            let result=gateway.clone().oneshot(HttpRequest::builder().uri("/v1/capabilities/projects").header("x-workspace-app",app).body(Body::empty()).unwrap()).await.unwrap();
+            assert_eq!(result.status(),StatusCode::OK);
+            let body=axum::body::to_bytes(result.into_body(),1024).await.unwrap();
+            assert_eq!(body.as_ref(),app.as_bytes());
+        }
+        let result=gateway.oneshot(HttpRequest::builder().method("OPTIONS").uri("/v1/capabilities/projects").header("origin","https://synapsedx.sbs").header("access-control-request-method","GET").header("access-control-request-headers","x-workspace-app").body(Body::empty()).unwrap()).await.unwrap();
+        assert!(result.status().is_success());
+        assert!(result.headers().get("access-control-allow-headers").unwrap().to_str().unwrap().contains("x-workspace-app"));
+        task.abort();
+    }
 
     #[tokio::test]
     async fn forwards_workspace_token_through_public_gateway() {

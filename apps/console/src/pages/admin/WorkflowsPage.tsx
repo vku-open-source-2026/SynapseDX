@@ -99,6 +99,8 @@ export function WorkflowsPage() {
         if (cancelled) return;
         setItems(response.data.items);
         setTotal(response.data.total);
+        const requested = new URLSearchParams(window.location.search).get('artifact');
+        if (requested && /^[A-Za-z0-9_-]{8,120}$/.test(requested)) await select(requested);
         try {
           const ready = await httpClient.get<WorkflowReadiness>(`${BASE}/readiness`);
           if (!cancelled) setReadiness(ready.data);

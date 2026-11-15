@@ -7,7 +7,7 @@
  */
 import { createHash, createHmac, randomUUID } from 'crypto';
 import { Express } from 'express';
-import { isAdmin, canAccessDataset, hasWriteScope } from '../auth';
+import { isAdmin, canAccessDataset, hasWriteScope, isTenantAdmin, isMachineCredential } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -15,7 +15,7 @@ import {
   COLLECTIONS, correlationIdOf, getDocumentOrNull, queryDocuments, recordAudit,
 } from '../platform';
 import { loadDataset } from '../publication';
-import { authenticatedReadContext, readContext, writeContext } from './shared';
+import { canReadRecords, authenticatedReadContext, readContext, writeContext } from './shared';
 import {
   createScoped, getScoped, listScoped, newId, nowIso, objectValue, optionalString,
   requiredString, stringArray, updateScoped,
@@ -191,8 +191,9 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
   app.post('/v1/capabilities/datasets/:id/contract', handler(async (req, res) => {
     const { principal, client } = await writeContext(req, config);
     const dataset = await loadDataset(client, String(req.params.id));
-    if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     const b = (req.body || {}) as Record<string, unknown>;
+    if (/^(city|sos)-/.test(dataset.data.id) && !isTenantAdmin(principal) && !isMachineCredential(principal)) throw apiError(403, 'workspace_action_required', 'product data rules require organization administration');
     const schema = objectValue(b.schema, 'schema', 200_000);
     if (!Object.keys(propsOf(schema)).length) throw apiError(400, 'invalid_request', 'schema.properties is required');
     const compatibility = ['backward', 'forward', 'full'].includes(String(b.compatibility)) ? String(b.compatibility) as any : 'backward';
@@ -224,7 +225,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
   app.get('/v1/capabilities/datasets/:id/contract', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
     const dataset = await loadDataset(client, String(req.params.id));
-    if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     const versions = await queryDocuments<ContractRecord>(client, COLLECTIONS.contracts, {
       where: { datasetId: dataset.data.id }, orderBy: { field: 'version', direction: 'desc' }, limit: 100,
     });
@@ -235,8 +236,9 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
   app.put('/v1/capabilities/datasets/:id/quality/rules', handler(async (req, res) => {
     const { principal, client } = await writeContext(req, config);
     const dataset = await loadDataset(client, String(req.params.id));
-    if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     const b = (req.body || {}) as Record<string, unknown>;
+    if (/^(city|sos)-/.test(dataset.data.id) && !isTenantAdmin(principal) && !isMachineCredential(principal)) throw apiError(403, 'workspace_action_required', 'product data rules require organization administration');
     const rules = Array.isArray(b.rules) ? b.rules.slice(0, 50) : [];
     for (const rule of rules) {
       if (!rule || typeof rule !== 'object' || !['required', 'unique', 'range', 'regex', 'freshness'].includes(String(rule.type)) || !String(rule.field || '').trim()) {
@@ -260,7 +262,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
   app.post('/v1/capabilities/datasets/:id/quality/run', handler(async (req, res) => {
     const { principal, client } = await writeContext(req, config);
     const dataset = await loadDataset(client, String(req.params.id));
-    if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     const rulesDoc = await queryDocuments<QualityRuleRecord>(client, COLLECTIONS.qualityRules, { where: { datasetId: dataset.data.id }, limit: 1 });
     const rules = rulesDoc.items[0]?.data.rules || [];
     const records = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, {
@@ -283,7 +285,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
   app.get('/v1/capabilities/datasets/:id/quality', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
     const dataset = await loadDataset(client, String(req.params.id));
-    if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     const rules = await queryDocuments<QualityRuleRecord>(client, COLLECTIONS.qualityRules, { where: { datasetId: dataset.data.id }, limit: 1 });
     const runs = await queryDocuments<QualityRunRecord>(client, COLLECTIONS.qualityRuns, {
       where: { datasetId: dataset.data.id }, orderBy: { field: 'createdAt', direction: 'desc' }, limit: 20,
@@ -347,7 +349,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     const kind = ['metric', 'trend', 'table', 'bar', 'line', 'map', 'status'].includes(String(b.kind)) ? String(b.kind) : 'table';
     if (b.datasetId) {
       const dataset = await loadDataset(client, String(b.datasetId));
-      if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+      if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal }) || (!isAdmin(principal) && dataset.data.tenant !== (principal.sourceTenantKey || principal.tenantKey))) throw apiError(404, 'dataset_not_found', 'dataset not found');
     }
     const report = await createScoped(client, COLLECTIONS.reports, principal, {
       name: requiredString(b.name, 'name', 1, 200), description: optionalString(b.description, 'description', 1000),
@@ -371,7 +373,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
       const dataset = await loadDataset(client, report.datasetId);
       if (!dataset) throw apiError(404, 'dataset_not_found', 'dataset not found');
       const caller = { authenticated: true, principal } as any;
-      if (!canAccessDataset(dataset.data, caller)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+      if (!canReadRecords(dataset.data, caller)) throw apiError(404, 'dataset_not_found', 'dataset not found');
       const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, {
         where: { datasetId: report.datasetId }, limit: 5000,
       });
@@ -397,7 +399,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     let records: Array<Record<string, any>> = [];
     if (report.datasetId) {
       const dataset = await loadDataset(client, report.datasetId);
-      if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal } as any)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+      if (!dataset || !canReadRecords(dataset.data, { authenticated: true, principal } as any)) throw apiError(404, 'dataset_not_found', 'dataset not found');
       const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, { where: { datasetId: report.datasetId }, limit: 5000 });
       records = result.items.map((item) => item.data?.data || {});
     }
@@ -497,7 +499,7 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
       let records: Array<Record<string, any>> = [];
       if (reportDoc.data.datasetId) {
         const dataset = await loadDataset(client, reportDoc.data.datasetId);
-        if (!dataset || !canAccessDataset(dataset.data, { authenticated: true, principal } as any)) { widgets.push({ ...widget, error: 'dataset_not_found' }); continue; }
+        if (!dataset || !canReadRecords(dataset.data, { authenticated: true, principal } as any)) { widgets.push({ ...widget, error: 'dataset_not_found' }); continue; }
         const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, { where: { datasetId: reportDoc.data.datasetId }, limit: 5000 });
         records = result.items.map((item) => item.data?.data || {});
       }

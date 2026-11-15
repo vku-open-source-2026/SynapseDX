@@ -15,9 +15,7 @@ import type { ManagementContext } from './rbac';
 export const MANAGEMENT_ROLES = ['admin', 'manager', 'operator', 'moderator'] as const;
 
 export function hasManagementAccess(context: ManagementContext | null): boolean {
-  if (!context) return false;
-  const roles = (context.roles ?? []).map((role) => role.trim().toLowerCase());
-  return roles.some((role) => (MANAGEMENT_ROLES as readonly string[]).includes(role));
+  return context?.isOrganizationAdmin === true;
 }
 
 /** Default destination after sign-in for the verified context. */

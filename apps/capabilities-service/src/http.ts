@@ -21,6 +21,8 @@ export const ALLOWED_HEADERS = [
   'x-synapseone-tenant',
   'x-synapsedx-product',
   'x-checksum-sha256',
+  'x-file-name',
+  'x-workspace-app',
 ].join(',');
 export const EXPOSED_HEADERS = [
   'etag',

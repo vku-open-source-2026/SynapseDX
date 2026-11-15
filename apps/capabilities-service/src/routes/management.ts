@@ -173,6 +173,7 @@ export function registerManagementRoutes(app: Express, config: ServiceConfig): v
       ...(verified.account ? { account: verified.account } : {}),
       roles,
       permissions,
+      isOrganizationAdmin: verified.isDxAdmin === true && verified.type === 'jwt' && (!verified.kind || verified.kind === 'user'),
       auth: { kind: verified.type, scopes: verified.scopes },
     });
   }));

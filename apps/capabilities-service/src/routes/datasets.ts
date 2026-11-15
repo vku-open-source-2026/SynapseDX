@@ -3,7 +3,7 @@
 /** Dataset CRUD, lifecycle and public entity projection routes. */
 import { Express, Request, Response } from 'express';
 import { SynapseOneError } from '@synapseone/sdk';
-import { CallerPrincipal, canAccessDataset, isAdmin } from '../auth';
+import { CallerPrincipal, canAccessDataset, isAdmin, isTenantAdmin, isMachineCredential } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -13,7 +13,7 @@ import { loadManagementSettings } from '../settings';
 import { booleanParam, parsePagination, setPageHeaders, stringParam } from '../pagination';
 import {
   COLLECTIONS, DatasetRecord, buildEvent, claimIdempotency, correlationIdOf, emitEvent,
-  ensureCollections, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint,
+  ensureCollections, idempotencyKeyOf, collectAll, queryDocuments, recordAudit, requestFingerprint,
 } from '../platform';
 import {
   listDatasetRecords, loadDataset, publishDataset, revokeDataset, revokeProjection, syncDatasourceMetadata,
@@ -69,15 +69,16 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const combined = where && status && status !== 'published'
       ? { and: [where, { status }] }
       : where;
-    const result = await queryDocuments<DatasetRecord>(client, COLLECTIONS.datasets, {
-      ...(combined ? { where: combined } : {}),
-      orderBy: { field: 'id', direction: 'asc' },
-      limit: pagination.limit,
-      offset: pagination.offset,
-      ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
+    // Filter the full tenant result before pagination so neither hidden app
+    // metadata nor a count/cursor reveals the other application's catalog.
+    const all = await collectAll<DatasetRecord>(client, COLLECTIONS.datasets, {
+      ...(combined ? { where: combined } : {}), orderBy: { field: 'id', direction: 'asc' },
     });
-    const items = result.items.map((item) => ({ ...item.data }));
-    setPageHeaders(res, { total: result.total, limit: pagination.limit, offset: pagination.offset, nextCursor: result.nextCursor });
+    const visible = all.filter(item => canAccessDataset(item.data, caller));
+    const offset = pagination.cursor ? Number(pagination.cursor) : pagination.offset;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw apiError(400, 'invalid_cursor', 'invalid dataset cursor');
+    const items = visible.slice(offset, offset + pagination.limit).map(item => ({ ...item.data }));
+    setPageHeaders(res, { total: visible.length, limit: pagination.limit, offset, ...(offset + pagination.limit < visible.length ? { nextCursor: String(offset + pagination.limit) } : {}) });
     res.json(items);
   }));
 
@@ -86,6 +87,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const body = (req.body || {}) as Record<string, unknown>;
     const id = slugifyDataset(body.slug ?? body.id ?? body.name);
     if (!DATASET_SLUG_RE.test(id)) throw apiError(400, 'invalid_slug', 'a valid slug or name is required');
+    if (/^(city|sos)-/.test(id) && !isTenantAdmin(principal) && !isMachineCredential(principal)) throw apiError(403, 'workspace_action_required', 'product datasets are managed by their application');
     const publicFlag = body.public === true;
     const requested = datasetBody(body) as { name?: string; entityType?: string; license?: string; schemaVersion?: string };
     if (!requested.name) throw apiError(400, 'field_required', 'name is required', { field: 'name' });

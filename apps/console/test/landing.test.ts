@@ -10,15 +10,16 @@ import {
 import type { ManagementContext } from '../src/lib/rbac';
 
 function context(roles: string[]): ManagementContext {
-  return { roles, permissions: [] };
+  return { roles, permissions: [], isOrganizationAdmin: roles.includes('admin') };
 }
 
 describe('authenticated landing resolution', () => {
-  it('sends management roles to the control plane', () => {
+  it('reserves the control plane for verified organization admins', () => {
     expect(hasManagementAccess(context(['admin']))).toBe(true);
-    expect(landingPath(context(['manager']))).toBe('/admin');
-    expect(landingPath(context(['operator']))).toBe('/admin');
-    expect(landingPath(context(['moderator']))).toBe('/admin');
+    expect(hasManagementAccess({roles:['admin'],permissions:['*']})).toBe(false);
+    expect(landingPath(context(['manager']))).toBe('/workspace');
+    expect(landingPath(context(['operator']))).toBe('/workspace');
+    expect(landingPath(context(['moderator']))).toBe('/workspace');
   });
 
   it('sends ordinary members and volunteers to the member workspace', () => {

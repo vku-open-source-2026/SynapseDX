@@ -22,6 +22,7 @@ import { registerHealthRoutes, registerCapabilityAdvertisement } from './routes/
 import { registerJobRoutes } from './routes/jobs';
 import { registerManagementRoutes } from './routes/management';
 import { registerRecordRoutes } from './routes/records';
+import { registerTabularFileRoutes } from './routes/tabular-files';
 import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
 import { registerSecurityRoutes } from './routes/security';
@@ -47,7 +48,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   app.use((req, res, next) => {
     // File content is raw bytes for every content type (GeoJSON/CSV included);
     // the route installs express.raw itself.
-    if (req.method === 'PUT' && /^\/v1\/capabilities\/files\/[^/]+\/content$/.test(req.path)) {
+    if ((req.method === 'PUT' && /^\/v1\/capabilities\/files\/[^/]+\/content$/.test(req.path)) || (req.method === 'POST' && /^\/v1\/capabilities\/workspaces\/installed\/[^/]+\/widgets\/[^/]+\/upload$/.test(req.path))) {
       next();
       return;
     }
@@ -66,6 +67,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerJobRoutes(app, config);
   registerAuditRoutes(app, config);
   registerFileRoutes(app, config);
+  registerTabularFileRoutes(app, config);
   registerNotificationRoutes(app, config);
   registerGeoRoutes(app, config);
   registerSecurityRoutes(app, config);

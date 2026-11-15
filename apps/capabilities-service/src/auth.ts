@@ -78,6 +78,12 @@ export interface CallerPrincipal {
    * cross-tenant access; never derived from a caller-supplied value.
    */
   isDxAdmin?: boolean;
+  /** Verified application context for common capabilities. */
+  workspaceApp?: 'city' | 'sos';
+  /** App grants loaded from persisted workspace membership, never token claims. */
+  workspaceProducts?: string[];
+  sourceScopes?: string[];
+  sourceTenantKey?: string;
   /**
    * True only for the configured process credential (`SYNAPSEONE_API_KEY` /
    * `SYNAPSEONE_TOKEN`) presented by the caller. This is the only automatic
@@ -475,7 +481,7 @@ export function requireAuthenticated(caller: Caller): CallerPrincipal {
  * organization member can mint wildcard keys in Tier-1 IAM.
  */
 export function isAdmin(principal: CallerPrincipal): boolean {
-  return principal.isServiceCredential === true || isBootstrappedAdmin(principal);
+  return !principal.workspaceApp && (principal.isServiceCredential === true || isBootstrappedAdmin(principal));
 }
 
 /**
@@ -569,17 +575,22 @@ export function assertWriteScope(principal: CallerPrincipal): void {
 
 /** Dataset visibility for the verified caller. */
 export function canAccessDataset(
-  dataset: { tenant?: string; owner?: string; public?: boolean; status?: string },
+  dataset: { id?: string; tenant?: string; owner?: string; public?: boolean; status?: string },
   caller: Caller,
 ): boolean {
+  const product = dataset.id?.match(/^(city|sos)-/)?.[1];
+  if (product && caller.principal?.workspaceApp && caller.principal.workspaceApp !== product) return false;
   if (dataset.public === true && dataset.status === 'published') return true;
+  if (product && caller.principal && !isTenantAdmin(caller.principal) && !isMachineCredential(caller.principal) && !caller.principal.workspaceProducts?.includes(product)) return false;
   if (!caller.authenticated || !caller.principal) return false;
   if (isAdmin(caller.principal)) return true;
   // Legacy documents written before tenancy was recorded have no tenant. They
   // are only reachable by their exact verified owner (or a deployment admin);
   // any role or same-org assumption would be a cross-tenant hole.
   if (!dataset.tenant) return !!dataset.owner && dataset.owner === caller.principal.subject;
-  return dataset.tenant === caller.principal.tenantKey;
+  const principal = caller.principal;
+  if (principal.workspaceApp && /^(city|sos)-/.test(String((dataset as any).id || '')) && !String((dataset as any).id).startsWith(principal.workspaceApp + '-')) return false;
+  return dataset.tenant === (principal.sourceTenantKey || principal.tenantKey);
 }
 
 /**
@@ -599,5 +610,6 @@ export function canReadPrivateDatasetData(
   if (isTenantAdmin(principal)) return true;
   if (dataset.owner && dataset.owner === principal.subject) return true;
   if (Array.isArray(dataset.viewers) && dataset.viewers.includes(principal.subject)) return true;
-  return hasWriteScope(principal) || hasReadScope(principal);
+  const datasetPrincipal = principal.workspaceApp ? { ...principal, scopes: principal.sourceScopes || [] } : principal;
+  return hasWriteScope(datasetPrincipal) || hasReadScope(datasetPrincipal);
 }

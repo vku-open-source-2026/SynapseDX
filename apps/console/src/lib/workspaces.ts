@@ -1,3 +1,9 @@
+import {
+  studioActionError,
+  safeActionPath,
+  actionReferenceErrors,
+  type StudioAction,
+} from "./studioActions";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 /**
@@ -9,29 +15,110 @@
  * module is pure (no DOM, no network) so the same rules run in the builder,
  * the member workspace and the regression tests.
  */
-export const WORKSPACE_API_BASE = '/v1/capabilities/workspaces';
-export const WORKFLOW_ARTIFACTS_API = '/v1/capabilities/workflow-artifacts';
-export const PLUGIN_BUNDLE_FORMAT = 'synapsedx-plugin';
+export const WORKSPACE_API_BASE = "/v1/capabilities/workspaces";
+export const WORKFLOW_ARTIFACTS_API = "/v1/capabilities/workflow-artifacts";
+export const PLUGIN_BUNDLE_FORMAT = "synapsedx-plugin";
 export const PLUGIN_BUNDLE_VERSION = 1;
-export const MAX_WIDGETS = 40;
+export const CAPABILITY_MODULES = [
+  "inbox",
+  "workspace",
+  "people",
+  "projects",
+  "tasks",
+  "forms",
+  "reports",
+  "quality",
+  "ocr",
+  "agents",
+  "assistant",
+] as const;
+export const TEXT_WIDGETS = ["text", "heading", "alert", "markdown"];
+export const DATA_WIDGETS = [
+  "metric",
+  "table",
+  "form",
+  "chart",
+  "list",
+  "map",
+  "kanban",
+  "timeline",
+];
+export const NAV_WIDGETS = ["navigation", "button", "tabs"];
+export const MAX_WIDGETS = 64;
+export const MAX_ACTIONS = 128;
+export function canAddWidget(
+  widgets: WorkspaceWidget[],
+  type: string,
+): boolean {
+  return (
+    widgets.filter((w) => (w.type === "action") === (type === "action"))
+      .length < (type === "action" ? MAX_ACTIONS : MAX_WIDGETS)
+  );
+}
 export const MAX_FIELDS = 30;
 export const MAX_COLUMNS = 20;
 export const MAX_DATA_ROWS = 100;
 export const MAX_BUNDLE_BYTES = 256 * 1024;
 export const MAX_TEXT_LENGTH = 4000;
 
-export const SAFE_WIDGET_TYPES = ['text', 'metric', 'table', 'form'] as const;
+export const SAFE_WIDGET_TYPES = [
+  "text",
+  "metric",
+  "table",
+  "form",
+  "heading",
+  "divider",
+  "alert",
+  "navigation",
+  "button",
+  "tabs",
+  "progress",
+  "chart",
+  "list",
+  "map",
+  "kanban",
+  "timeline",
+  "markdown",
+  "capability",
+  "code",
+  "action",
+] as const;
 export type WorkspaceWidgetType = (typeof SAFE_WIDGET_TYPES)[number];
-export type WorkspaceProduct = 'city' | 'sos';
-export type WorkspaceAudience = 'admin' | 'member';
-export type WorkspaceWidth = 'full' | 'half';
-export type WorkspaceFieldType = 'text' | 'number' | 'textarea';
-export type WorkspaceFormAction = 'create' | 'update' | 'delete' | 'execute';
-export type WorkspaceStatus = 'draft' | 'published';
+export type WorkspaceProduct = "dx" | "city" | "sos";
+export type WorkspaceAudience = "admin" | "member";
+export type WorkspaceWidth = "full" | "half" | "third" | "quarter";
+export const FIELD_TYPES = [
+  "text",
+  "number",
+  "textarea",
+  "select",
+  "date",
+  "datetime-local",
+  "checkbox",
+  "email",
+  "json",
+  "markdown",
+  "file",
+] as const;
+export type WorkspaceFieldType = (typeof FIELD_TYPES)[number];
+export type WorkspaceFormAction = "create" | "update" | "delete" | "execute";
+export type WorkspaceStatus = "draft" | "published";
 
-export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = ['city', 'sos'];
-export const FORM_ACTIONS: WorkspaceFormAction[] = ['create', 'update', 'delete', 'execute'];
-export const PUBLIC_ROLES = new Set(['public', 'anonymous', 'guest', 'citizen', 'everyone', 'all']);
+export const WORKSPACE_PRODUCTS: WorkspaceProduct[] = ["dx", "city", "sos"];
+export const FORM_ACTIONS: WorkspaceFormAction[] = [
+  "create",
+  "update",
+  "delete",
+  "execute",
+];
+export const PUBLIC_ROLES = new Set([
+  "public",
+  "anonymous",
+  "guest",
+  "citizen",
+  "everyone",
+  "all",
+]);
 
 const WORKFLOW_ARTIFACT_ID = /^[A-Za-z0-9_-]{8,120}$/;
 
@@ -40,13 +127,98 @@ export interface WorkspaceField {
   label: string;
   type: WorkspaceFieldType;
   required?: boolean;
+  options?: string[];
+  optionsResource?: string;
+  optionsAction?: string;
+  uploadAction?: string;
+  editor?: "json" | "schema" | "query" | "geometry";
+  selectionPath?: string;
+  accept?: string;
+  maxBytes?: number;
+  defaultValue?: string;
+}
+
+export interface StudioCode {
+  html: string;
+  css: string;
+  javascript: string;
+  inputs: string[];
+  actions: string[];
+  height: number;
+}
+
+export function studioCodeError(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return "Code must be an object";
+  const code = value as Record<string, unknown>;
+  if (
+    Object.keys(code).some(
+      (key) =>
+        !["html", "css", "javascript", "inputs", "actions", "height"].includes(
+          key,
+        ),
+    )
+  )
+    return "Unknown code setting";
+  for (const key of ["html", "css", "javascript"]) {
+    if (
+      typeof code[key] !== "string" ||
+      (code[key] as string).length > 32768 ||
+      (code[key] as string).includes("\0")
+    )
+      return "Each source file supports up to 32768 characters";
+  }
+  if (
+    (code.html as string).length +
+      (code.css as string).length +
+      (code.javascript as string).length >
+    65536
+  )
+    return "Combined code supports up to 65536 characters";
+  for (const key of ["inputs", "actions"]) {
+    const ids = code[key];
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 20 ||
+      ids.some(
+        (id) => typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id),
+      ) ||
+      new Set(ids).size !== ids.length
+    )
+      return "Choose up to 20 unique widget bindings";
+  }
+  if (
+    !Number.isInteger(code.height) ||
+    Number(code.height) < 120 ||
+    Number(code.height) > 1200
+  )
+    return "Height must be 120..1200 pixels";
+  return null;
 }
 
 export interface WorkspaceWidget {
+  chartType?: "bar" | "line" | "area" | "pie" | "donut";
+  aggregation?: "none" | "count" | "sum" | "average";
+  operation?: StudioAction;
+  onClick?: string;
+  onLoad?: string;
+  onSubmit?: string;
+  onRowClick?: string;
+  onChange?: string;
+  onExport?: string;
+  code?: StudioCode;
+  groupBy?: string;
+  groups?: string[];
+  updateForm?: string;
+  section?: string;
+  presentation?: "inline" | "dialog";
   id: string;
   type: WorkspaceWidgetType;
   title: string;
   text?: string;
+  links?: Array<{ label: string; target: string; actionId?: string }>;
+  module?: string;
+  value?: number;
   resource?: string;
   columns?: string[];
   fields?: WorkspaceField[];
@@ -144,6 +316,8 @@ export interface WorkspaceLimits {
 }
 
 export interface CatalogResource {
+  binding?: "capability";
+  actions?: WorkspaceFormAction[];
   key: string;
   path?: string;
   dataset?: string;
@@ -178,7 +352,15 @@ export interface WorkspaceCatalog {
   roles: string[];
 }
 
+export interface WorkspaceAccess {
+  products: WorkspaceProduct[];
+  productRoles: Partial<Record<WorkspaceProduct, string[]>>;
+  modules: string[];
+  isOrganizationAdmin: boolean;
+}
+
 export interface WorkspaceMember {
+  productRoles: Partial<Record<WorkspaceProduct, string[]>>;
   subject: string;
   roles: string[];
   updatedAt?: string;
@@ -204,7 +386,7 @@ export interface WorkflowArtifactSummary {
   active: boolean;
   revision: number;
   nodeCount: number;
-  syncState?: 'ready' | 'pending' | 'failed';
+  syncState?: "ready" | "pending" | "failed";
   updatedAt?: string;
 }
 
@@ -212,6 +394,8 @@ export interface WidgetData {
   rows: Array<Record<string, unknown>>;
   total: number;
   columns: string[];
+  limit?: number;
+  offset?: number;
 }
 
 export interface PluginBundlePlugin {
@@ -242,7 +426,8 @@ export interface ValidationIssue {
   message: string;
 }
 
-export type ValidationResult = { ok: true } | { ok: false; issues: ValidationIssue[] };
+export type ValidationResult =
+  { ok: true } | { ok: false; issues: ValidationIssue[] };
 
 export interface PluginValidationOptions {
   /** Catalog roles for the plugin product, when the catalog is reachable. */
@@ -256,19 +441,27 @@ export interface PluginValidationOptions {
 // ---------------------------------------------------------------------------
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function isWorkspaceProduct(value: unknown): value is WorkspaceProduct {
-  return value === 'city' || value === 'sos';
+  return value === "dx" || value === "city" || value === "sos";
 }
 
-export function isWorkspaceWidgetType(value: unknown): value is WorkspaceWidgetType {
-  return typeof value === 'string' && (SAFE_WIDGET_TYPES as readonly string[]).includes(value);
+export function isWorkspaceWidgetType(
+  value: unknown,
+): value is WorkspaceWidgetType {
+  return (
+    typeof value === "string" &&
+    (SAFE_WIDGET_TYPES as readonly string[]).includes(value)
+  );
 }
 
 export function isFormAction(value: unknown): value is WorkspaceFormAction {
-  return typeof value === 'string' && (FORM_ACTIONS as readonly string[]).includes(value);
+  return (
+    typeof value === "string" &&
+    (FORM_ACTIONS as readonly string[]).includes(value)
+  );
 }
 
 const UNSAFE_SCHEME = /(?:javascript|vbscript|data)\s*:/i;
@@ -280,7 +473,7 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
  * contract accepts them; they are always rendered as inert text, never links.
  */
 export function isSafePlainText(value: string, max = MAX_TEXT_LENGTH): boolean {
-  if (typeof value !== 'string' || value.length > max) return false;
+  if (typeof value !== "string" || value.length > max) return false;
   if (/[<>]/.test(value)) return false;
   if (CONTROL_CHARS.test(value)) return false;
   if (UNSAFE_SCHEME.test(value)) return false;
@@ -308,7 +501,10 @@ export function isSafeFieldName(value: string): boolean {
 }
 
 export function isSafeRole(value: string): boolean {
-  return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) && !PUBLIC_ROLES.has(value.toLowerCase());
+  return (
+    /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) &&
+    !PUBLIC_ROLES.has(value.toLowerCase())
+  );
 }
 
 export function isSafeWorkflowArtifactId(value: string): boolean {
@@ -317,21 +513,24 @@ export function isSafeWorkflowArtifactId(value: string): boolean {
 
 export function slugify(value: string): string {
   const normalized = value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
     .slice(0, 64);
-  return normalized || 'workspace-page';
+  return normalized || "workspace-page";
 }
 
-export function uniqueStrings(value: unknown, predicate: (item: string) => boolean = () => true): string[] {
+export function uniqueStrings(
+  value: unknown,
+  predicate: (item: string) => boolean = () => true,
+): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
   const result: string[] = [];
   for (const item of value) {
-    if (typeof item !== 'string') continue;
+    if (typeof item !== "string") continue;
     const text = item.trim();
     if (!text || seen.has(text) || !predicate(text)) continue;
     seen.add(text);
@@ -344,148 +543,396 @@ export function uniqueStrings(value: unknown, predicate: (item: string) => boole
 // widget / plugin validation
 // ---------------------------------------------------------------------------
 
-export function validateWidget(input: unknown, index = 0, options: { portable?: boolean } = {}): ValidationIssue[] {
+export function validateWidget(
+  input: unknown,
+  index = 0,
+  options: { portable?: boolean } = {},
+): ValidationIssue[] {
   const path = `widgets[${index}]`;
   const issues: ValidationIssue[] = [];
-  const push = (field: string, message: string) => issues.push({ path: `${path}.${field}`, message });
+  const push = (field: string, message: string) =>
+    issues.push({ path: `${path}.${field}`, message });
 
   if (!isRecord(input)) {
-    issues.push({ path, message: 'widget must be an object' });
+    issues.push({ path, message: "widget must be an object" });
     return issues;
   }
 
   const type = input.type;
   if (!isWorkspaceWidgetType(type)) {
-    push('type', 'widget type must be text, metric, table or form');
+    push("type", "choose a supported workspace component");
     return issues;
   }
 
-  const allowed = new Set(['id', 'type', 'title', 'width']);
-  if (type === 'text') allowed.add('text');
-  else allowed.add('resource');
-  if (type === 'table') allowed.add('columns');
-  if (type === 'form') {
-    allowed.add('fields');
-    allowed.add('action');
-    allowed.add(options.portable ? 'workflowRef' : 'workflowArtifactId');
+  const allowed = new Set(["id", "type", "title", "width", "section"]);
+  if (type === "chart") {
+    allowed.add("chartType");
+    allowed.add("aggregation");
+    if (
+      input.chartType !== undefined &&
+      !["bar", "line", "area", "pie", "donut"].includes(String(input.chartType))
+    )
+      push("chartType", "Choose a supported chart");
+    if (
+      input.aggregation !== undefined &&
+      !["none", "count", "sum", "average"].includes(String(input.aggregation))
+    )
+      push("aggregation", "Choose an aggregation");
+  }
+  for (const key of [
+    "onLoad",
+    "onSubmit",
+    "onRowClick",
+    "onChange",
+    "onExport",
+  ]) {
+    const types: Record<string, string[]> = {
+      onLoad: ["metric", "table", "chart", "list", "map", "kanban", "timeline"],
+      onSubmit: ["form"],
+      onRowClick: ["table", "list", "map", "kanban", "timeline"],
+      onChange: ["kanban"],
+      onExport: ["table", "list", "map", "kanban", "timeline"],
+    };
+    if (types[key].includes(type)) {
+      allowed.add(key);
+      if (
+        input[key] !== undefined &&
+        (typeof input[key] !== "string" ||
+          !isSafeWidgetId(input[key] as string))
+      )
+        push(key, "Choose a named action");
+    }
+  }
+  if (TEXT_WIDGETS.includes(type)) allowed.add("text");
+  if (DATA_WIDGETS.includes(type)) allowed.add("resource");
+  if (NAV_WIDGETS.includes(type)) allowed.add("links");
+  if (type === "action") {
+    allowed.add("operation");
+    const error = studioActionError(input.operation);
+    if (error) push("operation", error);
+  }
+  if (type === "button" && input.onClick !== undefined) {
+    allowed.add("onClick");
+    if (typeof input.onClick !== "string" || !isSafeWidgetId(input.onClick))
+      push("onClick", "Choose an action in this page");
+  }
+  if (type === "code") {
+    allowed.add("code");
+    const error = studioCodeError(input.code);
+    if (error) push("code", error);
+  }
+  if (type === "capability") allowed.add("module");
+  if (type === "progress") allowed.add("value");
+  if (["table", "chart", "list", "map", "kanban", "timeline"].includes(type))
+    allowed.add("columns");
+  if (type === "kanban") {
+    for (const key of ["groupBy", "groups", "updateForm"]) allowed.add(key);
+    if (
+      input.groupBy !== undefined &&
+      (typeof input.groupBy !== "string" || !isSafeColumnName(input.groupBy))
+    )
+      push("groupBy", "choose a field name");
+    if (
+      input.updateForm !== undefined &&
+      (typeof input.updateForm !== "string" ||
+        !isSafeWidgetId(input.updateForm))
+    )
+      push("updateForm", "choose an update form id");
+    if (
+      input.groups !== undefined &&
+      (!Array.isArray(input.groups) ||
+        input.groups.length > 20 ||
+        input.groups.some(
+          (value) => typeof value !== "string" || !isSafePlainText(value, 80),
+        ))
+    )
+      push("groups", "choose up to 20 group values");
+  }
+  if (
+    type === "progress" &&
+    (typeof input.value !== "number" ||
+      !Number.isFinite(input.value) ||
+      input.value < 0 ||
+      input.value > 100)
+  )
+    push("value", "value must be 0..100");
+  if (
+    type === "capability" &&
+    !(CAPABILITY_MODULES as readonly unknown[]).includes(input.module)
+  )
+    push("module", "choose an H-D-P-I module");
+  if (NAV_WIDGETS.includes(type) && !(type === "button" && input.onClick)) {
+    if (
+      !Array.isArray(input.links) ||
+      input.links.length < 1 ||
+      input.links.length > 12
+    )
+      push("links", "choose 1..12 destinations");
+    else
+      input.links.forEach((link, index) => {
+        if (
+          !isRecord(link) ||
+          Object.keys(link).some(
+            (key) => !["label", "target", "actionId"].includes(key),
+          ) ||
+          typeof link.label !== "string" ||
+          !link.label.trim() ||
+          !isSafePlainText(link.label, 80) ||
+          (link.actionId !== undefined &&
+            (typeof link.actionId !== "string" ||
+              !isSafeWidgetId(link.actionId))) ||
+          typeof link.target !== "string" ||
+          (!/^(page|section):[a-z0-9][a-z0-9-]{1,63}$/.test(link.target) &&
+            !(
+              link.target.startsWith("module:") &&
+              (CAPABILITY_MODULES as readonly string[]).includes(
+                link.target.slice(7),
+              )
+            ))
+        )
+          push(`links[${index}]`, "choose a workspace page or H-D-P-I module");
+      });
+  }
+  if (type === "form") {
+    allowed.add("fields");
+    allowed.add("presentation");
+    allowed.add("action");
+    allowed.add(options.portable ? "workflowRef" : "workflowArtifactId");
   }
   for (const key of Object.keys(input)) {
-    if (!allowed.has(key)) push(key, `"${key}" is not allowed on a ${type} widget`);
+    if (!allowed.has(key))
+      push(key, `"${key}" is not allowed on a ${type} widget`);
   }
 
-  if (typeof input.id !== 'string' || !isSafeWidgetId(input.id)) {
-    push('id', 'id must be lowercase letters, digits or "-"');
+  if (typeof input.id !== "string" || !isSafeWidgetId(input.id)) {
+    push("id", 'id must be lowercase letters, digits or "-"');
   }
-  if (typeof input.title !== 'string' || !input.title.trim()) {
-    push('title', 'title is required');
+  if (typeof input.title !== "string" || !input.title.trim()) {
+    push("title", "title is required");
   } else if (!isSafePlainText(input.title, 200)) {
-    push('title', 'title must be plain text without markup, URLs or script schemes');
+    push(
+      "title",
+      "title must be plain text without markup, URLs or script schemes",
+    );
   }
-  if (input.width !== undefined && input.width !== 'full' && input.width !== 'half') {
-    push('width', 'width must be "full" or "half"');
+  if (
+    input.section !== undefined &&
+    (typeof input.section !== "string" ||
+      !/^[a-z][a-z0-9-]{0,63}$/.test(input.section))
+  )
+    push("section", "invalid section");
+  if (
+    input.presentation !== undefined &&
+    !["inline", "dialog"].includes(String(input.presentation))
+  )
+    push("presentation", "invalid presentation");
+  if (
+    input.width !== undefined &&
+    !["full", "half", "third", "quarter"].includes(String(input.width))
+  ) {
+    push("width", 'width must be "full" or "half"');
   }
 
-  if (type === 'text') {
+  if (TEXT_WIDGETS.includes(type)) {
     if (input.text !== undefined) {
-      if (typeof input.text !== 'string') push('text', 'text must be a string');
+      if (typeof input.text !== "string") push("text", "text must be a string");
       else if (!isSafePlainText(input.text, MAX_TEXT_LENGTH)) {
-        push('text', 'text must be plain text without markup, URLs or script schemes');
+        push(
+          "text",
+          "text must be plain text without markup, URLs or script schemes",
+        );
       }
     }
   }
 
-  if (type !== 'text') {
-    if (typeof input.resource !== 'string' || !isSafeResourceKey(input.resource)) {
-      push('resource', 'resource must be a catalog key such as "assets" (never a URL)');
+  if (DATA_WIDGETS.includes(type)) {
+    if (
+      typeof input.resource !== "string" ||
+      !isSafeResourceKey(input.resource)
+    ) {
+      push(
+        "resource",
+        'resource must be a catalog key such as "assets" (never a URL)',
+      );
     }
   }
 
-  if (type === 'table') {
+  if (["table", "chart", "list", "map", "kanban", "timeline"].includes(type)) {
     if (!Array.isArray(input.columns) || input.columns.length === 0) {
-      push('columns', 'table widgets need at least one column');
+      push("columns", "table widgets need at least one column");
     } else {
-      if (input.columns.length > MAX_COLUMNS) push('columns', `at most ${MAX_COLUMNS} columns are allowed`);
+      if (input.columns.length > MAX_COLUMNS)
+        push("columns", `at most ${MAX_COLUMNS} columns are allowed`);
       const seen = new Set<string>();
       input.columns.forEach((column, columnIndex) => {
-        if (typeof column !== 'string' || !isSafeColumnName(column)) {
-          push(`columns[${columnIndex}]`, 'column must be a plain field name');
+        if (typeof column !== "string" || !isSafeColumnName(column)) {
+          push(`columns[${columnIndex}]`, "column must be a plain field name");
           return;
         }
-        if (seen.has(column)) push(`columns[${columnIndex}]`, `duplicate column "${column}"`);
+        if (seen.has(column))
+          push(`columns[${columnIndex}]`, `duplicate column "${column}"`);
         seen.add(column);
       });
     }
   }
 
-  if (type === 'form') {
+  if (type === "form") {
     if (input.action !== undefined && !isFormAction(input.action)) {
-      push('action', 'form action must be create, update, delete or execute');
+      push("action", "form action must be create, update, delete or execute");
     }
     if (options.portable) {
       if (input.workflowRef !== undefined) {
         if (!isRecord(input.workflowRef)) {
-          push('workflowRef', 'workflowRef must be an object');
+          push("workflowRef", "workflowRef must be an object");
         } else {
           for (const key of Object.keys(input.workflowRef)) {
-            if (!['name', 'slug', 'checksum'].includes(key)) {
-              push(`workflowRef.${key}`, `"${key}" is not allowed on workflowRef`);
+            if (!["name", "slug", "checksum"].includes(key)) {
+              push(
+                `workflowRef.${key}`,
+                `"${key}" is not allowed on workflowRef`,
+              );
             }
           }
           const name = input.workflowRef.name;
-          if (typeof name !== 'string' || !name.trim() || !isSafePlainText(name, 160)) {
-            push('workflowRef.name', 'workflowRef.name must be plain text');
+          if (
+            typeof name !== "string" ||
+            !name.trim() ||
+            !isSafePlainText(name, 160)
+          ) {
+            push("workflowRef.name", "workflowRef.name must be plain text");
           }
           const refSlug = input.workflowRef.slug;
-          if (refSlug !== undefined && (typeof refSlug !== 'string' || !isSafeSlug(refSlug))) {
-            push('workflowRef.slug', 'workflowRef.slug must be a lowercase slug');
+          if (
+            refSlug !== undefined &&
+            (typeof refSlug !== "string" || !isSafeSlug(refSlug))
+          ) {
+            push(
+              "workflowRef.slug",
+              "workflowRef.slug must be a lowercase slug",
+            );
           }
           const checksum = input.workflowRef.checksum;
-          if (checksum !== undefined && (typeof checksum !== 'string' || !/^[a-f0-9]{64}$/.test(checksum))) {
-            push('workflowRef.checksum', 'workflowRef.checksum must be 64 lowercase hex characters');
+          if (
+            checksum !== undefined &&
+            (typeof checksum !== "string" || !/^[a-f0-9]{64}$/.test(checksum))
+          ) {
+            push(
+              "workflowRef.checksum",
+              "workflowRef.checksum must be 64 lowercase hex characters",
+            );
           }
         }
       }
     } else if (input.workflowArtifactId !== undefined) {
       if (
-        typeof input.workflowArtifactId !== 'string' ||
+        typeof input.workflowArtifactId !== "string" ||
         !isSafeWorkflowArtifactId(input.workflowArtifactId)
       ) {
-        push('workflowArtifactId', 'workflowArtifactId must be a catalog artifact id');
+        push(
+          "workflowArtifactId",
+          "workflowArtifactId must be a catalog artifact id",
+        );
       }
     }
     if (!Array.isArray(input.fields) || input.fields.length < 1) {
-      push('fields', 'a form needs at least one field');
+      push("fields", "a form needs at least one field");
     } else if (input.fields.length > MAX_FIELDS) {
-      push('fields', `at most ${MAX_FIELDS} fields are allowed`);
+      push("fields", `at most ${MAX_FIELDS} fields are allowed`);
     } else {
       const seen = new Set<string>();
       input.fields.forEach((field, fieldIndex) => {
         const fieldPath = `fields[${fieldIndex}]`;
         if (!isRecord(field)) {
-          push(fieldPath, 'field must be an object');
+          push(fieldPath, "field must be an object");
           return;
         }
         for (const key of Object.keys(field)) {
-          if (!['name', 'label', 'type', 'required'].includes(key)) {
+          if (
+            ![
+              "name",
+              "label",
+              "type",
+              "required",
+              "options",
+              "optionsResource",
+              "optionsAction",
+              "uploadAction",
+              "editor",
+              "selectionPath",
+              "accept",
+              "maxBytes",
+              "defaultValue",
+            ].includes(key)
+          ) {
             push(`${fieldPath}.${key}`, `"${key}" is not allowed on a field`);
           }
         }
-        if (typeof field.name !== 'string' || !isSafeFieldName(field.name)) {
-          push(`${fieldPath}.name`, 'field name must be an identifier such as "severity"');
+        if (typeof field.name !== "string" || !isSafeFieldName(field.name)) {
+          push(
+            `${fieldPath}.name`,
+            'field name must be an identifier such as "severity"',
+          );
         } else {
-          if (seen.has(field.name)) push(`${fieldPath}.name`, `duplicate field "${field.name}"`);
+          if (seen.has(field.name))
+            push(`${fieldPath}.name`, `duplicate field "${field.name}"`);
           seen.add(field.name);
         }
-        if (typeof field.label !== 'string' || !field.label.trim()) {
-          push(`${fieldPath}.label`, 'field label is required');
+        if (typeof field.label !== "string" || !field.label.trim()) {
+          push(`${fieldPath}.label`, "field label is required");
         } else if (!isSafePlainText(field.label, 200)) {
-          push(`${fieldPath}.label`, 'field label must be plain text');
+          push(`${fieldPath}.label`, "field label must be plain text");
         }
-        if (field.type !== 'text' && field.type !== 'number' && field.type !== 'textarea') {
-          push(`${fieldPath}.type`, 'field type must be text, number or textarea');
+        if (!(FIELD_TYPES as readonly unknown[]).includes(field.type)) {
+          push(
+            `${fieldPath}.type`,
+            "field type must be text, number or textarea",
+          );
         }
-        if (field.required !== undefined && typeof field.required !== 'boolean') {
-          push(`${fieldPath}.required`, 'required must be a boolean');
+        if (
+          field.options !== undefined &&
+          (!Array.isArray(field.options) ||
+            field.options.length > 100 ||
+            field.options.some(
+              (value) =>
+                typeof value !== "string" || !isSafePlainText(value, 200),
+            ))
+        )
+          push(`${fieldPath}.options`, "invalid options");
+        if (
+          field.optionsAction !== undefined &&
+          (typeof field.optionsAction !== "string" ||
+            !isSafeWidgetId(field.optionsAction))
+        )
+          push(`${fieldPath}.optionsAction`, "Choose a query action");
+        if (
+          field.optionsResource !== undefined &&
+          (typeof field.optionsResource !== "string" ||
+            !/^common[A-Z][a-zA-Z]*$/.test(field.optionsResource))
+        )
+          push(`${fieldPath}.optionsResource`, "choose a Common capability");
+        if (["uploadAction", "accept", "maxBytes"].some(key => field[key] !== undefined) && field.type !== "file") push(fieldPath, "Upload settings require a file field");
+        if (field.uploadAction !== undefined && (typeof field.uploadAction !== "string" || !isSafeWidgetId(field.uploadAction))) push(fieldPath, "Choose an upload action");
+        if (field.accept !== undefined && (typeof field.accept !== "string" || field.accept.length > 300 || !field.accept.split(",").every(type => /^[a-z0-9!#$&^_.+-]+\/(?:[a-z0-9!#$&^_.+-]+|\*)$/.test(type.trim())))) push(fieldPath, "Choose valid MIME types");
+        if (field.maxBytes !== undefined && (!Number.isInteger(field.maxBytes) || Number(field.maxBytes) < 1 || Number(field.maxBytes) > 20971520)) push(fieldPath, "File limit must be 1..20971520 bytes");
+        if (field.selectionPath !== undefined && (typeof field.selectionPath !== "string" || !safeActionPath(field.selectionPath))) push(fieldPath, "Choose a safe selected-record field path");
+        if (field.editor !== undefined && (field.type !== "json" || !["json", "schema", "query", "geometry"].includes(String(field.editor)))) push(fieldPath, "Choose a structured editor for a JSON field");
+        if (field.type === "file" && field.defaultValue) push(fieldPath, "File fields cannot contain default uploads");
+        if (
+          field.defaultValue !== undefined &&
+          (typeof field.defaultValue !== "string" ||
+            field.defaultValue.length > 4000)
+        )
+          push(`${fieldPath}.defaultValue`, "invalid default");
+        if (
+          field.type !== "select" &&
+          (field.options !== undefined || field.optionsResource !== undefined)
+        )
+          push(fieldPath, "options require a select field");
+        if (
+          field.required !== undefined &&
+          typeof field.required !== "boolean"
+        ) {
+          push(`${fieldPath}.required`, "required must be a boolean");
         }
       });
     }
@@ -494,66 +941,134 @@ export function validateWidget(input: unknown, index = 0, options: { portable?: 
   return issues;
 }
 
-export function validatePluginDraft(input: unknown, options: PluginValidationOptions = {}): ValidationIssue[] {
+export function validatePluginDraft(
+  input: unknown,
+  options: PluginValidationOptions = {},
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  if (!isRecord(input)) return [{ path: '', message: 'plugin must be an object' }];
-  const push = (path: string, message: string) => issues.push({ path, message });
+  if (!isRecord(input))
+    return [{ path: "", message: "plugin must be an object" }];
+  const push = (path: string, message: string) =>
+    issues.push({ path, message });
 
-  if (!isWorkspaceProduct(input.product)) push('product', 'product must be "city" or "sos"');
-  if (typeof input.name !== 'string' || !input.name.trim()) {
-    push('name', 'name is required');
+  if (!isWorkspaceProduct(input.product))
+    push("product", 'product must be "dx", "city" or "sos"');
+  if (typeof input.name !== "string" || !input.name.trim()) {
+    push("name", "name is required");
   } else if (!isSafePlainText(input.name, 160)) {
-    push('name', 'name must be plain text without markup, URLs or script schemes');
+    push(
+      "name",
+      "name must be plain text without markup, URLs or script schemes",
+    );
   }
-  if (typeof input.slug !== 'string' || !isSafeSlug(input.slug)) {
-    push('slug', 'slug must be 2-64 lowercase letters, digits and hyphens');
+  if (typeof input.slug !== "string" || !isSafeSlug(input.slug)) {
+    push("slug", "slug must be 2-64 lowercase letters, digits and hyphens");
   }
-  if (input.audience !== 'admin' && input.audience !== 'member') {
-    push('audience', 'audience must be "admin" or "member"');
+  if (input.audience !== "admin" && input.audience !== "member") {
+    push("audience", 'audience must be "admin" or "member"');
   }
 
   if (!Array.isArray(input.roles)) {
-    push('roles', 'roles must be an array');
+    push("roles", "roles must be an array");
   } else if (input.roles.length === 0) {
-    push('roles', 'select at least one audience role');
+    push("roles", "select at least one audience role");
   } else if (input.roles.length > 12) {
-    push('roles', 'at most 12 roles are allowed');
+    push("roles", "at most 12 roles are allowed");
   } else {
     const seen = new Set<string>();
-    const allowed = (options.allowedRoles ?? []).filter(isSafeRole).map((role) => role.toLowerCase());
+    const allowed = (options.allowedRoles ?? [])
+      .filter(isSafeRole)
+      .map((role) => role.toLowerCase());
     input.roles.forEach((role, index) => {
-      if (typeof role !== 'string' || !isSafeRole(role)) {
-        push(`roles[${index}]`, 'role must be a plain role key; public/anonymous roles are rejected');
+      if (typeof role !== "string" || !isSafeRole(role)) {
+        push(
+          `roles[${index}]`,
+          "role must be a plain role key; public/anonymous roles are rejected",
+        );
         return;
       }
       const normalized = role.toLowerCase();
-      if (seen.has(normalized)) push(`roles[${index}]`, `duplicate role "${role}"`);
+      if (seen.has(normalized))
+        push(`roles[${index}]`, `duplicate role "${role}"`);
       seen.add(normalized);
       if (allowed.length > 0 && !allowed.includes(normalized)) {
-        push(`roles[${index}]`, `role "${role}" is not advertised for this product`);
+        push(
+          `roles[${index}]`,
+          `role "${role}" is not advertised for this product`,
+        );
       }
     });
   }
 
   if (!Array.isArray(input.widgets)) {
-    push('widgets', 'widgets must be an array');
-  } else if (input.widgets.length > MAX_WIDGETS) {
-    push('widgets', `at most ${MAX_WIDGETS} widgets are allowed`);
+    push("widgets", "widgets must be an array");
+  } else if (
+    input.widgets.filter((w) => !isRecord(w) || w.type !== "action").length >
+      MAX_WIDGETS ||
+    input.widgets.filter((w) => isRecord(w) && w.type === "action").length >
+      MAX_ACTIONS
+  ) {
+    push(
+      "widgets",
+      `at most ${MAX_WIDGETS} visual widgets and ${MAX_ACTIONS} actions are allowed`,
+    );
   } else {
     const ids = new Set<string>();
     input.widgets.forEach((widget, index) => {
-      issues.push(...validateWidget(widget, index, { portable: options.portable }));
-      if (isRecord(widget) && typeof widget.id === 'string') {
-        if (ids.has(widget.id)) push(`widgets[${index}].id`, `duplicate widget id "${widget.id}"`);
+      issues.push(
+        ...validateWidget(widget, index, { portable: options.portable }),
+      );
+      if (isRecord(widget) && typeof widget.id === "string") {
+        if (ids.has(widget.id))
+          push(`widgets[${index}].id`, `duplicate widget id "${widget.id}"`);
         ids.add(widget.id);
       }
     });
   }
 
+  if (Array.isArray(input.widgets))
+    for (const [index, widget] of input.widgets.entries()) {
+      if (
+        !isRecord(widget) ||
+        widget.type !== "code" ||
+        studioCodeError(widget.code)
+      )
+        continue;
+      const code = widget.code as unknown as StudioCode;
+      for (const [key, types] of [
+        [
+          "inputs",
+          ["metric", "table", "chart", "list", "map", "kanban", "timeline"],
+        ],
+        ["actions", ["form"]],
+      ] as const) {
+        for (const id of code[key])
+          if (
+            !input.widgets.some(
+              (item) =>
+                isRecord(item) &&
+                item.id === id &&
+                types.includes(item.type as never),
+            )
+          )
+            push(
+              `widgets[${index}].code.${key}`,
+              `Binding ${id} must reference a matching widget in this page`,
+            );
+      }
+    }
+  if (Array.isArray(input.widgets) && input.widgets.every(isRecord))
+    for (const message of actionReferenceErrors(
+      input.widgets as unknown as WorkspaceWidget[],
+    ))
+      push("widgets", message);
   return issues;
 }
 
-export function validatePluginDraftResult(input: unknown, options: PluginValidationOptions = {}): ValidationResult {
+export function validatePluginDraftResult(
+  input: unknown,
+  options: PluginValidationOptions = {},
+): ValidationResult {
   const issues = validatePluginDraft(input, options);
   return issues.length === 0 ? { ok: true } : { ok: false, issues };
 }
@@ -562,10 +1077,24 @@ export function validatePluginDraftResult(input: unknown, options: PluginValidat
 // portable bundle validation
 // ---------------------------------------------------------------------------
 
-const BUNDLE_KEYS = new Set(['format', 'formatVersion', 'plugin', 'source', 'checksum']);
-const BUNDLE_PLUGIN_KEYS = new Set(['product', 'name', 'slug', 'audience', 'roles', 'widgets']);
-const BUNDLE_SOURCE_KEYS = new Set(['repository', 'path', 'revision']);
-const GITHUB_REPOSITORY = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/;
+const BUNDLE_KEYS = new Set([
+  "format",
+  "formatVersion",
+  "plugin",
+  "source",
+  "checksum",
+]);
+const BUNDLE_PLUGIN_KEYS = new Set([
+  "product",
+  "name",
+  "slug",
+  "audience",
+  "roles",
+  "widgets",
+]);
+const BUNDLE_SOURCE_KEYS = new Set(["repository", "path", "revision"]);
+const GITHUB_REPOSITORY =
+  /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\/[A-Za-z0-9_.-]{1,100}$/;
 const CHECKSUM = /^sha256:[a-f0-9]{64}$/;
 
 export function isAllowedSourceRepository(value: string): boolean {
@@ -574,35 +1103,57 @@ export function isAllowedSourceRepository(value: string): boolean {
 
 export function isSafeSourcePath(value: string): boolean {
   if (!value || value.length > 300) return false;
-  if (value.startsWith('/') || value.includes('\\') || value.includes('..')) return false;
+  if (value.startsWith("/") || value.includes("\\") || value.includes(".."))
+    return false;
   return /^[A-Za-z0-9._/-]+$/.test(value);
 }
 
-export type BundleParseResult = { ok: true; bundle: PluginBundle } | { ok: false; issues: ValidationIssue[] };
+export type BundleParseResult =
+  { ok: true; bundle: PluginBundle } | { ok: false; issues: ValidationIssue[] };
 
 function validateSource(value: unknown, path: string): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
-  if (!isRecord(value)) return [{ path, message: 'source must be an object' }];
+  if (!isRecord(value)) return [{ path, message: "source must be an object" }];
   for (const key of Object.keys(value)) {
-    if (!BUNDLE_SOURCE_KEYS.has(key)) issues.push({ path: `${path}.${key}`, message: `"${key}" is not allowed in source` });
+    if (!BUNDLE_SOURCE_KEYS.has(key))
+      issues.push({
+        path: `${path}.${key}`,
+        message: `"${key}" is not allowed in source`,
+      });
   }
   const repository = value.repository;
   const sourcePath = value.path;
   const revision = value.revision;
-  if (typeof repository !== 'string' || !isAllowedSourceRepository(repository)) {
-    issues.push({ path: `${path}.repository`, message: 'source repository must be a public https://github.com repository URL' });
+  if (
+    typeof repository !== "string" ||
+    !isAllowedSourceRepository(repository)
+  ) {
+    issues.push({
+      path: `${path}.repository`,
+      message:
+        "source repository must be a public https://github.com repository URL",
+    });
   }
   if (
-    typeof sourcePath !== 'string' ||
+    typeof sourcePath !== "string" ||
     !isSafeSourcePath(sourcePath) ||
-    sourcePath.startsWith('/') ||
-    sourcePath.includes('//') ||
-    sourcePath.split('/').includes('..')
+    sourcePath.startsWith("/") ||
+    sourcePath.includes("//") ||
+    sourcePath.split("/").includes("..")
   ) {
-    issues.push({ path: `${path}.path`, message: 'source path must be a safe relative path inside the repository' });
+    issues.push({
+      path: `${path}.path`,
+      message: "source path must be a safe relative path inside the repository",
+    });
   }
-  if (revision !== undefined && (typeof revision !== 'string' || !/^[A-Za-z0-9._-]{1,100}$/.test(revision))) {
-    issues.push({ path: `${path}.revision`, message: 'source revision must be a short commit or tag identifier' });
+  if (
+    revision !== undefined &&
+    (typeof revision !== "string" || !/^[A-Za-z0-9._-]{1,100}$/.test(revision))
+  ) {
+    issues.push({
+      path: `${path}.revision`,
+      message: "source revision must be a short commit or tag identifier",
+    });
   }
   return issues;
 }
@@ -613,23 +1164,43 @@ function validateSource(value: unknown, path: string): ValidationIssue[] {
  */
 export function parsePluginBundle(input: unknown): BundleParseResult {
   const issues: ValidationIssue[] = [];
-  if (!isRecord(input)) return { ok: false, issues: [{ path: '', message: 'bundle must be a JSON object' }] };
+  if (!isRecord(input))
+    return {
+      ok: false,
+      issues: [{ path: "", message: "bundle must be a JSON object" }],
+    };
 
   for (const key of Object.keys(input)) {
-    if (!BUNDLE_KEYS.has(key)) issues.push({ path: key, message: `"${key}" is not allowed in a portable plugin bundle` });
+    if (!BUNDLE_KEYS.has(key))
+      issues.push({
+        path: key,
+        message: `"${key}" is not allowed in a portable plugin bundle`,
+      });
   }
   if (input.format !== PLUGIN_BUNDLE_FORMAT) {
-    issues.push({ path: 'format', message: `format must be "${PLUGIN_BUNDLE_FORMAT}"` });
+    issues.push({
+      path: "format",
+      message: `format must be "${PLUGIN_BUNDLE_FORMAT}"`,
+    });
   }
   if (input.formatVersion !== PLUGIN_BUNDLE_VERSION) {
-    issues.push({ path: 'formatVersion', message: `only formatVersion ${PLUGIN_BUNDLE_VERSION} is supported` });
+    issues.push({
+      path: "formatVersion",
+      message: `only formatVersion ${PLUGIN_BUNDLE_VERSION} is supported`,
+    });
   }
-  if (input.checksum !== undefined && (typeof input.checksum !== 'string' || !CHECKSUM.test(input.checksum))) {
-    issues.push({ path: 'checksum', message: 'checksum must look like "sha256:<64 lowercase hex>"' });
+  if (
+    input.checksum !== undefined &&
+    (typeof input.checksum !== "string" || !CHECKSUM.test(input.checksum))
+  ) {
+    issues.push({
+      path: "checksum",
+      message: 'checksum must look like "sha256:<64 lowercase hex>"',
+    });
   }
 
   if (!isRecord(input.plugin)) {
-    issues.push({ path: 'plugin', message: 'plugin must be an object' });
+    issues.push({ path: "plugin", message: "plugin must be an object" });
     return { ok: false, issues };
   }
   for (const key of Object.keys(input.plugin)) {
@@ -641,7 +1212,8 @@ export function parsePluginBundle(input: unknown): BundleParseResult {
     }
   }
   issues.push(...validatePluginDraft(input.plugin, { portable: true }));
-  if (input.source !== undefined && input.source !== null) issues.push(...validateSource(input.source, 'source'));
+  if (input.source !== undefined && input.source !== null)
+    issues.push(...validateSource(input.source, "source"));
 
   if (issues.length > 0) return { ok: false, issues };
   return { ok: true, bundle: input as unknown as PluginBundle };
@@ -665,44 +1237,65 @@ function parseFormActionList(value: unknown): WorkspaceFormAction[] {
   return safe.length > 0 ? safe : [...FORM_ACTIONS];
 }
 
-export function parseWorkspaceOrgReadiness(value: unknown): WorkspaceOrgReadiness {
-  if (!isRecord(value)) throw new Error('The organization workflow readiness payload is invalid.');
-  if (typeof value.ready !== 'boolean' || typeof value.configured !== 'boolean' || typeof value.verified !== 'boolean') {
-    throw new Error('The organization workflow readiness payload is missing readiness flags.');
+export function parseWorkspaceOrgReadiness(
+  value: unknown,
+): WorkspaceOrgReadiness {
+  if (!isRecord(value))
+    throw new Error("The organization workflow readiness payload is invalid.");
+  if (
+    typeof value.ready !== "boolean" ||
+    typeof value.configured !== "boolean" ||
+    typeof value.verified !== "boolean"
+  ) {
+    throw new Error(
+      "The organization workflow readiness payload is missing readiness flags.",
+    );
   }
-  if (typeof value.requirement !== 'string') {
-    throw new Error('The organization workflow readiness payload is missing a requirement.');
+  if (typeof value.requirement !== "string") {
+    throw new Error(
+      "The organization workflow readiness payload is missing a requirement.",
+    );
   }
-  if (value.reason !== undefined && typeof value.reason !== 'string') {
-    throw new Error('The organization workflow readiness payload has an invalid reason.');
+  if (value.reason !== undefined && typeof value.reason !== "string") {
+    throw new Error(
+      "The organization workflow readiness payload has an invalid reason.",
+    );
   }
   return {
     ready: value.ready,
     configured: value.configured,
     verified: value.verified,
     requirement: value.requirement,
-    ...(typeof value.reason === 'string' ? { reason: value.reason } : {}),
+    ...(typeof value.reason === "string" ? { reason: value.reason } : {}),
   };
 }
 
 function parseResource(value: unknown): CatalogResource | null {
-  if (!isRecord(value) || typeof value.key !== 'string' || !isSafeResourceKey(value.key)) return null;
+  if (
+    !isRecord(value) ||
+    typeof value.key !== "string" ||
+    !isSafeResourceKey(value.key)
+  )
+    return null;
   return {
     key: value.key,
-    ...(typeof value.path === 'string' ? { path: value.path } : {}),
-    ...(typeof value.dataset === 'string' ? { dataset: value.dataset } : {}),
+    ...(typeof value.path === "string" ? { path: value.path } : {}),
+    ...(typeof value.dataset === "string" ? { dataset: value.dataset } : {}),
   };
 }
 
 function parseCatalogProduct(value: unknown): CatalogProduct {
   if (!isRecord(value) || !isWorkspaceProduct(value.product)) {
-    throw new Error('The workspace catalog returned an unknown product.');
+    throw new Error("The workspace catalog returned an unknown product.");
   }
-  if (!Array.isArray(value.roles)) throw new Error('The workspace catalog product is missing roles.');
-  if (!Array.isArray(value.resources)) throw new Error('The workspace catalog product is missing resources.');
+  if (!Array.isArray(value.roles))
+    throw new Error("The workspace catalog product is missing roles.");
+  if (!Array.isArray(value.resources))
+    throw new Error("The workspace catalog product is missing resources.");
   const resources = value.resources.map((item) => {
     const resource = parseResource(item);
-    if (!resource) throw new Error('The workspace catalog returned an invalid resource.');
+    if (!resource)
+      throw new Error("The workspace catalog returned an invalid resource.");
     return resource;
   });
   return {
@@ -716,20 +1309,38 @@ function parseCatalogProduct(value: unknown): CatalogProduct {
 }
 
 function numberField(value: unknown, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : Number(value);
+  const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
-export function parseWorkflowExecutionReadiness(value: unknown): WorkflowExecutionReadiness {
-  if (!isRecord(value)) throw new Error('The workflow execution readiness payload is invalid.');
-  if (typeof value.ready !== 'boolean' || typeof value.canSubmit !== 'boolean') {
-    throw new Error('The workflow execution readiness payload is missing readiness flags.');
+export function parseWorkflowExecutionReadiness(
+  value: unknown,
+): WorkflowExecutionReadiness {
+  if (!isRecord(value))
+    throw new Error("The workflow execution readiness payload is invalid.");
+  if (
+    typeof value.ready !== "boolean" ||
+    typeof value.canSubmit !== "boolean"
+  ) {
+    throw new Error(
+      "The workflow execution readiness payload is missing readiness flags.",
+    );
   }
-  if (value.installedVersion !== null && typeof value.installedVersion !== 'string') {
-    throw new Error('The workflow execution readiness payload has an invalid installedVersion.');
+  if (
+    value.installedVersion !== null &&
+    typeof value.installedVersion !== "string"
+  ) {
+    throw new Error(
+      "The workflow execution readiness payload has an invalid installedVersion.",
+    );
   }
-  if (typeof value.minimumVersion !== 'string' || typeof value.requirement !== 'string') {
-    throw new Error('The workflow execution readiness payload is missing version requirements.');
+  if (
+    typeof value.minimumVersion !== "string" ||
+    typeof value.requirement !== "string"
+  ) {
+    throw new Error(
+      "The workflow execution readiness payload is missing version requirements.",
+    );
   }
   return {
     ready: value.ready,
@@ -741,24 +1352,32 @@ export function parseWorkflowExecutionReadiness(value: unknown): WorkflowExecuti
 }
 
 export function parseWorkflowReadiness(payload: unknown): WorkflowReadiness {
-  if (!isRecord(payload)) throw new Error('The workflow readiness response is invalid.');
-  if (typeof payload.pluginFormsCanSubmit !== 'boolean') {
-    throw new Error('The workflow readiness response is missing pluginFormsCanSubmit.');
+  if (!isRecord(payload))
+    throw new Error("The workflow readiness response is invalid.");
+  if (typeof payload.pluginFormsCanSubmit !== "boolean") {
+    throw new Error(
+      "The workflow readiness response is missing pluginFormsCanSubmit.",
+    );
   }
   return {
-    workflowExecution: parseWorkflowExecutionReadiness(payload.workflowExecution),
+    workflowExecution: parseWorkflowExecutionReadiness(
+      payload.workflowExecution,
+    ),
     pluginFormsCanSubmit: payload.pluginFormsCanSubmit,
-    ...(typeof payload.directManagementExecute === 'boolean'
+    ...(typeof payload.directManagementExecute === "boolean"
       ? { directManagementExecute: payload.directManagementExecute }
       : {}),
   };
 }
 
 export function parseWorkspaceCatalog(payload: unknown): WorkspaceCatalog {
-  if (!isRecord(payload)) throw new Error('The workspace catalog is not an object.');
-  if (!Array.isArray(payload.products)) throw new Error('The workspace catalog is missing products.');
+  if (!isRecord(payload))
+    throw new Error("The workspace catalog is not an object.");
+  if (!Array.isArray(payload.products))
+    throw new Error("The workspace catalog is missing products.");
   const products = payload.products.map(parseCatalogProduct);
-  if (products.length === 0) throw new Error('The workspace catalog has no products.');
+  if (products.length === 0)
+    throw new Error("The workspace catalog has no products.");
   const mutation = isRecord(payload.mutation) ? payload.mutation : {};
   const limits = isRecord(payload.limits) ? payload.limits : {};
   return {
@@ -766,19 +1385,33 @@ export function parseWorkspaceCatalog(payload: unknown): WorkspaceCatalog {
     widgetTypes: parseWidgetTypeList(payload.widgetTypes),
     actionTypes: parseFormActionList(payload.actionTypes),
     audiences: Array.isArray(payload.audiences)
-      ? payload.audiences.filter((item): item is WorkspaceAudience => item === 'admin' || item === 'member')
-      : ['admin', 'member'],
+      ? payload.audiences.filter(
+          (item): item is WorkspaceAudience =>
+            item === "admin" || item === "member",
+        )
+      : ["admin", "member"],
     mutation: {
       formExecution: mutation.formExecution === true,
-      formRequiresWorkflowArtifact: mutation.formRequiresWorkflowArtifact === true,
+      formRequiresWorkflowArtifact:
+        mutation.formRequiresWorkflowArtifact === true,
       directDatasetWrites: mutation.directDatasetWrites === true,
-      ...(typeof mutation.reason === 'string' ? { reason: mutation.reason } : {}),
+      ...(typeof mutation.reason === "string"
+        ? { reason: mutation.reason }
+        : {}),
     },
     ...(payload.workflowExecution !== undefined
-      ? { workflowExecution: parseWorkflowExecutionReadiness(payload.workflowExecution) }
+      ? {
+          workflowExecution: parseWorkflowExecutionReadiness(
+            payload.workflowExecution,
+          ),
+        }
       : {}),
     ...(payload.workflowOrgReadiness !== undefined
-      ? { workflowOrgReadiness: parseWorkspaceOrgReadiness(payload.workflowOrgReadiness) }
+      ? {
+          workflowOrgReadiness: parseWorkspaceOrgReadiness(
+            payload.workflowOrgReadiness,
+          ),
+        }
       : {}),
     limits: {
       maxWidgets: numberField(limits.maxWidgets, MAX_WIDGETS),
@@ -797,30 +1430,47 @@ export function parseWorkspaceCatalog(payload: unknown): WorkspaceCatalog {
   };
 }
 
-function catalogProduct(catalog: WorkspaceCatalog | null, product: WorkspaceProduct): CatalogProduct | null {
+function catalogProduct(
+  catalog: WorkspaceCatalog | null,
+  product: WorkspaceProduct,
+): CatalogProduct | null {
   return catalog?.products.find((item) => item.product === product) ?? null;
 }
 
-export function catalogProducts(catalog: WorkspaceCatalog | null): CatalogProduct[] {
-  return catalog?.products ?? WORKSPACE_PRODUCTS.map((product) => ({
-    product,
-    roles: [],
-    publicRoles: [],
-    resources: [],
-    widgetTypes: [...SAFE_WIDGET_TYPES],
-    actionTypes: [...FORM_ACTIONS],
-  }));
+export function catalogProducts(
+  catalog: WorkspaceCatalog | null,
+): CatalogProduct[] {
+  return (
+    catalog?.products ??
+    WORKSPACE_PRODUCTS.map((product) => ({
+      product,
+      roles: [],
+      publicRoles: [],
+      resources: [],
+      widgetTypes: [...SAFE_WIDGET_TYPES],
+      actionTypes: [...FORM_ACTIONS],
+    }))
+  );
 }
 
-export function catalogRoles(catalog: WorkspaceCatalog | null, product: WorkspaceProduct): string[] {
+export function catalogRoles(
+  catalog: WorkspaceCatalog | null,
+  product: WorkspaceProduct,
+): string[] {
   return catalogProduct(catalog, product)?.roles ?? [];
 }
 
-export function catalogResources(catalog: WorkspaceCatalog | null, product: WorkspaceProduct): CatalogResource[] {
+export function catalogResources(
+  catalog: WorkspaceCatalog | null,
+  product: WorkspaceProduct,
+): CatalogResource[] {
   return catalogProduct(catalog, product)?.resources ?? [];
 }
 
-export function catalogWidgetTypes(catalog: WorkspaceCatalog | null, product?: WorkspaceProduct): WorkspaceWidgetType[] {
+export function catalogWidgetTypes(
+  catalog: WorkspaceCatalog | null,
+  product?: WorkspaceProduct,
+): WorkspaceWidgetType[] {
   if (product) {
     const node = catalogProduct(catalog, product);
     if (node) return node.widgetTypes;
@@ -828,7 +1478,10 @@ export function catalogWidgetTypes(catalog: WorkspaceCatalog | null, product?: W
   return catalog?.widgetTypes ?? [...SAFE_WIDGET_TYPES];
 }
 
-export function catalogActionTypes(catalog: WorkspaceCatalog | null, product?: WorkspaceProduct): WorkspaceFormAction[] {
+export function catalogActionTypes(
+  catalog: WorkspaceCatalog | null,
+  product?: WorkspaceProduct,
+): WorkspaceFormAction[] {
   if (product) {
     const node = catalogProduct(catalog, product);
     if (node?.actionTypes.length) return node.actionTypes;
@@ -836,16 +1489,22 @@ export function catalogActionTypes(catalog: WorkspaceCatalog | null, product?: W
   return catalog?.actionTypes?.length ? catalog.actionTypes : [...FORM_ACTIONS];
 }
 
-export function catalogMutation(catalog: WorkspaceCatalog | null): CatalogMutation {
-  return catalog?.mutation ?? {
-    formExecution: false,
-    formRequiresWorkflowArtifact: true,
-    directDatasetWrites: false,
-    reason: 'The backend has not advertised validated form execution.',
-  };
+export function catalogMutation(
+  catalog: WorkspaceCatalog | null,
+): CatalogMutation {
+  return (
+    catalog?.mutation ?? {
+      formExecution: false,
+      formRequiresWorkflowArtifact: true,
+      directDatasetWrites: false,
+      reason: "The backend has not advertised validated form execution.",
+    }
+  );
 }
 
-export function catalogMembershipRoles(catalog: WorkspaceCatalog | null): string[] {
+export function catalogMembershipRoles(
+  catalog: WorkspaceCatalog | null,
+): string[] {
   const union = new Set<string>();
   for (const product of catalog?.products ?? []) {
     for (const role of product.roles) union.add(role);
@@ -868,52 +1527,80 @@ function parseColumns(value: unknown): string[] {
  * table  => `{widgetId,type:'table',title,resource,columns,items,total,limit,offset,generatedAt}`
  * A shape mismatch is a visible error, never silently rendered as empty data.
  */
-export function parseWidgetData(payload: unknown, widgetType: 'metric' | 'table'): WidgetData {
-  if (!isRecord(payload)) throw new Error('The widget data response is not an object.');
+export function parseWidgetData(
+  payload: unknown,
+  widgetType:
+    "metric" | "table" | "chart" | "list" | "map" | "kanban" | "timeline",
+): WidgetData {
+  if (!isRecord(payload))
+    throw new Error("The widget data response is not an object.");
   if (payload.type !== widgetType) {
     throw new Error(`The widget data response is not a ${widgetType} payload.`);
   }
-  if (widgetType === 'metric') {
+  if (widgetType === "metric") {
     const count = payload.count;
-    if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {
-      throw new Error('The metric data response is missing a valid count.');
+    if (typeof count !== "number" || !Number.isFinite(count) || count < 0) {
+      throw new Error("The metric data response is missing a valid count.");
     }
     return { rows: [], total: Math.floor(count), columns: [] };
   }
 
-  if (!Array.isArray(payload.items)) throw new Error('The table data response is missing items.');
+  if (!Array.isArray(payload.items))
+    throw new Error("The table data response is missing items.");
   const rows: Array<Record<string, unknown>> = [];
   for (const item of payload.items.slice(0, MAX_DATA_ROWS)) {
-    if (!isRecord(item)) throw new Error('The table data response contains a non-object row.');
+    if (!isRecord(item))
+      throw new Error("The table data response contains a non-object row.");
     const row: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(item)) {
-      if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      if (key === "__proto__" || key === "constructor" || key === "prototype")
+        continue;
       row[key] = value;
     }
     rows.push(row);
   }
-  if (typeof payload.total !== 'number' || !Number.isFinite(payload.total) || payload.total < 0) {
-    throw new Error('The table data response is missing a valid total.');
+  if (
+    typeof payload.total !== "number" ||
+    !Number.isFinite(payload.total) ||
+    payload.total < 0
+  ) {
+    throw new Error("The table data response is missing a valid total.");
   }
   const columns = parseColumns(payload.columns);
+  for (const key of ["limit", "offset"] as const)
+    if (payload[key] !== undefined && (!Number.isSafeInteger(payload[key]) || (payload[key] as number) < (key === "limit" ? 1 : 0)))
+      throw new Error(`Invalid query ${key}`);
   return {
     rows,
     total: Math.floor(payload.total),
-    columns: columns.length > 0 ? columns : rows[0] ? Object.keys(rows[0]).slice(0, 20) : [],
+    ...(payload.limit !== undefined ? { limit: payload.limit as number } : {}),
+    ...(payload.offset !== undefined ? { offset: payload.offset as number } : {}),
+    columns:
+      columns.length > 0
+        ? columns
+        : rows[0]
+          ? Object.keys(rows[0]).slice(0, 20)
+          : [],
   };
 }
 
 /** Render any JSON value as inert text. Never returns HTML. */
 export function safeCellText(value: unknown, max = 500): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'string') return value.length > max ? `${value.slice(0, max - 1)}…` : value;
-  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string")
+    return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  )
+    return String(value);
   try {
     const text = JSON.stringify(value);
-    if (typeof text !== 'string') return '—';
+    if (typeof text !== "string") return "—";
     return text.length > max ? `${text.slice(0, max - 1)}…` : text;
   } catch {
-    return '—';
+    return "—";
   }
 }
 
@@ -924,75 +1611,94 @@ export function safeCellText(value: unknown, max = 500): string {
 export function isFormWritable(widget: RuntimeWidget): boolean {
   return (
     widget.canSubmit === true &&
-    typeof widget.workflowArtifactId === 'string' &&
-    isSafeWorkflowArtifactId(widget.workflowArtifactId)
+    (widget.resource?.startsWith("common") ||
+      (typeof widget.workflowArtifactId === "string" &&
+        isSafeWorkflowArtifactId(widget.workflowArtifactId)))
   );
 }
 
 export function formDisabledReason(widget: RuntimeWidget): string | null {
-  if (widget.type !== 'form') return null;
-  if (widget.canSubmit === true && !widget.workflowArtifactId) {
-    return 'This form has no bound workflow artifact. Select one in the builder; unbound forms stay read-only.';
+  if (widget.type !== "form") return null;
+  if (
+    widget.canSubmit === true &&
+    !widget.workflowArtifactId &&
+    !widget.resource?.startsWith("common")
+  ) {
+    return "This form has no bound workflow artifact. Select one in the builder; unbound forms stay read-only.";
   }
   if (!widget.canSubmit) {
-    return 'This form is read-only because the backend has not authorized a validated submit action for your role (it may be unbound, inactive, or the bound workflow changed).';
+    return "This form is read-only because the backend has not authorized a validated submit action for your role (it may be unbound, inactive, or the bound workflow changed).";
   }
-  return isFormWritable(widget) ? null : 'This form is not executable.';
+  return isFormWritable(widget) ? null : "This form is not executable.";
 }
 
 const FORM_REASON_MESSAGES: Record<string, string> = {
   workflow_technical_identity_missing:
-    'This organization has no verified technical workflow identity. Configure an account-level SYNAPSEDX_WORKFLOW_API_KEYS entry for the organization before enabling form actions.',
+    "This organization has no verified technical workflow identity. Configure an account-level SYNAPSEDX_WORKFLOW_API_KEYS entry for the organization before enabling form actions.",
   workflow_org_identity_unverified:
-    'The organization workflow technical identity could not be verified by the workflow capability.',
+    "The organization workflow technical identity could not be verified by the workflow capability.",
   workflow_sdk_release_required:
-    'The published @synapseone/sdk does not yet support pinned workflow execution.',
+    "The published @synapseone/sdk does not yet support pinned workflow execution.",
   workflow_artifact_unbound:
-    'This form is not bound to a workflow artifact, so it stays read-only.',
+    "This form is not bound to a workflow artifact, so it stays read-only.",
   workflow_artifact_missing:
-    'The bound workflow artifact no longer exists for this organization.',
+    "The bound workflow artifact no longer exists for this organization.",
   workflow_artifact_not_protected:
-    'The bound workflow artifact is not approved for plugin execution.',
+    "The bound workflow artifact is not approved for plugin execution.",
   workflow_artifact_unpinned:
-    'This published layout predates artifact pinning; republish it from the builder.',
+    "This published layout predates artifact pinning; republish it from the builder.",
   workflow_artifact_revision_mismatch:
-    'The bound workflow changed after this layout was published; republish the layout.',
+    "The bound workflow changed after this layout was published; republish the layout.",
   installation_role_missing:
-    'The installation has no effective role for this form.',
+    "The installation has no effective role for this form.",
   runtime_token_read_only:
-    'Runtime tokens can read layouts but cannot submit form actions.',
-  no_form_widgets:
-    'No workflow-bound form is installed for this organization.',
+    "Runtime tokens can read layouts but cannot submit form actions.",
+  no_form_widgets: "No workflow-bound form is installed for this organization.",
 };
 
 /** Map the backend reason code to a human explanation while keeping the code. */
-export function formReasonMessage(reason: string | undefined | null, fallbackRequirement?: string | null): string | null {
+export function formReasonMessage(
+  reason: string | undefined | null,
+  fallbackRequirement?: string | null,
+): string | null {
   if (!reason) return fallbackRequirement ?? null;
-  if (reason === 'ready') return null;
-  if (reason === 'workflow_sdk_release_required' && fallbackRequirement) {
+  if (reason === "ready") return null;
+  if (reason === "workflow_sdk_release_required" && fallbackRequirement) {
     return `${fallbackRequirement} (${reason})`;
   }
-  const message = FORM_REASON_MESSAGES[reason] ?? 'This form is read-only.';
+  const message = FORM_REASON_MESSAGES[reason] ?? "This form is read-only.";
   return `${message} (${reason})`;
 }
 
-export function installedWidgetDataPath(installedId: string, widgetId: string): string {
+export function installedWidgetDataPath(
+  installedId: string,
+  widgetId: string,
+): string {
   return `${WORKSPACE_API_BASE}/installed/${encodeURIComponent(installedId)}/widgets/${encodeURIComponent(widgetId)}/data`;
 }
 
 /** The only form write path: authorized same-org workflow delegation. */
-export function installedWidgetExecutePath(installedId: string, widgetId: string): string {
+export function installedWidgetExecutePath(
+  installedId: string,
+  widgetId: string,
+): string {
   return `${WORKSPACE_API_BASE}/installed/${encodeURIComponent(installedId)}/widgets/${encodeURIComponent(widgetId)}/execute`;
 }
 
 export function exportBundleFileName(
-  plugin: Pick<WorkspacePlugin, 'product' | 'slug' | 'version' | 'publishedVersion'>,
+  plugin: Pick<
+    WorkspacePlugin,
+    "product" | "slug" | "version" | "publishedVersion"
+  >,
 ): string {
   const version = plugin.publishedVersion ?? plugin.version;
   return `${plugin.product}-${plugin.slug}-v${version}.synapsedx-plugin.json`;
 }
 
-export function nextWidgetId(type: WorkspaceWidgetType, existing: string[]): string {
+export function nextWidgetId(
+  type: WorkspaceWidgetType,
+  existing: string[],
+): string {
   let index = existing.length + 1;
   let id = `${type}-${index}`;
   const used = new Set(existing);
@@ -1004,7 +1710,14 @@ export function nextWidgetId(type: WorkspaceWidgetType, existing: string[]): str
 }
 
 export function moveItem<T>(items: T[], from: number, to: number): T[] {
-  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return items;
+  if (
+    from === to ||
+    from < 0 ||
+    to < 0 ||
+    from >= items.length ||
+    to >= items.length
+  )
+    return items;
   const next = items.slice();
   const [item] = next.splice(from, 1);
   next.splice(to, 0, item);
@@ -1015,9 +1728,31 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
 export function toWriteWidget(widget: WorkspaceWidget): WorkspaceWidget {
   return {
     id: widget.id,
+    ...Object.fromEntries(
+      ["onLoad", "onSubmit", "onRowClick", "onChange", "onExport"]
+        .filter((key) => widget[key as keyof WorkspaceWidget] !== undefined)
+        .map((key) => [key, widget[key as keyof WorkspaceWidget]]),
+    ),
+    ...(widget.chartType ? { chartType: widget.chartType } : {}),
+    ...(widget.aggregation ? { aggregation: widget.aggregation } : {}),
+    ...(widget.operation
+      ? { operation: structuredClone(widget.operation) }
+      : {}),
+    ...(widget.onClick ? { onClick: widget.onClick } : {}),
+    ...(widget.code ? { code: structuredClone(widget.code) } : {}),
     type: widget.type,
     title: widget.title,
+    ...(widget.groupBy ? { groupBy: widget.groupBy } : {}),
+    ...(widget.groups ? { groups: [...widget.groups] } : {}),
+    ...(widget.updateForm ? { updateForm: widget.updateForm } : {}),
+    ...(widget.section !== undefined ? { section: widget.section } : {}),
+    ...(widget.presentation ? { presentation: widget.presentation } : {}),
     ...(widget.text !== undefined ? { text: widget.text } : {}),
+    ...(widget.links !== undefined
+      ? { links: widget.links.map((link) => ({ ...link })) }
+      : {}),
+    ...(widget.module !== undefined ? { module: widget.module } : {}),
+    ...(widget.value !== undefined ? { value: widget.value } : {}),
     ...(widget.resource !== undefined ? { resource: widget.resource } : {}),
     ...(widget.columns !== undefined ? { columns: [...widget.columns] } : {}),
     ...(widget.fields !== undefined
@@ -1037,20 +1772,25 @@ export function toWriteWidget(widget: WorkspaceWidget): WorkspaceWidget {
 
 function requireString(node: Record<string, unknown>, key: string): string {
   const value = node[key];
-  if (typeof value !== 'string' || !value) throw new Error(`The capability service returned an invalid "${key}".`);
+  if (typeof value !== "string" || !value)
+    throw new Error(`The capability service returned an invalid "${key}".`);
   return value;
 }
 
-function optionalString(node: Record<string, unknown>, key: string): string | undefined {
+function optionalString(
+  node: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = node[key];
   if (value === undefined) return undefined;
-  if (typeof value !== 'string') throw new Error(`The capability service returned an invalid "${key}".`);
+  if (typeof value !== "string")
+    throw new Error(`The capability service returned an invalid "${key}".`);
   return value;
 }
 
 function requireVersion(node: Record<string, unknown>, key: string): number {
   const value = node[key];
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     throw new Error(`The capability service returned an invalid "${key}".`);
   }
   return Math.floor(value);
@@ -1058,87 +1798,189 @@ function requireVersion(node: Record<string, unknown>, key: string): number {
 
 function parseWidget(input: unknown): RuntimeWidget {
   if (!isRecord(input) || !isWorkspaceWidgetType(input.type)) {
-    throw new Error('The capability service returned an unsupported widget type.');
+    throw new Error(
+      "The capability service returned an unsupported widget type.",
+    );
   }
   const type = input.type;
+  const editable = Object.fromEntries(
+    Object.entries(input).filter(
+      ([key]) =>
+        ![
+          "canSubmit",
+          "canSubmitReason",
+          "workflowArtifactRevision",
+          "workflowArtifactChecksum",
+        ].includes(key),
+    ),
+  );
+  const problems = validateWidget(editable);
+  if (problems.length)
+    throw new Error(
+      `The capability service returned an invalid widget: ${problems[0].message}`,
+    );
   const widget: RuntimeWidget = {
-    id: requireString(input, 'id'),
+    id: requireString(input, "id"),
     type,
-    title: requireString(input, 'title'),
+    title: requireString(input, "title"),
   };
-  if (!isSafeWidgetId(widget.id)) throw new Error('The capability service returned an invalid widget id.');
+  if (!isSafeWidgetId(widget.id))
+    throw new Error("The capability service returned an invalid widget id.");
   if (input.width !== undefined) {
-    if (input.width !== 'full' && input.width !== 'half') {
-      throw new Error('The capability service returned an invalid widget width.');
+    if (!["full", "half", "third", "quarter"].includes(String(input.width))) {
+      throw new Error(
+        "The capability service returned an invalid widget width.",
+      );
     }
-    widget.width = input.width;
+    widget.width = input.width as WorkspaceWidth;
   }
-  if (type === 'text') {
-    widget.text = optionalString(input, 'text') ?? '';
-  } else {
-    widget.resource = requireString(input, 'resource');
-    if (!isSafeResourceKey(widget.resource)) throw new Error('The capability service returned an invalid resource key.');
+  if (type === "chart") {
+    if (input.chartType)
+      widget.chartType = input.chartType as WorkspaceWidget["chartType"];
+    if (input.aggregation)
+      widget.aggregation = input.aggregation as WorkspaceWidget["aggregation"];
   }
-  if (type === 'table') {
+  for (const key of [
+    "onLoad",
+    "onSubmit",
+    "onRowClick",
+    "onChange",
+    "onExport",
+  ] as const)
+    if (input[key] !== undefined) widget[key] = input[key] as string;
+  if (type === "action")
+    widget.operation = structuredClone(
+      input.operation as unknown as StudioAction,
+    );
+  if (type === "button" && input.onClick)
+    widget.onClick = input.onClick as string;
+  if (type === "kanban") {
+    widget.groupBy = input.groupBy as string | undefined;
+    widget.groups = input.groups as string[] | undefined;
+    widget.updateForm = input.updateForm as string | undefined;
+  }
+  if (typeof input.section === "string") widget.section = input.section;
+  if (input.presentation === "inline" || input.presentation === "dialog")
+    widget.presentation = input.presentation;
+  if (TEXT_WIDGETS.includes(type)) {
+    widget.text = optionalString(input, "text") ?? "";
+  } else if (DATA_WIDGETS.includes(type)) {
+    widget.resource = requireString(input, "resource");
+    if (!isSafeResourceKey(widget.resource))
+      throw new Error(
+        "The capability service returned an invalid resource key.",
+      );
+  }
+  if (["table", "chart", "list", "map", "kanban", "timeline"].includes(type)) {
     if (!Array.isArray(input.columns) || input.columns.length === 0) {
-      throw new Error('The capability service returned a table without columns.');
+      throw new Error(
+        "The capability service returned a table without columns.",
+      );
     }
     widget.columns = parseColumns(input.columns);
-    if (widget.columns.length === 0) throw new Error('The capability service returned invalid table columns.');
+    if (widget.columns.length === 0)
+      throw new Error("The capability service returned invalid table columns.");
   }
-  if (type === 'form') {
-    if (!Array.isArray(input.fields)) throw new Error('The capability service returned a form without fields.');
-    const action = input.action === undefined ? 'create' : input.action;
-    if (!isFormAction(action)) throw new Error('The capability service returned an invalid form action.');
+  if (NAV_WIDGETS.includes(type))
+    widget.links = input.links as WorkspaceWidget["links"];
+  if (type === "progress") widget.value = input.value as number;
+  if (type === "code") {
+    const error = studioCodeError(input.code);
+    if (error) throw new Error(error);
+    widget.code = structuredClone(input.code as unknown as StudioCode);
+  }
+  if (type === "capability") widget.module = input.module as string;
+  if (type === "form") {
+    if (!Array.isArray(input.fields))
+      throw new Error("The capability service returned a form without fields.");
+    const action = input.action === undefined ? "create" : input.action;
+    if (!isFormAction(action))
+      throw new Error(
+        "The capability service returned an invalid form action.",
+      );
     widget.action = action;
     widget.fields = input.fields.map((field) => {
       if (
         !isRecord(field) ||
-        typeof field.name !== 'string' ||
+        typeof field.name !== "string" ||
         !isSafeFieldName(field.name) ||
-        typeof field.label !== 'string' ||
-        (field.type !== 'text' && field.type !== 'number' && field.type !== 'textarea')
+        typeof field.label !== "string" ||
+        !(FIELD_TYPES as readonly unknown[]).includes(field.type)
       ) {
-        throw new Error('The capability service returned an invalid form field.');
+        throw new Error(
+          "The capability service returned an invalid form field.",
+        );
       }
       return {
         name: field.name,
         label: field.label,
-        type: field.type,
+        type: field.type as WorkspaceFieldType,
+        ...(typeof field.selectionPath === "string" ? { selectionPath: field.selectionPath } : {}),
+        ...(typeof field.editor === "string" ? { editor: field.editor as WorkspaceField["editor"] } : {}),
+        ...(typeof field.uploadAction === "string" ? { uploadAction: field.uploadAction } : {}),
+        ...(typeof field.accept === "string" ? { accept: field.accept } : {}),
+        ...(typeof field.maxBytes === "number" ? { maxBytes: field.maxBytes } : {}),
+        ...(Array.isArray(field.options)
+          ? { options: field.options as string[] }
+          : {}),
+        ...(typeof field.optionsAction === "string"
+          ? { optionsAction: field.optionsAction }
+          : {}),
+        ...(typeof field.optionsResource === "string"
+          ? { optionsResource: field.optionsResource }
+          : {}),
+        ...(typeof field.defaultValue === "string"
+          ? { defaultValue: field.defaultValue }
+          : {}),
         ...(field.required === true ? { required: true } : {}),
       };
     });
     if (input.workflowArtifactId !== undefined) {
-      if (typeof input.workflowArtifactId !== 'string' || !isSafeWorkflowArtifactId(input.workflowArtifactId)) {
-        throw new Error('The capability service returned an invalid workflowArtifactId.');
+      if (
+        typeof input.workflowArtifactId !== "string" ||
+        !isSafeWorkflowArtifactId(input.workflowArtifactId)
+      ) {
+        throw new Error(
+          "The capability service returned an invalid workflowArtifactId.",
+        );
       }
       widget.workflowArtifactId = input.workflowArtifactId;
     }
     if (input.workflowArtifactRevision !== undefined) {
       if (
-        typeof input.workflowArtifactRevision !== 'number' ||
+        typeof input.workflowArtifactRevision !== "number" ||
         !Number.isFinite(input.workflowArtifactRevision) ||
         input.workflowArtifactRevision < 0
       ) {
-        throw new Error('The capability service returned an invalid workflowArtifactRevision.');
+        throw new Error(
+          "The capability service returned an invalid workflowArtifactRevision.",
+        );
       }
-      widget.workflowArtifactRevision = Math.floor(input.workflowArtifactRevision);
+      widget.workflowArtifactRevision = Math.floor(
+        input.workflowArtifactRevision,
+      );
     }
     if (input.workflowArtifactChecksum !== undefined) {
-      if (typeof input.workflowArtifactChecksum !== 'string') {
-        throw new Error('The capability service returned an invalid workflowArtifactChecksum.');
+      if (typeof input.workflowArtifactChecksum !== "string") {
+        throw new Error(
+          "The capability service returned an invalid workflowArtifactChecksum.",
+        );
       }
       widget.workflowArtifactChecksum = input.workflowArtifactChecksum;
     }
     if (input.canSubmit !== undefined) {
-      if (typeof input.canSubmit !== 'boolean') {
-        throw new Error('The capability service returned an invalid canSubmit.');
+      if (typeof input.canSubmit !== "boolean") {
+        throw new Error(
+          "The capability service returned an invalid canSubmit.",
+        );
       }
       widget.canSubmit = input.canSubmit;
     }
     if (input.canSubmitReason !== undefined && input.canSubmitReason !== null) {
-      if (typeof input.canSubmitReason !== 'string') {
-        throw new Error('The capability service returned an invalid canSubmitReason.');
+      if (typeof input.canSubmitReason !== "string") {
+        throw new Error(
+          "The capability service returned an invalid canSubmitReason.",
+        );
       }
       widget.canSubmitReason = input.canSubmitReason;
     }
@@ -1148,39 +1990,51 @@ function parseWidget(input: unknown): RuntimeWidget {
 
 function parseInstalledRoles(value: unknown): string[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value)) throw new Error('The capability service returned invalid installedRoles.');
+  if (!Array.isArray(value))
+    throw new Error("The capability service returned invalid installedRoles.");
   return uniqueStrings(value, isSafeRole);
 }
 
 export function parsePlugin(payload: unknown): WorkspacePlugin {
-  if (!isRecord(payload)) throw new Error('The capability service returned an invalid plugin.');
-  if (!isWorkspaceProduct(payload.product)) throw new Error('The capability service returned an invalid product.');
-  if (payload.audience !== 'admin' && payload.audience !== 'member') {
-    throw new Error('The capability service returned an invalid audience.');
+  if (!isRecord(payload))
+    throw new Error("The capability service returned an invalid plugin.");
+  if (!isWorkspaceProduct(payload.product))
+    throw new Error("The capability service returned an invalid product.");
+  if (payload.audience !== "admin" && payload.audience !== "member") {
+    throw new Error("The capability service returned an invalid audience.");
   }
-  if (payload.status !== 'draft' && payload.status !== 'published') {
-    throw new Error('The capability service returned an invalid plugin status.');
+  if (payload.status !== "draft" && payload.status !== "published") {
+    throw new Error(
+      "The capability service returned an invalid plugin status.",
+    );
   }
-  if (typeof payload.installed !== 'boolean') {
-    throw new Error('The capability service returned a plugin without installation metadata.');
+  if (typeof payload.installed !== "boolean") {
+    throw new Error(
+      "The capability service returned a plugin without installation metadata.",
+    );
   }
-  if (!Array.isArray(payload.widgets)) throw new Error('The capability service returned a plugin without widgets.');
+  if (!Array.isArray(payload.widgets))
+    throw new Error(
+      "The capability service returned a plugin without widgets.",
+    );
   const plugin: WorkspacePlugin = {
-    id: requireString(payload, 'id'),
+    id: requireString(payload, "id"),
     product: payload.product,
-    name: requireString(payload, 'name'),
-    slug: requireString(payload, 'slug'),
+    name: requireString(payload, "name"),
+    slug: requireString(payload, "slug"),
     audience: payload.audience,
     roles: uniqueStrings(payload.roles, isSafeRole),
     widgets: payload.widgets.map(parseWidget),
     status: payload.status,
-    version: requireVersion(payload, 'version'),
-    createdAt: requireString(payload, 'createdAt'),
-    updatedAt: requireString(payload, 'updatedAt'),
+    version: requireVersion(payload, "version"),
+    createdAt: requireString(payload, "createdAt"),
+    updatedAt: requireString(payload, "updatedAt"),
     installed: payload.installed,
   };
-  if (payload.publishedVersion !== undefined) plugin.publishedVersion = requireVersion(payload, 'publishedVersion');
-  if (payload.publishedAt !== undefined) plugin.publishedAt = optionalString(payload, 'publishedAt');
+  if (payload.publishedVersion !== undefined)
+    plugin.publishedVersion = requireVersion(payload, "publishedVersion");
+  if (payload.publishedAt !== undefined)
+    plugin.publishedAt = optionalString(payload, "publishedAt");
   const installedRoles = parseInstalledRoles(payload.installedRoles);
   if (installedRoles) plugin.installedRoles = installedRoles;
   return plugin;
@@ -1188,109 +2042,164 @@ export function parsePlugin(payload: unknown): WorkspacePlugin {
 
 export function parsePluginList(payload: unknown): WorkspacePlugin[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error('The capability service returned an invalid plugin list.');
+    throw new Error("The capability service returned an invalid plugin list.");
   }
   return payload.items.map(parsePlugin);
 }
 
 export function parseInstalledPlugin(payload: unknown): InstalledPlugin {
-  if (!isRecord(payload)) throw new Error('The capability service returned an invalid installed plugin.');
-  if (!isWorkspaceProduct(payload.product)) throw new Error('The capability service returned an invalid product.');
-  if (payload.audience !== 'admin' && payload.audience !== 'member') {
-    throw new Error('The capability service returned an invalid audience.');
+  if (!isRecord(payload))
+    throw new Error(
+      "The capability service returned an invalid installed plugin.",
+    );
+  if (!isWorkspaceProduct(payload.product))
+    throw new Error("The capability service returned an invalid product.");
+  if (payload.audience !== "admin" && payload.audience !== "member") {
+    throw new Error("The capability service returned an invalid audience.");
   }
-  if (!Array.isArray(payload.widgets)) throw new Error('The installed plugin has no widgets.');
+  if (!Array.isArray(payload.widgets))
+    throw new Error("The installed plugin has no widgets.");
   return {
-    id: requireString(payload, 'id'),
+    id: requireString(payload, "id"),
     product: payload.product,
-    name: requireString(payload, 'name'),
-    slug: requireString(payload, 'slug'),
+    name: requireString(payload, "name"),
+    slug: requireString(payload, "slug"),
     audience: payload.audience,
     roles: uniqueStrings(payload.roles, isSafeRole),
     widgets: payload.widgets.map(parseWidget),
-    version: requireVersion(payload, 'version'),
-    publishedVersion: requireVersion(payload, 'publishedVersion'),
-    publishedAt: requireString(payload, 'publishedAt'),
-    checksum: requireString(payload, 'checksum'),
-    ...(typeof payload.installedAt === 'string' ? { installedAt: payload.installedAt } : {}),
+    version: requireVersion(payload, "version"),
+    publishedVersion: requireVersion(payload, "publishedVersion"),
+    publishedAt: requireString(payload, "publishedAt"),
+    checksum: requireString(payload, "checksum"),
+    ...(typeof payload.installedAt === "string"
+      ? { installedAt: payload.installedAt }
+      : {}),
     ...(payload.installationRoles !== undefined
-      ? { installationRoles: uniqueStrings(payload.installationRoles, isSafeRole) }
+      ? {
+          installationRoles: uniqueStrings(
+            payload.installationRoles,
+            isSafeRole,
+          ),
+        }
       : {}),
   };
 }
 
 export function parseInstalledList(payload: unknown): InstalledPlugin[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error('The capability service returned an invalid installed list.');
+    throw new Error(
+      "The capability service returned an invalid installed list.",
+    );
   }
   return payload.items.map(parseInstalledPlugin);
 }
 
 export function parseMembers(payload: unknown): WorkspaceMember[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error('The capability service returned an invalid member list.');
+    throw new Error("The capability service returned an invalid member list.");
   }
   return payload.items.map((item) => {
-    if (!isRecord(item) || typeof item.subject !== 'string' || !item.subject) {
-      throw new Error('The capability service returned an invalid member.');
+    if (!isRecord(item) || typeof item.subject !== "string" || !item.subject) {
+      throw new Error("The capability service returned an invalid member.");
     }
-    if (!Array.isArray(item.roles)) throw new Error('The capability service returned a member without roles.');
+    if (!Array.isArray(item.roles))
+      throw new Error(
+        "The capability service returned a member without roles.",
+      );
     return {
       subject: item.subject,
+      productRoles: isRecord(item.productRoles)
+        ? Object.fromEntries(
+            Object.entries(item.productRoles)
+              .filter(
+                ([key, value]) =>
+                  isWorkspaceProduct(key) && Array.isArray(value),
+              )
+              .map(([key, value]) => [
+                key,
+                uniqueStrings(value as unknown[], isSafeRole),
+              ]),
+          )
+        : {},
       roles: uniqueStrings(item.roles, isSafeRole),
-      ...(typeof item.updatedAt === 'string' ? { updatedAt: item.updatedAt } : {}),
-      ...(typeof item.updatedBy === 'string' ? { updatedBy: item.updatedBy } : {}),
+      ...(typeof item.updatedAt === "string"
+        ? { updatedAt: item.updatedAt }
+        : {}),
+      ...(typeof item.updatedBy === "string"
+        ? { updatedBy: item.updatedBy }
+        : {}),
     };
   });
 }
 
 export function parseTokens(payload: unknown): WorkspaceTokenMetadata[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error('The capability service returned an invalid token list.');
+    throw new Error("The capability service returned an invalid token list.");
   }
   return payload.items.map((item) => {
     if (!isRecord(item) || !isWorkspaceProduct(item.product)) {
-      throw new Error('The capability service returned an invalid token.');
+      throw new Error("The capability service returned an invalid token.");
     }
     return {
-      id: requireString(item, 'id'),
+      id: requireString(item, "id"),
       product: item.product,
-      name: requireString(item, 'name'),
-      tokenPrefix: requireString(item, 'tokenPrefix'),
-      createdAt: requireString(item, 'createdAt'),
-      expiresAt: requireString(item, 'expiresAt'),
-      ...(typeof item.revokedAt === 'string' ? { revokedAt: item.revokedAt } : {}),
-      ...(typeof item.lastUsedAt === 'string' ? { lastUsedAt: item.lastUsedAt } : {}),
+      name: requireString(item, "name"),
+      tokenPrefix: requireString(item, "tokenPrefix"),
+      createdAt: requireString(item, "createdAt"),
+      expiresAt: requireString(item, "expiresAt"),
+      ...(typeof item.revokedAt === "string"
+        ? { revokedAt: item.revokedAt }
+        : {}),
+      ...(typeof item.lastUsedAt === "string"
+        ? { lastUsedAt: item.lastUsedAt }
+        : {}),
     };
   });
 }
 
-export function parseWorkflowArtifacts(payload: unknown): WorkflowArtifactSummary[] {
+export function parseWorkflowArtifacts(
+  payload: unknown,
+): WorkflowArtifactSummary[] {
   if (!isRecord(payload) || !Array.isArray(payload.items)) {
-    throw new Error('The workflow artifact list is invalid.');
+    throw new Error("The workflow artifact list is invalid.");
   }
   return payload.items.map((item) => {
-    if (!isRecord(item)) throw new Error('The workflow artifact list contains an invalid item.');
+    if (!isRecord(item))
+      throw new Error("The workflow artifact list contains an invalid item.");
     const syncState = item.syncState;
     return {
-      id: requireString(item, 'id'),
-      name: requireString(item, 'name'),
-      ...(typeof item.description === 'string' ? { description: item.description } : {}),
-      ...(typeof item.slug === 'string' ? { slug: item.slug } : {}),
+      id: requireString(item, "id"),
+      name: requireString(item, "name"),
+      ...(typeof item.description === "string"
+        ? { description: item.description }
+        : {}),
+      ...(typeof item.slug === "string" ? { slug: item.slug } : {}),
       active: item.active === true,
-      revision: typeof item.revision === 'number' && Number.isFinite(item.revision) ? Math.floor(item.revision) : 0,
-      nodeCount: typeof item.nodeCount === 'number' && Number.isFinite(item.nodeCount) ? Math.floor(item.nodeCount) : 0,
-      ...(syncState === 'ready' || syncState === 'pending' || syncState === 'failed'
+      revision:
+        typeof item.revision === "number" && Number.isFinite(item.revision)
+          ? Math.floor(item.revision)
+          : 0,
+      nodeCount:
+        typeof item.nodeCount === "number" && Number.isFinite(item.nodeCount)
+          ? Math.floor(item.nodeCount)
+          : 0,
+      ...(syncState === "ready" ||
+      syncState === "pending" ||
+      syncState === "failed"
         ? { syncState }
         : {}),
-      ...(typeof item.updatedAt === 'string' ? { updatedAt: item.updatedAt } : {}),
+      ...(typeof item.updatedAt === "string"
+        ? { updatedAt: item.updatedAt }
+        : {}),
     };
   });
 }
 
-export function tokenStatus(token: WorkspaceTokenMetadata): 'revoked' | 'expired' | 'active' {
-  if (token.revokedAt) return 'revoked';
+export function tokenStatus(
+  token: WorkspaceTokenMetadata,
+): "revoked" | "expired" | "active" {
+  if (token.revokedAt) return "revoked";
   const time = new Date(token.expiresAt).getTime();
-  if (Number.isFinite(time) && time <= Date.now()) return 'expired';
-  return 'active';
+  if (Number.isFinite(time) && time <= Date.now()) return "expired";
+  return "active";
 }

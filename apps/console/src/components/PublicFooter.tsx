@@ -45,7 +45,7 @@ export function PublicFooter() {
           <p className="mt-3 max-w-xs text-sm text-dx-muted">{f.tagline}</p>
         </div>
         <Column title={f.product}>
-          <Link to="/admin" className={LINK}>{l.console}</Link>
+          <Link to="/workspace" search={{product: 'dx', page: undefined, section: undefined, module: undefined}} className={LINK}>{l.console}</Link>
           <Link to="/docs" className={LINK}>{l.apiDocs}</Link>
           <Link to="/about" className={LINK}>{l.about}</Link>
           <a href={HEALTH} className={LINK}>{l.health}</a>

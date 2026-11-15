@@ -1,0 +1,107 @@
+# Workspace business audit — 2026-11-15
+
+This audit covers the 14 operational plugins per product, their archived coded
+console sources, DX runtime, app grants and Common capabilities. A declarative
+form is not by itself evidence of feature parity or successful production
+workflow completion. The original console sources remain archived in each
+product's `plugins/source/`; they are not DX runtime imports.
+
+## Authorization findings and fixes
+
+| Finding | Resolution |
+| --- | --- |
+| Manager/operator could navigate to DX administration | `/admin` requires the server's verified `isOrganizationAdmin`; Studio edit CTA is restricted to verified organization admins |
+| Global member roles could authorize both products | Explicit per-app grants; legacy global roles give no app membership |
+| Shared DX starter implied one cross-product team | Retired; separate City/SOS Common workspace plugins and app-scoped capability storage |
+| Secondary wiki/inbox/report endpoints could escape app scope | Scope applied to direct page/detail/search, project capacity, report schedules and intelligence routes too |
+| Raw dataset writes could bypass product workflow authorization | Human product writes require protected workspace actions; metadata list filters app grants before pagination |
+| Common CRUD permission could imply private product dataset authority | Preserve original dataset scopes; app-scoped CRUD does not broaden source-dataset read permission |
+| Tables lost the capability record ID when projecting `id` | Stable capability record IDs retained for details/actions |
+| Large form walls required copying identifiers manually | Action dialogs, selectable records, contextual prefill and destructive-action confirmation |
+| Saving existing plugins sent the immutable product field | Update requests omit product; existing City/SOS IDs, resources and workflow bindings survive save/publish |
+| Complex UI and business code required editing repository files | Component Code Studio plus Workflow Studio JavaScript node editor, versioned saves and protected runtime bindings |
+| Maps were missing | Real tiles and record geometry; invalid coordinates rejected, paging and provider errors explicit |
+
+Public projections remain public; private/source data and operational mutations
+remain authenticated. A product app-admin grant never changes organization-admin
+status. App context headers are selectors, never authorization evidence.
+
+## Core operational coverage
+
+| Product area | Current plugin surface |
+| --- | --- |
+| City assets/GIS | Registry CRUD, searchable records, details, asset/incident/geofence maps, geofence actions |
+| City incidents | Intake, assignment, resolution and declared lifecycle/review actions |
+| City maintenance | Work orders, assignment/start/complete, technician/review queues |
+| City IoT | Sensor CRUD, readings entry and map |
+| City administration | Alerts, budget/transaction decisions, operator profiles, reports and ingest job actions |
+| SOS command | Events, status/phase actions, emergency map and command overview |
+| SOS response | Dispatch decisions/status, resources, responder/rescue views and location maps |
+| SOS planning/evidence | EOP, SITREP, AAR and approval/review actions |
+| SOS intelligence/aid | Hazard layers/ingest actions and mutual-aid records |
+| Common plugins | Tasks/projects, wiki, inbox, forms/process, reports, OCR and assistant; restricted governance tools require administration |
+
+## LCDP scope
+
+Product pages and the two Common plugins are portable JSON. Common v3 has 39
+widgets across eight sections, without embedded React module screens. Studio
+supports their field/reference bindings, inline/dialog forms, layout, Kanban
+status actions, timeline and text. The runtime follows JSON ordering and widths.
+The shell/sidebar and reusable widget/interaction implementations remain coded.
+Opaque `capability` embeds cannot be published; use declarative components or a scoped code widget. See
+`WORKSPACE_STUDIO.md` for collection limits and the binary upload limitation.
+
+## Parity gaps requiring product-owned implementation and verification
+
+The following advanced coded-console features are not established as equivalent
+by this release. They must not be advertised as complete merely because a generic
+CRUD/execute form exists. Some legacy UI paths themselves used mock/stub results.
+
+- City: lifecycle health/risk/history calculations; document/photo report flows;
+  incident comments/upvotes and duplicate/merge workflows; preventive schedules;
+  IoT batch/statistics; actual CSV upload/preview; generated report download;
+  spatial nearby/bounds/polygon queries.
+- SOS: dispatch optimization; AI brief/ask and EOP draft generation; rich EOP
+  editing; live hazard timeline/deploy/expire; SITREP deltas and event-related views.
+- Identity: app-grant editor stores tenant-scoped verified subject IDs, but does
+  not yet validate target-subject existence in IAM when creating a grant.
+- Migration: old organization-wide H-D-P-I records are preserved. Automatic
+  assignment/copy to City and SOS would invent ownership; a destination-aware
+  record migration is separate from plugin/layout import.
+
+Business implementations belong to the owning product's portable workflow source
+and must retain revision/checksum pins, state-transition/CAS rules and technical
+credential ownership. No cross-product API, local database or copied user table is
+introduced as a workaround.
+
+## Release evidence
+
+Backend authorization/isolation tests exercise members assigned to both apps,
+app revocation, legacy roles, header spoofing, direct wiki IDs, tasks/projects,
+inbox and raw dataset bypass. Browser tests exercise app-specific navigation,
+Common context headers, non-admin route refusal, Studio templates/drag-drop and
+responsive layouts. Map parsing tests cover JSON/GeoJSON and invalid coordinates.
+Production release checks are recorded in the server-local `SERVER_AGENT.md`.
+
+## Explicit action and data-source governance
+
+The previous button-only registry left legacy form submissions, automatic reads,
+board moves, reference options and navigation outside the Actions inventory. All
+those declarative paths now require persisted actions and event references. The
+server checks the immutable page registry before exposing technical read/mutation
+bindings, including the code-widget exception's declared source/form bindings.
+Missing query connections perform no network read; missing submit connections
+stay disabled. Publication rejects incomplete connections and retired opaque
+capability embeds. Preset fixed values and declared input fields are checked again
+on the server. App membership,tenant isolation and pinned workflows remain required.
+
+Existing layouts convert to explicit query,submit,open-form,row,export,board and
+navigation actions through an idempotent authoring migration. Conversion preserves
+source bindings,visual components and server pins; production releases add immutable
+versions and audit instead of editing historical snapshots. Each Common workspace
+keeps its own product context and membership. See WORKSPACE_STUDIO.md for supported
+presets,event mappings,read-only query functions,charts and bounded preview behavior.
+
+## Detailed buildability verification
+
+See [LCDP_BUILDABILITY_AUDIT.md](LCDP_BUILDABILITY_AUDIT.md) for the 30-page inventory, source-versus-published checks, the repaired production workflow-pin defect, runtime regressions and remaining business parity gaps. Full legacy feature replacement is not established.

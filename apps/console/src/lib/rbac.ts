@@ -4,6 +4,7 @@
 
 export interface ManagementContext {
   user?: { id: string; email?: string; displayName?: string };
+  isOrganizationAdmin?: boolean;
   tenant?: string;
   account?: string;
   org?: string;

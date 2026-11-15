@@ -2512,3 +2512,22 @@ export function registerWorkflowArtifactRoutes(app: Express, config: ServiceConf
   }));
 
 }
+
+/** Read a member's own delegated execution; never expose the technical identity or node logs. */
+export async function readPluginExecution(config: ServiceConfig, caller: Caller, artifactId: string, executionId: string, pluginId: string, widgetId: string): Promise<Record<string, unknown>> {
+  const principal = caller.principal;
+  if (!principal || !caller.authenticated) throw apiError(401, 'unauthorized', 'A verified user session is required');
+  if (!/^[A-Za-z0-9_.:-]{1,128}$/.test(executionId)) throw apiError(404, 'not_found', 'Execution not found');
+  const artifact = (await loadArtifact(serviceClient(config), artifactId)).data;
+  if (artifact.tenant !== principal.tenantKey) throw apiError(404, 'not_found', 'Execution not found');
+  assertPluginProtected(artifact);
+  const technical = await requireOrgWorkflowIdentity(config, artifact.tenant);
+  let execution: any;
+  try { execution = await technical.client.workflow.getExecution(executionId, true); }
+  catch (error) { workflowError(error); }
+  const input = execution?.input;
+  if (execution?.workflowId !== artifact.workflowId || input?.pluginId !== pluginId || input?.widgetId !== widgetId || input?.submittedBy !== principal.subject)
+    throw apiError(404, 'not_found', 'Execution not found');
+  const status = String(execution.status || 'queued');
+  return { executionId, status, completed: status === 'success', ...(status === 'success' ? { result: execution.output } : {}), ...(status === 'error' ? { error: String(execution.error || 'Workflow failed').slice(0, 1000) } : {}), ...(execution.startedAt ? { startedAt: execution.startedAt } : {}), ...(execution.finishedAt ? { finishedAt: execution.finishedAt } : {}) };
+}

@@ -19,7 +19,7 @@ import {
   legacyEmbed, lexicalScore, tokenize,
 } from '../rag';
 import { loadFile, readFileBytes } from './files';
-import { authenticatedReadContext, writeContext } from './shared';
+import { accessibleDataset, authenticatedReadContext, writeContext } from './shared';
 import {
   createScoped, getScoped, listScoped, newId, nowIso, objectValue, optionalString,
   requiredString, stringArray, updateScoped,
@@ -126,8 +126,7 @@ export function registerIntelligenceRoutes(app: Express, config: ServiceConfig):
     const b = (req.body || {}) as Record<string, unknown>;
     const fileId = requiredString(b.fileId, 'fileId', 1, 128);
     if (b.datasetId) {
-      const dataset = await loadDataset(client, String(b.datasetId));
-      if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+      await accessibleDataset(client, String(b.datasetId), { authenticated: true, principal }, 'write');
     }
     const clientText = (Array.isArray(b.pages) && b.pages.length > 0) || (typeof b.text === 'string' && b.text.trim() !== '');
     let pages: OcrPage[];
@@ -209,8 +208,7 @@ export function registerIntelligenceRoutes(app: Express, config: ServiceConfig):
 
     let record: any = null;
     if (status === 'approved' && job.datasetId) {
-      const dataset = await loadDataset(client, job.datasetId);
-      if (!dataset || (!isAdmin(principal) && dataset.data.tenant !== principal.tenantKey)) throw apiError(404, 'dataset_not_found', 'dataset not found');
+      await accessibleDataset(client, job.datasetId, { authenticated: true, principal }, 'write');
       const data = Object.fromEntries(fields.filter((field) => field.status === 'approved' || field.status === 'auto').map((field) => [field.name, field.value]));
       record = {
         id: newId(), datasetId: job.datasetId, data,

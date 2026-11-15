@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, redirect } from '@tanstack/react-router';
+import { api } from '../lib/api';
+import { hasManagementAccess } from '../lib/landing';
+import type { ManagementContext } from '../lib/rbac';
+import { loadSession } from '../lib/httpClient';
 import { AdminLayout } from '../components/AdminLayout';
 import { PRIMARY_BTN } from '../components/public-styles';
 
@@ -16,7 +20,7 @@ function AdminError({ error }: { error?: unknown }) {
           <button type="button" onClick={() => window.location.reload()} className={PRIMARY_BTN}>
             Reload page
           </button>
-          <Link to="/workspace" className="rounded-xl border border-dx-line px-4 py-2 text-sm font-semibold text-dx-fg">
+          <Link to="/workspace" search={{ product: 'dx', page: undefined, section: undefined, module: undefined }} className="rounded-xl border border-dx-line px-4 py-2 text-sm font-semibold text-dx-fg">
             Open member workspace
           </Link>
           <Link to="/" className="rounded-xl border border-dx-line px-4 py-2 text-sm font-semibold text-dx-fg">
@@ -29,6 +33,13 @@ function AdminError({ error }: { error?: unknown }) {
 }
 
 export const Route = createFileRoute('/admin')({
+  beforeLoad: async ({ location }) => {
+    if (!loadSession()) {
+      throw redirect({ to: '/login', search: { redirect: location.href }, replace: true });
+    }
+    const context = await api.get<ManagementContext>('/v1/capabilities/management/context');
+    if (!hasManagementAccess(context)) throw redirect({ to: '/workspace', search: { product: 'dx', page: undefined, section: undefined, module: undefined }, replace: true });
+  },
   component: () => <AdminLayout />,
   errorComponent: AdminError,
 });

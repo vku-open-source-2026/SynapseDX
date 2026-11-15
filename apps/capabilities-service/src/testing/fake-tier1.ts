@@ -1499,6 +1499,7 @@ export class FakeTier1 {
         workflowId: workflow.id,
         status: 'success',
         triggeredBy: 'manual',
+        input: body,
         startedAt: nowIso(),
         finishedAt: nowIso(),
         output: { ok: true },
@@ -1534,6 +1535,13 @@ export class FakeTier1 {
         this.workflows.delete(workflow.id);
         return this.json(res, 200, { ok: true });
       }
+    }
+    const executionMatch = path.match(/^\/v1\/executions\/([^/]+)$/);
+    if (executionMatch && method === 'GET') {
+      const execution = this.executions.find(e => e.id === executionMatch[1]);
+      const workflow = execution && this.workflows.get(String(execution.workflowId));
+      if (!execution || !workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
+      return this.json(res, 200, execution);
     }
     if (path === '/v1/executions' && method === 'GET') {
       const workflowId = url.searchParams.get('workflowId');
