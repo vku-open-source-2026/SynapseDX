@@ -69,7 +69,7 @@ export function OverviewPage() {
               {canWriteDatasets ? (
                 <Button
                   variant="primary"
-                  className="!bg-white !text-blue-800 hover:!bg-blue-50"
+                  className="!bg-white !bg-none !text-blue-800 hover:!bg-blue-50"
                   onClick={() => void navigate({ to: '/admin/datasets', search: { new: '1' } as never })}
                 >
                   New dataset <ArrowRight size={16} />

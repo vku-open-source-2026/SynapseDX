@@ -1,0 +1,31 @@
+[package]
+name = "synapsedx"
+version = "0.7.0"
+edition = "2021"
+rust-version = "1.82"
+license = "Apache-2.0"
+description = "Async Rust client for the SynapseDX Tier-2 capabilities API"
+repository = "https://github.com/vku-open-source-2026/SynapseDX"
+homepage = "https://synapsedx.sbs"
+documentation = "https://docs.rs/synapsedx"
+readme = "README.md"
+keywords = ["synapsedx", "capabilities", "sdk", "tier2"]
+categories = ["api-bindings", "asynchronous"]
+authors = ["VKU.VIC <opensource@vku.vic>"]
+include = ["src/**/*", "README.md", "LICENSE", "NOTICE", "Cargo.toml"]
+
+[dependencies]
+bytes = "1"
+http = "1"
+percent-encoding = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["time"] }
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"

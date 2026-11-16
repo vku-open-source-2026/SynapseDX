@@ -67,7 +67,12 @@ Stable codes: `invalid_request`, `invalid_json`, `invalid_limit`,
 `upstream_auth_failed`, `upstream_conflict`, `upstream_unavailable`,
 `upstream_timeout`, `query_rejected`, `internal_error`, `route_not_found`,
 `method_not_allowed`, `job_not_found`, `job_kind_unknown`, `job_not_runnable`,
-`job_run_in_progress`, `job_run_not_found`, `job_lease_invalid`.
+`job_run_in_progress`, `job_run_not_found`, `job_lease_invalid`,
+`invalid_geo_field`, `invalid_geometry`, `geo_not_configured`,
+`stream_capacity`, `too_many_resources`, `too_many_demands`,
+`invalid_cost_matrix`, `cost_unavailable`, `plan_not_found`,
+`plan_task_not_found`, `dependency_incomplete`, `dependency_cycle`,
+`invalid_transition`.
 
 ## Pagination
 
@@ -103,9 +108,9 @@ Dependencies probed: `base`, `lds`, `queue` (critical), `stream`, `iam`,
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/datasets` | optional | List visible datasets. `publicOnly=true` filters in the Tier-1 query. Anonymous callers are forced to public+published. |
-| POST | `/v1/capabilities/datasets` | write | Create a dataset (`name`, `entityType`, `license`, optional `slug`, `description`, `public`, `schemaVersion`, `retentionDays`, `licenseUrl`). |
+| POST | `/v1/capabilities/datasets` | write | Create a dataset (`name`, `entityType`, `license`, optional `slug`, `description`, `public`, `schemaVersion`, `retentionDays`, `licenseUrl`, `geo`). |
 | GET | `/v1/capabilities/datasets/:id` | optional | Dataset metadata. ETag carries the document version. |
-| PATCH | `/v1/capabilities/datasets/:id` | write | Update metadata/visibility. Supports `If-Match`/`ifVersion`. |
+| PATCH | `/v1/capabilities/datasets/:id` | write | Update metadata/visibility. Supports `If-Match`/`ifVersion`; `geo:{field}` binds a spatial index and `geo:null` removes it. |
 | DELETE | `/v1/capabilities/datasets/:id` | write | Delete a dataset. `?purgeRecords=true` cascades record deletion; otherwise `409 dataset_not_empty` when records exist. |
 | POST | `/v1/capabilities/datasets/:id/publish` | write | Publish/re-publish. `409 dataset_not_public` when `public:false`. |
 | POST | `/v1/capabilities/datasets/:id/revoke` | write | Revoke and delete the public projection. |
@@ -147,6 +152,9 @@ republishes it. `PATCH {public:true}` on a draft leaves it in `draft`; call
 | PATCH | `/v1/capabilities/datasets/:id/records/:recordId` | tenant write | Update data/publication. Supports `If-Match`/`ifVersion`. |
 | DELETE | `/v1/capabilities/datasets/:id/records/:recordId` | tenant write | Hard delete + withdraw the LDS entity. Repeat returns `404`. |
 | POST | `/v1/capabilities/datasets/:id/records/purge-expired` | tenant write | Delete records older than `retentionDays`; requires a retention policy. |
+| POST | `/v1/capabilities/datasets/:id/records/spatial` | tenant read | Near/bbox/within query over `dataset.geo.field`; returns a GeoJSON `FeatureCollection`, matching `items`, `total`, `limit` and `mode`. |
+| POST | `/v1/capabilities/datasets/:id/records/spatial/reindex` | tenant write | Rebuild/repair up to 5,000 records per call (`offset` continues); returns `{dataset_id,collection,offset,scanned,indexed,removed,skipped,failed,truncated}`. |
+| GET | `/v1/capabilities/datasets/:id/records/spatial/status` | tenant read | `{configured,field,collection,features?,extent?}`; stats are best-effort. |
 
 Record IDs must match `[A-Za-z0-9_@.:+-]{1,256}` (no `/`, `\`, newline, `.` or
 `..`). Invalid IDs return `400 invalid_record_id`; they are never rewritten.
@@ -160,6 +168,27 @@ Record IDs must match `[A-Za-z0-9_@.:+-]{1,256}` (no `/`, `\`, newline, `.` or
 | omitted | Inherit the dataset default (published dataset → projected). |
 
 Withheld records stay withheld across updates, republishes and LDS rebuilds.
+
+### Spatial records
+
+`dataset.geo.field` is a dotted path inside `record.data` and must match
+`[A-Za-z_][A-Za-z0-9_]{0,63}(\.[A-Za-z_][A-Za-z0-9_]{0,63}){0,5}`. The Tier-1
+PostGIS collection is `synapsedx_geo_<datasetId>`.
+
+```json
+{ "mode": "near", "lat": 21.0285, "lng": 105.8542, "radiusMeters": 2000, "limit": 100 }
+{ "mode": "bbox", "bbox": [105.84, 21.02, 105.87, 21.04], "limit": 100 }
+{ "mode": "within", "geometry": { "type": "Polygon", "coordinates": [] }, "limit": 100 }
+```
+
+`limit` is 1..500 (default 100), `radiusMeters` 1..100000, and bbox axes are
+`[west, south, east, north]` with WGS84 ranges and valid ordering. A dataset
+without `geo` returns `400 geo_not_configured`; invalid record geometry returns
+`400 invalid_geometry` before any write. Draft readers
+(`canReadRecordDrafts`) see withheld records; every other caller only sees
+published/inherited-published rows. Deleted records and records of another
+dataset are dropped even if the index is stale. Index writes are best-effort so
+a PostGIS outage never loses a Base record; `reindex` repairs the index.
 
 ## Idempotency, versioning and events
 
@@ -193,7 +222,53 @@ Event types: `dataset.created`, `dataset.updated`, `dataset.published`,
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/events` | any verified credential | Non-destructive stream feed. `since` (cursor), `type`, `datasetId`, `limit` (1..500). Returns `{items,count,nextCursor}`. At-least-once: dedupe on `eventId`. |
+| GET | `/v1/capabilities/events/stream` | any verified credential | Live SSE feed with the same event shape. `since` or `Last-Event-ID` selects the cursor; `type`/`datasetId` filter. At-least-once: dedupe on `eventId`. |
 | POST | `/v1/capabilities/events/outbox/flush?datasetId=` | tenant write | Retry pending events and report the remaining count. |
+
+### Live event stream (SSE)
+
+`GET /v1/capabilities/events/stream` keeps one connection open and relays the
+Tier-1 capability stream. The caller credential is forwarded exactly like the
+polling feed; there is no token in the query string, so a browser `EventSource`
+(which cannot set `Authorization`) is not a supported client. Use `fetch` with
+a streaming body reader (the Tier-2 SDK does this for you with
+`dx.events.stream()`).
+
+Headers: `content-type: text/event-stream; charset=utf-8`,
+`cache-control: no-cache, no-transform`, `connection: keep-alive`,
+`x-accel-buffering: no`.
+
+Wire format:
+
+```text
+retry: 3000
+
+event: ready
+data: {"cursor":"1700000000000-0","stream":"synapsedx-capability-events","filters":{"type":null,"datasetId":null}}
+
+id: 1700000000000-1
+event: capability
+data: {"id":"1700000000000-1","event":{"eventId":"…","type":"record.created",…}}
+
+: keepalive
+
+```
+
+- `since` (`?since=<stream id>`) is the explicit cursor and wins over the
+  `Last-Event-ID` header. With neither, the feed starts at the current tail and
+  does not replay history.
+- The cursor advances for every stream record, including records removed by
+  `type`/`datasetId`; a filtered record can never stall the feed.
+- Poll interval is 1 s, heartbeat 15 s while idle, planned reconnect after
+  30 min (`event: reconnect`, then close). Reconnect with the last `id:` /
+  `data.id`.
+- A missing Tier-1 topic (404) keeps the connection open until events appear.
+- At most 100 concurrent streams per process; excess requests get
+  `503 stream_capacity`. Delivery is at-least-once; deduplicate on `eventId`.
+
+The public gateway must forward `Last-Event-ID` and pass `text/event-stream`
+through without buffering or a whole-response timeout; verify that edge
+behaviour before announcing this endpoint to Tier-3 clients.
 
 ## Identity/session
 
@@ -286,6 +361,30 @@ accumulates independent approve decisions. Every transition is audited as
 `approval.create`, `approval.decide` or `approval.cancel`. Domain effects remain
 owned by the caller; this capability only records the human decision.
 
+## Emergency operations plans (EOP)
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/v1/capabilities/plans` | write | Create a draft phased plan (`title`, `objective`, `eventId?`, `severity?`, `context?`, `phases`). |
+| GET | `/v1/capabilities/plans` | verified | Tenant-scoped list (`status`, `tenant` for deployment admins, `limit`, `offset`, `cursor`). |
+| GET | `/v1/capabilities/plans/:id` | verified | One plan + ETag version. |
+| PATCH | `/v1/capabilities/plans/:id` | write | Draft-only `title`/`objective`/`eventId`/`severity`/`context` update. |
+| POST | `/v1/capabilities/plans/:id/activate` | write | `draft|paused -> active`; computes every task `dueAt`. Idempotent while active. |
+| POST | `/v1/capabilities/plans/:id/pause` | write | `active -> paused`. |
+| POST | `/v1/capabilities/plans/:id/complete` | write | `active|paused -> completed`. |
+| POST | `/v1/capabilities/plans/:id/archive` | write | `completed -> archived`. |
+| POST | `/v1/capabilities/plans/:id/tasks/:taskId/status` | write | `{status,note?,assignee?,override?}`; enforces task transitions and dependencies; admin-only audited override. |
+| POST | `/v1/capabilities/plans/:id/brief` | verified read | `{focus?}`; grounded `[T1]` task citations, one 450-token LLM attempt, deterministic fallback. |
+| POST | `/v1/capabilities/plans/draft` | write | `{objective,eventType?,context?,phaseCount?}`; strict-JSON AI draft validated by the plan validator, never persisted. |
+
+Invalid lifecycle/status transitions return `409 invalid_transition`; unmet
+dependencies return `409 dependency_incomplete` with `details.missing`. All
+writes are CAS-checked through `If-Match`/`ifVersion` and audited as
+`plan.create|update|activate|pause|complete|archive|task_status`. SOS still owns
+EOP policy, approvals, dispatch and SITREP/AAR. See
+[`PLAN_ORCHESTRATION.md`](PLAN_ORCHESTRATION.md) for the full model, limits and
+fallback rules. SDK: `dx.plans.*`.
+
 ## Collaboration (#32, #35)
 
 | Method | Route | Description |
@@ -332,8 +431,13 @@ owned by the caller; this capability only records the human decision.
 ## Intelligence (#43, #44, #45)
 
 - `/v1/capabilities/ocr/jobs` + `/:id/redact` + `/:id/fields/:field/correct`: page/bbox provenance, low-confidence queue, PII redaction and record creation with provenance.
+  - `POST /ocr/jobs {fileId}` OCRs the stored file with Tesseract (`vie+eng`); the job records `source: "engine"` and `engine {name, languages, durationMs}`, and every page keeps `lines[]` with text, bbox and confidence.
+  - `POST /ocr/jobs {fileId, text | pages[]}` skips the engine and parses pre-extracted text (`source: "client_text"`).
+  - Errors: `415 ocr_unsupported_type` (images only: PNG/JPEG/TIFF/BMP/WebP/GIF), `413 file_too_large`, `429 ocr_busy`, `503 ocr_engine_unavailable`, `504 ocr_timeout`, `422 ocr_failed` / `ocr_no_text`, `400 ocr_empty` (no `Label: value` lines).
 - `/v1/capabilities/agents`, `/:id/runs`, `/:id/kill-switch`; `/agent-runs`, `/:id/resume`: deny-by-default tools, high-risk HITL pause, redacted traces, tenant kill switch.
 - `/v1/capabilities/rag/documents`, `/rag/query`, `/rag/usage`: ACL-aware retrieval, numbered citations, no-answer path, prompt-injection refusal, per-tenant usage/cost.
+  - Ingest returns `embeddingModel`: `tier1/<model>` when Tier-1 InferenceService reports a real embedding model, otherwise `local/hash-48`.
+  - `POST /rag/query {question, topK?, generate?}` returns `answer`, `citations`, `confidence`, `noAnswer`, plus `generator` (`llm` | `extractive`), `retrieval` and, for LLM answers, `model`. An LLM answer is used only if each `[n]` cites a retrieved source; `generate: false` always quotes.
 
 ## AI/inference
 
@@ -344,6 +448,71 @@ owned by the caller; this capability only records the human decision.
 | POST | `/v1/capabilities/ai/embeddings` | verified | `{input,model?}` |
 | POST | `/v1/capabilities/ai/decision` | verified | `{state,questions}` |
 | POST | `/v1/capabilities/ai/route` | verified | `{input,choices,instruction?}` |
+
+## Warehouse (OLAP + ETL)
+
+Tier-2 manager data studio over the Tier-1 Synapse Warehouse. Data operations
+are forwarded with the caller's credential, so Tier-1 tenant isolation and
+scopes apply. Reports and dashboards are tenant-scoped records in SynapseBase;
+publishing stores an immutable snapshot for Tier-3 sites.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/v1/capabilities/warehouse/status` | Dependency status |
+| GET/POST | `/v1/capabilities/warehouse/datasets` | List/create datasets |
+| GET/DELETE | `/v1/capabilities/warehouse/datasets/:id` | Dataset detail/delete (cascade jobs) |
+| POST | `/v1/capabilities/warehouse/datasets/:id/rows` | Append 1..5000 rows |
+| POST | `/v1/capabilities/warehouse/query` | Read-only `SELECT`/`WITH` |
+| GET | `/v1/capabilities/warehouse/templates` | Batch/stream ETL recipes |
+| GET | `/v1/capabilities/warehouse/jobs` | List ETL jobs |
+| GET/DELETE | `/v1/capabilities/warehouse/jobs/:id` | Job detail/delete |
+| POST | `/v1/capabilities/warehouse/jobs/:id/resume` | Resume a paused stream job |
+| POST | `/v1/capabilities/warehouse/etl/batch` | Run a batch transform |
+| POST | `/v1/capabilities/warehouse/etl/stream` | Ensure a stream ingest job |
+| POST | `/v1/capabilities/warehouse/jobs/:id/run` | Run a batch job |
+| POST | `/v1/capabilities/warehouse/jobs/:id/pause` | Stop a stream job |
+| GET/POST | `/v1/capabilities/warehouse/reports` | List/create saved reports |
+| GET/PATCH/DELETE | `/v1/capabilities/warehouse/reports/:id` | Report detail/edit/delete |
+| POST | `/v1/capabilities/warehouse/reports/:id/run` | Execute and return rows |
+| POST | `/v1/capabilities/warehouse/reports/:id/publish` | Snapshot + public share id |
+| GET/POST | `/v1/capabilities/warehouse/dashboards` | List/create dashboards |
+| GET/PATCH/DELETE | `/v1/capabilities/warehouse/dashboards/:id` | Dashboard detail/edit/delete |
+| POST | `/v1/capabilities/warehouse/dashboards/:id/run` | Run all widgets |
+| POST | `/v1/capabilities/warehouse/dashboards/:id/publish` | Snapshot all widgets |
+| GET | `/v1/capabilities/warehouse/public/reports/:shareId` | Public snapshot |
+| GET | `/v1/capabilities/warehouse/public/dashboards/:shareId` | Public dashboard snapshot |
+| GET | `/v1/capabilities/warehouse/use-cases` | Seedable demo catalog |
+| POST | `/v1/capabilities/warehouse/use-cases/:id/seed` | Seed datasets/ETL/reports/dashboard |
+
+Use cases: `city-operations` (batch daily rollup + manager dashboard),
+`iot-sensors` (SynapseStream ingest + averages) and `open-data-air-quality`
+(published public snapshot).
+
+Published report/dashboard snapshots are stored in Base and capped at 220 KB;
+lower the report limit before publishing if Tier 2 returns `payload_too_large`.
+
+## KTTV hazards and knowledge base
+
+The Tier-2 KTTV base feeds both the hazard map and the LLM features. Normalised
+hazards live in SynapseBase; documents/chunks live in the knowledge collections
+and are indexed in Tier-1 `/v1/search` with real 384-d pgvector embeddings plus
+SynapseBase Graph entity links.
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| GET | `/v1/capabilities/hazards/today?hours=24&limit=50` | verified read | Active hazards in the window, newest first. |
+| POST | `/v1/capabilities/hazards/brief` | verified read | `{hours?,limit?,focus?}`. Grounded LLM situation brief with `[H1]` citations; `fallback:true` + deterministic text when the provider is unavailable. |
+| GET | `/v1/capabilities/hazards/status` | verified read | Last run/success, counts, source health (`nchmf+vndms`). |
+| POST | `/v1/capabilities/crawlers/kttv/run` | admin | Trigger a crawl (also runs on the 30-minute scheduler). |
+| POST | `/v1/capabilities/knowledge/documents` | write | `{title,body,source?,url?,kind?,tags?,id?}`; chunks + graph entities. |
+| POST | `/v1/capabilities/knowledge/ingest/pdf` | write | `{id|url}` from the server-side KTTV PDF catalog; rejects arbitrary URLs. |
+| GET | `/v1/capabilities/knowledge/documents?limit=` | verified read | Tenant-scoped document list. |
+| POST | `/v1/capabilities/knowledge/query` | verified read | `{question,topK?,context?}` → grounded answer, citations (URL/date), entities; hybrid vector + graph RAG. |
+| GET | `/v1/capabilities/knowledge/status` | verified read | Docs, chunks, graph node/edge counts. |
+
+SDK: `@synapsedx/capabilities@0.5.1` exposes `knowledge.query`,
+`knowledge.index`, `knowledge.ingestPdf`, `hazards.today`, `hazards.brief`,
+`hazards.status` and `hazards.runCrawler`.
 
 ## Jobs (scheduled work)
 
@@ -390,9 +559,11 @@ other `SYNAPSEDX_FILES_*` settings are enforced before the OCS call.
 
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
-| POST | `/v1/capabilities/files` | write | `{filename,contentType?,size?,checksumSha256?,datasetId?,recordId?,id?}` → `201` metadata + `upload` instructions. Supports `Idempotency-Key`. |
+| POST | `/v1/capabilities/files` | write | `{filename,contentType?,size?,checksumSha256?,datasetId?,recordId?,id?,public?}` → `201` metadata + `upload` instructions. `public:true` requires `files:publish` (or platform admin). Supports `Idempotency-Key`. |
 | PUT | `/v1/capabilities/files/:id/content` | write | Raw binary body (`Content-Type`, optional `X-Checksum-SHA256`). Verifies checksum/quota and uploads to SynapseOCS. |
 | GET | `/v1/capabilities/files/:id/content` | verified | Streams the object with `Content-Type`, `Content-Length`, `Content-Disposition` and `X-Checksum-SHA256`. |
+| GET | `/v1/capabilities/public/files/:id` | anonymous | Public metadata for a file created with `public:true`; private/unpublished ids return 404. |
+| GET | `/v1/capabilities/public/files/:id/content` | anonymous | Stable public download for an explicitly published file. The bytes remain in Tier-1 SynapseOCS. |
 | GET | `/v1/capabilities/files/:id` | verified | Metadata (size, MIME, checksum, dataset/record link). |
 | GET | `/v1/capabilities/files` | verified | Tenant list (`prefix`, pagination). |
 | GET | `/v1/capabilities/files/quota` | verified | `{usedBytes,quotaBytes,remainingBytes,files,maxFileBytes,allowedTypes}`. |
@@ -458,6 +629,23 @@ itself remains the provider/edge policy; Tier-2 does not add a second shared
 counter. When no provider is configured the routes return the typed 503 naming
 `SYNAPSEDX_GEOCODER_BASE_URL`; this is configuration, not a Tier-1 gap.
 
+## Resource assignment (optimization)
+
+A domain-neutral, deterministic resource-to-demand solver. It requires a
+verified caller but no write scope; it persists no capability data and records
+only a count-only `optimization.assign` audit row. SOS dispatch must still apply
+the result through its reviewed product workflow.
+
+| Method | Route | Auth | Description |
+| --- | --- | --- | --- |
+| POST | `/v1/capabilities/optimization/assign` | verified | `{resources[],demands[],options?}` → assignments, unassigned reasons, usage, limits. |
+
+At most 200 resources, 200 demands, 4,000 available slots and 1e12 per edge; the
+body is limited to 256 KB. Costs come from `options.costMatrix[demandIndex][resourceIndex]`
+(`null` = unusable) or haversine distance. The objective maximizes served
+demands, then minimizes total cost; priority is an equal-cost tie-break. Full
+contract, determinism rules and bounded complexity: [OPTIMIZATION.md](OPTIMIZATION.md).
+
 ## CORS
 
 Allowed origins are the comma-separated `CORS_ORIGINS` allow-list (defaults:
@@ -465,5 +653,6 @@ Allowed origins are the comma-separated `CORS_ORIGINS` allow-list (defaults:
 `https://synapsedx.sbs`, `https://cloud.synapsedx.sbs`). The response echoes
 only an allowed `Origin`, sets `Vary: Origin`, allows
 `GET,POST,PUT,PATCH,DELETE,OPTIONS`, and exposes
-`idempotency-key`/`if-match`/correlation/licence/pagination headers. Unknown
-origins receive no `Access-Control-Allow-Origin`.
+`idempotency-key`/`if-match`/correlation/licence/pagination and spatial-index
+headers. `Last-Event-ID` is an allowed request header for SSE. Unknown origins
+receive no `Access-Control-Allow-Origin`.

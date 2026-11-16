@@ -3,11 +3,42 @@
 /** Shared route guards: authentication, tenancy and version preconditions. */
 import { Request } from 'express';
 import { SynapseOneClient } from '@synapseone/sdk';
-import { Caller, CallerPrincipal, assertWriteScope, authenticate, canAccessDataset, isAdmin, requireAuthenticated } from '../auth';
+import {
+  Caller, CallerPrincipal, assertWriteScope, authenticate, canAccessDataset, canReadPrivateDatasetData, hasWriteScope,
+  isAdmin, isTenantAdmin, isMachineCredential, hasReadScope, requireAuthenticated,
+} from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { DatasetRecord, serviceClient } from '../platform';
 import { DatasetDocument, loadDataset } from '../publication';
+import { workspaceAccess } from '../workspace-access';
+
+const COMMON_ROUTES = /^\/v1\/capabilities\/(?:comments|inbox|notification-preferences|workspaces|pages|page-search|people|org-units|kpis|kpi-checkins|timesheets|forms|processes|process-instances|projects|project-tasks|milestones|raid|project-dependencies|project-capacity|reports|dashboards|report-runs|report-schedules|contracts|quality|lineage|ocr|agents|agent-runs|rag|assistant|approvals|files)(?:\/|$)/;
+
+async function scopeCommonContext(req: Request, caller: Caller, client: SynapseOneClient): Promise<void> {
+  if (!caller.principal) return;
+  if (!isMachineCredential(caller.principal) && !isTenantAdmin(caller.principal)) {
+    const grants = await workspaceAccess(client, caller.principal.org || caller.principal.tenantKey, { ...caller.principal, subject: caller.principal.userId || caller.principal.subject });
+    caller.principal = { ...caller.principal, workspaceProducts: Object.keys(grants).filter(app => grants[app as 'city' | 'sos']?.length) };
+  }
+  if (!COMMON_ROUTES.test(req.path)) return;
+  const principal = caller.principal;
+  const app = req.header('x-workspace-app');
+  if (!app) {
+    if (!isTenantAdmin(principal) && !isMachineCredential(principal) && !hasReadScope(principal) && !hasWriteScope(principal)) throw apiError(403, 'app_context_required', 'common capabilities require an application context');
+    return;
+  }
+  if (app !== 'city' && app !== 'sos') throw apiError(400, 'invalid_request', 'unknown workspace app');
+  const grants = await workspaceAccess(client, principal.org || principal.tenantKey, { ...principal, subject: principal.userId || principal.subject });
+  if (!grants[app]?.length && !isMachineCredential(principal)) throw apiError(403, 'forbidden', 'this account is not a member of this app');
+  const roles = grants[app] || [];
+  const manager = principal.isDxAdmin === true || roles.some(role => role === 'admin' || role === 'manager');
+  if (!['GET', 'HEAD'].includes(req.method) && /\/(?:people|org-units|kpis|agents|contracts|quality|processes)(?:\/|$)/.test(req.path) && !manager) throw apiError(403, 'forbidden', 'this action requires an app manager');
+  const scopes = [...principal.scopes];
+  if (roles.some(role => role !== 'viewer') && !scopes.includes('write')) scopes.push('write');
+  if (manager && !scopes.includes('synapsedx:manager')) scopes.push('synapsedx:manager');
+  caller.principal = { ...principal, scopes, sourceScopes: principal.scopes, workspaceApp: app, sourceTenantKey: principal.org || principal.tenantKey, tenantKey: `${principal.org || principal.tenantKey}:common:${app}` };
+}
 
 export interface ReadContext {
   caller: Caller;
@@ -28,9 +59,11 @@ export interface WriteContext extends ReadContext {
 /** Any caller (anonymous allowed). Private reads are filtered per route. */
 export async function readContext(req: Request, config: ServiceConfig): Promise<ReadContext> {
   const caller = await authenticate(req, config, false);
+  const client = serviceClient(config);
+  await scopeCommonContext(req, caller, client);
   return {
     caller,
-    client: serviceClient(config),
+    client,
     ...(caller.principal ? { principal: caller.principal } : {}),
   };
 }
@@ -47,20 +80,59 @@ export async function authenticatedReadContext(req: Request, config: ServiceConf
 /** Verified caller with a write-capable credential. */
 export async function writeContext(req: Request, config: ServiceConfig): Promise<WriteContext> {
   const caller = await authenticate(req, config, true);
+  const client = serviceClient(config);
+  await scopeCommonContext(req, caller, client);
   const principal = requireAuthenticated(caller);
   assertWriteScope(principal);
-  return { caller, principal, client: serviceClient(config) };
+  return { caller, principal, client };
 }
 
 export function canReadRecords(dataset: DatasetRecord, caller: Caller): boolean {
   if (!caller.authenticated || !caller.principal) return false;
   if (isAdmin(caller.principal)) return true;
-  if (!dataset.tenant) return true;
-  return dataset.tenant === caller.principal.tenantKey;
+  if (!canAccessDataset(dataset, caller)) return false;
+  // Published public projections stay open to any authenticated caller.
+  if (dataset.public === true && dataset.status === 'published') return true;
+  if (dataset.tenant && dataset.tenant !== (caller.principal.sourceTenantKey || caller.principal.tenantKey)) return false;
+  if (!dataset.tenant) {
+    // Legacy tenancy-less document: exact verified owner only.
+    return !!dataset.owner && dataset.owner === caller.principal.subject;
+  }
+  return canReadPrivateDatasetData(dataset, caller.principal);
 }
 
+/**
+ * Write authorization is **distinct** from read visibility. In particular a
+ * public published dataset is readable by everyone but writable only inside its
+ * own tenant (or by a deployment admin); otherwise an organization-B operator
+ * could mutate organization-A's public data.
+ */
 export function canWriteDataset(dataset: DatasetRecord, caller: Caller): boolean {
-  return canReadRecords(dataset, caller);
+  const principal = caller.principal;
+  if (!caller.authenticated || !principal) return false;
+  if (isAdmin(principal)) return true;
+  if (/^(city|sos)-/.test(dataset.id) && !isTenantAdmin(principal) && !isMachineCredential(principal)) return false;
+  if (!dataset.tenant) {
+    // Legacy tenancy-less document: the exact verified owner may keep writing,
+    // never "any role". Cross-tenant access requires an explicit migration.
+    return !!dataset.owner && dataset.owner === principal.subject && hasWriteScope(principal);
+  }
+  if (dataset.tenant !== principal.tenantKey) return false;
+  return hasWriteScope(principal);
+}
+
+/**
+ * Whether the caller may see *unpublished* rows of this dataset (drafts).
+ * Anonymous and plain-member readers of a public projection must only ever see
+ * published rows.
+ */
+export function canReadRecordDrafts(dataset: DatasetRecord, caller: Caller): boolean {
+  const principal = caller.principal;
+  if (!caller.authenticated || !principal) return false;
+  if (isAdmin(principal) || isTenantAdmin(principal)) return true;
+  if (!dataset.tenant) return !!dataset.owner && dataset.owner === principal.subject;
+  if (dataset.tenant !== principal.tenantKey) return false;
+  return canReadPrivateDatasetData(dataset, principal);
 }
 
 /** Explicit route-level dataset visibility decision (never leaks existence). */
@@ -91,6 +163,16 @@ export async function accessibleDataset(
 ): Promise<DatasetDocument> {
   const found = await loadDataset(client, id);
   if (!found) throw apiError(404, 'dataset_not_found', 'dataset not found');
+  const product = id.startsWith('city-') ? 'city' : id.startsWith('sos-') ? 'sos' : null;
+  const principal = caller.principal;
+  if (product && principal && !isMachineCredential(principal) && !isTenantAdmin(principal)) {
+    // Anonymous/public projection endpoints remain public. Authenticated product
+    // source data requires an app grant; user API keys inherit that same gate.
+    const subject = principal.userId || principal.subject;
+    const grants = await workspaceAccess(client, principal.org || principal.tenantKey, { ...principal, subject });
+    if (!grants[product]?.length) throw apiError(404, 'dataset_not_found', 'dataset not found');
+    if (mode === 'write') throw apiError(403, 'workspace_action_required', 'product mutations require an authorized workspace action');
+  }
   if (mode === 'write') assertCanWriteDataset(found.data, caller);
   else if (mode === 'records') assertCanReadRecords(found.data, caller);
   else assertCanReadDataset(found.data, caller);

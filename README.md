@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="apps/console/public/brand/logo-lockup-dark.png">
+    <img src="apps/console/public/brand/logo-lockup-light.png" width="420" alt="SynapseDX">
+  </picture>
+</p>
+
 # SynapseDX — Tier 2
 
 ![CI](https://github.com/vku-open-source-2026/SynapseDX/actions/workflows/ci.yml/badge.svg)
@@ -9,10 +16,11 @@ organization/open-data capabilities and uses SynapseOne for all persistence,
 identity verification and messaging.
 
 ```text
-apps/gateway             public HTTPS API boundary (container :8080, host :8082)
+apps/gateway             public HTTPS API boundary (Rust/Axum, container :8080, host :8082)
 apps/capabilities-service reusable capability backend (container :8082)
 apps/console              React console (Vite + TanStack Router + Tailwind, container :80, optional cloud. host)
 sdks/capabilities-js      @synapsedx/capabilities client SDK
+sdks/capabilities-rust    synapsedx (Rust, async reqwest/tokio)
 infra/                    public-edge snippets and deployment material
 ```
 
@@ -20,14 +28,74 @@ The backend imports `@synapseone/sdk` and does not use raw HTTP to SynapseOne;
 it has no database, queue, cache or identity store of its own. Tier 3 calls the
 gateway at `https://synapsedx.sbs`.
 
-> **Registry SDK.** `@synapseone/sdk@^0.8.0` is published on npm and includes
-> SynapseOCS, storage, notifications and the typed identity/health lifecycle.
-> The service and Docker build install it directly from the registry; there is
-> no vendored SDK tarball.
+Capabilities include datasets/records/publication, dataset PostGIS spatial
+queries (`near`/`bbox`/`within`), cursor and SSE event feeds, deterministic
+resource assignment, phased EOP plan orchestration with grounded briefs/AI
+drafts, files, notifications, approvals, jobs, warehouse and identity
+adapters. See `docs/API.md`; the 0.9.12 release notes are in
+`docs/CAPABILITY_RELEASE_0.9.12.md`.
+
+> **Registry SDK.** `@synapseone/sdk@^0.9.1` is installed from npm and includes
+> SynapseOCS, storage, notifications, spatial/geo, streaming and the typed
+> identity/health lifecycle. The service and Docker build install it directly
+> from the registry; there is no vendored SDK tarball.
 
 > **Ports:** `8082` is the host publish port. Inside the compose network the
 > gateway listens on `8080` and is reachable as `synapsedx-gateway:8080`; the
 > capabilities service listens on `8082` and is not published.
+
+## Self-host
+
+Three public GHCR images are published for every release (Apache-2.0, no
+registry login required):
+
+- `ghcr.io/vku-open-source-2026/synapsedx/capabilities`
+- `ghcr.io/vku-open-source-2026/synapsedx/gateway`
+- `ghcr.io/vku-open-source-2026/synapsedx/console`
+
+> If `docker pull` returns `unauthorized`, the GHCR packages have not been
+> switched to public yet. An organization admin must add a `GHCR_PAT` secret
+> (package admin) and run the `packages-public` workflow in the SynapseOne
+> repository once.
+
+Tier 2 always uses a live Tier-1 SynapseOne API. For the public demo that is
+`https://api.synapseone.space`; for a private stack point `SYNAPSEONE_BASE_URL`
+at your own SynapseOne gateway and issue a scoped `SYNAPSEONE_API_KEY` there.
+
+### 1. Run the published images (recommended)
+
+```bash
+git clone https://github.com/vku-open-source-2026/SynapseDX.git
+cd SynapseDX
+cp .env.example .env        # set SYNAPSEONE_BASE_URL + SYNAPSEONE_API_KEY
+export SYNAPSEDX_VERSION=v0.9.14   # or latest
+
+docker compose pull
+docker compose up -d --no-build
+curl http://127.0.0.1:8082/health
+```
+
+The gateway is bound to loopback by default; terminate TLS with your own edge
+(see `infra/`) and keep the capabilities service private.
+
+### 2. Build from source
+
+Requirements: Node.js 20+, Docker Engine 24+ and Compose v2.24+.
+
+```bash
+git clone https://github.com/vku-open-source-2026/SynapseDX.git
+cd SynapseDX
+cp .env.example .env        # set SYNAPSEONE_BASE_URL + SYNAPSEONE_API_KEY
+npm ci
+npm run build
+npm test
+docker compose build
+docker compose up -d --no-build
+```
+
+`docker compose up -d --build` combines the last two steps. The Compose images
+are the published GHCR names, so a local build and a registry pull produce the
+same stack.
 
 ## Authentication and tenancy
 
@@ -71,6 +139,7 @@ production.
 | audit / usage | available | Tier-2 mutation audit + Tier-1 IAM usage projection |
 | files | available | binary upload/download, metadata, checksum, quota, presigned URLs via Tier-1 storage |
 | notifications | available | templates, send, status, cancel, preferences via Tier-1 notifications |
+| warehouse | available | Tier-1 DuckDB OLAP datasets, read-only SQL, batch/stream ETL, saved reports and published snapshots |
 | geo | provider-configured | provider-neutral adapter (generic REST or VietMap preset); configure `SYNAPSEDX_GEOCODER_*` |
 
 See [`docs/API.md`](docs/API.md) for the full route, error-code, pagination and
@@ -160,14 +229,25 @@ access or a production credential.
 
 ## Release status
 
-- Tier-2 API/service: versioned in `CHANGELOG.md`.
-- SDK `@synapsedx/capabilities@0.3.0`: packaging is release-ready
-  (LICENSE/NOTICE, no test artifacts, `engines.node >= 20`), but it is **not
-  yet published** to npm because no `NPM_TOKEN` is available. Tier-3 currently
-  uses a `file:` dependency; the local `npm pack`/consumer-install checks pass.
-  Operator publish steps are in [`docs/RELEASE.md`](docs/RELEASE.md). See issue
-  #14 for the remaining registry publication and Tier-3 adoption steps.
+- Tier-2 API/service: versioned in `CHANGELOG.md`; current release `v0.6.1`.
+- Public container images:
+  `ghcr.io/vku-open-source-2026/synapsedx/{capabilities,gateway,console}`.
+- Rust SDK `synapsedx` (`sdks/capabilities-rust`, version `0.7.0`) is ready
+  for crates.io publication.
+- SDK `@synapsedx/capabilities@0.7.0`: release tarball is attached to
+  <https://github.com/vku-open-source-2026/SynapseDX/releases/tag/v0.6.0> and
+  mirrored through the same Tier-2 files capability into Tier-1 SynapseOCS:
+  <https://synapsedx.sbs/v1/capabilities/public/files/synapsedx-capabilities-0.6.0/content>
+  (`SHA-256 e036f511390cd3e6a1d772bd818ca4f7ed1c2b18360dceac71a7411d3b75f676`).
+  npm registry publication still requires `NPM_TOKEN`; the GitHub/OCS tarball
+  is the reproducible release artifact until that is available.
 - License: Apache-2.0 (`LICENSE`) with per-source SPDX headers and attribution
   in `NOTICE`.
 - Issue tracker: [GitHub Issues](https://github.com/vku-open-source-2026/SynapseDX/issues).
 - Dependency inventory: [`THIRD-PARTY.md`](THIRD-PARTY.md).
+
+## Brand
+
+Logo, icon and social-preview assets live in [`apps/console/public/brand`](apps/console/public/brand). The console serves the favicon, web app manifest and icons from `apps/console/public`.
+
+To set the GitHub repository social preview, upload [`apps/console/public/brand/social-preview.png`](apps/console/public/brand/social-preview.png) in **Settings → Social preview**.

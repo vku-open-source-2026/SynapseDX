@@ -3,7 +3,7 @@
 /** Dataset CRUD, lifecycle and public entity projection routes. */
 import { Express, Request, Response } from 'express';
 import { SynapseOneError } from '@synapseone/sdk';
-import { CallerPrincipal, canAccessDataset, isAdmin } from '../auth';
+import { CallerPrincipal, canAccessDataset, isAdmin, isTenantAdmin, isMachineCredential } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -13,11 +13,12 @@ import { loadManagementSettings } from '../settings';
 import { booleanParam, parsePagination, setPageHeaders, stringParam } from '../pagination';
 import {
   COLLECTIONS, DatasetRecord, buildEvent, claimIdempotency, correlationIdOf, emitEvent,
-  ensureCollections, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint,
+  ensureCollections, idempotencyKeyOf, collectAll, queryDocuments, recordAudit, requestFingerprint,
 } from '../platform';
 import {
   listDatasetRecords, loadDataset, publishDataset, revokeDataset, revokeProjection, syncDatasourceMetadata,
 } from '../publication';
+import { removeAllRecordGeo, validateGeoConfig } from '../spatial';
 import {
   accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
 } from './shared';
@@ -69,15 +70,16 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const combined = where && status && status !== 'published'
       ? { and: [where, { status }] }
       : where;
-    const result = await queryDocuments<DatasetRecord>(client, COLLECTIONS.datasets, {
-      ...(combined ? { where: combined } : {}),
-      orderBy: { field: 'id', direction: 'asc' },
-      limit: pagination.limit,
-      offset: pagination.offset,
-      ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
+    // Filter the full tenant result before pagination so neither hidden app
+    // metadata nor a count/cursor reveals the other application's catalog.
+    const all = await collectAll<DatasetRecord>(client, COLLECTIONS.datasets, {
+      ...(combined ? { where: combined } : {}), orderBy: { field: 'id', direction: 'asc' },
     });
-    const items = result.items.map((item) => ({ ...item.data }));
-    setPageHeaders(res, { total: result.total, limit: pagination.limit, offset: pagination.offset, nextCursor: result.nextCursor });
+    const visible = all.filter(item => canAccessDataset(item.data, caller));
+    const offset = pagination.cursor ? Number(pagination.cursor) : pagination.offset;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw apiError(400, 'invalid_cursor', 'invalid dataset cursor');
+    const items = visible.slice(offset, offset + pagination.limit).map(item => ({ ...item.data }));
+    setPageHeaders(res, { total: visible.length, limit: pagination.limit, offset, ...(offset + pagination.limit < visible.length ? { nextCursor: String(offset + pagination.limit) } : {}) });
     res.json(items);
   }));
 
@@ -86,6 +88,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
     const body = (req.body || {}) as Record<string, unknown>;
     const id = slugifyDataset(body.slug ?? body.id ?? body.name);
     if (!DATASET_SLUG_RE.test(id)) throw apiError(400, 'invalid_slug', 'a valid slug or name is required');
+    if (/^(city|sos)-/.test(id) && !isTenantAdmin(principal) && !isMachineCredential(principal)) throw apiError(403, 'workspace_action_required', 'product datasets are managed by their application');
     const publicFlag = body.public === true;
     const requested = datasetBody(body) as { name?: string; entityType?: string; license?: string; schemaVersion?: string };
     if (!requested.name) throw apiError(400, 'field_required', 'name is required', { field: 'name' });
@@ -120,6 +123,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         tenant: principal.tenantKey,
         schemaVersion: requested.schemaVersion || '1.0.0',
         ...(body.retentionDays !== undefined ? { retentionDays: validateRetentionDays(body.retentionDays) } : {}),
+        ...(body.geo !== undefined ? { geo: validateGeoConfig(body.geo) } : {}),
         status: 'draft',
         createdAt: now,
         updatedAt: now,
@@ -182,9 +186,17 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
       if (typeof body.public !== 'boolean') throw apiError(400, 'public_must_be_boolean', 'public must be a boolean');
       patch.public = body.public;
     }
-    if (Object.keys(patch).length === 0) throw apiError(400, 'no_updatable_fields', 'no updatable fields were supplied');
+    // `geo: null` explicitly removes the binding; an object replaces it.
+    let clearGeo = false;
+    if (body.geo !== undefined) {
+      if (body.geo === null) clearGeo = true;
+      else patch.geo = validateGeoConfig(body.geo);
+    }
+    if (Object.keys(patch).length === 0 && !clearGeo) throw apiError(400, 'no_updatable_fields', 'no updatable fields were supplied');
 
     const working: DatasetRecord = { ...data, ...patch, updatedAt: new Date().toISOString() };
+    if (clearGeo) delete working.geo;
+    const changes = [...Object.keys(patch), ...(clearGeo ? ['geo'] : [])];
     const correlationId = correlationIdOf(req);
     const idempotencyKey = idempotencyKeyOf(req);
     const claim = await claimIdempotency(
@@ -243,13 +255,13 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
         }
         const event = buildEvent('dataset.updated', {
           datasetId: result.id, version: result.schemaVersion, at: result.updatedAt,
-          correlationId, payload: { changes: Object.keys(patch) },
+          correlationId, payload: { changes },
         }, idempotencyKey);
         emitted = await emitEvent(client, config, result, event);
       }
       await recordAudit(client, config, {
         actor: principal.subject, tenant: principal.tenantKey, action: 'dataset.update',
-        datasetId: result.id, correlationId, details: { changes: Object.keys(patch) },
+        datasetId: result.id, correlationId, details: { changes },
       });
       if (!emitted.delivered) res.setHeader('x-event-status', 'pending');
       setVersionHeaders(res, resultVersion);
@@ -355,6 +367,7 @@ export function registerDatasetRoutes(app: Express, config: ServiceConfig): void
           if (!(error instanceof SynapseOneError && error.status === 404)) throw error;
         }
       }
+      await removeAllRecordGeo(client, data, records.map((record) => record.id));
     }
     await revokeProjection(client, data);
     try {

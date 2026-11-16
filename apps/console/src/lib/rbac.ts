@@ -4,6 +4,7 @@
 
 export interface ManagementContext {
   user?: { id: string; email?: string; displayName?: string };
+  isOrganizationAdmin?: boolean;
   tenant?: string;
   account?: string;
   org?: string;
@@ -43,12 +44,15 @@ export function roleLabel(context: ManagementContext | null): string {
 export type ConsoleView =
   | 'overview'
   | 'datasets'
+  | 'warehouse'
   | 'records'
   | 'moderation'
   | 'approvals'
   | 'modules'
   | 'team'
   | 'events'
+  | 'workspaces'
+  | 'workflows'
   | 'audit'
   | 'settings';
 
@@ -56,7 +60,22 @@ export interface NavItem {
   view: ConsoleView;
   label: string;
   /** lucide-react icon name as rendered by the sidebar. */
-  icon: 'dashboard' | 'datasets' | 'records' | 'moderation' | 'modules' | 'approvals' | 'team' | 'events' | 'audit' | 'settings';
+  icon:
+    | 'dashboard'
+    | 'datasets'
+    | 'warehouse'
+    | 'records'
+    | 'moderation'
+    | 'modules'
+    | 'approvals'
+    | 'team'
+    | 'events'
+    | 'workspaces'
+    | 'workflows'
+    | 'audit'
+    | 'settings';
+  /** Plain anchor target for pages owned by another console task. */
+  href?: string;
 }
 
 /**
@@ -68,6 +87,9 @@ export function navigationFor(context: ManagementContext | null): NavItem[] {
     { view: 'overview', label: 'Overview', icon: 'dashboard' },
     { view: 'datasets', label: 'Datasets', icon: 'datasets' },
   ];
+  if (context && (hasRole(context, 'manager') || hasRole(context, 'admin') || hasRole(context, 'operator') || can(context, 'datasets:read'))) {
+    items.push({ view: 'warehouse', label: 'Warehouse', icon: 'warehouse' });
+  }
   if (can(context, 'records:read')) items.push({ view: 'records', label: 'Records', icon: 'records' });
   if (can(context, 'records:read') || can(context, 'datasets:read')) {
     items.push({ view: 'modules', label: 'Modules', icon: 'modules' });
@@ -76,6 +98,12 @@ export function navigationFor(context: ManagementContext | null): NavItem[] {
   if (can(context, 'approvals:read')) items.push({ view: 'approvals', label: 'Approvals', icon: 'approvals' });
   if (can(context, 'users:read')) items.push({ view: 'team', label: 'Team', icon: 'team' });
   if (can(context, 'events:read')) items.push({ view: 'events', label: 'Events', icon: 'events' });
+  if (hasRole(context, 'admin') || can(context, 'workspaces:write') || can(context, 'workspaces:manage') || can(context, 'settings:write')) {
+    items.push({ view: 'workspaces', label: 'Workspace builder', icon: 'workspaces' });
+  }
+  if (hasRole(context, 'admin') || can(context, 'workflows:write') || can(context, 'workflows:manage') || can(context, 'settings:write')) {
+    items.push({ view: 'workflows', label: 'Workflows', icon: 'workflows', href: '/admin/workflows' });
+  }
   if (can(context, 'audit:read')) items.push({ view: 'audit', label: 'Audit & usage', icon: 'audit' });
   if (can(context, 'settings:read') || can(context, 'settings:write')) {
     items.push({ view: 'settings', label: 'Settings', icon: 'settings' });

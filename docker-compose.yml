@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 VKU.VIC
 services:
   capabilities:
-    image: synapsedx-capabilities:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/capabilities:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/capabilities-service/Dockerfile
@@ -29,7 +29,7 @@ services:
     networks: [synapsedx]
 
   gateway:
-    image: synapsedx-gateway:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/gateway:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
@@ -41,7 +41,10 @@ services:
       UPSTREAM_TIMEOUT_MS: "30000"
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     ports:
-      - "8082:8080"
+      # Loopback only: the public edge is synapseone-nginx (80/443), which
+      # reaches this gateway over the Docker network. Publishing 0.0.0.0 here
+      # exposes plaintext HTTP and bypasses the TLS edge.
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8082}:8080"
     depends_on:
       capabilities:
         condition: service_started
@@ -56,7 +59,7 @@ services:
         aliases: [synapsedx-gateway]
 
   console:
-    image: synapsedx-console:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/console:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/console/Dockerfile

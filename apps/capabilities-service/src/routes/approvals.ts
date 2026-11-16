@@ -11,7 +11,7 @@
 import { Express } from 'express';
 import { randomUUID } from 'crypto';
 import { SynapseOneClient, SynapseOneError } from '@synapseone/sdk';
-import { CallerPrincipal, hasReadScope, hasWriteScope, isAdmin, isModerator, requireAuthenticated } from '../auth';
+import { CallerPrincipal, hasReadScope, hasWriteScope, isAdmin, isModerator, isTenantAdmin, requireAuthenticated } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -52,7 +52,7 @@ export interface ApprovalRecord {
 function actorRoles(principal: CallerPrincipal): Set<string> {
   const roles = new Set<string>(managementRoles(principal));
   for (const scope of principal.scopes) roles.add(scope.toLowerCase());
-  if (isAdmin(principal)) roles.add('admin');
+  if (isTenantAdmin(principal)) roles.add('admin');
   if (isModerator(principal)) roles.add('moderator');
   if (hasWriteScope(principal)) roles.add('operator');
   if (hasReadScope(principal)) roles.add('manager');
@@ -189,7 +189,7 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
     if (mine === 'requester') items = items.filter((item) => item.requester === verified.subject);
     if (mine === 'approver') {
       items = items.filter((item) => item.status === 'pending'
-        && (item.approverRoles.length === 0 || isAdmin(verified)
+        && (item.approverRoles.length === 0 || isTenantAdmin(verified)
           || item.approverRoles.some((role) => roles.has(role.toLowerCase()))));
     }
     res.setHeader('cache-control', 'no-store');
@@ -219,7 +219,7 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
       throw apiError(403, 'self_approval_forbidden', 'the requester cannot decide their own approval');
     }
     const roles = actorRoles(verified);
-    if (approval.approverRoles.length && !isAdmin(verified)
+    if (approval.approverRoles.length && !isTenantAdmin(verified)
       && !approval.approverRoles.some((role) => roles.has(role.toLowerCase()))) {
       throw apiError(403, 'approver_role_required', 'this approval requires one of the configured approver roles', {
         approverRoles: approval.approverRoles,
@@ -260,7 +260,7 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
     const verified = requireAuthenticated(caller);
     const { approval, version } = await loadApproval(client, String(req.params.id));
     if (!canSee(verified, approval)) throw apiError(404, 'approval_not_found', 'approval not found');
-    if (approval.requester !== verified.subject && !isAdmin(verified)) {
+    if (approval.requester !== verified.subject && !isTenantAdmin(verified)) {
       throw apiError(403, 'cancel_forbidden', 'only the requester or an administrator can cancel');
     }
     if (approval.status !== 'pending') throw apiError(409, 'approval_not_pending', 'this approval is no longer pending');

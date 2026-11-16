@@ -1,0 +1,982 @@
+[
+  {
+    "id": "welcome",
+    "type": "heading",
+    "title": "Your team’s work, connected",
+    "width": "full",
+    "text": "Projects, tasks, knowledge and decisions for this app’s members."
+  },
+  {
+    "id": "common-tools",
+    "type": "tabs",
+    "title": "Common workspace",
+    "width": "full",
+    "links": [
+      {
+        "label": "Tasks",
+        "target": "section:tasks"
+      },
+      {
+        "label": "Projects",
+        "target": "section:projects"
+      },
+      {
+        "label": "Wiki & knowledge",
+        "target": "section:workspace"
+      },
+      {
+        "label": "Inbox",
+        "target": "section:inbox"
+      },
+      {
+        "label": "Forms & approvals",
+        "target": "section:forms"
+      },
+      {
+        "label": "Reports",
+        "target": "section:reports"
+      },
+      {
+        "label": "Files & attachments",
+        "target": "section:files"
+      },
+      {
+        "label": "Document extraction",
+        "target": "section:ocr"
+      },
+      {
+        "label": "Assistant",
+        "target": "section:assistant"
+      }
+    ]
+  },
+  {
+    "id": "task-count",
+    "type": "metric",
+    "title": "Team tasks",
+    "width": "quarter",
+    "resource": "commonTasks",
+    "section": "tasks"
+  },
+  {
+    "id": "project-count",
+    "type": "metric",
+    "title": "Projects",
+    "width": "quarter",
+    "resource": "commonProjects",
+    "section": "tasks"
+  },
+  {
+    "id": "knowledge-count",
+    "type": "metric",
+    "title": "Knowledge pages",
+    "width": "quarter",
+    "resource": "commonPages",
+    "section": "tasks"
+  },
+  {
+    "id": "inbox-count",
+    "type": "metric",
+    "title": "Inbox items",
+    "width": "quarter",
+    "resource": "commonInbox",
+    "section": "tasks"
+  },
+  {
+    "id": "task-board",
+    "type": "kanban",
+    "title": "Task board",
+    "width": "full",
+    "resource": "commonTasks",
+    "columns": [
+      "title",
+      "status",
+      "assignee",
+      "endDate",
+      "projectId"
+    ],
+    "groupBy": "status",
+    "groups": [
+      "todo",
+      "doing",
+      "done"
+    ],
+    "updateForm": "task-status",
+    "section": "tasks"
+  },
+  {
+    "id": "task-timeline",
+    "type": "timeline",
+    "title": "Upcoming work",
+    "width": "half",
+    "resource": "commonTasks",
+    "columns": [
+      "title",
+      "endDate",
+      "status",
+      "assignee"
+    ],
+    "section": "tasks"
+  },
+  {
+    "id": "task-list",
+    "type": "table",
+    "title": "All tasks",
+    "width": "half",
+    "resource": "commonTasks",
+    "columns": [
+      "title",
+      "status",
+      "assignee",
+      "estimateHours",
+      "endDate"
+    ],
+    "section": "tasks"
+  },
+  {
+    "id": "task-create",
+    "type": "form",
+    "title": "Create task",
+    "width": "full",
+    "resource": "commonTasks",
+    "action": "create",
+    "fields": [
+      {
+        "name": "projectId",
+        "label": "Project",
+        "type": "select",
+        "required": true,
+        "optionsResource": "commonProjects"
+      },
+      {
+        "name": "title",
+        "label": "Task title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "assignee",
+        "label": "Assignee",
+        "type": "text"
+      },
+      {
+        "name": "status",
+        "label": "Status",
+        "type": "select",
+        "options": [
+          "todo",
+          "doing",
+          "done"
+        ],
+        "defaultValue": "todo"
+      },
+      {
+        "name": "startDate",
+        "label": "Start date",
+        "type": "date"
+      },
+      {
+        "name": "endDate",
+        "label": "Due date",
+        "type": "date"
+      },
+      {
+        "name": "estimateHours",
+        "label": "Estimate (hours)",
+        "type": "number"
+      }
+    ],
+    "section": "tasks"
+  },
+  {
+    "id": "task-edit",
+    "type": "form",
+    "title": "Edit task",
+    "width": "full",
+    "resource": "commonTasks",
+    "action": "update",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "title",
+        "label": "Task title",
+        "type": "text"
+      },
+      {
+        "name": "assignee",
+        "label": "Assignee",
+        "type": "text"
+      },
+      {
+        "name": "estimateHours",
+        "label": "Estimate (hours)",
+        "type": "number"
+      }
+    ],
+    "section": "tasks"
+  },
+  {
+    "id": "task-status",
+    "type": "form",
+    "title": "Change task status",
+    "width": "full",
+    "resource": "commonTasks",
+    "action": "update",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "status",
+        "label": "Status",
+        "type": "select",
+        "required": true,
+        "options": [
+          "todo",
+          "doing",
+          "done"
+        ]
+      }
+    ],
+    "section": "tasks"
+  },
+  {
+    "id": "project-list",
+    "type": "table",
+    "title": "Project portfolio",
+    "width": "full",
+    "resource": "commonProjects",
+    "columns": [
+      "name",
+      "program",
+      "startDate",
+      "endDate",
+      "stage",
+      "budget"
+    ],
+    "section": "projects"
+  },
+  {
+    "id": "project-timeline",
+    "type": "timeline",
+    "title": "Project schedule",
+    "width": "full",
+    "resource": "commonProjects",
+    "columns": [
+      "name",
+      "endDate",
+      "program"
+    ],
+    "section": "projects"
+  },
+  {
+    "id": "project-create",
+    "type": "form",
+    "title": "Create project",
+    "width": "full",
+    "resource": "commonProjects",
+    "action": "create",
+    "fields": [
+      {
+        "name": "name",
+        "label": "Project name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "program",
+        "label": "Program",
+        "type": "text"
+      },
+      {
+        "name": "startDate",
+        "label": "Start date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "name": "endDate",
+        "label": "End date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "name": "budget",
+        "label": "Budget",
+        "type": "number"
+      }
+    ],
+    "section": "projects"
+  },
+  {
+    "id": "project-edit",
+    "type": "form",
+    "title": "Edit project",
+    "width": "full",
+    "resource": "commonProjects",
+    "action": "update",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "name",
+        "label": "Project name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "program",
+        "label": "Program",
+        "type": "text"
+      },
+      {
+        "name": "startDate",
+        "label": "Start date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "name": "endDate",
+        "label": "End date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "name": "budget",
+        "label": "Budget",
+        "type": "number"
+      }
+    ],
+    "section": "projects"
+  },
+  {
+    "id": "wiki-spaces",
+    "type": "table",
+    "title": "Knowledge spaces",
+    "width": "half",
+    "resource": "commonWorkspaces",
+    "columns": [
+      "name",
+      "para",
+      "visibility",
+      "description"
+    ],
+    "section": "workspace"
+  },
+  {
+    "id": "wiki-pages",
+    "type": "table",
+    "title": "Wiki pages",
+    "width": "half",
+    "resource": "commonPages",
+    "columns": [
+      "title",
+      "folder",
+      "updatedAt",
+      "tags"
+    ],
+    "section": "workspace"
+  },
+  {
+    "id": "wiki-space-create",
+    "type": "form",
+    "title": "Create knowledge space",
+    "width": "full",
+    "resource": "commonWorkspaces",
+    "action": "create",
+    "fields": [
+      {
+        "name": "name",
+        "label": "Space name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "description",
+        "label": "Description",
+        "type": "textarea"
+      },
+      {
+        "name": "para",
+        "label": "Folder",
+        "type": "select",
+        "required": true,
+        "options": [
+          "projects",
+          "areas",
+          "resources",
+          "archive"
+        ],
+        "defaultValue": "areas"
+      },
+      {
+        "name": "visibility",
+        "label": "Visibility",
+        "type": "select",
+        "required": true,
+        "options": [
+          "team",
+          "private"
+        ],
+        "defaultValue": "team"
+      }
+    ],
+    "section": "workspace"
+  },
+  {
+    "id": "wiki-create",
+    "type": "form",
+    "title": "Create wiki page",
+    "width": "full",
+    "resource": "commonPages",
+    "action": "create",
+    "fields": [
+      {
+        "name": "workspaceId",
+        "label": "Knowledge space",
+        "type": "select",
+        "required": true,
+        "optionsResource": "commonWorkspaces"
+      },
+      {
+        "name": "title",
+        "label": "Page title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "markdown",
+        "label": "Page content",
+        "type": "markdown",
+        "required": true
+      },
+      {
+        "name": "tags",
+        "label": "Tags (JSON array)",
+        "type": "json",
+        "defaultValue": "[]"
+      }
+    ],
+    "section": "workspace"
+  },
+  {
+    "id": "wiki-edit",
+    "type": "form",
+    "title": "Edit wiki page",
+    "width": "full",
+    "resource": "commonPages",
+    "action": "update",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "title",
+        "label": "Page title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "markdown",
+        "label": "Page content",
+        "type": "markdown",
+        "required": true
+      },
+      {
+        "name": "tags",
+        "label": "Tags (JSON array)",
+        "type": "json",
+        "defaultValue": "[]"
+      }
+    ],
+    "section": "workspace"
+  },
+  {
+    "id": "inbox-list",
+    "type": "table",
+    "title": "Your inbox",
+    "width": "full",
+    "resource": "commonInbox",
+    "columns": [
+      "title",
+      "status",
+      "body",
+      "createdAt"
+    ],
+    "section": "inbox"
+  },
+  {
+    "id": "inbox-read",
+    "type": "form",
+    "title": "Mark as read",
+    "width": "full",
+    "resource": "commonInbox",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "section": "inbox"
+  },
+  {
+    "id": "inbox-archive",
+    "type": "form",
+    "title": "Archive notification",
+    "width": "full",
+    "resource": "commonInbox",
+    "action": "delete",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "section": "inbox"
+  },
+  {
+    "id": "forms-list",
+    "type": "table",
+    "title": "Form library",
+    "width": "half",
+    "resource": "commonForms",
+    "columns": [
+      "name",
+      "description",
+      "version",
+      "published"
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "approvals-list",
+    "type": "table",
+    "title": "Approval requests",
+    "width": "half",
+    "resource": "commonApprovals",
+    "columns": [
+      "title",
+      "status",
+      "requester",
+      "dueAt"
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "form-create",
+    "type": "form",
+    "title": "Create form schema",
+    "width": "full",
+    "resource": "commonForms",
+    "action": "create",
+    "fields": [
+      {
+        "name": "name",
+        "label": "Form name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "description",
+        "label": "Description",
+        "type": "textarea"
+      },
+      {
+        "name": "schema",
+        "label": "JSON schema",
+        "type": "json",
+        "required": true,
+        "defaultValue": "{\"type\":\"object\",\"properties\":{\"notes\":{\"type\":\"string\"}},\"required\":[\"notes\"]}",
+        "editor": "schema"
+      },
+      {
+        "name": "published",
+        "label": "Published",
+        "type": "checkbox"
+      }
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "form-validate",
+    "type": "form",
+    "title": "Validate form data",
+    "width": "full",
+    "resource": "commonForms",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "values",
+        "label": "Form values (JSON)",
+        "type": "json",
+        "required": true,
+        "defaultValue": "{}"
+      }
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "approval-create",
+    "type": "form",
+    "title": "Request approval",
+    "width": "full",
+    "resource": "commonApprovals",
+    "action": "create",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Request title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "module",
+        "label": "Module",
+        "type": "text",
+        "required": true,
+        "defaultValue": "common"
+      },
+      {
+        "name": "action",
+        "label": "Requested action",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "approverRoles",
+        "label": "Approver roles (JSON array)",
+        "type": "json",
+        "required": true,
+        "defaultValue": "[\"synapsedx:manager\"]"
+      },
+      {
+        "name": "payload",
+        "label": "Request details (JSON)",
+        "type": "json",
+        "defaultValue": "{}"
+      }
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "approval-decide",
+    "type": "form",
+    "title": "Record approval decision",
+    "width": "full",
+    "resource": "commonApprovals",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "decision",
+        "label": "Decision",
+        "type": "select",
+        "required": true,
+        "options": [
+          "approve",
+          "reject"
+        ]
+      },
+      {
+        "name": "note",
+        "label": "Decision note",
+        "type": "textarea"
+      }
+    ],
+    "section": "forms"
+  },
+  {
+    "id": "reports-list",
+    "type": "table",
+    "title": "Saved reports",
+    "width": "full",
+    "resource": "commonReports",
+    "columns": [
+      "name",
+      "kind",
+      "datasetId",
+      "description"
+    ],
+    "section": "reports"
+  },
+  {
+    "id": "report-create",
+    "type": "form",
+    "title": "Create report",
+    "width": "full",
+    "resource": "commonReports",
+    "action": "create",
+    "fields": [
+      {
+        "name": "name",
+        "label": "Report name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "description",
+        "label": "Description",
+        "type": "textarea"
+      },
+      {
+        "name": "datasetId",
+        "label": "Authorized dataset ID",
+        "type": "text"
+      },
+      {
+        "name": "kind",
+        "label": "Report type",
+        "type": "select",
+        "required": true,
+        "options": [
+          "table",
+          "metric",
+          "bar",
+          "trend",
+          "status"
+        ],
+        "defaultValue": "table"
+      },
+      {
+        "name": "query",
+        "label": "Query configuration (JSON)",
+        "type": "json",
+        "required": true,
+        "defaultValue": "{}",
+        "editor": "query"
+      }
+    ],
+    "section": "reports"
+  },
+  {
+    "id": "report-run",
+    "type": "form",
+    "title": "Run report",
+    "width": "full",
+    "resource": "commonReports",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "params",
+        "label": "Parameters (JSON)",
+        "type": "json",
+        "defaultValue": "{}"
+      }
+    ],
+    "section": "reports"
+  },
+  {
+    "id": "ocr-list",
+    "type": "table",
+    "title": "Extraction jobs",
+    "width": "full",
+    "resource": "commonOcr",
+    "columns": [
+      "fileId",
+      "status",
+      "source",
+      "createdAt"
+    ],
+    "section": "ocr"
+  },
+  {
+    "id": "ocr-create",
+    "type": "form",
+    "title": "Extract document",
+    "width": "full",
+    "resource": "commonOcr",
+    "action": "create",
+    "fields": [
+      {
+        "name": "fileId",
+        "label": "App document",
+        "type": "select",
+        "required": true,
+        "optionsResource": "commonFiles"
+      },
+      {
+        "name": "text",
+        "label": "Pre-extracted text (optional)",
+        "type": "textarea"
+      }
+    ],
+    "section": "ocr"
+  },
+  {
+    "id": "ocr-redact",
+    "type": "form",
+    "title": "Redact personal data",
+    "width": "full",
+    "resource": "commonOcr",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "record_id",
+        "label": "Record ID",
+        "type": "text",
+        "required": true
+      }
+    ],
+    "section": "ocr"
+  },
+  {
+    "id": "knowledge-list",
+    "type": "table",
+    "title": "Knowledge sources",
+    "width": "full",
+    "resource": "commonKnowledge",
+    "columns": [
+      "title",
+      "sourceType",
+      "chars"
+    ],
+    "section": "assistant"
+  },
+  {
+    "id": "knowledge-create",
+    "type": "form",
+    "title": "Add knowledge source",
+    "width": "full",
+    "resource": "commonKnowledge",
+    "action": "create",
+    "fields": [
+      {
+        "name": "title",
+        "label": "Document title",
+        "type": "text",
+        "required": true
+      },
+      {
+        "name": "text",
+        "label": "Document text",
+        "type": "markdown",
+        "required": true
+      },
+      {
+        "name": "acl",
+        "label": "Access roles (JSON array)",
+        "type": "json",
+        "defaultValue": "[]"
+      }
+    ],
+    "section": "assistant"
+  },
+  {
+    "id": "assistant-query",
+    "type": "form",
+    "title": "Ask your app assistant",
+    "width": "full",
+    "resource": "commonAssistant",
+    "action": "execute",
+    "fields": [
+      {
+        "name": "question",
+        "label": "Question",
+        "type": "textarea",
+        "required": true
+      }
+    ],
+    "presentation": "inline",
+    "section": "assistant"
+  },
+  {
+    "id": "files-list",
+    "type": "table",
+    "title": "Files & attachments",
+    "width": "full",
+    "resource": "commonFiles",
+    "columns": [
+      "filename",
+      "contentType",
+      "size",
+      "createdAt"
+    ],
+    "section": "files"
+  },
+  {
+    "id": "file-upload",
+    "type": "form",
+    "title": "Upload file",
+    "width": "half",
+    "resource": "commonFiles",
+    "action": "execute",
+    "section": "files",
+    "fields": [
+      {
+        "name": "file_id",
+        "label": "File",
+        "type": "file",
+        "required": true,
+        "maxBytes": 10485760
+      }
+    ],
+    "presentation": "inline"
+  },
+  {
+    "id": "file-download",
+    "type": "button",
+    "title": "Download selected file",
+    "width": "half",
+    "section": "files",
+    "onClick": "download-file"
+  },
+  {
+    "id": "download-file",
+    "type": "action",
+    "title": "Download selected file",
+    "operation": {
+      "kind": "download",
+      "target": "files-list",
+      "mappings": [
+        {
+          "field": "file_id",
+          "source": "selected",
+          "widgetId": "files-list",
+          "value": "id",
+          "required": true
+        }
+      ],
+      "javascript": "",
+      "inputs": [],
+      "actions": []
+    },
+    "section": "files"
+  }
+]

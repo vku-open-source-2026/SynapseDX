@@ -114,6 +114,22 @@ test('forwards credentials, conditional/idempotency headers and raw bodies', asy
   }
 });
 
+test('forwards server workspace credentials without enabling browser token access', async () => {
+  const upstream = await startUpstream();
+  const gateway = await startGateway({ upstream: upstream.base });
+  try {
+    const response = await fetch(`${gateway.base}/v1/capabilities/workspaces/runtime/city`, {
+      headers: { 'x-workspace-token': 'test-layout-credential' },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(upstream.requests.at(-1)?.headers['x-workspace-token'], 'test-layout-credential');
+    assert.equal(response.headers.get('access-control-allow-headers')?.includes('x-workspace-token'), false);
+  } finally {
+    await gateway.close();
+    await upstream.close();
+  }
+});
+
 test('a hanging upstream returns 504 within the configured timeout', async () => {
   const upstream = await startUpstream();
   const gateway = await startGateway({ upstream: upstream.base, timeoutMs: 150 });

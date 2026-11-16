@@ -15,13 +15,22 @@ import {
   requestFingerprint,
 } from '../platform';
 import {
-  ingestRecord, isRecordPublished, listDatasetRecords, rebuildProjection,
+  ingestRecord, ingestRecords, isRecordPublished, listDatasetRecords, rebuildProjection,
 } from '../publication';
 import {
-  accessibleDataset, expectedVersion, readContext, requireVersionMatch, setVersionHeaders, writeContext,
+  extractRecordGeometry, removeRecordGeo, syncRecordGeo, syncRecordsGeoBatch,
+} from '../spatial';
+import {
+  accessibleDataset, canReadRecordDrafts, expectedVersion, readContext, requireVersionMatch, setVersionHeaders,
+  writeContext,
 } from './shared';
 
-interface RecordResponse {
+/** Rows a non-draft reader (member, other authenticated caller, anonymous) may see. */
+function publishedRowFilter(): Record<string, unknown> {
+  return { or: [{ published: true }, { published: { exists: false } }] };
+}
+
+export interface RecordResponse {
   id: string;
   data: Record<string, unknown>;
   version: number;
@@ -30,7 +39,7 @@ interface RecordResponse {
   updatedAt: string;
 }
 
-function recordResponse(document: StoredDocument<CapabilityRecord>): RecordResponse {
+export function recordResponse(document: StoredDocument<CapabilityRecord>): RecordResponse {
   const record = document.data;
   return {
     id: record.id || document.id,
@@ -171,10 +180,13 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { caller, client } = await readContext(req, config);
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'records');
     const pagination = parsePagination(req, config.maxPageSize);
-    const publishedOnly = String(req.query.publishedOnly || '').toLowerCase() === 'true';
-    const where = publishedOnly
-      ? { and: [{ datasetId }, { or: [{ published: true }, { published: { exists: false } }] }] }
-      : { datasetId };
+    // A caller without draft rights can never widen visibility with a query
+    // parameter; a draft reader can still explicitly ask for published rows.
+    const drafts = canReadRecordDrafts(dataset, caller);
+    const publishedOnlyRequested = String(req.query.publishedOnly || '').toLowerCase() === 'true';
+    const where = drafts && !publishedOnlyRequested
+      ? { datasetId }
+      : { and: [{ datasetId }, publishedRowFilter()] };
     const result = await queryDocuments<CapabilityRecord>(client, COLLECTIONS.records, {
       where,
       orderBy: qualifiedOrderBy(req, req.query.orderBy) || { field: 'id', direction: 'asc' },
@@ -201,9 +213,11 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       throw apiError(400, 'invalid_request', 'where must be a filter object');
     }
     const pagination = bodyPagination(req, body, config.maxPageSize);
+    const drafts = canReadRecordDrafts(dataset, caller);
+    const draftFilter = drafts ? [] : [publishedRowFilter()];
     const where = body.where === undefined
-      ? { datasetId }
-      : { and: [{ datasetId }, qualifyRecordFilter(body.where)] };
+      ? { and: [{ datasetId }, ...draftFilter] }
+      : { and: [{ datasetId }, ...draftFilter, qualifyRecordFilter(body.where)] };
     const result = await queryDocuments<CapabilityRecord>(client, COLLECTIONS.records, {
       where,
       orderBy: qualifiedOrderBy(req, body.orderBy) || { field: 'id', direction: 'asc' },
@@ -240,37 +254,32 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       return;
     }
     try {
-      const created: RecordResponse[] = [];
       const errors: Array<{ index: number; code: string; message: string }> = [];
       let pendingEvents = false;
       let datasetVersion = document.version;
+      const prepared: Array<{ index: number; record: CapabilityRecord; geometry?: Record<string, unknown> }> = [];
       for (let index = 0; index < entries.length; index += 1) {
         const entry = (entries[index] || {}) as Record<string, unknown>;
         try {
           const recordData = requireData(entry);
+          const geometry = dataset.geo ? extractRecordGeometry(recordData, dataset.geo.field) : {};
+          if (geometry.error) throw apiError(400, 'invalid_geometry', geometry.error, { index });
           const publish = publishFlag(entry);
           if (publish === true) requirePublishable(dataset);
           const id = entry.id !== undefined ? validateRecordId(entry.id) : randomUUID();
           const now = new Date().toISOString();
-          const record: CapabilityRecord = {
-            id, datasetId, data: recordData, createdAt: now, updatedAt: now,
-            ...(publish !== undefined ? { published: publish } : {}),
-          };
-          const saved = await client.base.createDocument(COLLECTIONS.records, {
-            id, data: record as unknown as Record<string, unknown>,
+          prepared.push({
+            index,
+            geometry: geometry.geometry,
+            record: {
+              id, datasetId, data: recordData, createdAt: now, updatedAt: now,
+              ...(publish !== undefined ? { published: publish } : {}),
+            },
           });
-          const projected = await projectNewRecord(
-            client, dataset, record, correlationIdOf(req), idempotencyKey,
-          );
-          dataset.ldsDatasourceId = projected.ldsDatasourceId;
-          datasetVersion = Math.max(datasetVersion, saved.version);
-          const event = buildEvent('record.created', {
-            datasetId, recordId: id, at: now, correlationId: correlationIdOf(req),
-          }, idempotencyKey ? `${idempotencyKey}:${index}` : undefined);
-          const emitted = await emitEvent(client, config, projected, event);
-          if (!emitted.delivered) pendingEvents = true;
-          created.push(recordResponse({ id: saved.id, version: saved.version, data: saved.data as unknown as CapabilityRecord }));
         } catch (error) {
+          // A bad geometry rejects the whole import before the single batch
+          // write; other per-entry errors keep the existing partial semantics.
+          if (error instanceof ApiError && error.code === 'invalid_geometry') throw error;
           const status = error instanceof ApiError ? error.status : 500;
           errors.push({
             index,
@@ -279,6 +288,96 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
           });
         }
       }
+
+      const savedByIndex = new Map<number, StoredDocument<CapabilityRecord>>();
+      if (prepared.length) {
+        // One Base batch instead of one HTTP request per record. The old loop
+        // was the dominant cost of large CSV imports (and could exceed the
+        // gateway timeout before the first projection was built).
+        const batch = await client.base.batch(
+          COLLECTIONS.records,
+          prepared.map((entry) => ({
+            op: 'create',
+            id: entry.record.id,
+            data: entry.record as unknown as Record<string, unknown>,
+          })),
+        );
+        for (const result of batch.results || []) {
+          const index = Number(result.index);
+          const entry = prepared[index];
+          if (!entry) continue;
+          if (!result.ok) {
+            const message = String(result.message || '');
+            const duplicate = result.error === 'conflict' || /already[_\s-]?exists|document_exists/i.test(message);
+            errors.push({
+              index: entry.index,
+              code: duplicate ? 'record_already_exists' : 'internal_error',
+              message: duplicate ? 'record already exists' : 'internal error',
+            });
+            continue;
+          }
+          const documentView = result.document || {};
+          const saved: StoredDocument<CapabilityRecord> = {
+            id: String(documentView.id || entry.record.id),
+            version: Number(documentView.version) || 1,
+            data: (documentView.data || entry.record) as CapabilityRecord,
+          };
+          savedByIndex.set(index, saved);
+          datasetVersion = Math.max(datasetVersion, saved.version);
+        }
+      }
+
+      const created: RecordResponse[] = [];
+      for (const entry of prepared) {
+        const saved = savedByIndex.get(entry.index);
+        if (saved) created.push(recordResponse(saved));
+      }
+
+      // Mirror the new rows into the dataset geo collection; index failure is
+      // logged and repaired through the reindex route, never surfaced as a
+      // failed record write.
+      if (dataset.geo) {
+        await syncRecordsGeoBatch(client, dataset, prepared
+          .filter((entry) => savedByIndex.has(entry.index))
+          .map((entry) => ({
+            record: savedByIndex.get(entry.index)!.data,
+            geometry: entry.geometry,
+          })));
+      }
+
+      // Project all newly published records with one LDS batch (or one rebuild
+      // when the dataset has no datasource yet).
+      const publishedRecords = prepared
+        .map((entry) => savedByIndex.get(entry.index)?.data)
+        .filter((record): record is CapabilityRecord => !!record && isRecordPublished(dataset, record));
+      let projected = dataset;
+      if (publishedRecords.length) {
+        if (dataset.ldsDatasourceId) {
+          await ingestRecords(client, dataset, dataset.ldsDatasourceId, publishedRecords);
+        } else {
+          projected = (await rebuildProjection(client, dataset, undefined, {
+            correlationId: correlationIdOf(req), idempotencyKey,
+          })).data;
+        }
+      }
+
+      // Publish record events with bounded concurrency. A sequential loop of
+      // 100 queue publishes dominated the import latency; five in flight keeps
+      // the per-record event contract without making the caller wait seconds.
+      const eventEntries = prepared.filter((entry) => savedByIndex.has(entry.index));
+      for (let offset = 0; offset < eventEntries.length; offset += 5) {
+        const wave = eventEntries.slice(offset, offset + 5);
+        const delivered = await Promise.all(wave.map(async (entry) => {
+          const saved = savedByIndex.get(entry.index)!;
+          const event = buildEvent('record.created', {
+            datasetId, recordId: saved.id, at: saved.data.createdAt, correlationId: correlationIdOf(req),
+          }, idempotencyKey ? `${idempotencyKey}:${entry.index}` : undefined);
+          const emitted = await emitEvent(client, config, projected, event);
+          return emitted.delivered;
+        }));
+        if (delivered.some((ok) => !ok)) pendingEvents = true;
+      }
+
       const response = { created, errors, total: created.length };
       await recordAudit(client, config, {
         actor: principal.subject, tenant: principal.tenantKey, action: 'record.bulk_create',
@@ -302,6 +401,8 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'write');
     const body = (req.body || {}) as Record<string, unknown>;
     const data = requireData(body);
+    const extracted = dataset.geo ? extractRecordGeometry(data, dataset.geo.field) : {};
+    if (extracted.error) throw apiError(400, 'invalid_geometry', extracted.error);
     const publish = publishFlag(body);
     if (publish === true) requirePublishable(dataset);
     const id = body.id !== undefined ? validateRecordId(body.id) : randomUUID();
@@ -330,6 +431,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
         if (error instanceof SynapseOneError && error.status === 409) throw apiError(409, 'record_already_exists', 'record already exists');
         throw error;
       }
+      await syncRecordGeo(client, dataset, saved.data, extracted.geometry);
       const projected = await projectNewRecord(
         client, dataset, saved.data, correlationIdOf(req), idempotencyKey,
       );
@@ -358,6 +460,10 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { caller, client } = await readContext(req, config);
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'records');
     const document = await loadRecord({ client }, dataset, String(req.params.recordId));
+    if (!canReadRecordDrafts(dataset, caller) && !isRecordPublished(dataset, document.data)) {
+      // Never reveal an explicitly unpublished row to a projection reader.
+      throw apiError(404, 'record_not_found', 'record not found');
+    }
     setVersionHeaders(res, document.version);
     res.json(recordResponse(document));
   }));
@@ -368,6 +474,8 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
     const { data: dataset } = await accessibleDataset(client, datasetId, caller, 'write');
     const body = (req.body || {}) as Record<string, unknown>;
     const data = requireData(body);
+    const extracted = dataset.geo ? extractRecordGeometry(data, dataset.geo.field) : {};
+    if (extracted.error) throw apiError(400, 'invalid_geometry', extracted.error);
     const publish = publishFlag(body);
     if (publish === true) requirePublishable(dataset);
     const document = await loadRecord({ client }, dataset, String(req.params.recordId));
@@ -404,6 +512,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       const saved: StoredDocument<CapabilityRecord> = {
         id: savedDoc.id, version: savedDoc.version, data: savedDoc.data as unknown as CapabilityRecord,
       };
+      await syncRecordGeo(client, dataset, saved.data, extracted.geometry);
       const projected = await projectAfterChange(
         client, dataset, saved.data, wasPublished, undefined, correlationIdOf(req), idempotencyKey,
       );
@@ -449,6 +558,7 @@ export function registerRecordRoutes(app: Express, config: ServiceConfig): void 
       if (error instanceof SynapseOneError && error.status === 409) throw apiError(409, 'version_conflict', 'the record was modified by another request');
       throw error;
     }
+    await removeRecordGeo(client, dataset, document.id);
     let projected = dataset;
     if (wasPublished) {
       projected = (await rebuildProjection(client, dataset, undefined, {
@@ -511,6 +621,7 @@ export async function purgeExpiredRecords(
     try {
       await client.base.deleteDocument(COLLECTIONS.records, record.id);
       purged += 1;
+      await removeRecordGeo(client, dataset, record.id);
       if (isRecordPublished(dataset, record.data)) projectionDirty = true;
     } catch (error) {
       if (!(error instanceof SynapseOneError && error.status === 404)) throw error;
