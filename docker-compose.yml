@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: 2026 VKU.VIC
 services:
   capabilities:
-    image: synapsedx-capabilities:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/capabilities:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/capabilities-service/Dockerfile
@@ -29,7 +29,7 @@ services:
     networks: [synapsedx]
 
   gateway:
-    image: synapsedx-gateway:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/gateway:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/gateway/Dockerfile
@@ -59,7 +59,7 @@ services:
         aliases: [synapsedx-gateway]
 
   console:
-    image: synapsedx-console:latest
+    image: ghcr.io/${SYNAPSEDX_IMAGE_OWNER:-vku-open-source-2026}/synapsedx/console:${SYNAPSEDX_VERSION:-latest}
     build:
       context: .
       dockerfile: apps/console/Dockerfile

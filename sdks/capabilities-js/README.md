@@ -73,6 +73,106 @@ await dx.records.delete(dataset.id, record.id);
 | `false` | never project the record; an existing projection is withdrawn |
 | omitted | inherit the dataset default |
 
+## Spatial queries
+
+Bind a dataset to a GeoJSON geometry inside each record, then query the
+server-side index instead of loading every record:
+
+```ts
+const dataset = await dx.datasets.create({
+  slug: 'city-assets',
+  name: 'City assets',
+  entityType: 'Asset',
+  license: 'CC-BY-4.0',
+  public: true,
+  geo: { field: 'geometry' }, // dotted path in record.data; e.g. 'metadata.area'
+});
+
+await dx.records.create(dataset.id, {
+  name: 'Pump station 12',
+  geometry: { type: 'Point', coordinates: [105.8542, 21.0285] },
+});
+
+const nearby = await dx.spatial.query(dataset.id, {
+  mode: 'near', lat: 21.0285, lng: 105.8542, radiusMeters: 2000, limit: 50,
+});
+const inBox = await dx.spatial.query(dataset.id, {
+  mode: 'bbox', bbox: [105.84, 21.02, 105.87, 21.04],
+});
+const inArea = await dx.spatial.query(dataset.id, {
+  mode: 'within',
+  geometry: { type: 'Polygon', coordinates: [[/* closed WGS84 ring */]] },
+});
+
+for (const record of nearby.items) {
+  // Same shape as records.list(): {id,data,version,published?,createdAt,updatedAt}
+  console.log(record.id);
+}
+console.log(nearby.features[0].properties.distanceMeters);
+
+const status = await dx.spatial.status(dataset.id);
+await dx.spatial.reindex(dataset.id); // repair after an index outage
+// More than 5,000 records: continue from the reported offset.
+const next = await dx.spatial.reindex(dataset.id, { offset: 5000 });
+```
+
+- `limit` is 1..500 (default 100); `radiusMeters` is 1..100000.
+- `bbox` is `[west, south, east, north]`; `within` accepts a Polygon or
+  MultiPolygon. Longitude/latitude must be valid WGS84 and bbox axes ordered.
+- `features` is a GeoJSON FeatureCollection; `items` uses the normal record
+  response shape. Draft readers (`canReadRecordDrafts`) also see withheld
+  records; every other caller only sees published/inherited-published rows.
+- Index maintenance is best-effort: a record write succeeds even when the
+  PostGIS index is down, and `spatial.reindex` repairs up to 5,000 records per
+  call (`truncated: true` when more remain).
+- Changing `geo.field` requires a reindex; `PATCH { geo: null }` removes the
+  binding.
+
+## Resource assignment (optimization)
+
+`optimization.assign` is a generic, deterministic resource-to-demand solver. It
+has no incident/SOS fields: callers pass abstract resources and demands, with
+optional coordinates, skills, capacity, priority and a cost matrix.
+
+```ts
+const plan = await dx.optimization.assign({
+  resources: [
+    { id: 'unit-1', lat: 16.06, lng: 108.22, capacity: 1, skills: ['medical'] },
+    { id: 'unit-2', lat: 16.08, lng: 108.25, capacity: 2, skills: ['medical', 'driver'] },
+  ],
+  demands: [
+    { id: 'call-1', lat: 16.06, lng: 108.23, priority: 5, requiredSkills: ['medical'] },
+    { id: 'call-2', lat: 16.09, lng: 108.26, priority: 2 },
+  ],
+  options: {
+    // matrix[demandIndex][resourceIndex]; null marks an unusable edge.
+    // costMatrix: [[120, 480], [null, 90]],
+    maxDistanceMeters: 10_000,
+    unassignedPenalty: 1_000_000,
+  },
+});
+
+for (const assignment of plan.assignments) {
+  console.log(assignment.demandId, '->', assignment.resourceId, assignment.cost);
+}
+for (const item of plan.unassigned) {
+  console.log(item.demandId, item.reason); // no_resource | capacity | distance | skills
+}
+```
+
+Without `costMatrix`, the cost is the haversine distance in meters. A matrix,
+when supplied, must have exactly one row per demand and one column per resource.
+Limits are 200 resources, 200 demands, 4,000 available slots and 1e12 per edge.
+
+The objective is lexicographic: maximize served demands, then minimize total
+cost, then prefer higher-priority demands among equal-cost solutions. Priority
+never buys a more expensive assignment and never reduces the served count.
+`unassignedPenalty` is validated and accepted as the caller's opportunity cost;
+the fixed maximum-cardinality stage means it cannot cause an assignable demand
+to be dropped. Results are deterministic for the same input (input order is the
+final tie-break). SOS must still apply any plan through its own reviewed
+dispatch workflow; this capability does not mutate product state.
+
 ## Knowledge & hazards (Tier-2 LLM base)
 
 ```ts
@@ -96,6 +196,73 @@ const status = await dx.hazards.status();
 documents + pgvector + graph) and returns `answer`, `citations` (with source
 URLs) and expanded `entities`. `hazards.brief` uses the same live feed and
 returns a deterministic, clearly-labelled fallback when the LLM is unavailable.
+
+## Emergency operations plans (EOP)
+
+`plans` is a generic phased-task capability, not SOS policy. It stores the plan
+in Tier-1 Base, computes task due times on activation, enforces task
+dependencies and can produce a grounded brief or an AI-assisted draft.
+
+```ts
+const created = await dx.plans.create({
+  title: 'Flood response plan',
+  objective: 'Coordinate the response to river flooding in District 1.',
+  severity: 'high',
+  phases: [
+    {
+      id: 'prepare',
+      title: 'Prepare',
+      startOffsetMinutes: 0,
+      tasks: [
+        {
+          id: 'confirm-roles',
+          title: 'Confirm command roles',
+          ownerRole: 'incident_commander',
+          dueOffsetMinutes: 15,
+          dependsOn: [],
+        },
+        {
+          id: 'check-resources',
+          title: 'Check response resources',
+          ownerRole: 'logistics_chief',
+          dueOffsetMinutes: 45,
+          dependsOn: ['confirm-roles'],
+        },
+      ],
+    },
+  ],
+});
+
+// Optimistic concurrency: send the version you read.
+const activated = await dx.plans.activate(created.plan.id, {
+  ifVersion: created.version,
+});
+
+// Hard dependencies are enforced; an organization/deployment admin may
+// override them explicitly and the bypass is audited.
+await dx.plans.taskStatus(created.plan.id, 'confirm-roles', {
+  status: 'in_progress',
+}, { ifVersion: activated.version });
+
+const brief = await dx.plans.brief(created.plan.id, { focus: 'flood' });
+console.log(brief.brief, brief.citations, brief.fallback);
+
+const draft = await dx.plans.draft({
+  objective: 'Coordinate flood response for District 1.',
+  eventType: 'flood',
+  phaseCount: 3,
+});
+if (draft.fallback) console.log(draft.reason);
+```
+
+`plans.list({status, tenant, limit, offset, cursor})` paginates tenant-scoped
+plans. Lifecycle transitions are `draft -> active`, `active <-> paused`,
+`active|paused -> completed` and `completed -> archived`; invalid transitions
+return `409 invalid_transition`. `plans.brief` cites only real task ids
+(`[T1]`...) and falls back deterministically; `plans.draft` validates the
+model JSON with the same plan validator and falls back to a three-phase
+Prepare/Respond/Recover template. Drafts are returned, never persisted. SOS
+must still own EOP approval, activation policy and dispatch decisions.
 
 ## Pagination, errors and events
 
@@ -122,6 +289,37 @@ cursor = feed.nextCursor;
 
 Event delivery is at-least-once. Deduplicate on `event.eventId`; events carry
 `correlationId`, `schemaVersion: 1` and an optional `idempotencyKey`.
+
+### Live stream (SSE)
+
+`events.stream()` keeps a streaming `fetch` body open and yields
+`{id, event}` for each capability frame. It sends `Authorization`/`X-API-Key`
+as headers (never a query-string token), so it works where a browser
+`EventSource` would not. Pass `since` or `lastEventId` to resume; `since` wins,
+matching the server contract. Use `opts.signal` to stop.
+
+```ts
+const controller = new AbortController();
+for await (const item of dx.events.stream(
+  { datasetId: dataset.id, type: "record.created" },
+  { signal: controller.signal },
+)) {
+  apply(item.event); // at-least-once: dedupe on item.event.eventId
+}
+```
+
+The iterator ends when the server closes with `event: reconnect` (30-minute
+handover) or when the response ends. Restart it with the last seen `id`:
+
+```ts
+let cursor: string | undefined;
+for await (const item of dx.events.stream({ since: cursor })) cursor = item.id;
+```
+
+Heartbeat comments and the `ready`/`reconnect` control frames are consumed
+internally; only `event: capability` frames are yielded. Enable `since` on a
+fresh subscription to replay from a known point, or omit it to start at the
+current tail without history.
 
 ## Identity and sessions
 
@@ -241,3 +439,11 @@ excludes test artifacts, `LICENSE`/`NOTICE` are included, `engines.node >= 20`).
 The local `npm pack` + consumer-install checks pass. Publishing to npm requires
 the operator's `@synapsedx` scope token; the runbook is in
 `docs/RELEASE.md` in the SynapseDX repository.
+
+Workspace widget requests require a published registry binding. Pass
+`workspaces.widgetData(pluginId, widgetId, { action: "query-id", limit: 50 })` for
+reads and `workspaces.executeWidget(pluginId, formId, values, { actionId:
+"submit-id" })` for writes. The values envelope stays unchanged. The server
+checks declared sources,fields,fixed values,membership and workflow pins; a raw
+widget endpoint is not an execution fallback. SDK source supports the contract;
+use a package release containing these changes before consuming these options.

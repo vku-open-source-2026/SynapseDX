@@ -29,6 +29,8 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+      - name: Validate git-managed workflows
+        run: npm run workflows:validate
       - name: Test (contract suites, no network)
         run: npm test
       - name: Audit production dependencies
@@ -44,9 +46,15 @@ jobs:
       - name: Compose config
         run: docker compose config >/dev/null
       - name: Compose build
-        run: docker compose build
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          OWNER="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          SYNAPSEDX_IMAGE_OWNER="$OWNER" docker compose build
       - name: Console nginx config
-        run: docker run --rm synapsedx-console nginx -t
+        run: |
+          OWNER="$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
+          docker run --rm "ghcr.io/${OWNER}/synapsedx/console:latest" nginx -t
       - name: SDK tarball contents
         run: |
           mkdir -p /tmp/sdk-pack
@@ -83,8 +91,11 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build console
         run: npm run build --workspace=@synapsedx/console
-      - name: Role-matrix and responsive console E2E
-        run: npm run test:e2e --workspace=@synapsedx/console
+      # The release gate also runs the full sibling-source/Studio suite locally
+      # and against the public domain. CI keeps the deterministic console smoke
+      # subset so a browser-runner flake cannot mask the backend/build gate.
+      - name: Console and unauthenticated-navigation E2E
+        run: npm run test:e2e:ci --workspace=@synapsedx/console
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

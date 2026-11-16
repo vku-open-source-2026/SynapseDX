@@ -388,6 +388,14 @@ export function registerHazardRoutes(app: Express, config: ServiceConfig): void 
     });
   }));
 
+  app.post('/v1/capabilities/crawlers/kttv/trigger', handler(async (req, res) => {
+    const { principal } = await writeContext(req, config);
+    if (!isAdmin(principal)) throw apiError(403, 'admin_required', 'only an admin credential can trigger the crawler');
+    if (running) throw apiError(409, 'crawl_running', 'a KTTV crawl is already running');
+    void runKttvCrawl(config).catch((error) => console.error('[kttv] crawl failed:', error?.message || error));
+    res.status(202).json({ accepted: true, startedAt: new Date().toISOString() });
+  }));
+
   app.post('/v1/capabilities/crawlers/kttv/run', handler(async (req, res) => {
     const { principal } = await writeContext(req, config);
     if (!isAdmin(principal)) throw apiError(403, 'admin_required', 'only an admin credential can trigger the crawler');
@@ -395,17 +403,4 @@ export function registerHazardRoutes(app: Express, config: ServiceConfig): void 
     if (result.error) throw apiError(502, 'crawl_failed', result.error);
     res.json(result);
   }));
-}
-
-/** Start the Tier-2 crawler loop (cron-like interval, disabled in tests). */
-export function startKttvScheduler(config: ServiceConfig): void {
-  if (process.env.NODE_ENV === 'test' || process.env.KTTV_CRAWL_ENABLED === 'false') return;
-  const intervalMs = Math.min(Math.max(Number(process.env.KTTV_CRAWL_INTERVAL_MS || 30 * 60_000), 60_000), 24 * 3600_000);
-  const run = () => {
-    runKttvCrawl(config).catch((error) => console.error('[kttv] crawl failed:', error?.message || error));
-  };
-  setTimeout(run, Math.min(15_000, intervalMs));
-  const timer = setInterval(run, intervalMs);
-  timer.unref?.();
-  console.log(`[kttv] crawler enabled: every ${Math.round(intervalMs / 1000)}s (tenant ${KTTV_TENANT})`);
 }

@@ -7,6 +7,7 @@ import {
   loadSession,
   saveSession,
   setUnauthorizedHandler,
+  setSessionListener,
   type StoredSession,
 } from '../lib/httpClient';
 import { api } from '../lib/api';
@@ -62,9 +63,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ session, status: 'loading', error: undefined });
     try {
       const context = await api.get<ManagementContext>('/v1/capabilities/management/context');
+      if (loadSession()?.obtainedAt !== session.obtainedAt) return null;
       set({ context, status: 'ready' });
       return context;
     } catch (error) {
+      if (loadSession()?.obtainedAt !== session.obtainedAt) return null;
       if ((error as { status?: number }).status === 401) {
         clearSession();
         set({ session: null, context: null, status: 'idle' });
@@ -102,4 +105,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 setUnauthorizedHandler(() => {
   clearSession();
   useAuthStore.setState({ session: null, context: null, status: 'idle' });
+});
+
+setSessionListener((session) => {
+  const previous = useAuthStore.getState().session;
+  useAuthStore.setState(session ? { session } : { session: null, context: null, status: 'idle' });
+  if (session && previous && previous.obtainedAt !== session.obtainedAt) {
+    useAuthStore.setState({ context: null });
+    void useAuthStore.getState().fetchContext();
+  }
 });

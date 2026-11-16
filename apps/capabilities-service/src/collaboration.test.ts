@@ -8,6 +8,7 @@ import { COLLECTIONS } from './platform';
 
 test('mentions create one inbox item and respect muted preferences (#32)', async () => {
   const harness = await startHarness();
+  harness.fake.tokens.set('wiki-reader-token', { sub: 'viewer-1', account: 'acct-a', org: 'org-a', scopes: ['read'] });
   try {
     const comment = await api(harness, '/v1/capabilities/comments', {
       method: 'POST', token: 'user-token', body: {
@@ -32,7 +33,7 @@ test('mentions create one inbox item and respect muted preferences (#32)', async
     assert.equal(inbox.body.items[0].delivered, true);
     const itemId = inbox.body.items[0].id;
 
-    const other = await api(harness, '/v1/capabilities/inbox', { token: 'viewer-token' });
+    const other = await api(harness, '/v1/capabilities/inbox', { token: 'wiki-reader-token' });
     assert.equal(other.body.items.length, 0);
 
     const read = await api(harness, `/v1/capabilities/inbox/${itemId}/read`, { method: 'POST', token: 'moderator-token' });
@@ -60,6 +61,7 @@ test('mentions create one inbox item and respect muted preferences (#32)', async
 
 test('workspace pages version, permissions, backlinks and missing attachments (#35)', async () => {
   const harness = await startHarness();
+  harness.fake.tokens.set('wiki-reader-token', { sub: 'viewer-1', account: 'acct-a', org: 'org-a', scopes: ['read'] });
   try {
     const workspace = await api(harness, '/v1/capabilities/workspaces', {
       method: 'POST', token: 'user-token',
@@ -80,12 +82,12 @@ test('workspace pages version, permissions, backlinks and missing attachments (#
     });
     assert.equal(second.status, 201);
 
-    const read = await api(harness, `/v1/capabilities/pages/${pageId}`, { token: 'viewer-token' });
+    const read = await api(harness, `/v1/capabilities/pages/${pageId}`, { token: 'wiki-reader-token' });
     assert.equal(read.status, 200);
     assert.ok(read.body.page.markdown.includes('Flood plan'));
 
     const denied = await api(harness, `/v1/capabilities/pages/${pageId}`, {
-      method: 'PUT', token: 'viewer-token', body: { markdown: 'nope' },
+      method: 'PUT', token: 'wiki-reader-token', body: { markdown: 'nope' },
     });
     assert.equal(denied.status, 403);
 
@@ -105,7 +107,7 @@ test('workspace pages version, permissions, backlinks and missing attachments (#
     const withBacklinks = await api(harness, `/v1/capabilities/pages/${pageId}`, { token: 'user-token' });
     assert.deepEqual(withBacklinks.body.backlinks.map((item: any) => item.title), ['Bridge checklist']);
 
-    const search = await api(harness, '/v1/capabilities/page-search?q=bridge', { token: 'viewer-token' });
+    const search = await api(harness, '/v1/capabilities/page-search?q=bridge', { token: 'wiki-reader-token' });
     assert.equal(search.status, 200);
     assert.ok(search.body.items.some((item: any) => item.title === 'Bridge checklist'));
 
@@ -117,7 +119,7 @@ test('workspace pages version, permissions, backlinks and missing attachments (#
     const other = await api(harness, `/v1/capabilities/pages/${pageId}`, { token: 'other-token' });
     assert.equal(other.status, 404);
 
-    const listed = await api(harness, `/v1/capabilities/workspaces/${wsId}/pages`, { token: 'viewer-token' });
+    const listed = await api(harness, `/v1/capabilities/workspaces/${wsId}/pages`, { token: 'wiki-reader-token' });
     assert.equal(listed.status, 200);
     assert.equal(listed.body.items.length, 2);
     assert.ok(harness.fake.collections.get(COLLECTIONS.pages)?.size === 2);

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 256" width="760" height="256">
+  <title>SynapseDX — lockup dark</title>
+  <g transform="translate(24 50) scale(0.61)">
+    <path fill="#38BDF8" d="M 24 216 L 24 144 A 104 104 0 0 1 110 41.6 L 110 91 A 56 56 0 0 0 80 144 L 80 216 Z"/>
+  <path fill="#7DD3FC" d="M 232 216 L 232 144 A 104 104 0 0 0 146 41.6 L 146 91 A 56 56 0 0 1 176 144 L 176 216 Z"/>
+  </g>
+  <text x="204" y="158" font-family="Segoe UI, system-ui, -apple-system, sans-serif" font-size="88" font-weight="600" letter-spacing="-3" fill="#F8FAFC">Synapse<tspan fill="#7DD3FC">DX</tspan></text>
+</svg>

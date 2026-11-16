@@ -35,6 +35,8 @@ export const FORWARDED_REQUEST_HEADERS = [
   'x-synapseone-tenant',
   'x-synapsedx-product',
   'x-checksum-sha256',
+  // Server-only workspace runtime credential; not advertised in browser CORS.
+  'x-workspace-token',
 ];
 
 /** Response headers copied back to the caller. */
@@ -181,11 +183,15 @@ export function createGateway(options: GatewayOptions = {}): express.Express {
       const response = await callUpstream(req, req.originalUrl, Buffer.isBuffer(req.body) ? req.body : undefined);
       res.status(response.status);
       response.headers.forEach((value, name) => {
-        if (HOP_BY_HOP.has(name.toLowerCase())) return;
+        if (HOP_BY_HOP.has(name.toLowerCase()) && !(req.method === 'HEAD' && name.toLowerCase() === 'content-length')) return;
         if (FORWARDED_RESPONSE_HEADERS.includes(name.toLowerCase()) || name.toLowerCase().startsWith('x-')) {
           res.setHeader(name, value);
         }
       });
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
       const buffer = Buffer.from(await response.arrayBuffer());
       res.send(buffer);
     } catch (error) {
