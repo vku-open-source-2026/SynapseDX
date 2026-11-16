@@ -10,7 +10,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { assertPublicDependency, isPrivateHost } from './config';
+import { assertPublicDependency, isPrivateHost, loadConfig } from './config';
 
 test('private IPv4 ranges, CGNAT and reserved space are never public dependencies', () => {
   for (const host of [
@@ -118,4 +118,34 @@ test('public HTTPS dependencies are accepted and private ones fail fast', () => 
   // Plain HTTP is rejected for public hosts; local test overrides are exempt.
   assert.throws(() => assertPublicDependency('http://api.synapseone.space', 'SYNAPSEONE_BASE_URL', false), /must use HTTPS/);
   assert.throws(() => assertPublicDependency('not-a-url', 'SYNAPSEONE_BASE_URL', false), /not an absolute URL/);
+});
+
+test('production requires an organization binding and forbids passwordless login (#83)', () => {
+  assert.throws(
+    () => loadConfig({ NODE_ENV: 'production' } as NodeJS.ProcessEnv),
+    /SYNAPSEDX_AUTH_ORG_SLUG is required/,
+  );
+  const production = loadConfig({
+    NODE_ENV: 'production',
+    SYNAPSEDX_AUTH_ORG_SLUG: 'acme',
+  } as NodeJS.ProcessEnv);
+  assert.equal(production.authOrgSlug, 'acme');
+  assert.equal(production.authPasswordlessEnabled, false);
+  assert.throws(
+    () => loadConfig({
+      NODE_ENV: 'production',
+      SYNAPSEDX_AUTH_ORG_SLUG: 'acme',
+      SYNAPSEDX_AUTH_PASSWORDLESS: 'true',
+    } as NodeJS.ProcessEnv),
+    /SYNAPSEDX_AUTH_PASSWORDLESS is forbidden/,
+  );
+
+  // The VNDMS allowlist cannot be pointed at a private/container host.
+  assert.throws(
+    () => loadConfig({
+      NODE_ENV: 'test',
+      SYNAPSEDX_VNDMS_ALLOWED_HOSTS: '127.0.0.1,capabilities',
+    } as NodeJS.ProcessEnv),
+    /SYNAPSEDX_VNDMS_ALLOWED_HOSTS/,
+  );
 });

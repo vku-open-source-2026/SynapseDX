@@ -6,6 +6,7 @@ import { createServer } from '../server';
 import { resetAuthCachesForTests } from '../auth';
 import { resetWorkspaceCachesForTests } from '../routes/workspace-plugins';
 import { resetEventStreamStateForTests } from '../routes/event-stream';
+import { resetKttvScheduleStateForTests } from '../kttv-schedule';
 import { ServiceConfig, loadConfig } from '../config';
 import { resetLicenseCache } from '../licenses';
 import { resetEmbeddingProviderCache } from '../rag';
@@ -38,6 +39,7 @@ export async function startHarness(
   resetAuthCachesForTests();
   resetWorkspaceCachesForTests();
   resetEventStreamStateForTests();
+  resetKttvScheduleStateForTests();
   const fake = new FakeTier1({
     ...fakeOptions,
     tokens: {
@@ -94,6 +96,9 @@ export async function startHarness(
     SYNAPSEDX_IDEMPOTENCY_ENABLED: 'true',
     SYNAPSEDX_EVENTS_QUEUE: 'synapsedx-capability-events',
     SYNAPSEDX_EVENTS_STREAM: 'synapsedx-capability-events',
+    // createServer() does not start the production provisioner; keep readiness
+    // deterministic unless a test opts in.
+    SYNAPSEDX_KTTV_SCHEDULE_ENABLED: 'false',
     SYNAPSEDX_WORKFLOW_API_KEYS: JSON.stringify({
       'org-a': 'workflow-org-key',
       'org-b': 'workflow-org-key-b',

@@ -18,7 +18,7 @@ use axum::Router;
 use bytes::Bytes;
 use chrono::Utc;
 use serde_json::json;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use url::Url;
@@ -102,18 +102,95 @@ pub struct AppState {
 #[derive(Clone, Debug)]
 pub struct CorrelationId(pub String);
 
+fn is_private_ipv4(ip: Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || ip.is_broadcast()
+        || (octets[0] == 100 && (64..=127).contains(&octets[1])) // CGNAT 100.64/10
+}
+
+fn is_private_ipv6(ip: Ipv6Addr) -> bool {
+    if let Some(mapped) = ip.to_ipv4_mapped() {
+        return is_private_ipv4(mapped);
+    }
+    let segments = ip.segments();
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_multicast()
+        || (segments[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+        || (segments[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+}
+
+/// Mirror the capabilities-service `isPrivateHost()` policy: loopback,
+/// RFC1918/CGNAT/link-local/metadata, IPv6 ULA/link-local, Docker service names
+/// and internal DNS suffixes never belong in a production upstream URL.
+fn is_private_host(raw: &str) -> bool {
+    let host = raw
+        .trim()
+        .trim_matches(&['[', ']'][..])
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    for suffix in [
+        ".local",
+        ".localdomain",
+        ".internal",
+        ".intranet",
+        ".corp",
+        ".lan",
+        ".home.arpa",
+        ".svc",
+        ".consul",
+        ".cluster.local",
+        ".docker.internal",
+    ] {
+        if host == suffix.trim_start_matches('.') || host.ends_with(suffix) {
+            return true;
+        }
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => is_private_ipv4(v4),
+            IpAddr::V6(v6) => is_private_ipv6(v6),
+        };
+    }
+    // A single-label host resolves only inside the container/private network.
+    !host.contains('.')
+}
+
 fn validate_upstream(raw: &str, is_prod: bool, allow_local: bool) -> Result<String, String> {
     let parsed = Url::parse(raw).map_err(|e| format!("CAPABILITIES_SERVICE_URL is not an absolute URL: {e}"))?;
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err("CAPABILITIES_SERVICE_URL must be an HTTP(S) URL".into());
     }
-    let host = parsed.host_str().unwrap_or("").trim_matches(&['[', ']'][..]);
-    if (host.eq_ignore_ascii_case("localhost") || host == "127.0.0.1" || host == "::1")
-        && is_prod
-        && !allow_local
-    {
-        return Err("CAPABILITIES_SERVICE_URL may not point to localhost in production".into());
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("CAPABILITIES_SERVICE_URL must not contain credentials".into());
     }
+    if parsed.fragment().is_some() {
+        return Err("CAPABILITIES_SERVICE_URL must not contain a fragment".into());
+    }
+    let host = parsed.host_str().unwrap_or("");
+    if host.is_empty() {
+        return Err("CAPABILITIES_SERVICE_URL must include a host".into());
+    }
+    if is_private_host(host) && !allow_local {
+        return Err(
+            "CAPABILITIES_SERVICE_URL may not point to a private/loopback/internal host (set ALLOW_LOCAL_DEPENDENCIES=true only for a trusted container network or tests)"
+                .into(),
+        );
+    }
+    if parsed.scheme() != "https" && !allow_local {
+        return Err("CAPABILITIES_SERVICE_URL must use HTTPS outside tests".into());
+    }
+    // `is_prod` is retained in the signature for callers/tests that pass the
+    // deployment mode; the host policy is strict in every mode.
+    let _ = is_prod;
     Ok(raw.trim_end_matches('/').to_string())
 }
 
@@ -758,5 +835,35 @@ mod tests {
             .unwrap()
             .contains("last-event-id"));
         task.abort();
+    }
+
+    #[test]
+    fn upstream_validation_rejects_private_metadata_and_plain_http_targets() {
+        for target in [
+            "http://capabilities:8082",
+            "http://127.0.0.1:8082",
+            "https://127.0.0.1:8082",
+            "https://[::1]:8082",
+            "http://169.254.169.254/latest/meta-data",
+            "https://10.0.0.5:8082",
+            "https://192.168.1.10",
+            "https://172.16.0.5",
+            "https://metadata.google.internal",
+            "https://postgres:5432",
+            "https://user:pass@example.com",
+        ] {
+            assert!(
+                validate_upstream(target, true, false).is_err(),
+                "{target} must be rejected as a production upstream"
+            );
+        }
+        assert!(validate_upstream("http://example.com", true, false).is_err());
+        assert_eq!(
+            validate_upstream("https://capabilities.synapsedx.sbs/", true, false).unwrap(),
+            "https://capabilities.synapsedx.sbs"
+        );
+        // Tests and a trusted container network must opt in explicitly.
+        assert!(validate_upstream("http://capabilities:8082", true, true).is_ok());
+        assert!(validate_upstream("http://127.0.0.1:8082", false, true).is_ok());
     }
 }

@@ -23,7 +23,7 @@ test('runner jobs expose a lease/run-now/complete contract for Tier-3 domain run
       body: {
         name: 'vndms-live', kind: 'vndms.ingest', executor: 'runner',
         schedule: { everySeconds: 10 }, maxAttempts: 2,
-        payload: { url: 'https://vndms.example/feed.json', district: 'Hai Chau' },
+        payload: { url: 'https://s3.vndms.gov.vn/public/feed.json', district: 'Hai Chau' },
       },
     });
     assert.equal(created.status, 201);
@@ -135,6 +135,16 @@ test('runner run-now queues work and failures retry up to maxAttempts', async ()
     assert.equal(failed.body.retry, true);
     assert.ok(failed.body.retryAt);
 
+    // Backoff is real: a retry with scheduledFor in the future is not leased.
+    const earlyRetry = await api(harness, '/v1/capabilities/jobs/lease', {
+      method: 'POST', token: 'user-token', body: { runnerId: 'sos-runner' },
+    });
+    assert.equal(earlyRetry.body.count, 0);
+    const runCollection = harness.fake.collections.get('synapsedx_capability_job_runs')!;
+    const queuedRetry = [...runCollection.values()].find((doc: any) =>
+      doc.data.jobId === jobId && doc.data.status === 'queued' && doc.data.triggeredBy === 'retry');
+    assert.ok(queuedRetry);
+    (queuedRetry as any).data.scheduledFor = new Date(Date.now() - 1000).toISOString();
     const retryLease = await api(harness, '/v1/capabilities/jobs/lease', {
       method: 'POST', token: 'user-token', body: { runnerId: 'sos-runner' },
     });
@@ -158,6 +168,81 @@ test('runner run-now queues work and failures retry up to maxAttempts', async ()
     const runs = await api(harness, `/v1/capabilities/jobs/${jobId}/runs`, { token: 'user-token' });
     assert.equal(runs.body.total, 2);
     assert.deepEqual(runs.body.items.map((item: any) => item.attempt).sort(), [1, 2]);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('vndms.ingest rejects private, metadata, credential-bearing and non-allowlisted URLs (#73)', async () => {
+  const harness = await startHarness();
+  try {
+    const create = (url: string) => api(harness, '/v1/capabilities/jobs', {
+      method: 'POST', token: 'user-token',
+      body: {
+        name: `vndms-${Math.random().toString(36).slice(2, 8)}`,
+        kind: 'vndms.ingest', executor: 'runner',
+        schedule: { everySeconds: 60 }, payload: { url },
+      },
+    });
+    for (const url of [
+      'http://s3.vndms.gov.vn/feed.json',
+      'https://127.0.0.1/feed.json',
+      'https://[::1]/feed.json',
+      'https://169.254.169.254/latest/meta-data',
+      'https://10.0.0.5/feed.json',
+      'https://user:pass@s3.vndms.gov.vn/feed.json',
+      'https://evil.example/feed.json',
+      'https://s3.vndms.gov.vn@127.0.0.1/feed.json',
+    ]) {
+      const blocked = await create(url);
+      assert.equal(blocked.status, 400, `${url} -> ${blocked.status}`);
+      assert.equal(blocked.body.error.code, 'invalid_request');
+    }
+    const allowed = await create('https://s3.vndms.gov.vn/public/feed.json');
+    assert.equal(allowed.status, 201, JSON.stringify(allowed.body));
+  } finally {
+    await harness.close();
+  }
+});
+
+test('wildcard member tokens never widen job access across tenants (#74)', async () => {
+  const harness = await startHarness();
+  try {
+    const create = (token: string, name: string) => api(harness, '/v1/capabilities/jobs', {
+      method: 'POST', token,
+      body: { name, kind: 'hazard.expire', executor: 'runner', schedule: { everySeconds: 60 }, payload: {} },
+    });
+    const own = await create('user-token', 'org-a-job');
+    const other = await create('other-token', 'org-b-job');
+    assert.equal(own.status, 201);
+    assert.equal(other.status, 201);
+    const ownId = own.body.id;
+    const otherId = other.body.id;
+
+    // A production-shaped member token carries `scopes:['*']` from Tier-1.
+    const memberGet = await api(harness, `/v1/capabilities/jobs/${ownId}`, { token: 'member-token' });
+    assert.equal(memberGet.status, 200);
+    const memberForeign = await api(harness, `/v1/capabilities/jobs/${otherId}`, { token: 'member-token' });
+    assert.equal(memberForeign.status, 404);
+
+    const memberList = await api(harness, '/v1/capabilities/jobs', { token: 'member-token' });
+    assert.equal(memberList.status, 200);
+    assert.deepEqual(memberList.body.items.map((item: any) => item.id), [ownId]);
+
+    // Another organization's (wildcard-scoped) admin still cannot mutate or run
+    // this tenant's job, and deployment admin authority is not scope-derived.
+    for (const [method, path, body] of [
+      ['PATCH', `/v1/capabilities/jobs/${ownId}`, { enabled: false }],
+      ['DELETE', `/v1/capabilities/jobs/${ownId}`, undefined],
+      ['POST', `/v1/capabilities/jobs/${ownId}/run`, {}],
+    ] as const) {
+      const response = await api(harness, path, { method, token: 'other-admin-token', body });
+      assert.equal(response.status, 404, `${method} ${path}`);
+    }
+    const otherRuns = await api(harness, `/v1/capabilities/jobs/${ownId}/runs`, { token: 'other-admin-token' });
+    assert.equal(otherRuns.status, 404);
+    const stillThere = await api(harness, `/v1/capabilities/jobs/${ownId}`, { token: 'user-token' });
+    assert.equal(stillThere.status, 200);
   } finally {
     await harness.close();
   }

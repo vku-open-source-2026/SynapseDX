@@ -51,8 +51,14 @@ export function redactCredentialFields<T>(value: T): T {
   return out as T;
 }
 
-/** Bind every credential flow to the deployment organization (no slug hopping). */
-export function boundOrgSlug(config: ServiceConfig, raw: unknown): string | undefined {
+/**
+ * Bind every credential flow to the deployment organization (no slug hopping).
+ * An unbound deployment must receive an explicit slug; silently choosing
+ * `acme` (or trusting any caller-supplied slug) can target the wrong tenant and
+ * makes password reset/OIDC ambiguous. Production is required to configure the
+ * binding, so reaching the fallback there would be a deployment bug.
+ */
+export function boundOrgSlug(config: ServiceConfig, raw: unknown): string {
   const requested = raw === undefined || raw === null ? '' : String(raw).trim();
   if (config.authOrgSlug) {
     if (requested && requested !== config.authOrgSlug) {
@@ -62,7 +68,13 @@ export function boundOrgSlug(config: ServiceConfig, raw: unknown): string | unde
     }
     return config.authOrgSlug;
   }
-  return requested || undefined;
+  if (!requested) {
+    if (process.env.NODE_ENV === 'production') {
+      throw apiError(503, 'org_binding_required', 'this deployment requires SYNAPSEDX_AUTH_ORG_SLUG');
+    }
+    throw apiError(400, 'field_required', 'orgSlug is required on an unbound deployment', { field: 'orgSlug' });
+  }
+  return requested;
 }
 
 export function resolveAudience(config: ServiceConfig, raw: unknown, product?: string): string {
@@ -138,16 +150,21 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
     const body = (req.body || {}) as Record<string, unknown>;
     const email = emailField(body);
     const orgSlug = boundOrgSlug(config, body.orgSlug);
+    const password = body.password === undefined || body.password === null ? '' : String(body.password);
+    if (!password) {
+      // Tier-1 IAM may expose a dev/passwordless login. Tier-2 must never
+      // silently proxy it: production requires a password, and a test/local
+      // deployment must opt in explicitly.
+      if (!config.authPasswordlessEnabled || process.env.NODE_ENV === 'production') {
+        throw apiError(400, 'password_required', 'password is required', { field: 'password' });
+      }
+    }
     let result: any;
     try {
-      if (body.password !== undefined) {
-        const password = String(body.password);
-        if (!password) throw apiError(400, 'field_required', 'password is required', { field: 'password' });
-        result = await anonymousClient(config).iam.loginWithPassword({
-          email, password, ...(orgSlug ? { orgSlug } : {}),
-        });
-      } else {
+      if (!password) {
         result = await anonymousClient(config).iam.login(email, orgSlug);
+      } else {
+        result = await anonymousClient(config).iam.loginWithPassword({ email, password, orgSlug });
       }
     } catch (error) {
       mapAuthError(error);
@@ -218,7 +235,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
     const orgSlug = boundOrgSlug(config, body.orgSlug);
     let result: unknown;
     try {
-      result = await anonymousClient(config).iam.requestPasswordReset(email, orgSlug || 'acme');
+      result = await anonymousClient(config).iam.requestPasswordReset(email, orgSlug);
     } catch (error) {
       mapAuthError(error);
     }
@@ -233,7 +250,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
     const orgSlug = boundOrgSlug(config, body.orgSlug);
     let result: unknown;
     try {
-      result = await anonymousClient(config).iam.requestPasswordReset(email, orgSlug || 'acme');
+      result = await anonymousClient(config).iam.requestPasswordReset(email, orgSlug);
     } catch (error) {
       mapAuthError(error);
     }
@@ -337,7 +354,7 @@ export function registerAuthRoutes(app: Express, config: ServiceConfig): void {
   }));
 
   app.get('/v1/capabilities/auth/oidc/start', handler(async (req, res) => {
-    const org = boundOrgSlug(config, req.query.org) || config.authOrgSlug || 'acme';
+    const org = boundOrgSlug(config, req.query.org);
     const result = await anonymousClient(config).iam.oidcStart(org) as unknown as Record<string, unknown>;
     res.setHeader('cache-control', 'no-store');
     const target = typeof result?.authorizeUrl === 'string' ? result.authorizeUrl : result?.url;

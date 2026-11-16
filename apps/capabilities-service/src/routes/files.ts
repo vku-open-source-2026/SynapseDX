@@ -190,9 +190,112 @@ async function usedBytes(client: any, tenant: string): Promise<{ usedBytes: numb
     }
     if (page.items.length < 500) break;
     offset += page.items.length;
-    if (offset >= 20000) break;
   }
   return { usedBytes, count };
+}
+
+const QUOTA_RESERVATION_TTL_MS = 5 * 60_000;
+
+interface QuotaReservation {
+  id: string;
+  tenant: string;
+  reservedBytes: number;
+  reservedAt: string;
+  updatedAt: string;
+}
+
+function quotaReservationId(tenant: string): string {
+  return `file-quota-${createHash('sha256').update(tenant).digest('hex').slice(0, 32)}`;
+}
+
+async function readReservation(client: any, tenant: string): Promise<{ document: StoredDocument<QuotaReservation> | null; reservedBytes: number }> {
+  const document = await getDocumentOrNull<QuotaReservation>(client, COLLECTIONS.settings, quotaReservationId(tenant));
+  const fresh = document && Date.parse(document.data.reservedAt) >= Date.now() - QUOTA_RESERVATION_TTL_MS;
+  return { document, reservedBytes: fresh ? Math.max(0, Number(document!.data.reservedBytes) || 0) : 0 };
+}
+
+function quotaError(usedBytesCount: number, reservedBytes: number, requestedBytes: number, quotaBytes: number): never {
+  throw apiError(413, 'quota_exceeded', 'this tenant has no remaining file quota', {
+    usedBytes: usedBytesCount,
+    reservedBytes,
+    quotaBytes,
+    requestedBytes,
+  });
+}
+
+/**
+ * Reserve bytes with a CAS counter before writing an object. Concurrent
+ * uploads therefore cannot all pass the same `usedBytes` snapshot; the
+ * reservation is released after metadata is durable. Reservations expire after
+ * five minutes so a crashed request cannot permanently consume quota.
+ */
+async function reserveQuota(
+  client: any,
+  config: ServiceConfig,
+  tenant: string,
+  deltaBytes: number,
+): Promise<() => Promise<void>> {
+  const delta = Math.max(0, Math.trunc(deltaBytes));
+  if (delta === 0) return async () => undefined;
+  const usage = await usedBytes(client, tenant);
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const current = await readReservation(client, tenant);
+    const reserved = current.reservedBytes;
+    if (usage.usedBytes + reserved + delta > config.filesQuotaBytes) {
+      quotaError(usage.usedBytes, reserved, delta, config.filesQuotaBytes);
+    }
+    const now = new Date().toISOString();
+    const data: QuotaReservation = {
+      id: quotaReservationId(tenant),
+      tenant,
+      reservedBytes: reserved + delta,
+      reservedAt: now,
+      updatedAt: now,
+    };
+    try {
+      if (current.document) {
+        await client.base.updateDocument(COLLECTIONS.settings, data.id, {
+          data: data as unknown as Record<string, unknown>,
+          ...(current.document.version ? { ifVersion: current.document.version } : {}),
+        });
+      } else {
+        await client.base.createDocument(COLLECTIONS.settings, { id: data.id, data: data as unknown as Record<string, unknown> });
+      }
+      let released = false;
+      return async () => {
+        if (released) return;
+        released = true;
+        for (let releaseAttempt = 0; releaseAttempt < 8; releaseAttempt += 1) {
+          const latest = await readReservation(client, tenant);
+          if (!latest.document) return;
+          const next = Math.max(0, latest.reservedBytes - delta);
+          const releasedAt = new Date().toISOString();
+          const nextData: QuotaReservation = {
+            ...latest.document.data,
+            reservedBytes: next,
+            reservedAt: releasedAt,
+            updatedAt: releasedAt,
+          };
+          try {
+            await client.base.updateDocument(COLLECTIONS.settings, nextData.id, {
+              data: nextData as unknown as Record<string, unknown>,
+              ...(latest.document.version ? { ifVersion: latest.document.version } : {}),
+            });
+            return;
+          } catch (error) {
+            if (error instanceof SynapseOneError && (error.status === 409 || error.status === 404)) continue;
+            throw error;
+          }
+        }
+      };
+    } catch (error) {
+      if (error instanceof SynapseOneError && (error.status === 409 || error.status === 404)) continue;
+      throw error;
+    }
+  }
+  throw apiError(503, 'quota_reservation_unavailable', 'could not reserve file quota; retry the upload', {
+    dependency: 'synapseone-base',
+  });
 }
 
 function productOf(req: { header(name: string): string | undefined }): string | undefined {
@@ -283,11 +386,13 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
   app.get('/v1/capabilities/files/quota', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
     const usage = await usedBytes(client, principal.tenantKey);
+    const reservation = await readReservation(client, principal.tenantKey);
     res.json({
       tenant: principal.tenantKey,
       usedBytes: usage.usedBytes,
+      reservedBytes: reservation.reservedBytes,
       quotaBytes: config.filesQuotaBytes,
-      remainingBytes: Math.max(config.filesQuotaBytes - usage.usedBytes, 0),
+      remainingBytes: Math.max(config.filesQuotaBytes - usage.usedBytes - reservation.reservedBytes, 0),
       files: usage.count,
       maxFileBytes: config.filesMaxBytes,
       allowedTypes: config.filesAllowedTypes,
@@ -330,14 +435,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
 
     try {
       await ensureCollections(client);
-      const usage = await usedBytes(client, principal.tenantKey);
-      if (usage.usedBytes + size > config.filesQuotaBytes) {
-        throw apiError(413, 'quota_exceeded', 'this tenant has no remaining file quota', {
-          usedBytes: usage.usedBytes,
-          quotaBytes: config.filesQuotaBytes,
-          requestedBytes: size,
-        });
-      }
+      const release = await reserveQuota(client, config, principal.tenantKey, size);
       const id = requestedId || randomUUID();
       const now = new Date().toISOString();
       const record: FileRecord = {
@@ -360,11 +458,15 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       try {
         await client.base.createDocument(COLLECTIONS.files, { id, data: record as unknown as Record<string, unknown> });
       } catch (error) {
+        await release().catch(() => undefined);
         if (error instanceof SynapseOneError && error.status === 409) {
           throw apiError(409, 'file_already_exists', 'a file with this id already exists');
         }
         throw error;
       }
+      // The metadata row now carries the bytes in `usedBytes`; release the
+      // temporary reservation so concurrent uploads see the committed value.
+      await release().catch(() => undefined);
       await recordAudit(client, config, {
         actor: principal.subject, tenant: principal.tenantKey, action: 'file.create',
         datasetId: record.datasetId, correlationId: correlationIdOf(req), details: { id, filename, contentType, size },
@@ -462,32 +564,44 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     if (expectedChecksum && expectedChecksum !== actualChecksum) {
       throw apiError(400, 'invalid_request', 'the body checksum does not match checksumSha256', { expected: expectedChecksum, actual: actualChecksum });
     }
-    const usage = await usedBytes(client, principal.tenantKey);
-    if (usage.usedBytes - record.size + body.length > config.filesQuotaBytes) {
-      throw apiError(413, 'quota_exceeded', 'this tenant has no remaining file quota', {
-        usedBytes: usage.usedBytes,
-        quotaBytes: config.filesQuotaBytes,
-        requestedBytes: body.length,
-      });
-    }
+    const release = await reserveQuota(client, config, principal.tenantKey, body.length - record.size);
+    // Write new bytes to a fresh object key, then CAS the metadata. A failed CAS
+    // (or any later error) removes the new object and leaves the previous
+    // metadata/bytes intact; publishing the key only after the CAS avoids stale
+    // sizes/checksums and orphaned replacement objects.
+    const nextStorageKey = `${storageKey(config, principal.tenantKey, record.id, record.filename)}-rev-${randomUUID().slice(0, 12)}`;
     try {
       await ensureOcsBucket(client, config);
-      await client.ocs.putObject(config.filesBucket, record.storageKey, body, { contentType, checksumSha256: actualChecksum });
+      await client.ocs.putObject(config.filesBucket, nextStorageKey, body, { contentType, checksumSha256: actualChecksum });
     } catch (error) {
+      await release().catch(() => undefined);
       mapStorageError(error);
     }
     const updated: FileRecord = {
       ...record,
+      storageKey: nextStorageKey,
       contentType,
       size: body.length,
       checksumSha256: actualChecksum,
       ocsBucket: config.filesBucket,
       updatedAt: new Date().toISOString(),
     };
-    await client.base.updateDocument(COLLECTIONS.files, record.id, {
-      data: updated as unknown as Record<string, unknown>,
-      ...(found.version ? { ifVersion: found.version } : {}),
-    });
+    try {
+      await client.base.updateDocument(COLLECTIONS.files, record.id, {
+        data: updated as unknown as Record<string, unknown>,
+        ...(found.version ? { ifVersion: found.version } : {}),
+      });
+    } catch (error) {
+      await client.ocs.deleteObject(config.filesBucket, nextStorageKey).catch(() => undefined);
+      await release().catch(() => undefined);
+      throw error;
+    }
+    // The metadata is durable; old bytes are now unreferenced (best effort).
+    try {
+      if (record.ocsBucket) await client.ocs.deleteObject(record.ocsBucket, record.storageKey);
+      else await client.storage.deleteObject(record.storageKey);
+    } catch { /* orphan cleanup is repairable and never fails the upload */ }
+    await release().catch(() => undefined);
     await recordAudit(client, config, {
       actor: principal.subject, tenant: principal.tenantKey, action: 'file.upload',
       datasetId: updated.datasetId, correlationId: correlationIdOf(req), details: { id: record.id, size: updated.size },
@@ -533,15 +647,9 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     }
     const contentType = mimeType(object.contentType || found.data.contentType);
     assertAllowedType(config, contentType);
-    const usage = await usedBytes(client, principal.tenantKey);
-    if (usage.usedBytes - found.data.size + Number(object.size) > config.filesQuotaBytes) {
-      throw apiError(413, 'quota_exceeded', 'this tenant has no remaining file quota', {
-        usedBytes: usage.usedBytes,
-        quotaBytes: config.filesQuotaBytes,
-        requestedBytes: Number(object.size),
-      });
-    }
-    const updated: FileRecord = {
+    const release = await reserveQuota(client, config, principal.tenantKey, Number(object.size) - found.data.size);
+    let version = found.version;
+    let updated: FileRecord = {
       ...found.data,
       size: Number(object.size),
       contentType,
@@ -549,10 +657,39 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       ...(object.checksumSha256 ? { checksumSha256: String(object.checksumSha256) } : {}),
       updatedAt: new Date().toISOString(),
     };
-    await client.base.updateDocument(COLLECTIONS.files, found.data.id, {
-      data: updated as unknown as Record<string, unknown>,
-      ...(found.version ? { ifVersion: found.version } : {}),
-    });
+    let finalized = false;
+    for (let attempt = 0; attempt < 3 && !finalized; attempt += 1) {
+      try {
+        await client.base.updateDocument(COLLECTIONS.files, found.data.id, {
+          data: updated as unknown as Record<string, unknown>,
+          ...(version ? { ifVersion: version } : {}),
+        });
+        finalized = true;
+      } catch (error) {
+        if (!(error instanceof SynapseOneError && error.status === 409)) {
+          await release().catch(() => undefined);
+          throw error;
+        }
+        // A concurrent metadata write won; re-apply the object size/checksum on
+        // top of the current row instead of leaving it stale.
+        const latest = await getDocumentOrNull<FileRecord>(client, COLLECTIONS.files, found.data.id);
+        if (!latest) {
+          await release().catch(() => undefined);
+          throw apiError(404, 'file_not_found', 'file not found');
+        }
+        version = latest.version;
+        updated = {
+          ...latest.data,
+          size: Number(object.size),
+          contentType,
+          ocsBucket: config.filesBucket,
+          ...(object.checksumSha256 ? { checksumSha256: String(object.checksumSha256) } : {}),
+          updatedAt: new Date().toISOString(),
+        };
+      }
+    }
+    await release().catch(() => undefined);
+    if (!finalized) throw apiError(409, 'version_conflict', 'the file metadata was modified concurrently');
     res.json(view(updated));
   }));
 
@@ -617,14 +754,20 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
 export async function saveGeneratedFile(client: any, config: ServiceConfig, principal: { tenantKey: string; subject: string }, filename: string, contentType: string, bytes: Buffer): Promise<FileView> {
   filename = safeFilename(filename); contentType = mimeType(contentType); assertAllowedType(config, contentType);
   if (bytes.length > config.filesMaxBytes) throw apiError(413, 'file_too_large', 'Generated file exceeds the deployment limit');
-  const usage = await usedBytes(client, principal.tenantKey);
-  if (usage.usedBytes + bytes.length > config.filesQuotaBytes) throw apiError(413, 'quota_exceeded', 'No remaining artifact storage quota');
   const id = randomUUID(), now = new Date().toISOString();
   const record: FileRecord = { id, tenant: principal.tenantKey, owner: principal.subject, filename, contentType, size: bytes.length, checksumSha256: checksumOf(bytes), storageKey: storageKey(config, principal.tenantKey, id, filename), ocsBucket: config.filesBucket, createdAt: now, updatedAt: now };
-  await ensureCollections(client); await ensureOcsBucket(client, config);
-  await client.ocs.putObject(config.filesBucket, record.storageKey, bytes, { contentType, checksumSha256: record.checksumSha256 });
-  try { await client.base.createDocument(COLLECTIONS.files, { id, data: record as unknown as Record<string, unknown> }); }
-  catch (error) { await client.ocs.deleteObject(config.filesBucket, record.storageKey).catch(() => {}); throw error; }
+  await ensureCollections(client);
+  const release = await reserveQuota(client, config, principal.tenantKey, bytes.length);
+  try {
+    await ensureOcsBucket(client, config);
+    await client.ocs.putObject(config.filesBucket, record.storageKey, bytes, { contentType, checksumSha256: record.checksumSha256 });
+    await client.base.createDocument(COLLECTIONS.files, { id, data: record as unknown as Record<string, unknown> });
+  } catch (error) {
+    await client.ocs.deleteObject(config.filesBucket, record.storageKey).catch(() => {});
+    await release().catch(() => undefined);
+    throw error;
+  }
+  await release().catch(() => undefined);
   await recordAudit(client, config, { tenant: principal.tenantKey, actor: principal.subject, action: 'file.generate', correlationId: randomUUID(), details: { id, size: bytes.length, checksumSha256: record.checksumSha256 } });
   return view(record);
 }

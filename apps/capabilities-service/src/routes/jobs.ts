@@ -16,7 +16,9 @@
 import { Express } from 'express';
 import { randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
-import { ServiceConfig } from '../config';
+import { isAdmin } from '../auth';
+import { isPrivateHost, ServiceConfig } from '../config';
+import { CRON_RE, nextRunAt } from '../cron';
 import { apiError } from '../errors';
 import { handler } from '../http';
 import { booleanParam, parsePagination, setPageHeaders } from '../pagination';
@@ -26,7 +28,8 @@ import {
 } from '../platform';
 import { authenticatedReadContext, writeContext } from './shared';
 
-const CRON_RE = /^(\S+\s+){4}\S+$|^@(hourly|daily|weekly|monthly)$/;
+export { nextRunAt } from '../cron';
+
 const MAX_LEASE_SECONDS = 3600;
 const MAX_BACKOFF_SECONDS = 300;
 
@@ -116,63 +119,6 @@ function parseSchedule(body: Record<string, unknown>, existing?: JobSchedule): J
   return { everySeconds };
 }
 
-/** Minimal cron matcher: `*`, step (`*` + `/n`), `a`, `a-b`, comma lists. UTC. */
-function cronFieldMatch(field: string, value: number): boolean {
-  return field.split(',').some((part) => {
-    const token = part.trim();
-    if (!token) return false;
-    if (token === '*') return true;
-    const step = token.match(/^\*\/(\d{1,3})$/);
-    if (step) return Number(step[1]) > 0 && value % Number(step[1]) === 0;
-    const range = token.match(/^(\d{1,3})-(\d{1,3})(?:\/(\d{1,3}))?$/);
-    if (range) {
-      const [min, max, every] = [Number(range[1]), Number(range[2]), Number(range[3] || 1)];
-      return every > 0 && value >= min && value <= max && (value - min) % every === 0;
-    }
-    return /^\d{1,3}$/.test(token) && Number(token) === value;
-  });
-}
-
-function cronExpression(schedule: JobSchedule): string | undefined {
-  if (schedule.cron) return schedule.cron;
-  return undefined;
-}
-
-function presetCron(expr: string): string | undefined {
-  if (expr === '@hourly') return '0 * * * *';
-  if (expr === '@daily') return '0 0 * * *';
-  if (expr === '@weekly') return '0 0 * * 0';
-  if (expr === '@monthly') return '0 0 1 * *';
-  return undefined;
-}
-
-/** Next scheduled instant (UTC) for a supported cron/interval schedule. */
-export function nextRunAt(schedule: JobSchedule, from: Date = new Date()): string {
-  if (schedule.everySeconds) {
-    return new Date(from.getTime() + schedule.everySeconds * 1000).toISOString();
-  }
-  const expr = cronExpression(schedule);
-  if (!expr) return new Date(from.getTime() + 3600_000).toISOString();
-  const normalized = presetCron(expr) || expr;
-  const parts = normalized.trim().split(/\s+/);
-  if (parts.length !== 5) return new Date(from.getTime() + 3600_000).toISOString();
-  const [minute, hour, dom, month, dow] = parts;
-  const start = new Date(from.getTime());
-  start.setUTCSeconds(0, 0);
-  start.setUTCMinutes(start.getUTCMinutes() + 1);
-  const limit = from.getTime() + 366 * 24 * 3600 * 1000;
-  for (let time = start.getTime(); time < limit; time += 60_000) {
-    const date = new Date(time);
-    if (!cronFieldMatch(minute, date.getUTCMinutes())) continue;
-    if (!cronFieldMatch(hour, date.getUTCHours())) continue;
-    if (!cronFieldMatch(dom, date.getUTCDate())) continue;
-    if (!cronFieldMatch(month, date.getUTCMonth() + 1)) continue;
-    if (!cronFieldMatch(dow, date.getUTCDay())) continue;
-    return date.toISOString();
-  }
-  return new Date(from.getTime() + 3600_000).toISOString();
-}
-
 function workflowDefinition(job: { name: string; schedule: JobSchedule }, workflowId: string) {
   const parameters = job.schedule.cron
     ? { cronExpression: job.schedule.cron }
@@ -194,7 +140,45 @@ function workflowIdOf(payload: any): string {
   return String(payload?.id || payload?.workflowId || payload?.workflow?.id || '');
 }
 
-function validateRunnerPayload(kind: string, payload: Record<string, unknown> | undefined): void {
+/**
+ * Validate a tenant-supplied VNDMS feed URL. The runner fetches this URL from a
+ * network position that can reach internal services, so a prefix check is not
+ * enough: parse it, require HTTPS without credentials/fragments, reject private
+ * and metadata hosts, and require an explicitly allowlisted publisher domain.
+ * The runner must revalidate every resolved address (and redirects) at fetch
+ * time; this is the boundary check at job creation.
+ */
+export function assertVndmsFeedUrl(raw: unknown, allowedHosts: string[]): string {
+  const text = String(raw ?? '').trim();
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must be an absolute public HTTPS URL');
+  }
+  if (url.protocol !== 'https:') {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must use HTTPS');
+  }
+  if (url.username || url.password) {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must not contain credentials');
+  }
+  if (url.hash) {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must not contain a fragment');
+  }
+  const host = url.hostname.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (!host || isPrivateHost(host)) {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must be a public HTTPS URL');
+  }
+  const allowed = allowedHosts.some((entry) => host === entry || host.endsWith(`.${entry}`));
+  if (!allowed) {
+    throw apiError(400, 'invalid_request', 'vndms.ingest payload.url host is not an allowlisted VNDMS/NCHMF publisher', {
+      allowedHosts,
+    });
+  }
+  return url.toString();
+}
+
+function validateRunnerPayload(kind: string, payload: Record<string, unknown> | undefined, config: ServiceConfig): void {
   const spec = JOB_KIND_CATALOG[kind];
   if (!spec) {
     // Custom kinds are allowed; the catalog is advisory.
@@ -202,9 +186,7 @@ function validateRunnerPayload(kind: string, payload: Record<string, unknown> | 
   }
   if (!payload) return;
   if (kind === 'vndms.ingest') {
-    if (payload.url !== undefined && !/^https:\/\//i.test(String(payload.url))) {
-      throw apiError(400, 'invalid_request', 'vndms.ingest payload.url must be a public HTTPS URL');
-    }
+    if (payload.url !== undefined) assertVndmsFeedUrl(payload.url, config.vndmsAllowedHosts);
     if (payload.format !== undefined && !['json', 'xml'].includes(String(payload.format).toLowerCase())) {
       throw apiError(400, 'invalid_request', 'vndms.ingest payload.format must be json|xml');
     }
@@ -254,8 +236,14 @@ function jobRunView(run: JobRunRecord): Record<string, unknown> {
   };
 }
 
-function canAccessJob(job: JobRecord, principal: { tenantKey: string; scopes: string[] }): boolean {
-  return principal.scopes.includes('*') || principal.scopes.includes('synapsedx:admin') || !job.tenant || job.tenant === principal.tenantKey;
+/**
+ * Job access is tenant data, not scope authority. Tier-1 stamps every member
+ * token with `*`, so wildcard/admin scopes must never widen it; only the
+ * deployment administrator (`isAdmin`) may bypass tenancy.
+ */
+function canAccessJob(job: JobRecord, principal: { tenantKey: string; scopes: string[]; isServiceCredential?: boolean; isDxAdmin?: boolean; workspaceApp?: string }): boolean {
+  if (isAdmin(principal as any)) return true;
+  return !!job.tenant && job.tenant === principal.tenantKey;
 }
 
 async function loadJob(client: any, id: string): Promise<JobRecord> {
@@ -264,9 +252,16 @@ async function loadJob(client: any, id: string): Promise<JobRecord> {
   return job.data;
 }
 
-async function nextQueuedRun(client: any, jobId: string): Promise<JobRunRecord | null> {
+async function nextQueuedRun(client: any, jobId: string, dueAt?: string): Promise<JobRunRecord | null> {
+  const where: Array<Record<string, unknown>> = [
+    { field: 'jobId', op: 'eq', value: jobId },
+    { field: 'status', op: 'eq', value: 'queued' },
+  ];
+  // Retry/backoff runs carry a future scheduledFor and must not be leased
+  // early. Manual run-now deduplicates any queued run, so it omits `dueAt`.
+  if (dueAt) where.push({ field: 'scheduledFor', op: 'lte', value: dueAt });
   const result = await queryDocuments<JobRunRecord>(client, COLLECTIONS.jobRuns, {
-    where: [{ field: 'jobId', op: 'eq', value: jobId }, { field: 'status', op: 'eq', value: 'queued' }],
+    where,
     orderBy: { field: 'scheduledFor', direction: 'asc' },
     limit: 1,
   });
@@ -339,9 +334,7 @@ export function registerJobRoutes(app: Express, config: ServiceConfig): void {
   app.get('/v1/capabilities/jobs', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
     const pagination = parsePagination(req, config.maxPageSize);
-    const where = principal.scopes.includes('*') || principal.scopes.includes('synapsedx:admin')
-      ? undefined
-      : { or: [{ tenant: principal.tenantKey }, { tenant: { exists: false } }] };
+    const where = isAdmin(principal) ? undefined : { tenant: principal.tenantKey };
     const result = await queryDocuments<JobRecord>(client, COLLECTIONS.jobs, {
       ...(where ? { where } : {}),
       orderBy: { field: 'id', direction: 'asc' },
@@ -361,7 +354,7 @@ export function registerJobRoutes(app: Express, config: ServiceConfig): void {
     const executor = executorOf(body.executor);
     const kind = String(body.kind || 'generic').trim().slice(0, 64) || 'generic';
     const payload = body.payload && typeof body.payload === 'object' ? body.payload as Record<string, unknown> : undefined;
-    if (executor === 'runner') validateRunnerPayload(kind, payload);
+    if (executor === 'runner') validateRunnerPayload(kind, payload, config);
     const idempotencyKey = idempotencyKeyOf(req);
     const claim = await claimIdempotency(
       client, config, principal.tenantKey, idempotencyKey,
@@ -455,7 +448,7 @@ export function registerJobRoutes(app: Express, config: ServiceConfig): void {
       updatedAt: new Date().toISOString(),
     };
     if (job.executor === 'runner') {
-      validateRunnerPayload(updated.kind, updated.payload);
+      validateRunnerPayload(updated.kind, updated.payload, config);
       if (!updated.enabled) updated.nextRunAt = undefined;
       else if (body.schedule !== undefined || (body.enabled === true && !job.enabled)) updated.nextRunAt = nextRunAt(schedule);
       else updated.nextRunAt = job.nextRunAt;
@@ -646,7 +639,7 @@ export function registerJobRoutes(app: Express, config: ServiceConfig): void {
         }, entry.version);
         try { await client.faststore.delete(leaseKey(principal.tenantKey, job.id)); } catch { /* expires */ }
       }
-      const queued = await nextQueuedRun(client, job.id);
+      const queued = await nextQueuedRun(client, job.id, now.toISOString());
       const due = queued || (job.nextRunAt && new Date(job.nextRunAt).getTime() <= now.getTime());
       if (!due) continue;
       const token = randomUUID();

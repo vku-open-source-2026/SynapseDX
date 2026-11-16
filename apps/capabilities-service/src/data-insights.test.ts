@@ -146,16 +146,110 @@ test('reports honour dataset permissions, export idempotently and schedule (#39)
     assert.equal(export2.status, 200);
     assert.equal(export2.body.duplicate, true);
 
-    const schedule = await api(harness, `/v1/capabilities/reports/${reportId}/schedule`, {
+    const formulaRecord = await api(harness, `/v1/capabilities/datasets/${id}/records`, {
+      method: 'POST', token: 'user-token', body: { id: 'r3', data: { status: 'open', amount: 1, note: '=SUM(1,1)' } },
+    });
+    assert.equal(formulaRecord.status, 201);
+    const tableReport = await api(harness, '/v1/capabilities/reports', {
+      method: 'POST', token: 'user-token',
+      body: { name: 'Incident table', kind: 'table', datasetId: id, query: {} },
+    });
+    assert.equal(tableReport.status, 201);
+    const formulaExport = await api(harness, `/v1/capabilities/reports/${tableReport.body.report.id}/export`, {
+      method: 'POST', token: 'user-token', body: { format: 'csv' },
+    });
+    assert.equal(formulaExport.status, 201, JSON.stringify(formulaExport.body));
+    assert.match(formulaExport.body.content, /'=SUM\(1,1\)/);
+
+    const badCron = await api(harness, `/v1/capabilities/reports/${reportId}/schedule`, {
+      method: 'POST', token: 'admin-token', body: { cron: 'not-a-cron', format: 'ndjson' },
+    });
+    assert.equal(badCron.status, 400);
+    const foreignRecipient = await api(harness, `/v1/capabilities/reports/${reportId}/schedule`, {
       method: 'POST', token: 'user-token', body: { cron: '0 6 * * *', format: 'ndjson', recipient: 'ops@example.com' },
+    });
+    assert.equal(foreignRecipient.status, 403);
+    assert.equal(foreignRecipient.body.error.code, 'recipient_not_allowed');
+    const schedule = await api(harness, `/v1/capabilities/reports/${reportId}/schedule`, {
+      method: 'POST', token: 'admin-token', body: { cron: '0 6 * * *', format: 'ndjson', recipient: 'ops@example.com' },
     });
     assert.equal(schedule.status, 200);
     assert.equal(schedule.body.report.schedule.format, 'ndjson');
+    assert.ok(schedule.body.report.schedule.nextRunAt);
+    // A daily schedule created now is not due on the next invocation.
+    const notDue = await api(harness, '/v1/capabilities/report-schedules/run-due', { method: 'POST', token: 'user-token', body: {} });
+    assert.equal(notDue.status, 200);
+    assert.equal(notDue.body.deliveries.length, 0);
+
+    // Simulate the next occurrence becoming due.
+    const reports = harness.fake.collections.get('synapsedx_capability_reports')!;
+    const stored = reports.get(reportId) as any;
+    stored.data.schedule.nextRunAt = new Date(Date.now() - 60_000).toISOString();
     const due = await api(harness, '/v1/capabilities/report-schedules/run-due', { method: 'POST', token: 'user-token', body: {} });
     assert.equal(due.status, 200);
     assert.equal(due.body.deliveries.length, 1);
+    assert.equal(due.body.deliveries[0].delivery.status, 'sent');
+    assert.ok(due.body.deliveries[0].delivery.notificationIds.length >= 1);
+    assert.equal((harness.fake.notifications.size || 0), 1);
+
     const dueAgain = await api(harness, '/v1/capabilities/report-schedules/run-due', { method: 'POST', token: 'user-token', body: {} });
-    assert.equal(dueAgain.body.deliveries[0].duplicate, true);
+    assert.equal(dueAgain.body.deliveries.length, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('reports and dashboards hide per-record unpublished rows from projection readers (#76)', async () => {
+  const harness = await startHarness();
+  try {
+    const dataset = await createDataset(harness, { slug: 'publication-report', public: true });
+    const datasetId = dataset.body.id;
+    const withdrawn = await api(harness, `/v1/capabilities/datasets/${datasetId}/records`, {
+      method: 'POST', token: 'user-token',
+      body: { id: 'withdrawn', publish: false, data: { status: 'open', amount: 99 } },
+    });
+    assert.equal(withdrawn.status, 201, JSON.stringify(withdrawn.body));
+    const publish = await api(harness, `/v1/capabilities/datasets/${datasetId}/publish`, { method: 'POST', token: 'user-token' });
+    assert.equal(publish.status, 200);
+    const visible = await api(harness, `/v1/capabilities/datasets/${datasetId}/records`, {
+      method: 'POST', token: 'user-token',
+      body: { id: 'visible', data: { status: 'open', amount: 5 } },
+    });
+    assert.equal(visible.status, 201, JSON.stringify(visible.body));
+
+    // Common-workspace tenants carry the app suffix; seed membership so a plain
+    // member (viewer only, no draft right) can reach the report endpoints.
+    for (const [subject, roles] of [['member-1', ['volunteer']], ['admin-1', ['admin']]] as const) {
+      const member = await api(harness, `/v1/capabilities/workspaces/members/${subject}`, {
+        method: 'PUT', token: 'admin-token', body: { productRoles: { city: roles } },
+      });
+      assert.ok([200, 201].includes(member.status), JSON.stringify(member.body));
+    }
+    const report = await api(harness, '/v1/capabilities/reports', {
+      method: 'POST', token: 'admin-token', headers: { 'x-workspace-app': 'city' },
+      body: { name: 'Published only', kind: 'table', datasetId, query: {} },
+    });
+    assert.equal(report.status, 201, JSON.stringify(report.body));
+    const reportId = report.body.report.id;
+    // A plain member can read the public projection but has no draft right.
+    const run = await api(harness, `/v1/capabilities/reports/${reportId}/run`, {
+      method: 'POST', token: 'member-token', headers: { 'x-workspace-app': 'city' }, body: {},
+    });
+    assert.equal(run.status, 200, JSON.stringify(run.body));
+    assert.equal(run.body.total, 1);
+    assert.equal(JSON.stringify(run.body.rows).includes('99'), false);
+
+    const dashboard = await api(harness, '/v1/capabilities/dashboards', {
+      method: 'POST', token: 'admin-token', headers: { 'x-workspace-app': 'city' },
+      body: { name: 'Public dashboard', widgets: [{ id: 'w1', reportId }] },
+    });
+    assert.equal(dashboard.status, 201, JSON.stringify(dashboard.body));
+    const data = await api(harness, `/v1/capabilities/dashboards/${dashboard.body.dashboard.id}/data`, {
+      token: 'member-token', headers: { 'x-workspace-app': 'city' },
+    });
+    assert.equal(data.status, 200, JSON.stringify(data.body));
+    assert.equal(data.body.widgets[0].total, 1);
+    assert.equal(JSON.stringify(data.body.widgets[0].rows).includes('99'), false);
   } finally {
     await harness.close();
   }

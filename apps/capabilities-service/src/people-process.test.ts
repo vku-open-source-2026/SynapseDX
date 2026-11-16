@@ -49,6 +49,14 @@ test('people, KPI check-ins and HITL timesheet approval (#36)', async () => {
     assert.equal(self.status, 403);
     assert.equal(self.body.error.code, 'self_approval_forbidden');
 
+    // A write-capable tenant operator who is not the configured manager must
+    // not approve, even though it holds an admin-ish scope.
+    const wrongApprover = await api(harness, `/v1/capabilities/timesheets/${timesheetId}/decide`, {
+      method: 'POST', token: 'dx-admin-token', body: { decision: 'approve' },
+    });
+    assert.equal(wrongApprover.status, 403);
+    assert.equal(wrongApprover.body.error.code, 'approver_role_required');
+
     const approved = await api(harness, `/v1/capabilities/timesheets/${timesheetId}/decide`, {
       method: 'POST', token: 'moderator-token', body: { decision: 'approve', note: 'ok' },
     });
@@ -205,6 +213,12 @@ test('projects reject cycles, block stage gates and detect over-allocation (#38)
       method: 'POST', token: 'user-token', body: { decision: 'approve' },
     });
     assert.equal(self.status, 403);
+    const wrongApprover = await api(harness, `/v1/capabilities/projects/${projectId}/gates/${gateId}/decide`, {
+      method: 'POST', token: 'dx-admin-token', body: { decision: 'approve' },
+    });
+    assert.equal(wrongApprover.status, 403);
+    assert.equal(wrongApprover.body.error.code, 'approver_role_required');
+
     const approved = await api(harness, `/v1/capabilities/projects/${projectId}/gates/${gateId}/decide`, {
       method: 'POST', token: 'moderator-token', body: { decision: 'approve' },
     });

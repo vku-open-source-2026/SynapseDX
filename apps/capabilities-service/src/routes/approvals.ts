@@ -49,7 +49,7 @@ export interface ApprovalRecord {
   updatedAt: string;
 }
 
-function actorRoles(principal: CallerPrincipal): Set<string> {
+export function actorRoles(principal: CallerPrincipal): Set<string> {
   const roles = new Set<string>(managementRoles(principal));
   for (const scope of principal.scopes) roles.add(scope.toLowerCase());
   if (isTenantAdmin(principal)) roles.add('admin');
@@ -57,6 +57,24 @@ function actorRoles(principal: CallerPrincipal): Set<string> {
   if (hasWriteScope(principal)) roles.add('operator');
   if (hasReadScope(principal)) roles.add('manager');
   return roles;
+}
+
+/**
+ * One approval policy for generic approvals, timesheet approvals and project
+ * stage gates: the caller must be named directly (the manager subject) or hold
+ * one of the configured roles, unless it is a tenant administrator. Empty role
+ * sets grant nobody — they never mean "any member".
+ */
+export function isConfiguredApprover(principal: CallerPrincipal, approverRoles: unknown): boolean {
+  if (isTenantAdmin(principal)) return true;
+  if (!Array.isArray(approverRoles) || approverRoles.length === 0) return false;
+  const subject = principal.subject.toLowerCase();
+  const roles = actorRoles(principal);
+  return approverRoles.some((role) => {
+    if (typeof role !== 'string') return false;
+    const value = role.trim().toLowerCase();
+    return value === subject || roles.has(value);
+  });
 }
 
 function canSee(principal: CallerPrincipal, approval: ApprovalRecord): boolean {
@@ -117,6 +135,9 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
     const module = validateString(body.module, 'module', 1, 64);
     const action = validateString(body.action, 'action', 1, 128);
     const approverRoles = validateStringArray(body.approverRoles, 'approverRoles', 10);
+    if (!approverRoles.length) {
+      throw apiError(400, 'approver_roles_required', 'approverRoles must contain at least one configured approver');
+    }
     const requiredApprovals = body.requiredApprovals === undefined ? 1 : Number(body.requiredApprovals);
     if (!Number.isInteger(requiredApprovals) || requiredApprovals < 1 || requiredApprovals > 10) {
       throw apiError(400, 'invalid_request', 'requiredApprovals must be an integer 1..10');
@@ -184,13 +205,10 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
       orderBy: { field: 'createdAt', direction: 'desc' },
       limit: 1000,
     });
-    const roles = actorRoles(verified);
     let items = result.items.map((item) => item.data);
     if (mine === 'requester') items = items.filter((item) => item.requester === verified.subject);
     if (mine === 'approver') {
-      items = items.filter((item) => item.status === 'pending'
-        && (item.approverRoles.length === 0 || isTenantAdmin(verified)
-          || item.approverRoles.some((role) => roles.has(role.toLowerCase()))));
+      items = items.filter((item) => item.status === 'pending' && isConfiguredApprover(verified, item.approverRoles));
     }
     res.setHeader('cache-control', 'no-store');
     res.json({ items, total: items.length });
@@ -218,10 +236,8 @@ export function registerApprovalRoutes(app: Express, config: ServiceConfig): voi
     if (approval.requester === verified.subject) {
       throw apiError(403, 'self_approval_forbidden', 'the requester cannot decide their own approval');
     }
-    const roles = actorRoles(verified);
-    if (approval.approverRoles.length && !isTenantAdmin(verified)
-      && !approval.approverRoles.some((role) => roles.has(role.toLowerCase()))) {
-      throw apiError(403, 'approver_role_required', 'this approval requires one of the configured approver roles', {
+    if (!isConfiguredApprover(verified, approval.approverRoles)) {
+      throw apiError(403, 'approver_role_required', 'this approval requires one of the configured approvers', {
         approverRoles: approval.approverRoles,
       });
     }

@@ -21,14 +21,9 @@ import {
   extractRecordGeometry, removeRecordGeo, syncRecordGeo, syncRecordsGeoBatch,
 } from '../spatial';
 import {
-  accessibleDataset, canReadRecordDrafts, expectedVersion, readContext, requireVersionMatch, setVersionHeaders,
-  writeContext,
+  accessibleDataset, canReadRecordDrafts, expectedVersion, publishedRowFilter, readContext,
+  requireVersionMatch, setVersionHeaders, writeContext,
 } from './shared';
-
-/** Rows a non-draft reader (member, other authenticated caller, anonymous) may see. */
-function publishedRowFilter(): Record<string, unknown> {
-  return { or: [{ published: true }, { published: { exists: false } }] };
-}
 
 export interface RecordResponse {
   id: string;

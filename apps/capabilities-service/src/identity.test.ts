@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { api, startHarness } from './testing/harness';
 
 test('identity capability covers register, password login, change/reset, verification and sessions', async () => {
-  const harness = await startHarness();
+  const harness = await startHarness({ SYNAPSEDX_AUTH_ORG_SLUG: 'acme' });
   try {
     const register = await api(harness, '/v1/capabilities/auth/register', {
       method: 'POST',
@@ -117,15 +117,15 @@ test('login/register/OIDC are bound to the deployment organization', async () =>
     assert.equal(badOrg.status, 403);
     assert.equal(badOrg.body.error.code, 'org_not_allowed');
 
-    const bound = await api(harness, '/v1/capabilities/auth/login', {
-      method: 'POST', body: { email: 'user@example.test', orgSlug: 'acme' },
-    });
-    assert.equal(bound.status, 200);
-
     const register = await api(harness, '/v1/capabilities/auth/register', {
       method: 'POST', body: { email: 'new@example.test', password: 'password-1', orgSlug: 'acme' },
     });
     assert.equal(register.status, 201);
+
+    const bound = await api(harness, '/v1/capabilities/auth/login', {
+      method: 'POST', body: { email: 'new@example.test', password: 'password-1', orgSlug: 'acme' },
+    });
+    assert.equal(bound.status, 200);
 
     const oidc = await api(harness, '/v1/capabilities/auth/oidc/start?org=acme');
     assert.equal(oidc.status, 200);
@@ -135,6 +135,45 @@ test('login/register/OIDC are bound to the deployment organization', async () =>
     assert.equal(redirect.headers.get('location'), 'https://idp.example/authorize');
   } finally {
     await harness.close();
+  }
+});
+
+test('Tier-2 login requires a password unless an explicit test flag is set (#82)', async () => {
+  const harness = await startHarness();
+  try {
+    const register = await api(harness, '/v1/capabilities/auth/register', {
+      method: 'POST', body: { email: 'password-user@example.test', password: 'password-1', orgSlug: 'acme' },
+    });
+    assert.equal(register.status, 201);
+    const noPassword = await api(harness, '/v1/capabilities/auth/login', {
+      method: 'POST', body: { email: 'password-user@example.test', orgSlug: 'acme' },
+    });
+    assert.equal(noPassword.status, 400);
+    assert.equal(noPassword.body.error.code, 'password_required');
+
+    // An unbound deployment must not silently choose an organization.
+    const noOrg = await api(harness, '/v1/capabilities/auth/login', {
+      method: 'POST', body: { email: 'password-user@example.test', password: 'password-1' },
+    });
+    assert.equal(noOrg.status, 400);
+    assert.equal(noOrg.body.error.code, 'field_required');
+
+    const withPassword = await api(harness, '/v1/capabilities/auth/login', {
+      method: 'POST', body: { email: 'password-user@example.test', password: 'password-1', orgSlug: 'acme' },
+    });
+    assert.equal(withPassword.status, 200);
+  } finally {
+    await harness.close();
+  }
+
+  const local = await startHarness({ SYNAPSEDX_AUTH_PASSWORDLESS: 'true' });
+  try {
+    const passwordless = await api(local, '/v1/capabilities/auth/login', {
+      method: 'POST', body: { email: 'dev@example.test', orgSlug: 'acme' },
+    });
+    assert.equal(passwordless.status, 200);
+  } finally {
+    await local.close();
   }
 });
 

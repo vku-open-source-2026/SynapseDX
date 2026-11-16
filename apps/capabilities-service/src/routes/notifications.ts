@@ -11,7 +11,7 @@
 import { Express } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
-import { isAdmin } from '../auth';
+import { isAdmin, isTenantAdmin } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -71,6 +71,46 @@ function preferenceId(tenant: string, recipient: string): string {
 function recipientKeyOf(recipient: Recipient): string {
   if (recipient.userId) return `user:${recipient.userId}`;
   return recipient.email || recipient.phone || recipient.url || recipient.webhookUrl || recipient.pushToken || 'unknown';
+}
+
+/** Preferences are keyed by tenant + recipient; exported for scheduled delivery. */
+export async function readNotificationPreference(
+  client: any,
+  tenant: string,
+  recipient: string,
+): Promise<NotificationPreferenceRecord> {
+  const id = preferenceId(tenant, recipient);
+  const found = await getDocumentOrNull<NotificationPreferenceRecord>(client, COLLECTIONS.notificationPreferences, id);
+  return found?.data || { id, tenant, recipient, channels: [], unsubscribed: false, updatedAt: new Date(0).toISOString() };
+}
+
+/**
+ * A non-admin may only manage its own preference or send to itself. External
+ * email domains must be explicitly allowlisted by the operator; phone/webhook/
+ * push targets have no verifiable owner, so only tenant admins may use them.
+ */
+export function assertRecipientBinding(
+  principal: { tenantKey: string; subject: string; email?: string; userId?: string; scopes: string[]; isDxAdmin?: boolean; isServiceCredential?: boolean; workspaceApp?: string },
+  recipient: string,
+  config: ServiceConfig,
+): void {
+  if (isTenantAdmin(principal as any)) return;
+  const value = String(recipient || '').trim();
+  const keys = new Set(
+    [principal.email, principal.userId, principal.subject]
+      .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      .map((entry) => entry.toLowerCase()),
+  );
+  const bare = value.toLowerCase().replace(/^user:/, '');
+  if (keys.has(bare)) return;
+  const at = bare.lastIndexOf('@');
+  if (at > 0) {
+    const domain = bare.slice(at + 1);
+    if (config.notificationRecipientDomains.includes(domain)) return;
+  }
+  throw apiError(403, 'recipient_not_allowed', 'non-admin callers may only address their own verified recipient', {
+    recipient: value,
+  });
 }
 
 function channelOf(raw: unknown): NotificationChannel {
@@ -266,15 +306,11 @@ export function registerNotificationRoutes(app: Express, config: ServiceConfig):
   }));
 
   // ---- preferences (Tier-2 scoped; enforced before every send) ----
-  const readPreference = async (client: any, tenant: string, recipient: string): Promise<NotificationPreferenceRecord> => {
-    const id = preferenceId(tenant, recipient);
-    const found = await getDocumentOrNull<NotificationPreferenceRecord>(client, COLLECTIONS.notificationPreferences, id);
-    return found?.data || { id, tenant, recipient, channels: [], unsubscribed: false, updatedAt: new Date(0).toISOString() };
-  };
-
   app.get('/v1/capabilities/notifications/preferences/:recipient', handler(async (req, res) => {
     const { principal, client } = await authenticatedReadContext(req, config);
-    const preference = await readPreference(client, principal.tenantKey, String(req.params.recipient));
+    const recipient = String(req.params.recipient);
+    assertRecipientBinding(principal, recipient, config);
+    const preference = await readNotificationPreference(client, principal.tenantKey, recipient);
     res.setHeader('cache-control', 'no-store');
     res.json(preference);
   }));
@@ -286,6 +322,7 @@ export function registerNotificationRoutes(app: Express, config: ServiceConfig):
       ? []
       : (Array.isArray(body.channels) ? body.channels.map(channelOf) : [channelOf(body.channels)]);
     const recipient = String(req.params.recipient);
+    assertRecipientBinding(principal, recipient, config);
     const record: NotificationPreferenceRecord = {
       id: preferenceId(principal.tenantKey, recipient),
       tenant: principal.tenantKey,
@@ -311,7 +348,8 @@ export function registerNotificationRoutes(app: Express, config: ServiceConfig):
     const { principal, client } = await writeContext(req, config);
     const recipient = String((req.body || {}).recipient || '').trim();
     if (!recipient) throw apiError(400, 'field_required', 'recipient is required', { field: 'recipient' });
-    const existing = await readPreference(client, principal.tenantKey, recipient);
+    assertRecipientBinding(principal, recipient, config);
+    const existing = await readNotificationPreference(client, principal.tenantKey, recipient);
     const record: NotificationPreferenceRecord = { ...existing, unsubscribed: true, updatedAt: new Date().toISOString() };
     await ensureCollections(client);
     const found = await getDocumentOrNull<NotificationPreferenceRecord>(client, COLLECTIONS.notificationPreferences, record.id);
@@ -359,7 +397,9 @@ export function registerNotificationRoutes(app: Express, config: ServiceConfig):
       if (!channels.length) throw apiError(400, 'field_required', 'channel or template is required');
       if (!text) throw apiError(400, 'field_required', 'body or template is required', { field: 'body' });
       const recipient = recipientOf(body, channels);
-      const preference = await readPreference(client, principal.tenantKey, recipientKeyOf(recipient));
+      const recipientKey = recipientKeyOf(recipient);
+      assertRecipientBinding(principal, recipientKey, config);
+      const preference = await readNotificationPreference(client, principal.tenantKey, recipientKey);
       if (preference.unsubscribed) {
         throw apiError(409, 'notification_suppressed', 'this recipient has unsubscribed from notifications');
       }

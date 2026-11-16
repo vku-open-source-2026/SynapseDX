@@ -5,7 +5,8 @@
  * definitions (#37), projects/portfolio with HITL stage gates (#38).
  */
 import { Express } from "express";
-import { isAdmin, hasWriteScope, isTenantAdmin } from "../auth";
+import { isAdmin, isTenantAdmin } from "../auth";
+import { isConfiguredApprover } from "./approvals";
 import { ServiceConfig } from "../config";
 import { apiError } from "../errors";
 import { validateFormSchema, validateFormValues } from "../form-schema";
@@ -601,16 +602,11 @@ export function registerPeopleProcessRoutes(
           "approval_not_pending",
           "approval is no longer pending",
         );
-      if (
-        !isTenantAdmin(principal) &&
-        !hasWriteScope(principal) &&
-        approvalDoc.data.approverRoles.length &&
-        !approvalDoc.data.approverRoles.includes(principal.subject)
-      ) {
+      if (!isConfiguredApprover(principal, approvalDoc.data.approverRoles)) {
         throw apiError(
           403,
           "approver_role_required",
-          "you do not hold an approver role",
+          "only a configured approver or an administrator can decide this timesheet",
         );
       }
       const body = (req.body || {}) as Record<string, unknown>;
@@ -1510,11 +1506,15 @@ export function registerPeopleProcessRoutes(
           "invalid_request",
           "order must be a positive integer",
         );
+      const approverRoles = stringArray(b.approverRoles, "approverRoles", 10);
+      if (!approverRoles.length) {
+        throw apiError(400, "approver_roles_required", "approverRoles must contain at least one configured approver");
+      }
       const gate = {
         id: newId(),
         name: requiredString(b.name, "name", 1, 200),
         order,
-        approverRoles: stringArray(b.approverRoles, "approverRoles", 10),
+        approverRoles,
         status: "pending" as const,
       };
       const gates = [...(project.gates || []), gate].sort(
@@ -1614,6 +1614,13 @@ export function registerPeopleProcessRoutes(
           "self_approval_forbidden",
           "the requester cannot approve their own gate",
         );
+      if (!isConfiguredApprover(principal, approvalDoc.data.approverRoles)) {
+        throw apiError(
+          403,
+          "approver_role_required",
+          "only a configured approver or an administrator can decide this gate",
+        );
+      }
       const b = (req.body || {}) as Record<string, unknown>;
       const decision = String(b.decision || "").toLowerCase();
       if (!["approve", "reject"].includes(decision))

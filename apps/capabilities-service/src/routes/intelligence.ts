@@ -266,21 +266,19 @@ export function registerIntelligenceRoutes(app: Express, config: ServiceConfig):
     res.json({ ok: true, enabled });
   }));
 
-  async function executeAgentRun(client: any, principal: any, agent: AgentRecord, run: AgentRunRecord): Promise<AgentRunRecord> {
-    const started = Date.now();
-    const toolCalls = run.toolCalls.slice(0, 50);
-    const output = { summary: `agent ${agent.name} processed ${Object.keys(run.input).length} input fields`, tools: toolCalls.map((call) => call.tool) };
-    const trace = {
-      correlationId: run.correlationId,
-      input: redactObject(run.input),
-      toolCalls: toolCalls.map((call) => ({ tool: call.tool, args: redactObject(call.args || {}) })),
-      output: redactObject(output),
-      approvalId: run.approvalId,
-    };
-    return updateScoped(client, COLLECTIONS.agentRuns, run.id, principal, {
-      status: 'completed', output, trace, latencyMs: Date.now() - started,
-      costUsd: Number((0.0001 * (JSON.stringify(trace).length / 1000 + toolCalls.length)).toFixed(6)),
-    } as any);
+  /**
+   * Agent execution is intentionally unavailable until a real inference/tool
+   * runtime exists. It must never fabricate a completed run or a synthetic
+   * cost: callers would rely on an effect that never happened. Governance
+   * endpoints (agents, kill switch, run history) remain available.
+   */
+  function agentExecutionUnavailable(): never {
+    throw apiError(
+      501,
+      'not_implemented',
+      'agent execution is not available: no model/tool runtime is configured on this deployment',
+      { capability: 'agents.execute' },
+    );
   }
 
   app.post('/v1/capabilities/agents/:id/runs', handler(async (req, res) => {
@@ -288,45 +286,25 @@ export function registerIntelligenceRoutes(app: Express, config: ServiceConfig):
     const { record: agent } = await getScoped<AgentRecord>(client, COLLECTIONS.agents, String(req.params.id), principal, 'agent_not_found');
     const kill = await getDocumentOrNull<any>(client, COLLECTIONS.moduleSettings, `${agent.tenant}:kill-switch`);
     if (kill?.data?.enabled) throw apiError(409, 'agent_kill_switch', 'agent execution is disabled by the tenant kill switch');
+    // Validate the request shape before reporting the capability gap so a
+    // caller still gets deterministic tool-allowlist errors.
     const b = (req.body || {}) as Record<string, unknown>;
     const input = objectValue(b.input, 'input', 100_000);
     const toolCalls = Array.isArray(b.toolCalls) ? b.toolCalls.slice(0, 50).map((call: any) => ({ tool: String(call?.tool || ''), args: objectValue(call?.args, 'toolCall.args', 20_000) })) : [];
     for (const call of toolCalls) {
+      if (!call.tool) throw apiError(400, 'invalid_request', 'toolCalls[].tool is required');
       if (!agent.tools.includes(call.tool)) {
         throw apiError(403, 'tool_not_allowed', `tool '${call.tool}' is not in the agent allowlist`, { allowed: agent.tools });
       }
-      if (!call.tool) throw apiError(400, 'invalid_request', 'toolCalls[].tool is required');
     }
-    const highRisk = agent.riskTier === 'high' || input.highRisk === true || toolCalls.some((call) => /delete|drop|transfer|dispatch|publish/i.test(call.tool));
-    const now = nowIso();
-    let approvalId: string | undefined;
-    if (highRisk && !b.approvalId) {
-      approvalId = newId();
-      const approval = {
-        id: approvalId, tenant: agent.tenant, title: `Agent action: ${agent.name}`, module: 'intelligence.agent',
-        action: 'agent.run', entityType: 'agent', entityId: agent.id, requester: principal.subject,
-        approverRoles: ['moderator'], requiredApprovals: 1, status: 'pending', decisions: [], createdAt: now, updatedAt: now,
-      };
-      await client.base.createDocument(COLLECTIONS.approvals, { id: approvalId, data: approval });
-    }
-    const run = await createScoped(client, COLLECTIONS.agentRuns, principal, {
-      agentId: agent.id, status: approvalId ? 'paused' : 'completed', input, toolCalls,
-      ...(approvalId ? { approvalId } : {}), correlationId: correlationIdOf(req), costUsd: 0, latencyMs: 0,
-      trace: { correlationId: correlationIdOf(req), input: redactObject(input), toolCalls: toolCalls.map((c) => ({ tool: c.tool, args: redactObject(c.args) })) },
-    } as any) as unknown as AgentRunRecord;
-    const finished = approvalId ? run : await executeAgentRun(client, principal, agent, run);
-    res.status(approvalId ? 202 : 201).json({ run: finished, ...(approvalId ? { approvalRequired: true, approvalId } : {}) });
+    void input;
+    agentExecutionUnavailable();
   }));
 
   app.post('/v1/capabilities/agent-runs/:id/resume', handler(async (req, res) => {
     const { principal, client } = await writeContext(req, config);
-    const { record: run } = await getScoped<AgentRunRecord>(client, COLLECTIONS.agentRuns, String(req.params.id), principal, 'agent_run_not_found');
-    if (run.status !== 'paused' || !run.approvalId) throw apiError(409, 'run_not_paused', 'agent run is not awaiting approval');
-    const approvalDoc = await getDocumentOrNull<any>(client, COLLECTIONS.approvals, run.approvalId);
-    if (!approvalDoc || approvalDoc.data.status !== 'approved') throw apiError(409, 'approval_required', 'the approval is not approved');
-    const { record: agent } = await getScoped<AgentRecord>(client, COLLECTIONS.agents, run.agentId, principal, 'agent_not_found');
-    const finished = await executeAgentRun(client, principal, agent, run);
-    res.json({ run: finished });
+    await getScoped<AgentRunRecord>(client, COLLECTIONS.agentRuns, String(req.params.id), principal, 'agent_run_not_found');
+    agentExecutionUnavailable();
   }));
 
   app.get('/v1/capabilities/agent-runs', handler(async (req, res) => {

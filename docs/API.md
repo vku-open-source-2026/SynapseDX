@@ -273,15 +273,17 @@ behaviour before announcing this endpoint to Tier-3 clients.
 ## Identity/session
 
 All routes proxy Tier-1 IAM; Tier-2 stores no password, session or identity
-record. Password/session/OIDC flows are bound to the deployment organization
-when `SYNAPSEDX_AUTH_ORG_SLUG` is set (a different `orgSlug` gets
-`403 org_not_allowed`). Password and refresh responses are `cache-control:
-no-store`.
+record. Password/session/OIDC flows are bound to the deployment organization:
+production requires `SYNAPSEDX_AUTH_ORG_SLUG`, and a different `orgSlug` gets
+`403 org_not_allowed`. An unbound development deployment must pass an explicit
+slug (there is no `acme` default). Passwordless login is rejected unless
+`SYNAPSEDX_AUTH_PASSWORDLESS=true` in a non-production deployment. Password and
+refresh responses are `cache-control: no-store`.
 
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | POST | `/v1/capabilities/auth/register` | none | `{email,password,displayName?,orgSlug?}` → `201` session. Tier-1 registration policy applies. |
-| POST | `/v1/capabilities/auth/login` | none | `{email,password?,orgSlug?}` → `{accessToken,refreshToken,user}`. Passwordless is only for Tier-1 dev deployments. |
+| POST | `/v1/capabilities/auth/login` | none | `{email,password,orgSlug?}` → `{accessToken,refreshToken,user}`. Password is required; missing it returns `400 password_required` before any Tier-1 call unless the explicit non-prod passwordless flag is set. |
 | POST | `/v1/capabilities/auth/refresh` | none | `{refreshToken}`; Tier-1 rotates atomically. |
 | POST | `/v1/capabilities/auth/logout` | none | `{refreshToken}` |
 | POST | `/v1/capabilities/auth/logout-all` | none | `{refreshToken}` |
@@ -418,7 +420,7 @@ fallback rules. SDK: `dx.plans.*`.
 | POST | `/v1/capabilities/reports/:id/run` | Permission-checked execution (metric/trend/table/bar/line). |
 | POST | `/v1/capabilities/reports/:id/export` | CSV/JSON/NDJSON, idempotent by key, audited. |
 | POST | `/v1/capabilities/reports/:id/schedule` | Cron/format/recipient schedule. |
-| POST | `/v1/capabilities/report-schedules/run-due` | Hourly idempotent schedule runner. |
+| POST | `/v1/capabilities/report-schedules/run-due` | Runs only schedules whose stored `nextRunAt` is due, records a per-occurrence idempotency key, delivers through notifications and advances `lastRunAt`/`nextRunAt`. |
 | POST/GET | `/v1/capabilities/dashboards` | Widget layout + shared filters. |
 | POST | `/v1/capabilities/dashboards/:id/share` | Stable share link id. |
 | GET | `/v1/capabilities/dashboards/:id/data` | Runs every widget with the same filters. |
@@ -434,7 +436,7 @@ fallback rules. SDK: `dx.plans.*`.
   - `POST /ocr/jobs {fileId}` OCRs the stored file with Tesseract (`vie+eng`); the job records `source: "engine"` and `engine {name, languages, durationMs}`, and every page keeps `lines[]` with text, bbox and confidence.
   - `POST /ocr/jobs {fileId, text | pages[]}` skips the engine and parses pre-extracted text (`source: "client_text"`).
   - Errors: `415 ocr_unsupported_type` (images only: PNG/JPEG/TIFF/BMP/WebP/GIF), `413 file_too_large`, `429 ocr_busy`, `503 ocr_engine_unavailable`, `504 ocr_timeout`, `422 ocr_failed` / `ocr_no_text`, `400 ocr_empty` (no `Label: value` lines).
-- `/v1/capabilities/agents`, `/:id/runs`, `/:id/kill-switch`; `/agent-runs`, `/:id/resume`: deny-by-default tools, high-risk HITL pause, redacted traces, tenant kill switch.
+- `/v1/capabilities/agents`, `/:id/runs`, `/:id/kill-switch`; `/agent-runs`, `/:id/resume`: governance metadata, deny-by-default tools and tenant kill switch. Execution is unavailable on this deployment (`501 not_implemented`) until a real model/tool runtime exists; no synthetic completed run or cost is recorded.
 - `/v1/capabilities/rag/documents`, `/rag/query`, `/rag/usage`: ACL-aware retrieval, numbered citations, no-answer path, prompt-injection refusal, per-tenant usage/cost.
   - Ingest returns `embeddingModel`: `tier1/<model>` when Tier-1 InferenceService reports a real embedding model, otherwise `local/hash-48`.
   - `POST /rag/query {question, topK?, generate?}` returns `answer`, `citations`, `confidence`, `noAnswer`, plus `generator` (`llm` | `extractive`), `retrieval` and, for LLM answers, `model`. An LLM answer is used only if each `[n]` cites a retrieved source; `generate: false` always quotes.

@@ -59,6 +59,7 @@ import {
   serviceClient,
 } from "../platform";
 import { loadDataset, type DatasetDocument } from "../publication";
+import { canReadCapabilityRecord, canReadRecordDrafts, readableRecordsWhere } from "./shared";
 import { TtlCache } from "../ttl-cache";
 import {
   WIDGET_TYPES,
@@ -2594,7 +2595,8 @@ export function registerWorkspacePluginRoutes(
       if (
         !record ||
         record.data.datasetId !== mapping.dataset ||
-        record.data.deletedAt
+        record.data.deletedAt ||
+        !canReadCapabilityRecord(dataset.data, context.caller, record.data)
       )
         throw apiError(404, "not_found", "record not found");
       res.setHeader("cache-control", "no-store");
@@ -2836,7 +2838,6 @@ export function registerWorkspacePluginRoutes(
         return;
       }
       const clauses: any[] = [
-        { datasetId: mapping.dataset },
         { deletedAt: { exists: false } },
       ];
       const search = String(req.query.search || "")
@@ -2864,7 +2865,7 @@ export function registerWorkspacePluginRoutes(
         context.client,
         COLLECTIONS.records,
         {
-          where: { and: clauses },
+          where: { and: [readableRecordsWhere(dataset.data, context.caller), ...clauses] },
           orderBy: {
             field: !sortBy || sortBy === "id" ? "id" : `data.${sortBy}`,
             direction: sortDirection as "asc" | "desc",

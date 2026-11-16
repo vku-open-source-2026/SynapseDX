@@ -9,13 +9,16 @@ import { createHash, createHmac, randomUUID } from 'crypto';
 import { Express } from 'express';
 import { isAdmin, canAccessDataset, hasWriteScope, isTenantAdmin, isMachineCredential } from '../auth';
 import { ServiceConfig } from '../config';
+import { isValidCron, nextCronRun } from '../cron';
 import { apiError } from '../errors';
 import { handler } from '../http';
 import {
   COLLECTIONS, correlationIdOf, getDocumentOrNull, queryDocuments, recordAudit,
 } from '../platform';
 import { loadDataset } from '../publication';
-import { canReadRecords, authenticatedReadContext, readContext, writeContext } from './shared';
+import { csvCell } from '../tabular';
+import { assertRecipientBinding, readNotificationPreference } from './notifications';
+import { canReadRecords, authenticatedReadContext, readableRecordsWhere, readContext, writeContext } from './shared';
 import {
   createScoped, getScoped, listScoped, newId, nowIso, objectValue, optionalString,
   requiredString, stringArray, updateScoped,
@@ -43,7 +46,15 @@ interface ReportRecord {
   id: string; tenant: string; createdBy: string; createdAt: string; updatedAt: string;
   name: string; description?: string; kind: string; datasetId?: string;
   query: Record<string, any>; parameters: string[];
-  schedule?: { cron: string; format: 'csv' | 'json' | 'ndjson'; recipient?: string; enabled: boolean; lastRunAt?: string };
+  schedule?: {
+    cron: string;
+    format: 'csv' | 'json' | 'ndjson';
+    recipient?: string;
+    enabled: boolean;
+    lastRunAt?: string;
+    nextRunAt?: string;
+    lastError?: string;
+  };
 }
 interface DashboardRecord {
   id: string; tenant: string; createdBy: string; createdAt: string; updatedAt: string;
@@ -53,6 +64,7 @@ interface DashboardRecord {
 interface ReportRunRecord {
   id: string; tenant: string; createdBy: string; createdAt: string; updatedAt: string;
   reportId: string; format: string; rowCount: number; content: string; idempotencyKey?: string;
+  delivery?: { status: 'sent' | 'skipped' | 'failed'; recipient?: string; notificationIds?: string[]; reason?: string; error?: string };
 }
 
 function propsOf(schema: Record<string, any>): Record<string, any> {
@@ -179,11 +191,65 @@ function reportRows(report: ReportRecord, records: Array<Record<string, any>>, p
 function toCsv(rows: any[]): string {
   if (!rows.length) return '';
   const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
-  const escape = (value: any) => {
-    const text = value === undefined || value === null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-  return [headers.join(','), ...rows.map((row) => headers.map((header) => escape(row[header])).join(','))].join('\n');
+  // Reuse the tabular encoder: it prefixes spreadsheet formula leads
+  // (`= + - @`, tab/CR) so a value like `=SUM(1,1)` is inert in Excel/LibreOffice.
+  return [
+    headers.map((header) => csvCell(header)).join(','),
+    ...rows.map((row) => headers.map((header) => csvCell(row[header])).join(',')),
+  ].join('\n');
+}
+
+/**
+ * Records visible to a report reader. This is the same publication rule as the
+ * record API (explicit draft capability, otherwise published/inherited rows
+ * only); reports and dashboards must not aggregate rows the API hides.
+ */
+async function readableReportRecords(
+  client: any,
+  datasetId: string,
+  caller: { authenticated: boolean; principal: any },
+): Promise<{ rows: Array<Record<string, any>>; datasetId: string }> {
+  const dataset = await loadDataset(client, datasetId);
+  if (!dataset || !canReadRecords(dataset.data, caller as any)) {
+    throw apiError(404, 'dataset_not_found', 'dataset not found');
+  }
+  const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, {
+    where: readableRecordsWhere(dataset.data, caller as any),
+    limit: 5000,
+  });
+  return { rows: result.items.map((item) => item.data?.data || {}), datasetId };
+}
+
+/** Send a scheduled report through the notification capability with preference gating. */
+async function deliverReport(
+  client: any,
+  report: ReportRecord,
+  run: ReportRunRecord,
+): Promise<ReportRunRecord['delivery']> {
+  const recipient = report.schedule?.recipient;
+  if (!recipient) return { status: 'skipped', reason: 'recipient_missing' };
+  const preference = await readNotificationPreference(client, report.tenant, recipient);
+  if (preference.unsubscribed) return { status: 'skipped', recipient, reason: 'unsubscribed' };
+  if (preference.channels.length && !preference.channels.includes('email')) {
+    return { status: 'skipped', recipient, reason: 'channel_disabled' };
+  }
+  try {
+    const response: any = await client.notifications.send({
+      channels: ['email'],
+      recipient: { email: recipient },
+      subject: `Scheduled report: ${report.name}`,
+      body: String(run.content || '').slice(0, 100_000),
+      data: { reportId: report.id, runId: run.id, format: run.format, rowCount: run.rowCount, scheduled: true },
+      idempotencyKey: run.idempotencyKey,
+    });
+    const ids = (Array.isArray(response?.notifications) ? response.notifications : [])
+      .map((entry: any) => entry?.id)
+      .filter(Boolean)
+      .map(String);
+    return { status: 'sent', recipient, notificationIds: ids };
+  } catch (error) {
+    return { status: 'failed', recipient, error: (error as Error)?.message || 'delivery failed' };
+  }
 }
 
 export function registerDataInsightRoutes(app: Express, config: ServiceConfig): void {
@@ -370,14 +436,8 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     const { record: report } = await getScoped<ReportRecord>(client, COLLECTIONS.reports, String(req.params.id), principal, 'report_not_found');
     let records: Array<Record<string, any>> = [];
     if (report.datasetId) {
-      const dataset = await loadDataset(client, report.datasetId);
-      if (!dataset) throw apiError(404, 'dataset_not_found', 'dataset not found');
-      const caller = { authenticated: true, principal } as any;
-      if (!canReadRecords(dataset.data, caller)) throw apiError(404, 'dataset_not_found', 'dataset not found');
-      const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, {
-        where: { datasetId: report.datasetId }, limit: 5000,
-      });
-      records = result.items.map((item) => item.data?.data || {});
+      const readable = await readableReportRecords(client, report.datasetId, { authenticated: true, principal });
+      records = readable.rows;
     }
     const params = objectValue((req.body || {}).params, 'params', 20_000);
     const { rows, total } = reportRows(report, records, params);
@@ -398,10 +458,8 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     }
     let records: Array<Record<string, any>> = [];
     if (report.datasetId) {
-      const dataset = await loadDataset(client, report.datasetId);
-      if (!dataset || !canReadRecords(dataset.data, { authenticated: true, principal } as any)) throw apiError(404, 'dataset_not_found', 'dataset not found');
-      const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, { where: { datasetId: report.datasetId }, limit: 5000 });
-      records = result.items.map((item) => item.data?.data || {});
+      const readable = await readableReportRecords(client, report.datasetId, { authenticated: true, principal });
+      records = readable.rows;
     }
     const { rows, total } = reportRows(report, records, objectValue(b.params, 'params', 20_000));
     const content = format === 'csv' ? toCsv(rows) : format === 'ndjson' ? rows.map((row) => JSON.stringify(row)).join('\n') : JSON.stringify(rows);
@@ -421,9 +479,20 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     const { record: report } = await getScoped<ReportRecord>(client, COLLECTIONS.reports, String(req.params.id), principal, 'report_not_found');
     const b = (req.body || {}) as Record<string, unknown>;
     const cron = requiredString(b.cron, 'cron', 5, 100);
-    if (!/^(\*|[\d*/,\- ]+)$/.test(cron)) throw apiError(400, 'invalid_request', 'cron must be a valid schedule expression');
+    if (!isValidCron(cron)) throw apiError(400, 'invalid_request', 'cron must be a valid 5-field schedule expression');
     const format = ['csv', 'json', 'ndjson'].includes(String(b.format)) ? String(b.format) as 'csv' | 'json' | 'ndjson' : 'csv';
-    const schedule = { cron, format, recipient: optionalString(b.recipient, 'recipient', 320), enabled: b.enabled !== false };
+    const enabled = b.enabled !== false;
+    const recipient = optionalString(b.recipient, 'recipient', 320);
+    if (recipient) assertRecipientBinding(principal, recipient, config);
+    const now = new Date();
+    const schedule = {
+      cron,
+      format,
+      ...(recipient ? { recipient } : {}),
+      enabled,
+      // Persist the next occurrence so run-due can select only due schedules.
+      ...(enabled ? { nextRunAt: nextCronRun(cron, now) } : {}),
+    };
     const updated = await updateScoped(client, COLLECTIONS.reports, report.id, principal, { schedule } as any);
     res.json({ report: updated });
   }));
@@ -433,23 +502,73 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     const reports = await queryDocuments<ReportRecord>(client, COLLECTIONS.reports, {
       where: isAdmin(principal) ? {} : { tenant: principal.tenantKey }, limit: 1000,
     });
-    const due = reports.items.map((item) => item.data).filter((report) => report.schedule?.enabled);
-    const deliveries = [];
-    for (const report of due) {
-      const bucket = new Date().toISOString().slice(0, 13); // hourly idempotency window
-      const key = `schedule:${report.id}:${bucket}`;
-      const existing = await queryDocuments<ReportRunRecord>(client, COLLECTIONS.reportRuns, { where: { reportId: report.id, idempotencyKey: key }, limit: 1 });
-      if (existing.items[0]) { deliveries.push({ reportId: report.id, duplicate: true, runId: existing.items[0].id }); continue; }
-      const records = report.datasetId
-        ? (await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, { where: { datasetId: report.datasetId }, limit: 5000 })).items.map((item) => item.data?.data || {})
-        : [];
+    const now = new Date();
+    const deliveries: Array<Record<string, unknown>> = [];
+    for (const report of reports.items.map((item) => item.data)) {
+      const schedule = report.schedule;
+      if (!schedule?.enabled || !isValidCron(schedule.cron)) continue;
+      // Legacy schedules (created before nextRunAt was stored) are seeded from
+      // their last run/creation time, so the first invocation runs the missed
+      // occurrence once rather than treating every enabled report as due.
+      const scheduledFor = schedule.nextRunAt
+        || nextCronRun(schedule.cron, new Date(schedule.lastRunAt || report.createdAt || now.toISOString()));
+      if (Date.parse(scheduledFor) > now.getTime()) continue;
+      const key = `schedule:${report.id}:${scheduledFor}`;
+      const existing = await queryDocuments<ReportRunRecord>(client, COLLECTIONS.reportRuns, {
+        where: { tenant: report.tenant, reportId: report.id, idempotencyKey: key }, limit: 1,
+      });
+      const nextRunAt = nextCronRun(schedule.cron, now);
+      const scheduleState = {
+        ...schedule,
+        lastRunAt: existing.items[0]?.data.createdAt || now.toISOString(),
+        nextRunAt,
+      };
+      if (existing.items[0]) {
+        await updateScoped(client, COLLECTIONS.reports, report.id, principal, { schedule: scheduleState } as any);
+        deliveries.push({ reportId: report.id, duplicate: true, runId: existing.items[0].id });
+        continue;
+      }
+
+      const reportPrincipal = { ...principal, tenantKey: report.tenant };
+      let records: Array<Record<string, any>> = [];
+      let runError: string | undefined;
+      if (report.datasetId) {
+        try {
+          records = (await readableReportRecords(client, report.datasetId, { authenticated: true, principal: reportPrincipal })).rows;
+        } catch {
+          // A report whose dataset was deleted/revoked must not leak data or
+          // silently use another tenant's rows; it still advances its schedule.
+          runError = 'dataset_not_found';
+        }
+      }
       const { rows, total } = reportRows(report, records, {});
-      const format = report.schedule!.format;
+      const format = schedule.format;
       const content = format === 'csv' ? toCsv(rows) : format === 'ndjson' ? rows.map((row) => JSON.stringify(row)).join('\n') : JSON.stringify(rows);
-      const run = await createScoped(client, COLLECTIONS.reportRuns, principal, {
-        reportId: report.id, format, rowCount: total, content: content.slice(0, 2_000_000), idempotencyKey: key,
+      let run = await createScoped(client, COLLECTIONS.reportRuns, reportPrincipal, {
+        reportId: report.id,
+        format,
+        rowCount: total,
+        content: content.slice(0, 2_000_000),
+        idempotencyKey: key,
+        ...(runError ? { error: runError } : {}),
       } as any) as unknown as ReportRunRecord;
-      deliveries.push({ reportId: report.id, runId: run.id, recipient: report.schedule?.recipient, duplicate: false });
+      const delivery = await deliverReport(client, report, run);
+      run = await updateScoped(client, COLLECTIONS.reportRuns, run.id, reportPrincipal, { delivery } as any) as unknown as ReportRunRecord;
+      await updateScoped(client, COLLECTIONS.reports, report.id, principal, {
+        schedule: {
+          ...scheduleState,
+          lastRunAt: now.toISOString(),
+          ...(delivery?.status === 'failed' ? { lastError: delivery.error } : { lastError: undefined }),
+        },
+      } as any);
+      deliveries.push({
+        reportId: report.id,
+        runId: run.id,
+        recipient: schedule.recipient,
+        duplicate: false,
+        delivery,
+        ...(runError ? { error: runError } : {}),
+      });
     }
     res.json({ deliveries, count: deliveries.length });
   }));
@@ -498,10 +617,13 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
       if (reportDoc.data.tenant !== principal.tenantKey && !isAdmin(principal)) { widgets.push({ ...widget, error: 'report_not_found' }); continue; }
       let records: Array<Record<string, any>> = [];
       if (reportDoc.data.datasetId) {
-        const dataset = await loadDataset(client, reportDoc.data.datasetId);
-        if (!dataset || !canReadRecords(dataset.data, { authenticated: true, principal } as any)) { widgets.push({ ...widget, error: 'dataset_not_found' }); continue; }
-        const result = await queryDocuments<{ data: Record<string, any> }>(client, COLLECTIONS.records, { where: { datasetId: reportDoc.data.datasetId }, limit: 5000 });
-        records = result.items.map((item) => item.data?.data || {});
+        try {
+          const readable = await readableReportRecords(client, reportDoc.data.datasetId, { authenticated: true, principal });
+          records = readable.rows;
+        } catch {
+          widgets.push({ ...widget, error: 'dataset_not_found' });
+          continue;
+        }
       }
       const data = reportRows(reportDoc.data, records, filters);
       widgets.push({ ...widget, report: { id: reportDoc.data.id, name: reportDoc.data.name, kind: reportDoc.data.kind }, ...data });

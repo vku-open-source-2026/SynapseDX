@@ -75,9 +75,17 @@ export interface ServiceConfig {
   /** Provision the KTTV crawler as a Tier-1 SynapseFlow workflow on startup. */
   kttvScheduleEnabled: boolean;
   kttvScheduleEverySeconds: number;
+  /** Hazard feed freshness budget before status/readiness degrade. */
+  hazardStaleMinutes: number;
+  /** Hosts a `vndms.ingest` runner job may fetch (exact host or parent domain). */
+  vndmsAllowedHosts: string[];
   auditEnabled: boolean;
   /** Bind every Tier-2 password/OIDC flow to one Tier-1 organization. */
   authOrgSlug?: string;
+  /** Explicit test/local-only opt-in for Tier-1 passwordless login. */
+  authPasswordlessEnabled: boolean;
+  /** External email domains that non-admin callers may notify (empty = none). */
+  notificationRecipientDomains: string[];
   /** Default delegated-token audience for `/v1/capabilities/auth/exchange`. */
   authAudience: string;
   /** Audiences a caller may request from the exchange endpoint. */
@@ -397,6 +405,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
   if (!/^[A-Za-z0-9._@:/-]{1,200}$/.test(filesPrefix)) {
     throw new Error('SYNAPSEDX_FILES_PREFIX must match [A-Za-z0-9._@:/-]{1,200}');
   }
+  const authOrgSlug = env.SYNAPSEDX_AUTH_ORG_SLUG?.trim() || undefined;
+  if (env.NODE_ENV === 'production' && !authOrgSlug) {
+    throw new Error('SYNAPSEDX_AUTH_ORG_SLUG is required in production');
+  }
+  const authPasswordlessEnabled = boolValue(env.SYNAPSEDX_AUTH_PASSWORDLESS);
+  if (authPasswordlessEnabled && env.NODE_ENV === 'production') {
+    throw new Error('SYNAPSEDX_AUTH_PASSWORDLESS is forbidden in production');
+  }
+  const vndmsAllowedHosts = listValue(
+    env.SYNAPSEDX_VNDMS_ALLOWED_HOSTS,
+    ['vndms.gov.vn', 's3.vndms.gov.vn', 'nchmf.gov.vn', 'www.nchmf.gov.vn'],
+  );
+  for (const host of vndmsAllowedHosts) {
+    if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(host) || isPrivateHost(host)) {
+      throw new Error(`SYNAPSEDX_VNDMS_ALLOWED_HOSTS contains an invalid host: ${host}`);
+    }
+  }
   return {
     port: intValue(env.PORT, 8082, 1, 65535),
     tier1BaseUrl,
@@ -421,8 +446,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServiceConfig 
     ...(turnstile ? { turnstile } : {}),
     kttvScheduleEnabled: boolValue(env.SYNAPSEDX_KTTV_SCHEDULE_ENABLED, true),
     kttvScheduleEverySeconds: intValue(env.SYNAPSEDX_KTTV_SCHEDULE_EVERY_SECONDS, 1800, 60, 86400),
+    hazardStaleMinutes: intValue(env.SYNAPSEDX_HAZARD_STALE_MINUTES, 90, 1, 10080),
+    vndmsAllowedHosts,
     auditEnabled: boolValue(env.SYNAPSEDX_AUDIT_ENABLED, true),
-    ...(env.SYNAPSEDX_AUTH_ORG_SLUG?.trim() ? { authOrgSlug: env.SYNAPSEDX_AUTH_ORG_SLUG.trim() } : {}),
+    ...(authOrgSlug ? { authOrgSlug } : {}),
+    authPasswordlessEnabled,
+    notificationRecipientDomains: listValue(env.SYNAPSEDX_NOTIFICATION_RECIPIENT_DOMAINS, []),
     authAudience,
     authAllowedAudiences,
     filesMaxBytes: intValue(env.SYNAPSEDX_FILES_MAX_BYTES, 25 * 1024 * 1024, 1024, 5 * 1024 * 1024 * 1024),

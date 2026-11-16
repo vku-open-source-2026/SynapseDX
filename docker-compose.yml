@@ -16,6 +16,8 @@ services:
       SYNAPSEONE_BASE_URL: https://api.synapseone.space
       ALLOW_LOCAL_DEPENDENCIES: "false"
       SYNAPSEDX_AUTH_MODE: required
+      # Production identity flows require an explicit organization binding.
+      SYNAPSEDX_AUTH_ORG_SLUG: ${SYNAPSEDX_AUTH_ORG_SLUG:?set SYNAPSEDX_AUTH_ORG_SLUG in .env}
       SYNAPSEDX_FILES_BUCKET: ${SYNAPSEDX_FILES_BUCKET:-synapsedx-files}
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     expose:
@@ -38,6 +40,10 @@ services:
       NODE_ENV: production
       PORT: "8080"
       CAPABILITIES_SERVICE_URL: http://capabilities:8082
+      # The upstream is a single-label Docker service; authorize that private
+      # network explicitly. Public upstreams still require HTTPS/private-host
+      # validation in the gateway.
+      ALLOW_LOCAL_DEPENDENCIES: "true"
       UPSTREAM_TIMEOUT_MS: "30000"
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     ports:
