@@ -263,7 +263,7 @@ test('legacy default-bucket files are lazily migrated to SynapseOCS', async () =
   try {
     const bytes = Buffer.from('legacy-object');
     const checksum = createHash('sha256').update(bytes).digest('hex');
-    const storageKey = 'synapsedx/files/acct-a/legacy-1/legacy.txt';
+    const storageKey = 'synapsedx/files/org-a/legacy-1/legacy.txt';
     const now = new Date().toISOString();
     harness.fake.storage.set(`account:service-account|${storageKey}`, {
       tenant: 'account:service-account', key: storageKey, body: bytes, contentType: 'text/plain',
@@ -274,7 +274,7 @@ test('legacy default-bucket files are lazily migrated to SynapseOCS', async () =
     collection.set('legacy-1', {
       id: 'legacy-1', version: 1, createdAt: now, updatedAt: now,
       data: {
-        id: 'legacy-1', tenant: 'acct-a', owner: 'user-1', filename: 'legacy.txt',
+        id: 'legacy-1', tenant: 'org-a', owner: 'user-1', filename: 'legacy.txt',
         contentType: 'text/plain', size: bytes.length, checksumSha256: checksum,
         storageKey, createdAt: now, updatedAt: now,
       },

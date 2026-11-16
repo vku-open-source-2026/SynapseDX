@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06b6d4"/><stop offset="1" stop-color="#2563eb"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#g)"/><g fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M16 6l5 3v5l-5 3-5-3V9z"/><path d="M10 15l5 3v5l-5 3-5-3v-5z"/><path d="M22 15l5 3v5l-5 3-5-3v-5z"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>SynapseDX — icon</title>
+  <rect width="256" height="256" rx="56" fill="#075985"/>
+  <g transform="translate(51.20 51.20) scale(0.6)">
+    <path fill="#FFFFFF" d="M 24 216 L 24 144 A 104 104 0 0 1 110 41.6 L 110 91 A 56 56 0 0 0 80 144 L 80 216 Z"/>
+  <path fill="#FFFFFF" d="M 232 216 L 232 144 A 104 104 0 0 0 146 41.6 L 146 91 A 56 56 0 0 1 176 144 L 176 216 Z"/>
+  </g>
+</svg>

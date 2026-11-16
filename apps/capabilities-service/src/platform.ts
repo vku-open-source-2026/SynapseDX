@@ -25,11 +25,20 @@ export const COLLECTIONS = {
   audit: 'synapsedx_capability_audit',
   settings: 'synapsedx_capability_settings',
   approvals: 'synapsedx_capability_approvals',
+  plans: 'synapsedx_capability_plans',
   comments: 'synapsedx_capability_comments',
   inbox: 'synapsedx_capability_inbox',
   notificationPrefs: 'synapsedx_capability_notification_prefs',
   workspaces: 'synapsedx_capability_workspaces',
   pages: 'synapsedx_capability_pages',
+  /** Low-code workspace plugin definitions (draft) and their history. */
+  workspacePlugins: 'synapsedx_capability_workspace_plugins',
+  workspacePluginSnapshots: 'synapsedx_capability_workspace_plugin_snapshots',
+  workspacePluginRevisions: 'synapsedx_capability_workspace_plugin_revisions',
+  /** Organization installations, member roles and scoped runtime tokens. */
+  workspaceInstalls: 'synapsedx_capability_workspace_installs',
+  workspaceMembers: 'synapsedx_capability_workspace_members',
+  workspaceTokens: 'synapsedx_capability_workspace_tokens',
   people: 'synapsedx_capability_people',
   orgUnits: 'synapsedx_capability_org_units',
   kpis: 'synapsedx_capability_kpis',
@@ -98,6 +107,8 @@ export interface DatasetRecord {
   ldsDatasourceId?: string;
   retentionDays?: number;
   everPublished?: boolean;
+  /** Optional GeoJSON index binding; `field` is a dotted path inside record.data. */
+  geo?: { field: string };
   pendingEvents?: CapabilityEvent[];
   /** Optional peer-review lane; publication remains an operator action. */
   reviewStatus?: 'none' | 'pending' | 'approved' | 'rejected';

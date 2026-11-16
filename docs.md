@@ -7,7 +7,8 @@ gateway listens on `8080` inside the compose network). The gateway forwards to
 `cloud.synapsedx.sbs` host.
 
 The public API reference, auth model and error codes are in
-[`docs/API.md`](API.md).
+[`docs/API.md`](API.md). The rendered web docs live at
+`https://synapsedx.sbs/docs` (source: `apps/console/src/pages/DocsPage.tsx`).
 
 ## Configuration
 
@@ -46,6 +47,7 @@ only for tests. `SYNAPSEDX_AUTH_MODE=optional` requires the same test override.
 | AI | `/v1/capabilities/ai/*` | `client.inference.*` |
 | audit/usage | `/v1/capabilities/audit`, `/usage` | `client.iam.*` + Base audit collection |
 | idempotency | `Idempotency-Key` header | `client.faststore.*` |
+| EOP plans | `/v1/capabilities/plans` | Base documents + `client.inference.*` (brief/draft) |
 | files | `/v1/capabilities/files` | `client.storage.*` |
 | notifications | `/v1/capabilities/notifications` | `client.notifications.*` |
 | geocoding | `/v1/capabilities/geo/*` | operator provider (server-side key) |

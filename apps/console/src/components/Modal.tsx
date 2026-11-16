@@ -13,6 +13,7 @@ export function Modal({
   children,
   footer,
   wide,
+  studio,
 }: {
   open: boolean;
   onClose: () => void;
@@ -21,6 +22,7 @@ export function Modal({
   children: React.ReactNode;
   footer?: React.ReactNode;
   wide?: boolean;
+  studio?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -59,7 +61,7 @@ export function Modal({
         aria-label={title}
         className={cn(
           'relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-transparent bg-white shadow-2xl dark:border-[#1f2c40] dark:bg-[#101a2a]',
-          wide ? 'max-w-3xl' : 'max-w-xl',
+          studio ? 'max-w-[1400px]' : wide ? 'max-w-3xl' : 'max-w-xl',
         )}
       >
         <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4 dark:border-[#1f2c40]">

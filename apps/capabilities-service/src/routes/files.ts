@@ -15,7 +15,7 @@
 import express, { Express } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
-import { isAdmin } from '../auth';
+import { isAdmin, isTenantAdmin } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
@@ -145,12 +145,12 @@ function publicView(record: FileRecord): PublicFileView {
 }
 
 function canPublish(principal: { scopes: string[] }): boolean {
-  return isAdmin(principal as any)
+  return isTenantAdmin(principal as any)
     || principal.scopes.some((scope) => scope === 'files:publish' || scope === 'storage:publish');
 }
 
 function visible(record: FileRecord, ctx: WriteContext | { principal: { tenantKey: string; scopes: string[] } }): boolean {
-  return isAdmin(ctx.principal as any) || record.tenant === ctx.principal.tenantKey;
+  return record.tenant === ctx.principal.tenantKey || (!(ctx.principal as any).workspaceApp && isAdmin(ctx.principal as any));
 }
 
 export async function loadFile(
@@ -611,4 +611,20 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     });
     res.status(204).end();
   }));
+}
+
+/** Persist generated artifacts as real OCS bytes and an app-scoped Base metadata record. */
+export async function saveGeneratedFile(client: any, config: ServiceConfig, principal: { tenantKey: string; subject: string }, filename: string, contentType: string, bytes: Buffer): Promise<FileView> {
+  filename = safeFilename(filename); contentType = mimeType(contentType); assertAllowedType(config, contentType);
+  if (bytes.length > config.filesMaxBytes) throw apiError(413, 'file_too_large', 'Generated file exceeds the deployment limit');
+  const usage = await usedBytes(client, principal.tenantKey);
+  if (usage.usedBytes + bytes.length > config.filesQuotaBytes) throw apiError(413, 'quota_exceeded', 'No remaining artifact storage quota');
+  const id = randomUUID(), now = new Date().toISOString();
+  const record: FileRecord = { id, tenant: principal.tenantKey, owner: principal.subject, filename, contentType, size: bytes.length, checksumSha256: checksumOf(bytes), storageKey: storageKey(config, principal.tenantKey, id, filename), ocsBucket: config.filesBucket, createdAt: now, updatedAt: now };
+  await ensureCollections(client); await ensureOcsBucket(client, config);
+  await client.ocs.putObject(config.filesBucket, record.storageKey, bytes, { contentType, checksumSha256: record.checksumSha256 });
+  try { await client.base.createDocument(COLLECTIONS.files, { id, data: record as unknown as Record<string, unknown> }); }
+  catch (error) { await client.ocs.deleteObject(config.filesBucket, record.storageKey).catch(() => {}); throw error; }
+  await recordAudit(client, config, { tenant: principal.tenantKey, actor: principal.subject, action: 'file.generate', correlationId: randomUUID(), details: { id, size: bytes.length, checksumSha256: record.checksumSha256 } });
+  return view(record);
 }

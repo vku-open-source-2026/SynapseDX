@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminApprovalsRouteImport } from './routes/admin/approvals'
 import { Route as AdminAuditRouteImport } from './routes/admin/audit'
@@ -24,6 +26,8 @@ import { Route as AdminRecordsRouteImport } from './routes/admin/records'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
 import { Route as AdminTeamRouteImport } from './routes/admin/team'
 import { Route as AdminWarehouseRouteImport } from './routes/admin/warehouse'
+import { Route as AdminWorkflowsRouteImport } from './routes/admin/workflows'
+import { Route as AdminWorkspacesRouteImport } from './routes/admin/workspaces'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -40,9 +44,19 @@ const AdminRoute = AdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkspaceRoute = WorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -100,12 +114,24 @@ const AdminWarehouseRoute = AdminWarehouseRouteImport.update({
   path: '/warehouse',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminWorkflowsRoute = AdminWorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminWorkspacesRoute = AdminWorkspacesRouteImport.update({
+  id: '/workspaces',
+  path: '/workspaces',
+  getParentRoute: () => AdminRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
+  '/workspace': typeof WorkspaceRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/datasets': typeof AdminDatasetsRoute
@@ -116,12 +142,16 @@ export interface FileRoutesByFullPath {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
   '/admin/warehouse': typeof AdminWarehouseRoute
+  '/admin/workflows': typeof AdminWorkflowsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
+  '/workspace': typeof WorkspaceRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/datasets': typeof AdminDatasetsRoute
@@ -132,6 +162,8 @@ export interface FileRoutesByTo {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
   '/admin/warehouse': typeof AdminWarehouseRoute
+  '/admin/workflows': typeof AdminWorkflowsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/admin': typeof AdminIndexRoute
 }
 export interface FileRoutesById {
@@ -139,7 +171,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/about': typeof AboutRoute
   '/admin': typeof AdminRouteWithChildren
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
+  '/workspace': typeof WorkspaceRoute
   '/admin/approvals': typeof AdminApprovalsRoute
   '/admin/audit': typeof AdminAuditRoute
   '/admin/datasets': typeof AdminDatasetsRoute
@@ -150,6 +184,8 @@ export interface FileRoutesById {
   '/admin/settings': typeof AdminSettingsRoute
   '/admin/team': typeof AdminTeamRoute
   '/admin/warehouse': typeof AdminWarehouseRoute
+  '/admin/workflows': typeof AdminWorkflowsRoute
+  '/admin/workspaces': typeof AdminWorkspacesRoute
   '/admin/': typeof AdminIndexRoute
 }
 export interface FileRouteTypes {
@@ -158,7 +194,9 @@ export interface FileRouteTypes {
     | '/'
     | '/about'
     | '/admin'
+    | '/docs'
     | '/login'
+    | '/workspace'
     | '/admin/approvals'
     | '/admin/audit'
     | '/admin/datasets'
@@ -169,12 +207,16 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/team'
     | '/admin/warehouse'
+    | '/admin/workflows'
+    | '/admin/workspaces'
     | '/admin/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/about'
+    | '/docs'
     | '/login'
+    | '/workspace'
     | '/admin/approvals'
     | '/admin/audit'
     | '/admin/datasets'
@@ -185,13 +227,17 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/team'
     | '/admin/warehouse'
+    | '/admin/workflows'
+    | '/admin/workspaces'
     | '/admin'
   id:
     | '__root__'
     | '/'
     | '/about'
     | '/admin'
+    | '/docs'
     | '/login'
+    | '/workspace'
     | '/admin/approvals'
     | '/admin/audit'
     | '/admin/datasets'
@@ -202,6 +248,8 @@ export interface FileRouteTypes {
     | '/admin/settings'
     | '/admin/team'
     | '/admin/warehouse'
+    | '/admin/workflows'
+    | '/admin/workspaces'
     | '/admin/'
   fileRoutesById: FileRoutesById
 }
@@ -209,7 +257,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AboutRoute: typeof AboutRoute
   AdminRoute: typeof AdminRouteWithChildren
+  DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
+  WorkspaceRoute: typeof WorkspaceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -235,11 +285,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workspace': {
+      id: '/workspace'
+      path: '/workspace'
+      fullPath: '/workspace'
+      preLoaderRoute: typeof WorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -319,6 +383,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminWarehouseRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/workflows': {
+      id: '/admin/workflows'
+      path: '/workflows'
+      fullPath: '/admin/workflows'
+      preLoaderRoute: typeof AdminWorkflowsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/workspaces': {
+      id: '/admin/workspaces'
+      path: '/workspaces'
+      fullPath: '/admin/workspaces'
+      preLoaderRoute: typeof AdminWorkspacesRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
@@ -333,6 +411,8 @@ interface AdminRouteChildren {
   AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTeamRoute: typeof AdminTeamRoute
   AdminWarehouseRoute: typeof AdminWarehouseRoute
+  AdminWorkflowsRoute: typeof AdminWorkflowsRoute
+  AdminWorkspacesRoute: typeof AdminWorkspacesRoute
   AdminIndexRoute: typeof AdminIndexRoute
 }
 
@@ -347,6 +427,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminSettingsRoute: AdminSettingsRoute,
   AdminTeamRoute: AdminTeamRoute,
   AdminWarehouseRoute: AdminWarehouseRoute,
+  AdminWorkflowsRoute: AdminWorkflowsRoute,
+  AdminWorkspacesRoute: AdminWorkspacesRoute,
   AdminIndexRoute: AdminIndexRoute,
 }
 
@@ -356,7 +438,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AdminRoute: AdminRouteWithChildren,
+  DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,
+  WorkspaceRoute: WorkspaceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
