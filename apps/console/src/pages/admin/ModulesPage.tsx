@@ -1,69 +1,164 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-/** H-P-D-I capability lanes, one tab each; each lane is permission-guarded by the server. */
-import { useState } from 'react';
-import { Card } from '../../components/ui';
-import { InboxModule } from './modules/InboxModule';
-import { WorkspaceModule } from './modules/WorkspaceModule';
-import { PeopleModule } from './modules/PeopleModule';
-import { ProjectsModule } from './modules/ProjectsModule';
-import { FormsModule } from './modules/FormsModule';
-import { ReportsModule } from './modules/ReportsModule';
-import { QualityModule } from './modules/QualityModule';
-import { OcrModule } from './modules/OcrModule';
-import { AgentsModule } from './modules/AgentsModule';
-import { AssistantModule } from './modules/AssistantModule';
-import { cn } from '../../lib/utils';
-
-export const MODULE_TABS = [
-  { id: 'inbox', label: 'Inbox', component: InboxModule },
-  { id: 'workspace', label: 'Workspace', component: WorkspaceModule },
-  { id: 'people', label: 'People & KPIs', component: PeopleModule },
-  { id: 'projects', label: 'Projects', component: ProjectsModule },
-  { id: 'forms', label: 'Forms & process', component: FormsModule },
-  { id: 'reports', label: 'Reports', component: ReportsModule },
-  { id: 'quality', label: 'Data quality', component: QualityModule },
-  { id: 'ocr', label: 'OCR queue', component: OcrModule },
-  { id: 'agents', label: 'Agents', component: AgentsModule },
-  { id: 'assistant', label: 'Assistant', component: AssistantModule },
-] as const;
-
-export type ModuleTabId = (typeof MODULE_TABS)[number]['id'];
-const TAB_IDS = new Set<string>(MODULE_TABS.map((tab) => tab.id));
-
+import { useEffect, useState } from 'react';
+import { ArrowLeft, ArrowUpRight, LayoutTemplate, Search } from 'lucide-react';
+import { MODULE_CATALOG, CapabilityModule } from '../../components/workspaces/CapabilityModule';
+import { Button, Card } from '../../components/ui';
+export const MODULE_TABS = MODULE_CATALOG;
+export type ModuleTabId = (typeof MODULE_CATALOG)[number]['id'];
 export function ModulesPage() {
-  const [tab, setTab] = useState<ModuleTabId>('inbox');
-  const active = TAB_IDS.has(tab) ? tab : 'inbox';
-  const Active = MODULE_TABS.find((item) => item.id === active)!.component;
-
+  const [active, setActive] = useState(window.location.hash.slice(1));
+  const [search, setSearch] = useState('');
+  const [targetApp,setTargetApp] = useState('city');
+  useEffect(() => {
+    const change = () => setActive(window.location.hash.slice(1));
+    window.addEventListener('hashchange', change);
+    return () => window.removeEventListener('hashchange', change);
+  }, []);
+  const entry = MODULE_CATALOG.find((item) => item.id === active);
   return (
-    <Card className="p-5">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">H · P · D · I CAPABILITIES</p>
-      <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-slate-900">Business modules</h1>
-      <p className="mt-1 max-w-3xl text-sm text-slate-500">
-        H-P-D-I modules share tenant scoping, audit and Tier-1 persistence. Each lane only loads what your role can open.
-      </p>
-      <div className="mt-4 flex flex-wrap gap-1.5 rounded-2xl bg-slate-100 p-1.5" role="tablist" aria-label="Business modules">
-        {MODULE_TABS.map((item) => (
-          <button
-            key={item.id}
-            role="tab"
-            aria-selected={item.id === active}
-            data-action="module-tab"
-            data-id={item.id}
-            onClick={() => setTab(item.id)}
-            className={cn(
-              'rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors',
-              item.id === active ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800',
-            )}
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-indigo-500">
+            Your organization · Capability catalog
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-dx-fg">
+            H-D-P-I workspace
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm text-dx-muted">
+            Your existing tools, ready to open or compose into a new page.
+          </p>
+        </div>
+        <a
+          href={`/workspace?product=${targetApp}&page=${targetApp}-common-workspace`}
+          className="flex items-center gap-2 text-sm font-semibold text-indigo-600"
+        >
+          Common workspace <ArrowUpRight size={16} />
+        </a>
+      </div>
+      <label className="flex items-center gap-3 text-sm text-dx-muted">Build for app
+        <select aria-label="Target app" className="rounded-lg border border-dx-line bg-dx-surface px-3 py-2" value={targetApp} onChange={event=>setTargetApp(event.target.value)}><option value="city">SynapseCity</option><option value="sos">SynapseCity SOS</option></select>
+        <span className="text-xs">Common workspace membership and data stay inside the selected app.</span>
+      </label>
+      {entry ? (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                window.location.hash = '';
+              }}
+            >
+              <ArrowLeft size={15} /> Catalog
+            </Button>
+            <a
+              href={`/admin/workspaces?product=${targetApp}#template=${entry.id}`}
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white"
+            >
+              <LayoutTemplate size={15} /> Use in page builder
+            </a>
+          </div>
+          <nav
+            aria-label="H-D-P-I capabilities"
+            className="flex gap-1 overflow-x-auto rounded-xl border border-dx-line bg-dx-surface p-2"
           >
-            {item.label}
-          </button>
-        ))}
-      </div>
-      <div className="mt-5" role="tabpanel">
-        <Active />
-      </div>
-    </Card>
+            {MODULE_CATALOG.map((item) => (
+              <a
+                key={item.id}
+                href={`#${item.id}`}
+                data-action="module-tab"
+                data-id={item.id}
+                aria-current={entry.id === item.id ? 'page' : undefined}
+                className={
+                  entry.id === item.id
+                    ? 'shrink-0 rounded-lg bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                    : 'shrink-0 rounded-lg px-3 py-2 text-xs text-dx-muted hover:bg-dx-subtle'
+                }
+              >
+                {item.label}
+              </a>
+            ))}
+          </nav>
+          <Card className="p-5">
+            <CapabilityModule module={entry.id} />
+          </Card>
+        </>
+      ) : (
+        <>
+          <label className="flex max-w-lg items-center gap-3 rounded-xl border border-dx-line bg-dx-surface px-4 py-3 text-dx-muted">
+            <Search size={17} />
+            <input
+              aria-label="Find capability"
+              className="w-full bg-transparent text-sm outline-none"
+              placeholder="Find a capability…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </label>
+          {['H', 'D', 'P', 'I'].map((lane) => (
+            <section key={lane}>
+              <div className="mb-3 flex items-center gap-3">
+                <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-100 text-xs font-bold text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                  {lane === 'Shared' ? '◇' : lane}
+                </span>
+                <h2 className="text-sm font-semibold">
+                  {
+                    (
+                      {
+                        Shared: 'Shared tools',
+                        H: 'Human & collaboration',
+                        D: 'Data & insights',
+                        P: 'People & process',
+                        I: 'Intelligence',
+                      } as Record<string, string>
+                    )[lane]
+                  }
+                </h2>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {MODULE_CATALOG.filter(
+                  (item) =>
+                    item.lane === lane &&
+                    `${item.label} ${item.description}`
+                      .toLowerCase()
+                      .includes(search.toLowerCase()),
+                ).map((item) => (
+                  <Card
+                    key={item.id}
+                    className="group p-5 transition hover:border-indigo-300 hover:shadow-md"
+                  >
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-semibold text-dx-fg">{item.label}</h3>
+                      <ArrowUpRight
+                        size={16}
+                        className="text-dx-muted group-hover:text-indigo-500"
+                      />
+                    </div>
+                    <p className="mt-2 min-h-10 text-sm text-dx-muted">{item.description}</p>
+                    <div className="mt-4 flex items-center justify-between border-t border-dx-line pt-3">
+                      <a
+                        href={`#${item.id}`}
+                        data-action="module-tab"
+                        data-id={item.id}
+                        className="text-xs font-semibold text-indigo-600"
+                      >
+                        Open capability
+                      </a>
+                      <a
+                        href={`/admin/workspaces?product=${targetApp}#template=${item.id}`}
+                        className="text-xs text-dx-muted hover:text-indigo-500"
+                      >
+                        Use in builder →
+                      </a>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
+    </div>
   );
 }

@@ -20,7 +20,7 @@ export function Toaster() {
       {toasts.map((item) => (
         <div
           key={item.id}
-          className="pointer-events-auto flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-lg"
+          className="pointer-events-auto flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 shadow-lg dark:border-[#1f2c40] dark:bg-[#142136] dark:text-slate-200"
         >
           <span className="mt-0.5 shrink-0">{ICONS[item.tone]}</span>
           <span className="min-w-0 flex-1">{item.message}</span>

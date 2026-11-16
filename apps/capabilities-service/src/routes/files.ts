@@ -15,14 +15,14 @@
 import express, { Express } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
 import { SynapseOneError } from '@synapseone/sdk';
-import { isAdmin } from '../auth';
+import { isAdmin, isTenantAdmin } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
 import { parsePagination, setPageHeaders } from '../pagination';
 import {
   COLLECTIONS, StoredDocument, claimIdempotency, correlationIdOf, ensureCollections,
-  getDocumentOrNull, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint,
+  getDocumentOrNull, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint, serviceClient,
 } from '../platform';
 import { WriteContext, authenticatedReadContext, writeContext } from './shared';
 
@@ -40,6 +40,8 @@ export interface FileRecord {
   ocsBucket?: string;
   datasetId?: string;
   recordId?: string;
+  /** Explicitly public release/media objects may be read without a credential. */
+  public?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,7 +55,20 @@ export interface FileView {
   owner: string;
   datasetId?: string;
   recordId?: string;
+  public?: boolean;
   downloadUrl: string;
+  publicUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicFileView {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  checksumSha256?: string;
+  publicUrl: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -105,23 +120,54 @@ function view(record: FileRecord): FileView {
     ...(record.checksumSha256 ? { checksumSha256: record.checksumSha256 } : {}),
     ...(record.datasetId ? { datasetId: record.datasetId } : {}),
     ...(record.recordId ? { recordId: record.recordId } : {}),
+    ...(record.public ? { public: true, publicUrl: publicUrl(record.id) } : {}),
     downloadUrl: `/v1/capabilities/files/${encodeURIComponent(record.id)}/content`,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
 }
 
-function visible(record: FileRecord, ctx: WriteContext | { principal: { tenantKey: string; scopes: string[] } }): boolean {
-  return isAdmin(ctx.principal as any) || record.tenant === ctx.principal.tenantKey;
+function publicUrl(id: string): string {
+  return `/v1/capabilities/public/files/${encodeURIComponent(id)}/content`;
 }
 
-async function loadFile(
+function publicView(record: FileRecord): PublicFileView {
+  return {
+    id: record.id,
+    filename: record.filename,
+    contentType: record.contentType,
+    size: record.size,
+    ...(record.checksumSha256 ? { checksumSha256: record.checksumSha256 } : {}),
+    publicUrl: publicUrl(record.id),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function canPublish(principal: { scopes: string[] }): boolean {
+  return isTenantAdmin(principal as any)
+    || principal.scopes.some((scope) => scope === 'files:publish' || scope === 'storage:publish');
+}
+
+function visible(record: FileRecord, ctx: WriteContext | { principal: { tenantKey: string; scopes: string[] } }): boolean {
+  return record.tenant === ctx.principal.tenantKey || (!(ctx.principal as any).workspaceApp && isAdmin(ctx.principal as any));
+}
+
+export async function loadFile(
   client: any,
   id: string,
   ctx: { principal: { tenantKey: string; scopes: string[] } },
 ): Promise<StoredDocument<FileRecord>> {
   const found = await getDocumentOrNull<FileRecord>(client, COLLECTIONS.files, id);
   if (!found || !visible(found.data, ctx)) {
+    throw apiError(404, 'file_not_found', 'file not found');
+  }
+  return found;
+}
+
+async function loadPublicFile(client: any, id: string): Promise<StoredDocument<FileRecord>> {
+  const found = await getDocumentOrNull<FileRecord>(client, COLLECTIONS.files, id);
+  if (!found || found.data.public !== true) {
     throw apiError(404, 'file_not_found', 'file not found');
   }
   return found;
@@ -196,7 +242,7 @@ async function migrateLegacyObject(client: any, config: ServiceConfig, found: St
   return found;
 }
 
-async function readFileBytes(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<Uint8Array> {
+export async function readFileBytes(client: any, config: ServiceConfig, found: StoredDocument<FileRecord>): Promise<Uint8Array> {
   if (found.data.ocsBucket) return client.ocs.getObject(found.data.ocsBucket, found.data.storageKey);
   const migrated = await migrateLegacyObject(client, config, found);
   return client.ocs.getObject(config.filesBucket, migrated.data.storageKey);
@@ -264,8 +310,12 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       throw apiError(400, 'invalid_request', 'checksumSha256 must be 64 hex characters');
     }
     const requestedId = body.id === undefined ? undefined : String(body.id);
-    if (requestedId && !/^[A-Za-z0-9_-]{1,80}$/.test(requestedId)) {
-      throw apiError(400, 'invalid_request', 'id must match [A-Za-z0-9_-]{1,80}');
+    if (requestedId && !/^[A-Za-z0-9._-]{1,80}$/.test(requestedId)) {
+      throw apiError(400, 'invalid_request', 'id must match [A-Za-z0-9._-]{1,80}');
+    }
+    const isPublic = body.public === true;
+    if (isPublic && !canPublish(principal)) {
+      throw apiError(403, 'insufficient_scope', 'publishing a public file requires files:publish');
     }
 
     const idempotencyKey = idempotencyKeyOf(req);
@@ -303,6 +353,7 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
         ocsBucket: config.filesBucket,
         ...(body.datasetId ? { datasetId: String(body.datasetId) } : {}),
         ...(body.recordId ? { recordId: String(body.recordId) } : {}),
+        ...(isPublic ? { public: true } : {}),
         createdAt: now,
         updatedAt: now,
       };
@@ -334,6 +385,49 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
       await claim?.release();
       throw error;
     }
+  }));
+
+  app.get('/v1/capabilities/public/files/:id', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    res.setHeader('cache-control', 'public, max-age=300');
+    res.json(publicView(found.data));
+  }));
+
+  app.head('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    let object: any;
+    try {
+      object = await headFileObject(client, config, found);
+    } catch (error) {
+      mapStorageError(error);
+    }
+    res.setHeader('content-type', found.data.contentType);
+    res.setHeader('content-length', String(object?.size || found.data.size));
+    res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.data.filename)}`);
+    res.setHeader('cache-control', 'public, max-age=300');
+    if (found.data.checksumSha256) res.setHeader('x-checksum-sha256', found.data.checksumSha256);
+    res.status(200).flushHeaders();
+    res.end();
+  }));
+
+  app.get('/v1/capabilities/public/files/:id/content', handler(async (req, res) => {
+    const client = serviceClient(config);
+    const found = await loadPublicFile(client, String(req.params.id));
+    let bytes: Uint8Array;
+    try {
+      bytes = await readFileBytes(client, config, found);
+    } catch (error) {
+      mapStorageError(error);
+    }
+    const buffer = Buffer.from(bytes);
+    res.setHeader('content-type', found.data.contentType);
+    res.setHeader('content-length', String(buffer.length));
+    res.setHeader('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(found.data.filename)}`);
+    res.setHeader('cache-control', 'public, max-age=300');
+    if (found.data.checksumSha256) res.setHeader('x-checksum-sha256', found.data.checksumSha256);
+    res.status(200).send(buffer);
   }));
 
   app.get('/v1/capabilities/files/:id', handler(async (req, res) => {
@@ -476,8 +570,13 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     }
     let signed: any;
     try {
-      const migrated = await migrateLegacyObject(client, config, found);
-      signed = await client.ocs.presign(config.filesBucket, migrated.data.storageKey, { method: method as any, expiresIn });
+      if (method === 'GET' || method === 'HEAD') {
+        const migrated = await migrateLegacyObject(client, config, found);
+        signed = await client.ocs.presign(migrated.data.ocsBucket || config.filesBucket, migrated.data.storageKey, { method: method as any, expiresIn });
+      } else {
+        await ensureOcsBucket(client, config);
+        signed = await client.ocs.presign(config.filesBucket, found.data.storageKey, { method: method as any, expiresIn });
+      }
     } catch (error) {
       mapStorageError(error);
     }
@@ -512,4 +611,20 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
     });
     res.status(204).end();
   }));
+}
+
+/** Persist generated artifacts as real OCS bytes and an app-scoped Base metadata record. */
+export async function saveGeneratedFile(client: any, config: ServiceConfig, principal: { tenantKey: string; subject: string }, filename: string, contentType: string, bytes: Buffer): Promise<FileView> {
+  filename = safeFilename(filename); contentType = mimeType(contentType); assertAllowedType(config, contentType);
+  if (bytes.length > config.filesMaxBytes) throw apiError(413, 'file_too_large', 'Generated file exceeds the deployment limit');
+  const usage = await usedBytes(client, principal.tenantKey);
+  if (usage.usedBytes + bytes.length > config.filesQuotaBytes) throw apiError(413, 'quota_exceeded', 'No remaining artifact storage quota');
+  const id = randomUUID(), now = new Date().toISOString();
+  const record: FileRecord = { id, tenant: principal.tenantKey, owner: principal.subject, filename, contentType, size: bytes.length, checksumSha256: checksumOf(bytes), storageKey: storageKey(config, principal.tenantKey, id, filename), ocsBucket: config.filesBucket, createdAt: now, updatedAt: now };
+  await ensureCollections(client); await ensureOcsBucket(client, config);
+  await client.ocs.putObject(config.filesBucket, record.storageKey, bytes, { contentType, checksumSha256: record.checksumSha256 });
+  try { await client.base.createDocument(COLLECTIONS.files, { id, data: record as unknown as Record<string, unknown> }); }
+  catch (error) { await client.ocs.deleteObject(config.filesBucket, record.storageKey).catch(() => {}); throw error; }
+  await recordAudit(client, config, { tenant: principal.tenantKey, actor: principal.subject, action: 'file.generate', correlationId: randomUUID(), details: { id, size: bytes.length, checksumSha256: record.checksumSha256 } });
+  return view(record);
 }

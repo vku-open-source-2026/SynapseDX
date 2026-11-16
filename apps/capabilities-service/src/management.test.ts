@@ -103,6 +103,37 @@ test('reject requires a note and keeps the dataset unpublished', async () => {
   }
 });
 
+test('a wildcard organization member is not projected into the management console', async () => {
+  const harness = await startHarness();
+  try {
+    const context = await api(harness, '/v1/capabilities/management/context', { token: 'member-token' });
+    assert.equal(context.status, 200);
+    assert.deepEqual(context.body.roles, []);
+    assert.deepEqual(context.body.permissions, []);
+    const summary = await api(harness, '/v1/capabilities/management/summary', { token: 'member-token' });
+    assert.equal(summary.status, 403);
+    assert.equal(summary.body.error.code, 'management_forbidden');
+  } finally {
+    await harness.close();
+  }
+});
+
+test('verified organization-admin projection is cached across page requests', async () => {
+  const harness = await startHarness();
+  try {
+    const meCalls = () => harness.fake.requests.filter((request) => request.path === '/v1/auth/me').length;
+    const before = meCalls();
+    for (let index = 0; index < 4; index += 1) {
+      const context = await api(harness, '/v1/capabilities/management/context', { token: 'admin-token' });
+      assert.equal(context.status, 200);
+      assert.deepEqual(context.body.roles, ['admin']);
+    }
+    assert.equal(meCalls() - before, 1);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('a viewer sees summary counts but not the audit projection', async () => {
   const harness = await startHarness();
   try {
