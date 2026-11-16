@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-import React, { useState, useId } from 'react';
+import React, { useEffect, useState, useId } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { ShieldCheck, Layers, ScrollText, Loader2, KeyRound } from 'lucide-react';
 import { PublicHeader } from '../components/PublicHeader';
@@ -11,9 +11,9 @@ import { Toaster } from '../components/Toaster';
 import { Field, inputClassName } from '../components/ui';
 import { PRIMARY_BTN } from '../components/public-styles';
 import { useI18n, fill } from '../lib/i18n-context';
+import { resolveLoginTarget } from '../lib/landing';
 import { cn } from '../lib/utils';
 
-const REDIRECT_TARGETS = new Set(['/admin', '/admin/datasets', '/admin/records', '/admin/modules', '/admin/settings']);
 const POINT_ICONS = [Layers, ShieldCheck, ScrollText];
 
 export function LoginPage() {
@@ -22,16 +22,103 @@ export function LoginPage() {
   const t = m.login;
   const search = useSearch({ strict: false }) as { redirect?: string };
   const login = useAuthStore((state) => state.login);
+  const session = useAuthStore((state) => state.session);
+  const context = useAuthStore((state) => state.context);
+  const status = useAuthStore((state) => state.status);
+  const fetchContext = useAuthStore((state) => state.fetchContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [orgSlug, setOrgSlug] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const emailId = useId();
   const passwordId = useId();
   const orgId = useId();
 
-  const target = REDIRECT_TARGETS.has(search?.redirect ?? '') ? (search!.redirect as string) : '/admin';
+  // Already signed in? Never show a second login form. Verify the stored
+  // session with the capability service and continue to the role's landing
+  // page (or the explicit same-origin redirect).
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    const go = async () => {
+      setCheckingSession(true);
+      let current = context;
+      if (!current && (status === 'idle' || status === 'unavailable')) {
+        current = await fetchContext();
+      }
+      if (cancelled) return;
+      if (current) {
+        const target = resolveLoginTarget(search?.redirect, current);
+        await navigate({ to: target as never, replace: true });
+        return;
+      }
+      setCheckingSession(false);
+    };
+    void go();
+    return () => {
+      cancelled = true;
+    };
+    // The context object is intentionally not a dependency: this effect runs
+    // once per stored session and the explicit fetch above handles staleness.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, search?.redirect]);
+
+  // While the stored session is being verified, render a small status panel
+  // instead of the credential form (prevents a flash of "login" for an
+  // already-authenticated user).
+  if (session && (checkingSession || status === 'loading')) {
+    return (
+      <div className="flex min-h-full flex-col bg-dx-bg text-dx-fg">
+        <PublicHeader />
+        <main className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-4 py-16">
+          <div className="w-full max-w-md rounded-2xl border border-dx-line bg-dx-surface p-8 text-center shadow-sm">
+            <Loader2 size={28} className="mx-auto animate-spin text-dx-accent" aria-hidden="true" />
+            <h1 className="mt-4 text-lg font-semibold tracking-tight">Continuing your session</h1>
+            <p className="mt-1 text-sm text-dx-muted">
+              Verifying your saved sign-in with the capability service before opening the right workspace.
+            </p>
+            <Link to="/" className="mt-4 inline-block text-sm font-semibold text-dx-accent hover:underline">
+              Back to the public catalog
+            </Link>
+          </div>
+        </main>
+        <PublicFooter />
+      </div>
+    );
+  }
+
+  if (session && !context && status === 'unavailable') {
+    return (
+      <div className="flex min-h-full flex-col bg-dx-bg text-dx-fg">
+        <PublicHeader />
+        <main className="mx-auto flex w-full max-w-6xl flex-1 items-center justify-center px-4 py-16">
+          <div className="w-full max-w-md rounded-2xl border border-dx-line bg-dx-surface p-8 text-center shadow-sm">
+            <ShieldCheck size={28} className="mx-auto text-amber-500" aria-hidden="true" />
+            <h1 className="mt-4 text-lg font-semibold tracking-tight">Your session could not be verified</h1>
+            <p className="mt-1 text-sm text-dx-muted">
+              The capability service is unreachable right now. Your saved sign-in was kept, so you can retry instead
+              of typing your password again.
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button type="button" className={PRIMARY_BTN} onClick={() => void fetchContext()}>
+                Retry verification
+              </button>
+              <button
+                type="button"
+                className="rounded-xl border border-dx-line px-4 py-2 text-sm font-semibold text-dx-fg hover:bg-dx-subtle"
+                onClick={() => void useAuthStore.getState().logout()}
+              >
+                Sign out
+              </button>
+            </div>
+          </div>
+        </main>
+        <PublicFooter />
+      </div>
+    );
+  }
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -43,9 +130,10 @@ export function LoginPage() {
     }
     setSubmitting(true);
     try {
-      const context = await login(email.trim(), password, orgSlug.trim() || undefined);
-      toast(fill(t.signedIn, { who: context.user?.email || context.user?.id || 'operator' }));
-      await navigate({ to: target as never });
+      const next = await login(email.trim(), password, orgSlug.trim() || undefined);
+      toast(fill(t.signedIn, { who: next.user?.email || next.user?.id || 'operator' }));
+      const target = resolveLoginTarget(search?.redirect, next);
+      await navigate({ to: target as never, replace: true });
     } catch (failure) {
       setError((failure as Error)?.message || t.errRefused);
     } finally {

@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 VKU.VIC
+name: Publish Rust SDK
+
+# Operator-gated: add the CARGO_REGISTRY_TOKEN repository secret, then push a
+# tag `sdk-rust-v<version>` (for example `sdk-rust-v0.7.0`). The tag version
+# must match sdks/capabilities-rust/Cargo.toml. Re-running an already-published
+# tag is a no-op, so release retries stay green.
+on:
+  push:
+    tags:
+      - 'sdk-rust-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sdk-rust-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: sdks/capabilities-rust
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      CRATE: synapsedx
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sdks/capabilities-rust
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Verify version and tag
+        run: |
+          set -euo pipefail
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            TAG_VERSION="${GITHUB_REF_NAME#sdk-rust-v}"
+            if [ "${TAG_VERSION}" != "${VERSION}" ]; then
+              echo "::error::tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${VERSION}"
+              exit 1
+            fi
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "Publishing ${CRATE} ${VERSION}"
+
+      - name: Check whether this version already exists
+        id: check
+        run: |
+          set -euo pipefail
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: SynapseDX-CI' \
+            "https://crates.io/api/v1/crates/${CRATE}/${VERSION}")
+          if [ "${STATUS}" = "200" ]; then
+            echo "published=true" >> "${GITHUB_OUTPUT}"
+            echo "${CRATE} ${VERSION} is already published; skipping."
+          elif [ "${STATUS}" = "404" ]; then
+            echo "published=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "::error::crates.io returned HTTP ${STATUS} while checking ${CRATE} ${VERSION}"
+            exit 1
+          fi
+
+      - name: Require crates.io token
+        if: steps.check.outputs.published != 'true'
+        run: |
+          if [ -z "${CARGO_REGISTRY_TOKEN}" ]; then
+            echo "::error::CARGO_REGISTRY_TOKEN is not configured for this repository."
+            echo "::error::Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+
+      - name: Publish
+        if: steps.check.outputs.published != 'true'
+        run: cargo publish --locked
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.published }}" = "true" ]; then
+            echo "### ${CRATE} ${VERSION} was already published" >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "### Published ${CRATE} ${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          fi

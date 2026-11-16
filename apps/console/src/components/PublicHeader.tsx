@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { LogIn, Menu, X } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
+import { landingPath } from '../lib/landing';
 import { useI18n } from '../lib/i18n-context';
-import { API_DOCS } from '../lib/site';
 import type { Messages } from '../locales/vi';
 import { cn } from '../lib/utils';
 import { BrandMark } from './BrandMark';
@@ -15,7 +15,7 @@ import { StableLabel } from './StableLabel';
 const LINKS: Array<{ to: string; pick: (m: Messages) => string; external?: boolean }> = [
   { to: '/', pick: (m) => m.nav.home },
   { to: '/about', pick: (m) => m.nav.about },
-  { to: API_DOCS, pick: (m) => m.nav.apiDocs, external: true },
+  { to: '/docs', pick: (m) => m.nav.apiDocs },
 ];
 
 const NAV_LINK = 'rounded-lg px-3 py-1.5 text-sm transition-colors hover:text-dx-fg';
@@ -25,10 +25,24 @@ export function PublicHeader() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const session = useAuthStore((state) => state.session);
+  const context = useAuthStore((state) => state.context);
+  const status = useAuthStore((state) => state.status);
+  const fetchContext = useAuthStore((state) => state.fetchContext);
   const { m } = useI18n();
-  const authTo = session ? '/admin' : '/login';
+  const authTo = session ? landingPath(context) : '/login';
   // Desktop labels reserve the width of the longest translation so a language switch never shifts the buttons.
   const pickAuth = (d: Messages) => (session ? d.nav.console : d.nav.signIn);
+
+  // The header link must never send an authenticated member back to the login
+  // form. Resolve the verified landing page; while it loads, the neutral
+  // `/workspace` target is safe for every member and administrators can use it
+  // too. The server decides which pages are actually visible.
+  useEffect(() => {
+    if (session && !context && status === 'idle') {
+      void fetchContext();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session === null]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-dx-line bg-dx-surface/95 backdrop-blur supports-[backdrop-filter]:bg-dx-surface/85">

@@ -11,7 +11,7 @@ const ALL = [
 ];
 
 const contexts = {
-  admin: { user: { id: 'admin-1', email: 'admin@example.com' }, tenant: 'org:demo', roles: ['admin'], permissions: ALL, auth: { kind: 'jwt', scopes: ['*'] } },
+  admin: { isOrganizationAdmin: true, user: { id: 'admin-1', email: 'admin@example.com' }, tenant: 'org:demo', roles: ['admin'], permissions: ALL, auth: { kind: 'jwt', scopes: ['*'] } },
   operator: {
     user: { id: 'op-1', email: 'operator@example.com' }, tenant: 'org:demo', roles: ['operator', 'manager'],
     permissions: ['summary:read', 'datasets:read', 'records:read', 'datasets:write', 'datasets:delete', 'records:write', 'events:read', 'events:flush', 'audit:read', 'approvals:read', 'approvals:write'],
@@ -140,45 +140,17 @@ test('public visitor sees the catalog but no management navigation', async ({ pa
   await expect(page.locator('[data-nav]')).toHaveCount(0);
 });
 
-test('manager is read-only and cannot open moderation or create datasets', async ({ page }) => {
-  await openAs(page, 'manager');
-  await expect(page.locator('.role-badge')).toHaveText('Manager');
-  await expect(page.locator('[data-nav="records"]')).toBeVisible();
-  await expect(page.locator('[data-nav="audit"]')).toBeVisible();
-  await expect(page.locator('[data-nav="moderation"]')).toHaveCount(0);
-  await page.click('[data-nav="datasets"]');
-  await expect(page.locator('[data-nav="datasets"]')).toBeVisible();
-  await expect(page.locator('[data-action="new-dataset"]')).toHaveCount(0);
-  await expect(page.locator('[data-action="edit-dataset"]')).toHaveCount(0);
-  await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(0);
-});
-
-test('operator can mutate datasets and records but cannot moderate', async ({ page }) => {
-  await openAs(page, 'operator');
-  await expect(page.locator('.role-badge')).toHaveText('Operator');
-  await expect(page.locator('[data-nav="moderation"]')).toHaveCount(0);
-  await page.click('[data-nav="datasets"]');
-  await expect(page.locator('[data-action="new-dataset"]')).toBeVisible();
-  await expect(page.locator('[data-action="edit-dataset"]')).toHaveCount(3);
-  await expect(page.locator('[data-action="publish-dataset"]')).toHaveCount(2);
-  await expect(page.locator('[data-action="delete-dataset"]')).toHaveCount(3);
-  await expect(page.locator('[data-nav="settings"]')).toHaveCount(0);
-});
-
-test('moderator can review but cannot edit or publish datasets', async ({ page }) => {
-  await openAs(page, 'moderator');
-  await expect(page.locator('.role-badge')).toHaveText('Moderator');
-  await expect(page.locator('[data-nav="moderation"]')).toBeVisible();
-  await page.click('[data-nav="datasets"]');
-  await expect(page.locator('[data-action="new-dataset"]')).toHaveCount(0);
-  await expect(page.locator('[data-action="edit-dataset"]')).toHaveCount(0);
-  await page.click('[data-nav="moderation"]');
-  await expect(page.locator('[data-action="approve-review"]')).toHaveCount(1);
-  await expect(page.locator('[data-action="reject-review"]')).toHaveCount(1);
-  await page.check('[data-review-select="city-assets"]');
-  await expect(page.locator('[data-action="bulk-review"][data-id="approve"]')).toBeEnabled();
-  await expect(page.locator('[data-action="bulk-review"][data-id="reject"]')).toBeEnabled();
-});
+for (const role of ['manager', 'operator', 'moderator']) {
+  test(`${role} cannot navigate to organization administration`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('synapsedx.console.session.v1', JSON.stringify({accessToken:'test',refreshToken:'',obtainedAt:new Date().toISOString()})));
+    await mockApi(page, contexts[role]);
+    await page.route('**/v1/capabilities/workspaces/access', route => route.fulfill({ json:{products:[],productRoles:{},modules:[],isOrganizationAdmin:false} }));
+    await page.goto('/admin/workspaces');
+    await expect(page).toHaveURL(/\/workspace/);
+    await expect(page.getByRole('heading', {name:'App access required'})).toBeVisible();
+    await expect(page.getByRole('link', {name:'Administration'})).toHaveCount(0);
+  });
+}
 
 test('administrator sees every management lane and action', async ({ page }) => {
   await openAs(page, 'admin');
@@ -226,10 +198,11 @@ test('login form exchanges credentials and opens the administrator overview', as
 
 test('business modules expose every H/P/D/I lane with empty states', async ({ page }) => {
   await openAs(page, 'admin', '/admin/modules');
-  await expect(page.locator('[data-action="module-tab"]')).toHaveCount(10);
+  await expect(page.locator('[data-action="module-tab"]')).toHaveCount(11);
   for (const lane of ['inbox', 'workspace', 'people', 'projects', 'forms', 'reports', 'quality', 'ocr', 'agents', 'assistant']) {
     await expect(page.locator(`[data-action="module-tab"][data-id="${lane}"]`)).toBeVisible();
   }
+  await page.click('[data-action="module-tab"][data-id="inbox"]');
   await expect(page.getByText('No inbox items yet')).toBeVisible();
   await page.click('[data-action="module-tab"][data-id="assistant"]');
   await expect(page.locator('#rag-form')).toBeVisible();

@@ -14,23 +14,33 @@ import { ServiceConfig, loadConfig } from './config';
 import { correlationMiddleware, corsMiddleware, errorMiddleware, notFoundMiddleware, securityMiddleware } from './http';
 import { registerAiRoutes } from './routes/ai';
 import { registerApprovalRoutes } from './routes/approvals';
+import { registerPlanRoutes } from './routes/plans';
 import { registerAuditRoutes } from './routes/audit';
 import { registerAuthRoutes } from './routes/auth';
 import { registerDatasetRoutes } from './routes/datasets';
 import { registerEventRoutes } from './routes/events';
+import { registerEventStreamRoutes } from './routes/event-stream';
 import { registerHealthRoutes, registerCapabilityAdvertisement } from './routes/health';
 import { registerJobRoutes } from './routes/jobs';
 import { registerManagementRoutes } from './routes/management';
 import { registerRecordRoutes } from './routes/records';
+import { registerSpatialRecordRoutes } from './routes/spatial';
+import { registerTabularFileRoutes } from './routes/tabular-files';
 import { registerFileRoutes } from './routes/files';
 import { registerGeoRoutes } from './routes/geo';
+import { registerSecurityRoutes } from './routes/security';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerOptimizationRoutes } from './routes/optimization';
 import { registerCollaborationRoutes } from './routes/collaboration';
 import { registerPeopleProcessRoutes } from './routes/people-process';
 import { registerDataInsightRoutes } from './routes/data-insights';
 import { registerIntelligenceRoutes } from './routes/intelligence';
 import { registerKnowledgeRoutes } from './routes/knowledge';
-import { registerHazardRoutes, startKttvScheduler } from './routes/hazards';
+import { registerHazardRoutes } from './routes/hazards';
+import { registerWarehouseRoutes } from './routes/warehouse';
+import { registerWorkspacePluginRoutes } from './routes/workspace-plugins';
+import { registerWorkflowArtifactRoutes } from './routes/workflow-artifacts';
+import { ensureKttvSchedule } from './kttv-schedule';
 
 export function createServer(config: ServiceConfig = loadConfig()): express.Express {
   const app = express();
@@ -42,7 +52,7 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   app.use((req, res, next) => {
     // File content is raw bytes for every content type (GeoJSON/CSV included);
     // the route installs express.raw itself.
-    if (req.method === 'PUT' && /^\/v1\/capabilities\/files\/[^/]+\/content$/.test(req.path)) {
+    if ((req.method === 'PUT' && /^\/v1\/capabilities\/files\/[^/]+\/content$/.test(req.path)) || (req.method === 'POST' && /^\/v1\/capabilities\/workspaces\/installed\/[^/]+\/widgets\/[^/]+\/upload$/.test(req.path))) {
       next();
       return;
     }
@@ -54,21 +64,30 @@ export function createServer(config: ServiceConfig = loadConfig()): express.Expr
   registerAuthRoutes(app, config);
   registerManagementRoutes(app, config);
   registerApprovalRoutes(app, config);
+  registerPlanRoutes(app, config);
   registerDatasetRoutes(app, config);
+  registerSpatialRecordRoutes(app, config);
   registerRecordRoutes(app, config);
   registerEventRoutes(app, config);
+  registerEventStreamRoutes(app, config);
   registerAiRoutes(app, config);
   registerJobRoutes(app, config);
   registerAuditRoutes(app, config);
   registerFileRoutes(app, config);
+  registerTabularFileRoutes(app, config);
   registerNotificationRoutes(app, config);
+  registerOptimizationRoutes(app, config);
   registerGeoRoutes(app, config);
+  registerSecurityRoutes(app, config);
   registerCollaborationRoutes(app, config);
   registerPeopleProcessRoutes(app, config);
   registerDataInsightRoutes(app, config);
   registerIntelligenceRoutes(app, config);
   registerKnowledgeRoutes(app, config);
   registerHazardRoutes(app, config);
+  registerWarehouseRoutes(app, config);
+  registerWorkspacePluginRoutes(app, config);
+  registerWorkflowArtifactRoutes(app, config);
 
   app.use(notFoundMiddleware());
   app.use(errorMiddleware());
@@ -80,6 +99,8 @@ if (require.main === module) {
   const app = createServer(config);
   app.listen(config.port, () => {
     console.log(`[synapsedx] Tier-2 capabilities listening on :${config.port}; Tier-1=${config.tier1BaseUrl}; auth=${config.authMode}`);
-    startKttvScheduler(config);
+    ensureKttvSchedule(config).catch((error) => {
+      console.error('[kttv] failed to provision the SynapseFlow schedule:', error?.message || error);
+    });
   });
 }

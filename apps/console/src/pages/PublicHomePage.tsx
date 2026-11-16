@@ -8,6 +8,8 @@ import { PublicFooter } from '../components/PublicFooter';
 import { FeatureGrid } from '../components/FeatureGrid';
 import { H2, PRIMARY_BTN, SECONDARY_BTN } from '../components/public-styles';
 import { api } from '../lib/api';
+import { useAuthStore } from '../stores/authStore';
+import { landingPath } from '../lib/landing';
 import { useI18n, fill } from '../lib/i18n-context';
 import { REPO } from '../lib/site';
 import type { DatasetDto } from '../types';
@@ -18,6 +20,9 @@ const FEATURE_ICONS = [Database, ShieldCheck, Radio];
 export function PublicHomePage() {
   const { m } = useI18n();
   const h = m.home;
+  const session = useAuthStore((state) => state.session);
+  const context = useAuthStore((state) => state.context);
+  const landing = session ? landingPath(context) : null;
   const { data: datasets, isLoading } = useQuery({
     queryKey: ['public-datasets'],
     queryFn: () => api.get<DatasetDto[]>('/v1/capabilities/datasets?limit=6').catch(() => [] as DatasetDto[]),
@@ -35,8 +40,8 @@ export function PublicHomePage() {
             <h1 className="mt-3 text-4xl font-semibold leading-[1.1] tracking-tight text-balance sm:text-5xl">{h.title}</h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-dx-muted text-pretty">{h.lead}</p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Link to="/login" className={PRIMARY_BTN}>
-                {h.cta} <ArrowRight size={18} aria-hidden="true" />
+              <Link to={landing ?? '/login'} className={PRIMARY_BTN}>
+                {landing ? m.nav.openConsole : h.cta} <ArrowRight size={18} aria-hidden="true" />
               </Link>
               <a href="#public-catalog" className={SECONDARY_BTN}>
                 {h.explore}

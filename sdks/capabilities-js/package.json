@@ -1,6 +1,6 @@
 {
   "name": "@synapsedx/capabilities",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "Apache-2.0",
   "description": "SynapseDX Tier-2 capabilities API client",
   "homepage": "https://synapsedx.sbs",
@@ -36,7 +36,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test dist/index.test.js",
+    "test": "npm run build && node --test dist/index.test.js dist/optimization.test.js",
     "prepack": "npm run build"
   },
   "keywords": [

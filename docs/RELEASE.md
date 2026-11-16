@@ -48,13 +48,13 @@ Expected tarball contents: `dist/index.js`, `dist/index.d.ts` (+ maps),
 6. Replace Tier-3 `file:` dependencies with the published semver range and
    rebuild from a standalone City/SOS clone.
 
-The current package version is `0.3.0`; bump it with `npm version` before a new
+The current package version is `0.7.0`; bump it with `npm version` before a new
 tag. Publication (and therefore #14 closure) remains blocked on the operator
 token.
 
 ## Tier-1 SDK dependency
 
-`apps/capabilities-service` installs `@synapseone/sdk@^0.8.0` from the public npm
+`apps/capabilities-service` installs `@synapseone/sdk@^0.9.1` from the public npm
 registry. The SDK includes SynapseOCS/storage, notifications and the typed
 identity/health lifecycle. There is no vendored SDK tarball and no `file:`
 dependency; Docker builds resolve the package from npm.

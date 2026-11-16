@@ -58,16 +58,27 @@ interface Entity {
   data?: Json;
 }
 
+interface FakeGeoFeature {
+  type: 'Feature';
+  id: string;
+  properties: Json;
+  geometry: Json;
+  updatedAt: string;
+}
+
 interface Workflow {
   id: string;
   name: string;
   definition: Json;
   active: boolean;
+  orgId?: string | null;
+  accountId?: string | null;
+  ownerSub?: string | null;
 }
 
 export interface FakeTier1Options {
   tokens?: Record<string, Json>;
-  apiKeys?: Record<string, { account_id: string; scopes: string[] }>;
+  apiKeys?: Record<string, { account_id: string; user_id?: string | null; org_id?: string; scopes: string[] }>;
   /** Enable the S3-style presign endpoint (default: 501 like the fs backend). */
   storagePresign?: boolean;
   maxObjectBytes?: number;
@@ -136,8 +147,103 @@ function matches(where: unknown, doc: StoredDoc): boolean {
   });
 }
 
-function parseBody(req: IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
+/* ------------------------------------------------------------------------- *
+ * Fake PostGIS geo helpers (only the shapes the capabilities service uses)
+ * ------------------------------------------------------------------------- */
+
+const FAKE_GEO_TYPES = new Set(['Point', 'MultiPoint', 'LineString', 'MultiLineString', 'Polygon', 'MultiPolygon']);
+
+/** Flatten a GeoJSON geometry to [lng, lat] positions. */
+function geoPositions(geometry: Json): Array<[number, number]> {
+  const positions: Array<[number, number]> = [];
+  const visit = (node: unknown): void => {
+    if (!Array.isArray(node) || positions.length >= 5000) return;
+    if (node.length >= 2 && typeof node[0] === 'number' && typeof node[1] === 'number') {
+      positions.push([node[0], node[1]]);
+      return;
+    }
+    for (const child of node) visit(child);
+  };
+  visit((geometry as any)?.coordinates);
+  return positions;
+}
+
+function geoBBox(geometry: Json): [number, number, number, number] | null {
+  const positions = geoPositions(geometry);
+  if (!positions.length) return null;
+  let west = positions[0][0];
+  let east = positions[0][0];
+  let south = positions[0][1];
+  let north = positions[0][1];
+  for (const [lng, lat] of positions) {
+    if (lng < west) west = lng;
+    if (lng > east) east = lng;
+    if (lat < south) south = lat;
+    if (lat > north) north = lat;
+  }
+  return [west, south, east, north];
+}
+
+/** Parse `west,south,east,north`; malformed values mean "no filter" like Tier-1. */
+function geoQueryBox(raw: string | null): [number, number, number, number] | null {
+  if (!raw) return null;
+  const parts = raw.split(',').map((value) => Number(value.trim()));
+  if (parts.length !== 4 || parts.some((value) => !Number.isFinite(value))) return null;
+  const [west, south, east, north] = parts;
+  if (west < -180 || east > 180 || south < -90 || north > 90 || west > east || south > north) return null;
+  return [west, south, east, north];
+}
+
+function boxesIntersect(
+  a: [number, number, number, number],
+  b: [number, number, number, number],
+): boolean {
+  return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+}
+
+function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const radians = (value: number): number => value * Math.PI / 180;
+  const dLat = radians(lat2 - lat1);
+  const dLng = radians(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 6371008.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function pointInRing(lng: number, lat: number, ring: unknown): boolean {
+  if (!Array.isArray(ring) || ring.length < 4) return false;
+  let inside = false;
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const current = ring[index];
+    const last = ring[previous];
+    if (!Array.isArray(current) || !Array.isArray(last)) continue;
+    const [xi, yi] = current;
+    const [xj, yj] = last;
+    if (typeof xi !== 'number' || typeof yi !== 'number' || typeof xj !== 'number' || typeof yj !== 'number') continue;
+    if (((yi > lat) !== (yj > lat)) && (lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi)) inside = !inside;
+  }
+  return inside;
+}
+
+function pointInPolygon(lng: number, lat: number, rings: unknown): boolean {
+  if (!Array.isArray(rings) || !rings.length) return false;
+  if (!pointInRing(lng, lat, rings[0])) return false;
+  for (let index = 1; index < rings.length; index += 1) {
+    if (pointInRing(lng, lat, rings[index])) return false;
+  }
+  return true;
+}
+
+function pointInGeometry(lng: number, lat: number, geometry: Json): boolean {
+  const coordinates = geometry?.coordinates;
+  if (geometry?.type === 'Polygon') return pointInPolygon(lng, lat, coordinates);
+  if (geometry?.type === 'MultiPolygon' && Array.isArray(coordinates)) {
+    return coordinates.some((polygon) => pointInPolygon(lng, lat, polygon));
+  }
+  return false;
+}
+
+function parseBody(req: IncomingMessage): Promise<any> {  return new Promise((resolve, reject) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
@@ -203,19 +309,47 @@ export class FakeTier1 {
   readonly maxObjectBytes: number;
   readonly attributes = new Map<string, Array<{ name: string; visibility: string }>>();
   readonly entities = new Map<string, Map<string, Entity>>();
+  /** Per-collection PostGIS-equivalent feature store. */
+  readonly geo = new Map<string, Map<string, FakeGeoFeature>>();
   readonly queues = new Map<string, Json[]>();
   readonly topics = new Map<string, Array<{ id: string; payload: unknown }>>();
   readonly faststore = new Map<string, unknown>();
   readonly workflows = new Map<string, Workflow>();
+  readonly credentials = new Map<string, {
+    id: string; account_id: string; name: string; kind: string; secret: string;
+    owner_sub: string | null; created_at: string; updated_at: string;
+  }>();
+  readonly warehouseDatasets = new Map<string, Json>();
+  readonly warehouseJobs = new Map<string, Json>();
   readonly executions: Json[] = [];
   readonly requests: Array<{ method: string; path: string; headers: Record<string, string>; body: any }> = [];
   readonly tokens = new Map<string, Json>();
-  readonly apiKeys = new Map<string, { account_id: string; scopes: string[] }>();
+  readonly apiKeys = new Map<string, { account_id: string; scopes: string[]; org_id?: string; user_id?: string | null }>();
   failBase = false;
+  failGeo = false;
   failLds = false;
   failQueue = false;
   failStream = false;
   failFaststore = false;
+  failWarehouse = false;
+  /** Force workflow update failures (used to test compensation blockers). */
+  failWorkflowUpdate = false;
+  /** Allow this many workflow updates, then fail (tests rollback failure). */
+  failWorkflowUpdateAfter = 0;
+  workflowUpdateCalls = 0;
+  /** Fail exactly this Base document PUT call (tests finalize failure). */
+  failBaseUpdateOnCall = 0;
+  baseDocumentUpdateCalls = 0;
+  /** Mirror Tier-1 canAccessWorkflow (same org/account) for negative tests. */
+  enforceWorkflowTenant = false;
+  /** Mirror Tier-1 owner-only access policy for protected workflows. */
+  enforceWorkflowOwnerOnly = false;
+  /** Static engine capability advertisement (old images omit it). */
+  workflowEngineCapabilities: Record<string, unknown> | null = {
+    httpCredentialAllowedOrigins: true,
+    httpCredentialDestinationProtection: 1,
+    httpIncludeInput: true,
+  };
   private server?: Server;
   private seq = 0;
 
@@ -248,10 +382,12 @@ export class FakeTier1 {
     this.datasources.clear();
     this.attributes.clear();
     this.entities.clear();
+    this.geo.clear();
     this.queues.clear();
     this.topics.clear();
     this.faststore.clear();
     this.workflows.clear();
+    this.credentials.clear();
     this.executions.length = 0;
     this.requests.length = 0;
     this.storage.clear();
@@ -263,10 +399,26 @@ export class FakeTier1 {
     this.resetTokens.clear();
     this.exchanges.length = 0;
     this.failBase = false;
+    this.failGeo = false;
     this.failLds = false;
     this.failQueue = false;
     this.failStream = false;
     this.failFaststore = false;
+    this.failWarehouse = false;
+    this.failWorkflowUpdate = false;
+    this.failWorkflowUpdateAfter = 0;
+    this.workflowUpdateCalls = 0;
+    this.failBaseUpdateOnCall = 0;
+    this.baseDocumentUpdateCalls = 0;
+    this.enforceWorkflowTenant = false;
+    this.enforceWorkflowOwnerOnly = false;
+    this.workflowEngineCapabilities = {
+      httpCredentialAllowedOrigins: true,
+      httpCredentialDestinationProtection: 1,
+      httpIncludeInput: true,
+    };
+    this.warehouseDatasets.clear();
+    this.warehouseJobs.clear();
   }
 
   private json(res: ServerResponse, status: number, body: unknown): void {
@@ -729,7 +881,19 @@ export class FakeTier1 {
     }
     if (path === '/v1/auth/logout' && method === 'POST') return this.json(res, 200, { ok: true });
     if (path === '/v1/auth/logout-all' && method === 'POST') return this.json(res, 200, { ok: true, revoked: 1 });
-    if (path === '/v1/auth/me' && method === 'GET') return this.json(res, 200, { user: { id: 'user-1' }, kind: 'user' });
+    if (path === '/v1/auth/me' && method === 'GET') {
+      const claims = this.claimsOf(headers);
+      if (!claims) return this.json(res, 401, { error: 'unauthorized' });
+      return this.json(res, 200, {
+        user: {
+          id: String(claims.sub || ''),
+          ...(claims.email ? { email: String(claims.email) } : {}),
+          ...(claims.org ? { org_id: String(claims.org) } : {}),
+          is_org_admin: claims.is_org_admin === true,
+        },
+        kind: claims.kind || 'user',
+      });
+    }
     if (path === '/v1/auth/oidc/config' && method === 'GET') return this.json(res, 200, { enabled: true, issuer: 'https://idp.example' });
     if (path === '/v1/auth/oidc/start' && method === 'GET') return this.json(res, 200, { authorizeUrl: 'https://idp.example/authorize', state: 'signed-state' });
     if (path === '/v1/auth/oidc/callback' && method === 'POST') return this.json(res, 200, { accessToken: 'oidc-access', refreshToken: 'oidc-refresh', user: { id: 'oidc-user' } });
@@ -767,6 +931,14 @@ export class FakeTier1 {
       return this.json(res, 200, [{ id: 'role-operator', slug: 'operator' }]);
     }
 
+    // ---- Credentials (account-scoped, write-only secret) ----
+    if (path === '/v1/credentials' || path.startsWith('/v1/credentials/')) {
+      return this.handleCredentials(method, path, url, body, headers, res);
+    }
+
+    // ---- Warehouse ----
+    if (path.startsWith('/v1/warehouse/')) return this.handleWarehouse(method, path, url, body, res);
+
     // ---- Base ----
     if (path.startsWith('/v1/base/')) return this.handleBase(method, path, url, body, res);
 
@@ -783,7 +955,12 @@ export class FakeTier1 {
     if (path.startsWith('/v1/faststore/')) return this.handleFaststore(method, path, body, res);
 
     // ---- Workflow ----
-    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions')) return this.handleWorkflow(method, path, url, body, res);
+    if (path === '/v1/workflow-runners/options' && method === 'GET') {
+      return this.json(res, 200, {
+        ...(this.workflowEngineCapabilities ? { engineCapabilities: this.workflowEngineCapabilities } : {}),
+      });
+    }
+    if (path.startsWith('/v1/workflows') || path.startsWith('/v1/executions') || path === '/v1/templates') return this.handleWorkflow(method, path, url, body, headers, res);
 
     // ---- Inference ----
     if (path === '/v1/inference/health' && method === 'GET') {
@@ -799,6 +976,7 @@ export class FakeTier1 {
     }
     if (path === '/v1/inference/chat/completions' && method === 'POST') {
       this.chatRequests.push(body);
+      if (process.env.FAKE_TIER1_CHAT_ERROR === 'true') return this.json(res, 503, { error: 'inference_unavailable' });
       const content = process.env.FAKE_TIER1_CHAT_REPLY ?? 'ok';
       return this.json(res, 200, { id: 'chat-1', object: 'chat.completion', created: 1, model: body?.model || 'fake', choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
     }
@@ -820,8 +998,109 @@ export class FakeTier1 {
     this.json(res, 404, { error: 'not_found', path });
   }
 
+  private handleWarehouse(method: string, path: string, _url: URL, body: any, res: ServerResponse): void {
+    if (this.failWarehouse) return this.json(res, 503, { error: 'unavailable' });
+    if (path === '/v1/warehouse/datasets' && method === 'GET') {
+      return this.json(res, 200, { items: [...this.warehouseDatasets.values()] });
+    }
+    if (path === '/v1/warehouse/datasets' && method === 'POST') {
+      const id = String(body?.id || body?.name || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+      if (!id) return this.json(res, 400, { error: 'invalid_id', message: 'id is required' });
+      if (this.warehouseDatasets.has(id)) return this.json(res, 409, { error: 'dataset_exists', message: 'exists' });
+      const now = nowIso();
+      const dataset = {
+        id,
+        name: String(body?.name || id),
+        description: String(body?.description || ''),
+        columns: Array.isArray(body?.columns) ? body.columns : [],
+        mode: body?.mode === 'stream' ? 'stream' : 'batch',
+        streamTopic: body?.streamTopic || null,
+        rowCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      this.warehouseDatasets.set(id, dataset);
+      return this.json(res, 201, dataset);
+    }
+    const datasetMatch = path.match(/^\/v1\/warehouse\/datasets\/([^/]+)$/);
+    if (datasetMatch) {
+      const id = decodeURIComponent(datasetMatch[1]);
+      const dataset = this.warehouseDatasets.get(id);
+      if (!dataset) return this.json(res, 404, { error: 'dataset_not_found' });
+      if (method === 'GET') return this.json(res, 200, dataset);
+      if (method === 'DELETE') {
+        this.warehouseDatasets.delete(id);
+        for (const [jobId, job] of this.warehouseJobs) {
+          if (String(job.targetDatasetId || '') === id) this.warehouseJobs.delete(jobId);
+        }
+        return this.json(res, 200, { ok: true, deleted: true });
+      }
+    }
+    const rowsMatch = path.match(/^\/v1\/warehouse\/datasets\/([^/]+)\/rows$/);
+    if (rowsMatch && method === 'POST') {
+      const dataset = this.warehouseDatasets.get(decodeURIComponent(rowsMatch[1]));
+      if (!dataset) return this.json(res, 404, { error: 'dataset_not_found' });
+      const rows = Array.isArray(body?.rows) ? body.rows : [];
+      dataset.rowCount = Number(dataset.rowCount || 0) + rows.length;
+      return this.json(res, 201, { ok: true, inserted: rows.length });
+    }
+    if (path === '/v1/warehouse/query' && method === 'POST') {
+      return this.json(res, 200, {
+        columns: ['city', 'incidents'],
+        types: ['VARCHAR', 'BIGINT'],
+        rows: [{ city: 'Hanoi', incidents: 2 }, { city: 'Da Nang', incidents: 1 }],
+        rowCount: 2,
+        truncated: false,
+        durationMs: 1,
+      });
+    }
+    if (path === '/v1/warehouse/templates' && method === 'GET') {
+      return this.json(res, 200, { items: [{ id: 'batch-daily-rollup', mode: 'batch' }, { id: 'stream-sensor-ingest', mode: 'stream' }] });
+    }
+    if (path === '/v1/warehouse/jobs' && method === 'GET') {
+      return this.json(res, 200, { items: [...this.warehouseJobs.values()] });
+    }
+    if (path === '/v1/warehouse/jobs' && method === 'POST') {
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: body?.mode || 'batch', status: 'running', targetDatasetId: body?.targetDatasetId };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, job);
+    }
+    if (path === '/v1/warehouse/etl/batch' && method === 'POST') {
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: 'batch', status: 'succeeded', targetDatasetId: body?.targetDatasetId };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, { ok: true, rows: 2, durationMs: 1, job });
+    }
+    if (path === '/v1/warehouse/etl/stream' && method === 'POST') {
+      const id = `job-${++this.seq}`;
+      const job = { id, name: body?.name || id, mode: 'stream', status: 'running', targetDatasetId: body?.targetDatasetId, streamTopic: body?.streamTopic };
+      this.warehouseJobs.set(id, job);
+      return this.json(res, 201, { ok: true, created: true, job });
+    }
+    const runMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/run$/);
+    if (runMatch && method === 'POST') return this.json(res, 200, { ok: true, rows: 2 });
+    const pauseMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/pause$/);
+    if (pauseMatch && method === 'POST') return this.json(res, 200, { id: decodeURIComponent(pauseMatch[1]), status: 'paused' });
+    const resumeMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)\/resume$/);
+    if (resumeMatch && method === 'POST') return this.json(res, 200, { id: decodeURIComponent(resumeMatch[1]), status: 'running' });
+    const jobMatch = path.match(/^\/v1\/warehouse\/jobs\/([^/]+)$/);
+    if (jobMatch) {
+      const id = decodeURIComponent(jobMatch[1]);
+      const job = this.warehouseJobs.get(id);
+      if (!job) return this.json(res, 404, { error: 'job_not_found' });
+      if (method === 'GET') return this.json(res, 200, job);
+      if (method === 'DELETE') {
+        this.warehouseJobs.delete(id);
+        return this.json(res, 200, { ok: true, deleted: true });
+      }
+    }
+    return this.json(res, 404, { error: 'not_found' });
+  }
+
   private handleBase(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
     if (this.failBase) return this.json(res, 503, { error: 'base_unavailable' });
+    if (path.includes('/geo/')) return this.handleBaseGeo(method, path, url, body, res);
     const collectionMatch = path.match(/^\/v1\/base\/collections\/([^/]+)$/);
     if (collectionMatch && method === 'GET') {
       const name = collectionMatch[1];
@@ -852,6 +1131,45 @@ export class FakeTier1 {
         const docs = [...map.values()].sort((a, b) => a.id.localeCompare(b.id)).slice(offset, offset + limit);
         return this.json(res, 200, docs.map((doc) => this.docView(doc, 'data')));
       }
+    }
+    const batchMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/documents:batch$/);
+    if (batchMatch && method === 'POST') {
+      const name = batchMatch[1];
+      const map = this.collection(name);
+      const ops = Array.isArray(body?.operations) ? body.operations : [];
+      const results = ops.map((op: any, index: number) => {
+        try {
+          const id = String(op?.id || randomUUID());
+          const current = map.get(id);
+          if (op?.op === 'create') {
+            if (current) return { index, ok: false, op: 'create', error: 'conflict', message: 'document exists' };
+            const doc = this.saveDoc(name, id, (op?.data ?? op?.object ?? {}) as Json, 1, nowIso());
+            return { index, ok: true, op: 'create', document: this.docView(doc, 'data') };
+          }
+          if (op?.op === 'set' || op?.op === 'update') {
+            const data = (op?.data ?? op?.object ?? {}) as Json;
+            const merged = op?.op === 'update' && current ? { ...current.data, ...data } : data;
+            const doc = this.saveDoc(name, id, merged as Json, current ? current.version + 1 : 1, current?.createdAt || nowIso());
+            return { index, ok: true, op: op.op, created: !current, document: this.docView(doc, 'data') };
+          }
+          if (op?.op === 'delete') {
+            const existed = map.delete(id);
+            return { index, ok: existed, op: 'delete', id };
+          }
+          if (op?.op === 'increment') {
+            if (!current) return { index, ok: false, op: 'increment', error: 'not_found', message: 'document not found' };
+            const next = { ...current.data } as Record<string, any>;
+            const field = String(op.field || '');
+            next[field] = Number(next[field] || 0) + Number(op.by ?? 1);
+            const doc = this.saveDoc(name, id, next as Json, current.version + 1, current.createdAt);
+            return { index, ok: true, op: 'increment', document: this.docView(doc, 'data') };
+          }
+          return { index, ok: false, op: op?.op, error: 'invalid', message: 'unknown op' };
+        } catch (error) {
+          return { index, ok: false, op: op?.op, error: 'error', message: (error as Error).message };
+        }
+      });
+      return this.json(res, 200, { results, ok: results.every((result: any) => result.ok) });
     }
     const queryMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/query$/);
     if (queryMatch && method === 'POST') {
@@ -896,6 +1214,10 @@ export class FakeTier1 {
       }
       if (method === 'PATCH' || method === 'PUT') {
         if (!current) return this.json(res, 404, { error: 'not_found' });
+        this.baseDocumentUpdateCalls += 1;
+        if (this.failBaseUpdateOnCall > 0 && this.baseDocumentUpdateCalls === this.failBaseUpdateOnCall) {
+          return this.json(res, 503, { error: 'base_unavailable' });
+        }
         if (body?.ifVersion !== undefined && Number(body.ifVersion) !== current.version) {
           return this.json(res, 409, { error: 'version_conflict', currentVersion: current.version });
         }
@@ -910,6 +1232,138 @@ export class FakeTier1 {
         map.delete(id);
         return this.json(res, 200, { ok: true, id });
       }
+    }
+    this.json(res, 404, { error: 'not_found', path });
+  }
+
+  private geoMap(name: string): Map<string, FakeGeoFeature> {
+    let map = this.geo.get(name);
+    if (!map) {
+      map = new Map();
+      this.geo.set(name, map);
+    }
+    return map;
+  }
+
+  private geoView(feature: FakeGeoFeature, distanceMeters?: number): Json {
+    return {
+      type: 'Feature',
+      id: feature.id,
+      properties: feature.properties,
+      geometry: feature.geometry,
+      ...(distanceMeters !== undefined ? { distanceMeters } : {}),
+    };
+  }
+
+  /** SynapseBase `/v1/base/collections/:c/geo/*` PostGIS endpoints. */
+  private handleBaseGeo(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
+    if (this.failGeo) return this.json(res, 503, { error: 'geo_unavailable' });
+    const collectionMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/geo\/(features|near|within|stats)$/);
+    const featureMatch = path.match(/^\/v1\/base\/collections\/([^/]+)\/geo\/features\/([^/]+)$/);
+    const name = collectionMatch?.[1] || featureMatch?.[1];
+    if (!name || !this.collections.has(name)) return this.json(res, 404, { error: 'not_found' });
+    if (featureMatch && method === 'DELETE') {
+      const id = decodeURIComponent(featureMatch[2]);
+      const removed = this.geoMap(name).delete(id);
+      return removed ? this.json(res, 200, { ok: true, id }) : this.json(res, 404, { error: 'not_found' });
+    }
+    if (!collectionMatch) return this.json(res, 404, { error: 'not_found', path });
+    const action = collectionMatch[2];
+    const store = this.geoMap(name);
+    if (action === 'features' && method === 'POST') {
+      const list = Array.isArray(body?.features) ? body.features : Array.isArray(body) ? body : null;
+      if (!list) return this.json(res, 400, { error: 'invalid_geo', message: 'features must be an array' });
+      if (list.length > 1000) return this.json(res, 400, { error: 'invalid_geo', message: 'at most 1000 features per request' });
+      const out: Json[] = [];
+      for (const raw of list) {
+        const item = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Json : {};
+        const geometry = item.geometry && typeof item.geometry === 'object' && !Array.isArray(item.geometry)
+          ? item.geometry as Json : null;
+        const id = String(item.id ?? '');
+        if (!id || !geometry || !FAKE_GEO_TYPES.has(String(geometry.type))) {
+          return this.json(res, 400, { error: 'invalid_geo', message: 'each feature needs an id and a GeoJSON geometry' });
+        }
+        const properties = item.properties && typeof item.properties === 'object' && !Array.isArray(item.properties)
+          ? item.properties as Json : {};
+        const feature: FakeGeoFeature = {
+          type: 'Feature', id, properties, geometry, updatedAt: nowIso(),
+        };
+        store.set(id, feature);
+        out.push(this.geoView(feature));
+      }
+      return this.json(res, 201, { features: out });
+    }
+    if (action === 'features' && method === 'GET') {
+      const limit = Math.min(Math.max(Number(url.searchParams.get('limit') || 200), 1), 1000);
+      const box = geoQueryBox(url.searchParams.get('bbox'));
+      const features = [...store.values()]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+        .filter((feature) => {
+          if (!box) return true;
+          const bbox = geoBBox(feature.geometry);
+          return !!bbox && boxesIntersect(bbox, box);
+        })
+        .slice(0, limit)
+        .map((feature) => this.geoView(feature));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'near' && method === 'POST') {
+      const lat = Number(body?.lat);
+      const lng = Number(body?.lng);
+      const radiusMeters = Number(body?.radiusMeters ?? body?.radius);
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'lat/lng out of range' });
+      }
+      if (!Number.isFinite(radiusMeters) || radiusMeters <= 0 || radiusMeters > 200_000) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'radiusMeters must be between 1 and 200000' });
+      }
+      const limit = Math.min(Math.max(Number(body?.limit ?? 200), 1), 1000);
+      const features = [...store.values()]
+        .map((feature) => {
+          const positions = geoPositions(feature.geometry);
+          let distance = Number.POSITIVE_INFINITY;
+          for (const [featureLng, featureLat] of positions) {
+            distance = Math.min(distance, haversineMeters(lat, lng, featureLat, featureLng));
+          }
+          if (pointInGeometry(lng, lat, feature.geometry)) distance = 0;
+          return { feature, distance };
+        })
+        .filter((entry) => Number.isFinite(entry.distance) && entry.distance <= radiusMeters)
+        .sort((a, b) => a.distance - b.distance || a.feature.id.localeCompare(b.feature.id))
+        .slice(0, limit)
+        .map((entry) => this.geoView(entry.feature, Math.round(entry.distance * 100) / 100));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'within' && method === 'POST') {
+      const geometry = body?.geometry;
+      if (!geometry || typeof geometry !== 'object' || !['Polygon', 'MultiPolygon'].includes(String(geometry.type))) {
+        return this.json(res, 400, { error: 'invalid_geo', message: 'geometry must be a Polygon or MultiPolygon' });
+      }
+      const limit = Math.min(Math.max(Number(body?.limit ?? 200), 1), 1000);
+      const features = [...store.values()]
+        .filter((feature) => {
+          const positions = geoPositions(feature.geometry);
+          return positions.length > 0
+            && positions.every(([featureLng, featureLat]) => pointInGeometry(featureLng, featureLat, geometry));
+        })
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+        .slice(0, limit)
+        .map((feature) => this.geoView(feature));
+      return this.json(res, 200, { type: 'FeatureCollection', features });
+    }
+    if (action === 'stats' && method === 'GET') {
+      let extent: [number, number, number, number] | null = null;
+      for (const feature of store.values()) {
+        const bbox = geoBBox(feature.geometry);
+        if (!bbox) continue;
+        extent = extent
+          ? [
+            Math.min(extent[0], bbox[0]), Math.min(extent[1], bbox[1]),
+            Math.max(extent[2], bbox[2]), Math.max(extent[3], bbox[3]),
+          ]
+          : bbox;
+      }
+      return this.json(res, 200, { features: store.size, extent });
     }
     this.json(res, 404, { error: 'not_found', path });
   }
@@ -1071,6 +1525,21 @@ export class FakeTier1 {
       const events = (index >= 0 ? all.slice(index + 1) : all).slice(0, Number(body?.count || 100));
       return this.json(res, 200, { events, count: events.length });
     }
+    const statsMatch = path.match(/^\/v1\/stream\/topics\/([^/]+)\/stats$/);
+    if (statsMatch && method === 'GET') {
+      if (!this.topics.has(statsMatch[1])) return this.json(res, 404, { error: 'not_found' });
+      const all = this.topics.get(statsMatch[1])!;
+      return this.json(res, 200, {
+        stats: {
+          topic: statsMatch[1],
+          length: all.length,
+          first_id: all[0]?.id ?? null,
+          last_id: all[all.length - 1]?.id ?? null,
+          groups_count: 0,
+          groups: [],
+        },
+      });
+    }
     const rangeMatch = path.match(/^\/v1\/stream\/topics\/([^/]+)\/range$/);
     if (rangeMatch && method === 'GET') {
       if (!this.topics.has(rangeMatch[1])) return this.json(res, 404, { error: 'not_found' });
@@ -1116,32 +1585,178 @@ export class FakeTier1 {
     this.json(res, 404, { error: 'not_found', path });
   }
 
-  private handleWorkflow(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
+  private credentialView(credential: {
+    id: string; account_id: string; name: string; kind: string;
+    owner_sub: string | null; created_at: string; updated_at: string;
+  }): Json {
+    return {
+      id: credential.id,
+      accountId: credential.account_id,
+      name: credential.name,
+      kind: credential.kind,
+      createdAt: credential.created_at,
+      updatedAt: credential.updated_at,
+      ...(credential.owner_sub ? { owner: credential.owner_sub } : {}),
+    };
+  }
+
+  private handleCredentials(
+    method: string,
+    path: string,
+    url: URL,
+    body: any,
+    headers: Record<string, string>,
+    res: ServerResponse,
+  ): void {
+    const principal = this.workflowPrincipal(headers);
+    const ownerSub = principal?.sub || null;
+    if (path === '/v1/credentials' && method === 'GET') {
+      const accountId = String(url.searchParams.get('accountId') || principal?.account || '');
+      const items = [...this.credentials.values()]
+        .filter((credential) => credential.account_id === accountId)
+        .map((credential) => this.credentialView(credential));
+      return this.json(res, 200, { data: items });
+    }
+    if (path === '/v1/credentials' && method === 'POST') {
+      const accountId = String(body?.accountId || principal?.account || '');
+      const name = String(body?.name || '');
+      if (!accountId || !name || name.length > 100) return this.json(res, 400, { error: 'invalid_credential' });
+      if ([...this.credentials.values()].some((credential) => credential.account_id === accountId && credential.name === name)) {
+        return this.json(res, 409, { error: 'conflict', message: 'credential name already exists' });
+      }
+      const now = nowIso();
+      const credential = {
+        id: `cred-${this.credentials.size + 1}`,
+        account_id: accountId,
+        name,
+        kind: body?.kind === 'apiKey' ? 'api-key' : String(body?.kind || 'api-key'),
+        secret: String(body?.secret || ''),
+        owner_sub: ownerSub,
+        created_at: now,
+        updated_at: now,
+      };
+      this.credentials.set(credential.id, credential);
+      return this.json(res, 201, this.credentialView(credential));
+    }
+    const match = path.match(/^\/v1\/credentials\/([^/]+)(\/rotate)?$/);
+    if (match) {
+      const credential = this.credentials.get(decodeURIComponent(match[1]));
+      if (!credential) return this.json(res, 404, { error: 'not_found' });
+      if (credential.account_id !== principal?.account) return this.json(res, 403, { error: 'cross_account' });
+      if (match[2] && method === 'POST') {
+        if (typeof body?.secret !== 'string' || !body.secret) return this.json(res, 400, { error: 'invalid_secret' });
+        credential.secret = body.secret;
+        credential.updated_at = nowIso();
+        return this.json(res, 200, this.credentialView(credential));
+      }
+      if (method === 'GET') return this.json(res, 200, this.credentialView(credential));
+      if (method === 'DELETE') {
+        this.credentials.delete(credential.id);
+        return this.json(res, 200, { ok: true, id: credential.id });
+      }
+    }
+    this.json(res, 404, { error: 'not_found', path });
+  }
+
+  private workflowPrincipal(headers: Record<string, string>): { org?: string; account?: string; sub?: string } | null {
+    const claims = this.claimsOf(headers);
+    if (claims) {
+      return {
+        ...(claims.org ? { org: String(claims.org) } : {}),
+        ...(claims.account ? { account: String(claims.account) } : {}),
+        ...(claims.sub ? { sub: String(claims.sub) } : {}),
+      };
+    }
+    const apiKey = headers['x-api-key'] || '';
+    const record = this.apiKeys.get(apiKey);
+    if (record) {
+      return {
+        account: record.account_id,
+        sub: `apikey:${record.account_id}`,
+        ...(record.org_id ? { org: record.org_id } : {}),
+      };
+    }
+    return null;
+  }
+
+  /** Mirrors Tier-1 canAccessWorkflow + owner-only policy for protected graphs. */
+  private canAccessWorkflow(workflow: Workflow, headers: Record<string, string>): boolean {
+    const definition = (workflow.definition || {}) as Json;
+    const settings = (definition.settings || {}) as Json;
+    const access = (settings.access || {}) as Json;
+    const ownerOnly = String(access.mode || '') === 'owner-only';
+    if (ownerOnly && this.enforceWorkflowOwnerOnly) {
+      const principal = this.workflowPrincipal(headers);
+      if (!principal?.sub) return false;
+      return workflow.ownerSub === principal.sub;
+    }
+    if (!this.enforceWorkflowTenant) return true;
+    const principal = this.workflowPrincipal(headers);
+    if (!principal) return true; // direct dev/test call; production gateway requires auth
+    if (principal.account && workflow.accountId === principal.account) return true;
+    if (principal.org && workflow.orgId === principal.org) return true;
+    return false;
+  }
+
+  private workflowView(workflow: Workflow): Json {
+    const definition = (workflow.definition || {}) as Json;
+    return {
+      id: workflow.id,
+      name: workflow.name,
+      active: workflow.active,
+      revision: 1,
+      nodes: Array.isArray(definition.nodes) ? definition.nodes : [],
+      connections: definition.connections && typeof definition.connections === 'object' ? definition.connections : {},
+      settings: definition.settings && typeof definition.settings === 'object' ? definition.settings : {},
+      // Kept for tests that inspect the stored definition shape directly.
+      definition,
+    };
+  }
+
+  private handleWorkflow(method: string, path: string, url: URL, body: any, headers: Record<string, string>, res: ServerResponse): void {
+    if (path === '/v1/templates' && method === 'GET') {
+      return this.json(res, 200, [
+        { name: 'etl-batch-warehouse', description: 'Warehouse batch ETL' },
+        { name: 'etl-stream-microbatch', description: 'Stream micro-batch ETL' },
+        { name: 'webhook-to-log', description: 'Not an ETL template' },
+      ]);
+    }
     if (path === '/v1/workflows' && method === 'GET') {
       return this.json(res, 200, { data: [...this.workflows.values()] });
     }
     if (path === '/v1/workflows' && method === 'POST') {
       const id = `wf-${this.workflows.size + 1}`;
-      const workflow: Workflow = { id, name: String(body?.name || id), definition: (body?.definition || {}) as Json, active: false };
+      const definition = {
+        ...((body?.definition || {}) as Json),
+        ...(body?.settings && typeof body.settings === 'object' ? { settings: body.settings } : {}),
+      };
+      const principal = this.workflowPrincipal(headers);
+      const workflow: Workflow = {
+        id, name: String(body?.name || id), definition, active: false,
+        ...(principal?.org ? { orgId: principal.org } : {}),
+        ...(principal?.account ? { accountId: principal.account } : {}),
+        ...(principal?.sub ? { ownerSub: principal.sub } : {}),
+      };
       this.workflows.set(id, workflow);
-      return this.json(res, 201, workflow);
+      return this.json(res, 201, this.workflowView(workflow));
     }
     const activateMatch = path.match(/^\/v1\/workflows\/([^/]+)\/(activate|deactivate)$/);
     if (activateMatch && method === 'POST') {
       const workflow = this.workflows.get(activateMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
       workflow.active = activateMatch[2] === 'activate';
-      return this.json(res, 200, workflow);
+      return this.json(res, 200, this.workflowView(workflow));
     }
     const executeMatch = path.match(/^\/v1\/workflows\/([^/]+)\/execute$/);
     if (executeMatch && method === 'POST') {
       const workflow = this.workflows.get(executeMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
       const execution = {
         id: `exec-${this.executions.length + 1}`,
         workflowId: workflow.id,
         status: 'success',
         triggeredBy: 'manual',
+        input: body,
         startedAt: nowIso(),
         finishedAt: nowIso(),
         output: { ok: true },
@@ -1152,17 +1767,38 @@ export class FakeTier1 {
     const workflowMatch = path.match(/^\/v1\/workflows\/([^/]+)$/);
     if (workflowMatch) {
       const workflow = this.workflows.get(workflowMatch[1]);
-      if (!workflow) return this.json(res, 404, { error: 'not_found' });
-      if (method === 'GET') return this.json(res, 200, workflow);
+      if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
+      if (method === 'GET') return this.json(res, 200, this.workflowView(workflow));
       if (method === 'PUT') {
-        if (body?.definition) workflow.definition = body.definition;
+        this.workflowUpdateCalls += 1;
+        if (
+          this.failWorkflowUpdate
+          || (this.failWorkflowUpdateAfter > 0 && this.workflowUpdateCalls > this.failWorkflowUpdateAfter)
+        ) {
+          return this.json(res, 503, { error: 'workflow_unavailable' });
+        }
+        if (body?.definition) {
+          workflow.definition = {
+            ...(body.definition as Json),
+            ...(body?.settings && typeof body.settings === 'object' ? { settings: body.settings } : {}),
+          };
+        } else if (body?.settings && typeof body.settings === 'object') {
+          workflow.definition = { ...(workflow.definition || {}), settings: body.settings };
+        }
         if (body?.name) workflow.name = String(body.name);
-        return this.json(res, 200, workflow);
+        return this.json(res, 200, this.workflowView(workflow));
       }
       if (method === 'DELETE') {
         this.workflows.delete(workflow.id);
         return this.json(res, 200, { ok: true });
       }
+    }
+    const executionMatch = path.match(/^\/v1\/executions\/([^/]+)$/);
+    if (executionMatch && method === 'GET') {
+      const execution = this.executions.find(e => e.id === executionMatch[1]);
+      const workflow = execution && this.workflows.get(String(execution.workflowId));
+      if (!execution || !workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
+      return this.json(res, 200, execution);
     }
     if (path === '/v1/executions' && method === 'GET') {
       const workflowId = url.searchParams.get('workflowId');

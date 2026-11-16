@@ -5,7 +5,7 @@ installed unmodified from public registries; their upstream licenses remain in
 the lockfile metadata and are not relicensed by VKU.VIC.
 
 The Tier-1 SDK is installed unmodified from the public npm registry as
-`@synapseone/sdk@^0.8.0`; no vendored SDK tarball is used.
+`@synapseone/sdk@^0.9.1`; no vendored SDK tarball is used.
 
 | Component | Version | License | Use |
 |---|---|---|---|
@@ -14,15 +14,20 @@ The Tier-1 SDK is installed unmodified from the public npm registry as
 | `@types/node` | ^22.10.2 | MIT | build-time types |
 | `@types/express` | ^5.0.0 | MIT | build-time types |
 | Express | ^4.21.2 | MIT | capabilities service and gateway HTTP boundary |
-| `@synapseone/sdk` | ^0.8.0 (npm registry) | Apache-2.0 | Tier-1 Base/LDS/Queue/Stream/IAM/Workflow/Inference/Storage/Notifications access |
+| `@synapseone/sdk` | ^0.9.1 (npm registry) | Apache-2.0 | Tier-1 Base/LDS/Queue/Stream/IAM/Workflow/Inference/Storage/Notifications access |
+| CodeMirror (`codemirror`, `@codemirror/*`, `@lezer/*`, style-mod, w3c-keyname) | 6.x / lockfile | MIT | Studio syntax editor, language parsing and completion |
+| React / React DOM | ^19.2.0 | MIT | console UI |
+| Vite / Tailwind CSS / TanStack / Zustand | lockfile | MIT | console build, routing, state and styling |
+| Leaflet | ^1.9.4 | BSD-2-Clause | workspace maps |
+| Lucide React | ^0.554.0 | ISC | console icons |
 | nginx | 1.27-alpine | BSD-2-Clause | console static/proxy container |
 | `nginx:1.27-alpine` base image packages | Alpine/musl/OpenSSL | MIT/BSD/Apache-2.0 | container runtime |
 | Tesseract OCR (`tesseract-ocr`, Debian bookworm) | 5.3 | Apache-2.0 | OCR engine in the capabilities image, run as a separate process |
 | Tesseract language data (`tesseract-ocr-eng`, `tesseract-ocr-vie`) | 4.1 | Apache-2.0 | English and Vietnamese OCR models |
 | Leptonica (`liblept5`, Tesseract dependency) | 1.82 | BSD-2-Clause | image decoding for Tesseract |
 
-The console is plain static HTML/CSS/ES modules (no React, Vite, Tailwind,
-TanStack, Leaflet, MapLibre or Turf dependency). Geocoding is not bundled: an
+The console is a React/Vite application served as static assets. CodeMirror
+is loaded on demand in Studio; map rendering uses Leaflet. Geocoding is not bundled: an
 operator-configured external provider is called server-side only when
 `SYNAPSEDX_GEOCODER_BASE_URL` is set.
 

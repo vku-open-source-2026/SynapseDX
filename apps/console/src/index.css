@@ -165,3 +165,19 @@ html.dark :is(#admin-main, [role='dialog'], [aria-live]) {
   & :is(input, textarea)::placeholder { color: #6f7f95; }
   & .shadow-sm:not([class*='dark:']) { --tw-shadow-color: rgb(0 0 0 / 0.4); }
 }
+
+@layer components {
+  .designer-tool {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 6px; color: var(--color-dx-muted, #64748b);
+  }
+  .designer-tool:hover { background: var(--color-dx-subtle, #f1f5f9); color: #6366f1; }
+  .designer-tool:disabled { opacity: .3; cursor: default; }
+}
+
+.workspace-nav-item { display:flex; width:100%; align-items:center; gap:.65rem; border-radius:.55rem; padding:.65rem .8rem; text-align:left; font-size:.72rem; color:var(--color-dx-muted); transition:background .15s,color .15s; }
+.workspace-nav-item:hover { background:var(--color-dx-subtle); color:var(--color-dx-fg); }
+.workspace-nav-active { background:#e8f5f2; color:#14796f; font-weight:600; }
+.dark .workspace-nav-active { background:#11372f; color:#70d2bb; }
+.map-control { display:flex; align-items:center; justify-content:center; width:2rem; height:2rem; border-radius:.35rem; color:#425966; }
+.map-control:hover { background:#edf4f3; color:#14796f; }

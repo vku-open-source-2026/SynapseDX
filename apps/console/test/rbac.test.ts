@@ -30,13 +30,18 @@ const admin: ManagementContext = {
 describe('rbac helpers', () => {
   it('navigation is permission-driven and public visitors only see the catalog', () => {
     expect(navigationFor(null).map((item) => item.view)).toEqual(['overview', 'datasets']);
-    expect(navigationFor(operator).map((item) => item.view)).toEqual(['overview', 'datasets', 'records', 'modules', 'events', 'audit', 'settings']);
-    expect(navigationFor(moderator).map((item) => item.view)).toEqual(['overview', 'datasets', 'records', 'modules', 'moderation', 'audit']);
+    expect(navigationFor(operator).map((item) => item.view)).toEqual(['overview', 'datasets', 'warehouse', 'records', 'modules', 'events', 'audit', 'settings']);
+    expect(navigationFor(moderator).map((item) => item.view)).toEqual(['overview', 'datasets', 'warehouse', 'records', 'modules', 'moderation', 'audit']);
     expect(navigationFor(admin).map((item) => item.view)).toEqual([
-      'overview', 'datasets', 'records', 'modules', 'moderation', 'approvals', 'team', 'events', 'audit', 'settings',
+      'overview', 'datasets', 'warehouse', 'records', 'modules', 'moderation', 'approvals', 'team', 'events',
+      'workspaces', 'workflows', 'audit', 'settings',
     ]);
     expect(canOpenView(operator, 'moderation')).toBe(false);
     expect(canOpenView(moderator, 'moderation')).toBe(true);
+    expect(canOpenView(operator, 'workspaces')).toBe(false);
+    expect(canOpenView(admin, 'workspaces')).toBe(true);
+    expect(canOpenView(admin, 'workflows')).toBe(true);
+    expect(navigationFor(admin).find((item) => item.view === 'workflows')?.href).toBe('/admin/workflows');
     expect(can(admin, 'users:read')).toBe(true);
     expect(can(operator, 'moderation:write')).toBe(false);
   });

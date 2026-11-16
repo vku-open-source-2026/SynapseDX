@@ -25,7 +25,7 @@ import { PublicFooter } from '../components/PublicFooter';
 import { FeatureGrid } from '../components/FeatureGrid';
 import { CARD_HOVER, H2 } from '../components/public-styles';
 import { useI18n } from '../lib/i18n-context';
-import { API_DOCS, IMAGES, REPO, SDK, SELF_HOST, SITES } from '../lib/site';
+import { IMAGES, REPO, SDK, SELF_HOST, SITES } from '../lib/site';
 import { cn } from '../lib/utils';
 
 // Same order as `about.hpdi` in src/locales; the mono line names the console lanes behind each group.
@@ -35,7 +35,7 @@ const HPDI_PROOF = ['inbox · workspace · people · approvals', 'projects · fo
 // Each link shows the host it opens, so readers know where they are going.
 const LINKS: Array<{ key: 'repo' | 'api' | 'selfHost' | 'sdk' | 'images' | 'license'; icon: LucideIcon; host: string; href: string }> = [
   { key: 'repo', icon: GitBranch, host: 'github.com', href: REPO },
-  { key: 'api', icon: BookOpen, host: 'github.com', href: API_DOCS },
+  { key: 'api', icon: BookOpen, host: 'synapsedx.sbs', href: '/docs' },
   { key: 'selfHost', icon: Server, host: 'github.com', href: SELF_HOST },
   { key: 'sdk', icon: Package, host: 'github.com', href: SDK },
   { key: 'images', icon: Container, host: 'ghcr.io', href: IMAGES },

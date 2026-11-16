@@ -6,6 +6,73 @@ Keep a Changelog format and version tags use Semantic Versioning.
 ## [Unreleased]
 
 ### Added
+- **Spatial record queries.** Datasets can bind `geo.field`; Tier-2 maintains a
+  per-dataset SynapseBase PostGIS index and serves `near`, `bbox` and `within`
+  with record-visibility re-checks, reindex/status and best-effort index sync.
+  Map widgets expose **Search this area** using the same server-side index.
+- **Live capability events (SSE).** `GET /v1/capabilities/events/stream`
+  relays the Tier-1 stream with `Last-Event-ID`/`since`, real-tail start,
+  heartbeats and bounded concurrency. The Rust gateway streams the body and the
+  nginx layers are unbuffered.
+- **Assignment optimization.** `POST /v1/capabilities/optimization/assign`
+  provides deterministic capacity/skill/distance/cost matching with explicit
+  unassigned reasons.
+- **Plan orchestration.** `/v1/capabilities/plans` provides phased plans, CAS
+  lifecycle, dependency-aware task status, grounded briefs and validated AI
+  drafts with deterministic fallback.
+- City/SOS now consume the Tier-2 spatial capability; SOS hazard streaming is
+  woken by the Tier-2 SSE feed with a polling fallback.
+
+### Fixed
+- Health probes keep their timeout timer referenced so Node 20 does not cancel
+  an awaited probe before the timeout resolves.
+- Spatial index headers are exposed through gateway CORS.
+- A saved console session is verified before `/login` renders, then continues to
+  the role-appropriate page (`/admin` for management roles, `/workspace` for
+  members/volunteers). Public header/home links and the root route resolve the
+  same destination instead of sending an authenticated member back to the
+  login form or into the admin shell.
+- The admin shell now refuses a verified member without a management role and
+  shows a recoverable error boundary instead of a blank page. Wildcard member
+  tokens are no longer projected as a management `viewer`; only verified
+  organization administration or an explicit management scope opens the
+  control plane.
+- Organization-admin verification and IAM profile enrichment use a bounded
+  short-TTL projection cache. Several console requests on one page no longer
+  trigger repeated `/v1/auth/me` calls that hit the Tier-1 rate limit and made
+  an administrator intermittently look unauthenticated.
+- Workspace widget reads no longer list every installed plugin and snapshot per
+  widget. Requested-install lookup, member roles, plugin/snapshot metadata and
+  dataset metadata are read through short TTL caches invalidated by the
+  corresponding mutations, preventing edge `503`/rate-limit failures on pages
+  with many widgets.
+- Portable plugin export/build now uses the workflow artifact's
+  `portableChecksum` (credential-id independent) for `workflowRef.checksum`,
+  while execution pins continue to use the deployed graph checksum. A bundle
+  synced between DX deployments no longer carries an environment-specific
+  checksum.
+
+### Changed
+- The public gateway is now a Rust/Axum service (`apps/gateway/src/main.rs`);
+  it keeps the existing proxy, CORS, correlation-ID, timeout and header
+  contract while the Docker image builds a release binary instead of Node.js.
+- The workspace catalog now exposes the full City and SOS operational resource
+  sets (`iotReadings`, `budgetTransactions`, `users`, `geofences`, `ingest`,
+  `files`, `notifications`; `hazards`, `hazardIngest`, `mutualAid`) so the
+  admin/member page catalog can bind every product-owned dataset.
+
+### Added
+- The low-code workspace builder can build a published plugin into a
+  repository-tracked Tier-3 artifact (`GET /plugins/:id/build`): immutable
+  published snapshot, canonical City/SOS provenance, pinned workflow reference
+  checksum, deterministic bundle checksum, target metadata headers and audit.
+  Export now defaults to the published snapshot; `?draft=1` is explicit.
+  The console exposes **Build for Tier 3** and the JS SDK exposes
+  `workspaces.buildPlugin()`.
+- Warehouse capability now exposes dataset detail/delete, job detail/resume/delete,
+  report edit/delete (blocked while a dashboard references the report), and
+  dashboard detail/edit/delete. The manager studio can create/delete datasets,
+  run/pause/resume/delete ETL jobs, and create/delete dashboards.
 - OCR jobs now read the stored Tier-2 image and run Tesseract 5 (`vie+eng`)
   when no pre-extracted text is sent. Fields keep per-line bbox and
   confidence; Vietnamese labels are recognised. The engine runs one job at a
