@@ -201,6 +201,7 @@ boundary:
   fallback. SOS remains the owner of EOP approvals, publication and policy.
 
 The capabilities are exposed through `@synapsedx/capabilities` and the public
-Tier-2 API. City and SOS page adoption is not claimed by capability
-availability; the remaining product work is listed in the table above and in
-`CAPABILITY_RELEASE_0.9.12.md`.
+Tier-2 API. City nearby/bounds/polygon and SOS hazard near/polygon call the
+spatial index; SOS wakes its hazard snapshot from the SSE feed; the declarative
+map widget exposes **Search this area**. Product-specific EOP/dispatch policy
+and the remaining business parity items stay with the owning product.

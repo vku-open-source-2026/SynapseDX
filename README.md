@@ -28,10 +28,17 @@ The backend imports `@synapseone/sdk` and does not use raw HTTP to SynapseOne;
 it has no database, queue, cache or identity store of its own. Tier 3 calls the
 gateway at `https://synapsedx.sbs`.
 
-> **Registry SDK.** `@synapseone/sdk@^0.8.0` is published on npm and includes
-> SynapseOCS, storage, notifications and the typed identity/health lifecycle.
-> The service and Docker build install it directly from the registry; there is
-> no vendored SDK tarball.
+Capabilities include datasets/records/publication, dataset PostGIS spatial
+queries (`near`/`bbox`/`within`), cursor and SSE event feeds, deterministic
+resource assignment, phased EOP plan orchestration with grounded briefs/AI
+drafts, files, notifications, approvals, jobs, warehouse and identity
+adapters. See `docs/API.md`; the 0.9.12 release notes are in
+`docs/CAPABILITY_RELEASE_0.9.12.md`.
+
+> **Registry SDK.** `@synapseone/sdk@^0.9.1` is installed from npm and includes
+> SynapseOCS, storage, notifications, spatial/geo, streaming and the typed
+> identity/health lifecycle. The service and Docker build install it directly
+> from the registry; there is no vendored SDK tarball.
 
 > **Ports:** `8082` is the host publish port. Inside the compose network the
 > gateway listens on `8080` and is reachable as `synapsedx-gateway:8080`; the
@@ -61,7 +68,7 @@ at your own SynapseOne gateway and issue a scoped `SYNAPSEONE_API_KEY` there.
 git clone https://github.com/vku-open-source-2026/SynapseDX.git
 cd SynapseDX
 cp .env.example .env        # set SYNAPSEONE_BASE_URL + SYNAPSEONE_API_KEY
-export SYNAPSEDX_VERSION=v0.6.1   # or latest
+export SYNAPSEDX_VERSION=v0.9.14   # or latest
 
 docker compose pull
 docker compose up -d --no-build

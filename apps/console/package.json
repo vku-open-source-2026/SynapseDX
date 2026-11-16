@@ -12,6 +12,7 @@
     "preview": "vite preview --host",
     "test": "vitest run && node --test test/nginx.test.mjs",
     "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test test/e2e/console.spec.mjs test/e2e/unauthenticated-navigation.spec.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

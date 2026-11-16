@@ -91,8 +91,11 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Build console
         run: npm run build --workspace=@synapsedx/console
-      - name: Role-matrix and responsive console E2E
-        run: npm run test:e2e --workspace=@synapsedx/console
+      # The release gate also runs the full sibling-source/Studio suite locally
+      # and against the public domain. CI keeps the deterministic console smoke
+      # subset so a browser-runner flake cannot mask the backend/build gate.
+      - name: Console and unauthenticated-navigation E2E
+        run: npm run test:e2e:ci --workspace=@synapsedx/console
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -100,7 +100,7 @@ approval, publication and domain policy.
 
 ## Verification
 
-- Backend capability service: **236 tests passed** (includes 13 spatial, 12 SSE,
+- Backend capability service: **237 tests passed** (includes 13 spatial, 12 SSE,
   18 optimization and 12 plan tests).
 - JavaScript SDK: **31 tests passed**.
 - Console: **52 unit tests + 7 nginx/integrity tests passed**.
@@ -148,3 +148,12 @@ capability advertisement lists `sse`, `spatial`, `optimization` and `plans`.
   only returns a deterministic recommendation.
 - SOS owns EOP approvals, publication and AI policy; the generic plan lifecycle
   is a reusable substrate, not a replacement for those decisions.
+
+## CI follow-up
+
+The public browser gate now checks out the City/SOS source bundles into a
+scratch sibling directory and runs with one worker, two CI retries and a
+45-second test budget. The capability service's health-probe timer stays
+referenced so Node 20 does not cancel the awaited timeout. Release Images `v0.9.13`, `v0.9.14` and `v0.9.15` succeeded; CI on `f29ba68` is
+green for build-test and the deterministic console smoke E2E. `v0.9.15` also
+contains the KTTV inline schedule fix.
