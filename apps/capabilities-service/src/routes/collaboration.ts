@@ -329,7 +329,7 @@ export function registerCollaborationRoutes(
   );
 
   app.post(
-    "/v1/capabilities/inbox/:id/:action(read|archive)",
+    "/v1/capabilities/inbox/:id/:action",
     handler(async (req, res) => {
       const { principal, client } = await authenticatedReadContext(req, config);
       const { record } = await getScoped<InboxRecord>(
