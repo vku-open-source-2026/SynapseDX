@@ -328,6 +328,11 @@ export class FakeTier1 {
   failBase = false;
   failGeo = false;
   failLds = false;
+  /** Fail LDS requests after this many successful calls (0 = never). */
+  failLdsAfter = 0;
+  /** Fail exactly the Nth LDS call (1-based; 0 = never); later compensation succeeds. */
+  failLdsOnCall = 0;
+  ldsCalls = 0;
   failQueue = false;
   failStream = false;
   failFaststore = false;
@@ -401,6 +406,9 @@ export class FakeTier1 {
     this.failBase = false;
     this.failGeo = false;
     this.failLds = false;
+    this.failLdsAfter = 0;
+    this.failLdsOnCall = 0;
+    this.ldsCalls = 0;
     this.failQueue = false;
     this.failStream = false;
     this.failFaststore = false;
@@ -1369,7 +1377,11 @@ export class FakeTier1 {
   }
 
   private handleLds(method: string, path: string, url: URL, body: any, res: ServerResponse): void {
-    if (this.failLds) return this.json(res, 503, { error: 'lds_unavailable' });
+    this.ldsCalls += 1;
+    if (this.failLds || (this.failLdsAfter > 0 && this.ldsCalls > this.failLdsAfter)
+      || (this.failLdsOnCall > 0 && this.ldsCalls === this.failLdsOnCall)) {
+      return this.json(res, 503, { error: 'lds_unavailable' });
+    }
     if (path === '/v1/lds/licenses' && method === 'GET') {
       return this.json(res, 200, [
         { id: 'CC0-1.0', name: 'CC0', url: 'https://creativecommons.org/publicdomain/zero/1.0/', openData: true },

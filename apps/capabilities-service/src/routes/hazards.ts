@@ -355,6 +355,50 @@ async function crawlState(client: SynapseOneClient, principal: CallerPrincipal):
   return doc.data;
 }
 
+export interface HazardStatusView {
+  status: 'ok' | 'running' | 'error' | 'stale' | 'unconfigured';
+  stale: boolean;
+  last_success_age_seconds: number | null;
+  threshold_minutes: number;
+  error: string | null;
+}
+
+/**
+ * Status precedence follows the *latest* outcome: a running crawl, then the
+ * latest failure, then freshness. A previous success must never mask a later
+ * error or an expired feed.
+ */
+export function hazardStatusView(
+  state: CrawlStateRecord | null,
+  now: Date,
+  staleMinutes: number,
+): HazardStatusView {
+  const threshold = Math.max(1, Math.trunc(staleMinutes));
+  const successAt = state?.last_success_at ? Date.parse(state.last_success_at) : NaN;
+  const ageSeconds = Number.isFinite(successAt)
+    ? Math.max(0, Math.floor((now.getTime() - successAt) / 1000))
+    : null;
+  const stale = state?.last_success_at ? (!Number.isFinite(successAt) || ageSeconds! > threshold * 60) : false;
+  const latestFailed = !!state?.error && (
+    !state.last_success_at
+    || !state.last_run_at
+    || Date.parse(state.last_run_at) >= Date.parse(state.last_success_at)
+  );
+  let status: HazardStatusView['status'];
+  if (state?.running) status = 'running';
+  else if (latestFailed) status = 'error';
+  else if (!state?.last_success_at) status = 'unconfigured';
+  else if (stale) status = 'stale';
+  else status = 'ok';
+  return {
+    status,
+    stale: status === 'stale' || stale,
+    last_success_age_seconds: ageSeconds,
+    threshold_minutes: threshold,
+    error: state?.error || null,
+  };
+}
+
 export function registerHazardRoutes(app: Express, config: ServiceConfig): void {
   app.get('/v1/capabilities/hazards/today', handler(async (req, res) => {
     const { client } = await authenticatedReadContext(req, config);
@@ -381,7 +425,7 @@ export function registerHazardRoutes(app: Express, config: ServiceConfig): void 
     const { client } = await authenticatedReadContext(req, config);
     const state = await crawlState(client, crawlerPrincipal());
     res.json({
-      status: state?.last_success_at ? 'ok' : state?.error ? 'error' : 'unconfigured',
+      ...hazardStatusView(state, new Date(), config.hazardStaleMinutes),
       configured: true,
       source: 'nchmf+vndms',
       ...(state || {}),

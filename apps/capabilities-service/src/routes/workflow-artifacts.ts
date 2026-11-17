@@ -236,33 +236,56 @@ function requiredName(value: unknown, fallback = ''): string {
   return text;
 }
 
-/** Reject URL literals that point at localhost, private ranges or containers. */
+const EMBEDDED_URL_RE = /(?:https?|file):\/\/[^\s"'`<>)\]}]+/gi;
+const PRIVATE_HOST_TOKEN_RE = /\b(?:localhost|(?:10|127)\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)\b/i;
+
+function blockedEmbeddedUrl(raw: string): string | null {
+  const token = raw.replace(/[.,;:!?]+$/, '');
+  if (/^file:\/\//i.test(token)) return token;
+  let url: URL;
+  try {
+    url = new URL(token);
+  } catch {
+    return token; // malformed/dynamic URL literal: fail closed
+  }
+  if (url.username || url.password) return token;
+  const host = decodeURIComponent(url.hostname).trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+  if (
+    !host
+    || isPrivateHost(host)
+    || host.endsWith('.internal')
+    || host.endsWith('.local')
+    || host.endsWith('.localhost')
+    || host === 'host.docker.internal'
+    || host === 'gateway.docker.internal'
+  ) {
+    return token;
+  }
+  return null;
+}
+
+/**
+ * Reject URL literals that point at localhost, private ranges or containers.
+ *
+ * Scans every string, not only those that start with a scheme: expressions
+ * (`{{ 'http://169.254.169.254' }}`), code (`fetch('http://10.0.0.5')`) and
+ * whitespace-prefixed URLs all contain an embedded URL token. Bare private
+ * hosts/IPs are rejected too, so a code node cannot bypass the check by leaving
+ * the scheme in another variable.
+ */
 export function findBlockedWorkflowUrl(value: unknown): string | null {
   const seen = new Set<unknown>();
   const walk = (entry: unknown, depth: number): string | null => {
     if (depth > 12 || entry === null || entry === undefined) return null;
     if (typeof entry === 'string') {
-      if (entry.length > 2048) return null;
-      if (/^file:\/\//i.test(entry)) return entry;
-      if (!/^https?:\/\//i.test(entry)) return null;
-      let url: URL;
-      try {
-        url = new URL(entry);
-      } catch {
-        return entry;
+      if (entry.length > 64 * 1024) return null;
+      const matches = entry.match(EMBEDDED_URL_RE) || [];
+      for (const match of matches) {
+        const blocked = blockedEmbeddedUrl(match);
+        if (blocked) return blocked;
       }
-      const host = url.hostname.trim().toLowerCase();
-      if (
-        isPrivateHost(host)
-        || host.endsWith('.internal')
-        || host.endsWith('.local')
-        || host.endsWith('.localhost')
-        || host === 'host.docker.internal'
-        || host === 'gateway.docker.internal'
-        || (!host.includes('.') && !/^\d+$/.test(host))
-      ) {
-        return entry;
-      }
+      const bare = entry.match(PRIVATE_HOST_TOKEN_RE)?.[0];
+      if (bare) return bare;
       return null;
     }
     if (typeof entry !== 'object' || seen.has(entry)) return null;
@@ -295,10 +318,19 @@ function validateNode(node: unknown, index: number, names: Set<string>): void {
     if (!record.parameters || typeof record.parameters !== 'object' || Array.isArray(record.parameters)) {
       badDocument(`nodes['${name}'].parameters must be an object`);
     }
-    const code = (record.parameters as Record<string, unknown>).code
-      ?? (record.parameters as Record<string, unknown>).jsCode;
+    const parameters = record.parameters as Record<string, unknown>;
+    const code = parameters.code ?? parameters.jsCode;
     if (typeof code === 'string' && Buffer.byteLength(code, 'utf8') > MAX_NODE_CODE_BYTES) {
       throw apiError(413, 'payload_too_large', `nodes['${name}'].code exceeds 50KB`);
+    }
+    if (type.toLowerCase().includes('httprequest') && parameters.url !== undefined) {
+      // A dynamic URL cannot be checked against the private-host policy at
+      // import time, so it is rejected rather than delegated to runtime.
+      if (typeof parameters.url !== 'string' || /\{\{|\$\{/.test(parameters.url)) {
+        throw apiError(400, 'blocked_url', `nodes['${name}'].url must be a literal public HTTP(S) URL`, {
+          reason: 'dynamic_url',
+        });
+      }
     }
   }
   if (record.typeVersion !== undefined && (typeof record.typeVersion !== 'number' || !Number.isFinite(record.typeVersion))) {

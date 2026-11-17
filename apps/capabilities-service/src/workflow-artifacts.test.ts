@@ -706,6 +706,42 @@ test('workflow import rejects malformed, unsafe and oversized definitions', asyn
     assert.equal(blocked.status, 400);
     assert.equal(blocked.body.error.code, 'blocked_url');
 
+    // Embedded URLs in expressions, code nodes and non-prefix strings must be
+    // detected too, including metadata and bare private hosts (#78).
+    for (const [name, node] of [
+      ['Expression URL', {
+        name: 'Expression', type: 'n8n-nodes-base.set',
+        parameters: { values: { string: [{ name: 'x', value: "{{ 'http://169.254.169.254/latest/meta-data' }}" }] } },
+      }],
+      ['Dynamic HTTP URL', {
+        name: 'Dynamic HTTP', type: 'n8n-nodes-base.httpRequest',
+        parameters: { method: 'GET', url: '={{ $json.targetUrl }}' },
+      }],
+      ['Code fetch', {
+        name: 'Code', type: 'n8n-nodes-base.code',
+        parameters: { jsCode: "const response = await fetch('http://10.0.0.5:8080/admin');" },
+      }],
+      ['Whitespace URL', {
+        name: 'Whitespace', type: 'n8n-nodes-base.set',
+        parameters: { value: '   https://127.0.0.1/internal' },
+      }],
+      ['Bare host', {
+        name: 'Bare', type: 'n8n-nodes-base.set',
+        parameters: { value: 'connect to 169.254.169.254 for metadata' },
+      }],
+    ] as const) {
+      const response = await call(harness, '/v1/capabilities/workflow-artifacts/import', {
+        method: 'POST',
+        token: 'user-token',
+        body: {
+          name,
+          definition: { nodes: [node], connections: {}, settings: {} },
+        },
+      });
+      assert.equal(response.status, 400, `${name}: ${JSON.stringify(response.body)}`);
+      assert.equal(response.body.error.code, 'blocked_url', name);
+    }
+
     const commandNode = await call(harness, '/v1/capabilities/workflow-artifacts/import', {
       method: 'POST',
       token: 'user-token',

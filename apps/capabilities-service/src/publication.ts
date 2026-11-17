@@ -210,9 +210,60 @@ export interface DatasetTransition {
   event?: CapabilityEvent;
 }
 
+/** Restrict a projection before deleting it so a failed delete cannot expose data. */
+async function restrictDatasource(client: SynapseOneClient, datasourceId: string): Promise<void> {
+  try {
+    await client.lds.setAttributes(datasourceId, hiddenAttributes(false));
+    await client.lds.updateDatasource(datasourceId, { defaultVisibility: 'internal' });
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+  }
+}
+
+/** Remove committed/stale projections and persist any ids that still need cleanup. */
+async function cleanupAfterCommit(
+  client: SynapseOneClient,
+  document: DatasetDocument,
+): Promise<DatasetDocument> {
+  const ids = [...new Set((document.data.projectionCleanup || []).filter(Boolean))];
+  if (!ids.length) return document;
+  const remaining: string[] = [];
+  for (const id of ids) {
+    try {
+      await restrictDatasource(client, id);
+      await deleteDatasource(client, id);
+    } catch {
+      remaining.push(id);
+    }
+  }
+  const updated: DatasetRecord = { ...document.data, updatedAt: new Date().toISOString() };
+  if (remaining.length) updated.projectionCleanup = remaining;
+  else delete updated.projectionCleanup;
+  try {
+    return await saveDataset(client, updated, document.document.version);
+  } catch {
+    // The committed dataset is already correct; a stale cleanup marker is
+    // harmless and will be retried by the next transition.
+    return document;
+  }
+}
+
+/** Best-effort removal of a projection created by a failed transition. */
+async function discardProjection(client: SynapseOneClient, datasourceId: string | undefined): Promise<void> {
+  if (!datasourceId) return;
+  try {
+    await restrictDatasource(client, datasourceId);
+    await deleteDatasource(client, datasourceId);
+  } catch {
+    /* the next publish/rebuild will not reference this id */
+  }
+}
+
 /**
- * Publish (or re-publish) a dataset. Public datasets only; every transition
- * re-applies attribute visibility and re-ingests every publishable record.
+ * Publish (or re-publish) a dataset. Public datasets only. A status transition
+ * persists a pending marker with CAS *before* touching LDS, builds the
+ * projection, then commits `published` with a second CAS. On any failure the
+ * new projection is removed and the previous non-public state restored.
  */
 export async function publishDataset(
   client: SynapseOneClient,
@@ -225,43 +276,99 @@ export async function publishDataset(
   }
   const transition = dataset.status !== 'published';
   const now = new Date().toISOString();
-  let datasourceId = dataset.ldsDatasourceId;
-  if (datasourceId) {
-    await syncDatasourceMetadata(client, dataset, datasourceId, true);
-    if (transition) {
-      const records = (await listDatasetRecords(client, dataset.id))
-        .map((item) => item.data)
-        .filter((record) => isRecordPublished({ ...dataset, status: 'published' }, record));
-      await ingestRecords(client, { ...dataset, status: 'published' }, datasourceId, records);
+
+  if (!transition) {
+    // Idempotent reconcile of an already-published dataset. It is already
+    // public, so no draft data can leak while metadata/records are synced.
+    let datasourceId = dataset.ldsDatasourceId;
+    let createdId: string | undefined;
+    if (datasourceId) {
+      await syncDatasourceMetadata(client, dataset, datasourceId, true);
+    } else {
+      createdId = await createDatasource(client, dataset, true);
+      datasourceId = createdId;
+      await ingestRecords(client, dataset, datasourceId,
+        (await listDatasetRecords(client, dataset.id))
+          .map((item) => item.data)
+          .filter((record) => isRecordPublished(dataset, record)));
     }
-  } else {
-    datasourceId = await createDatasource(client, dataset, true);
+    const updated: DatasetRecord = {
+      ...dataset,
+      status: 'published',
+      everPublished: true,
+      ldsDatasourceId: datasourceId,
+      updatedAt: now,
+    };
+    delete updated.projectionPending;
+    try {
+      return { dataset: await saveDataset(client, updated, ifVersion) };
+    } catch (error) {
+      await discardProjection(client, createdId);
+      throw error;
+    }
+  }
+
+  const previousDatasourceId = dataset.ldsDatasourceId;
+  const pending: DatasetRecord = {
+    ...dataset,
+    updatedAt: now,
+    projectionPending: { action: 'publish', startedAt: now },
+  };
+  delete pending.ldsDatasourceId;
+  let saved: DatasetDocument;
+  try {
+    saved = await saveDataset(client, pending, ifVersion);
+  } catch (error) {
+    throw error;
+  }
+
+  let createdDatasourceId: string | undefined;
+  try {
+    createdDatasourceId = await createDatasource(client, saved.data, true);
     const records = (await listDatasetRecords(client, dataset.id))
       .map((item) => item.data)
       .filter((record) => isRecordPublished({ ...dataset, status: 'published' }, record));
-    await ingestRecords(client, { ...dataset, status: 'published' }, datasourceId, records);
+    await ingestRecords(client, { ...dataset, status: 'published' }, createdDatasourceId, records);
+
+    const cleanup = [...new Set([
+      ...(saved.data.projectionCleanup || []),
+      ...(previousDatasourceId && previousDatasourceId !== createdDatasourceId ? [previousDatasourceId] : []),
+    ])];
+    const updated: DatasetRecord = {
+      ...saved.data,
+      status: 'published',
+      everPublished: true,
+      ldsDatasourceId: createdDatasourceId,
+      updatedAt: new Date().toISOString(),
+      ...(cleanup.length ? { projectionCleanup: cleanup } : {}),
+    };
+    delete updated.projectionPending;
+    const committed = await saveDataset(client, updated, saved.document.version);
+    return {
+      dataset: await cleanupAfterCommit(client, committed),
+      event: buildEvent('dataset.published', {
+        datasetId: updated.id,
+        version: updated.schemaVersion,
+        at: now,
+        correlationId: options.correlationId,
+      }, options.idempotencyKey),
+    };
+  } catch (error) {
+    await discardProjection(client, createdDatasourceId);
+    // Restore the previous non-public state. If a concurrent writer won the
+    // CAS, the pending marker may remain; the projection is already gone and
+    // the next transition overwrites the marker, so no public data survives.
+    try {
+      const restored: DatasetRecord = { ...saved.data, updatedAt: new Date().toISOString() };
+      delete restored.projectionPending;
+      if (previousDatasourceId) restored.ldsDatasourceId = previousDatasourceId;
+      else delete restored.ldsDatasourceId;
+      await saveDataset(client, restored, saved.document.version);
+    } catch {
+      /* keep the durable pending marker for the next attempt */
+    }
+    throw error;
   }
-  const updated: DatasetRecord = {
-    ...dataset,
-    status: 'published',
-    everPublished: true,
-    ldsDatasourceId: datasourceId,
-    updatedAt: now,
-  };
-  const saved = await saveDataset(client, updated, ifVersion);
-  return {
-    dataset: saved,
-    ...(transition
-      ? {
-        event: buildEvent('dataset.published', {
-          datasetId: updated.id,
-          version: updated.schemaVersion,
-          at: now,
-          correlationId: options.correlationId,
-        }, options.idempotencyKey),
-      }
-      : {}),
-  };
 }
 
 /** Restrict + delete the public projection so direct LDS reads stop working. */
@@ -269,20 +376,24 @@ export async function revokeProjection(
   client: SynapseOneClient,
   dataset: DatasetRecord,
 ): Promise<string | undefined> {
-  const datasourceId = dataset.ldsDatasourceId;
-  if (!datasourceId) return undefined;
-  // Restrict first: even if the delete fails, the public export is empty.
-  try {
-    await client.lds.setAttributes(datasourceId, hiddenAttributes(false));
-    await client.lds.updateDatasource(datasourceId, { defaultVisibility: 'internal' });
-  } catch (error) {
-    if (!isNotFound(error)) throw error;
+  const ids = [...new Set([
+    dataset.ldsDatasourceId,
+    dataset.projectionPending?.datasourceId,
+    ...(dataset.projectionCleanup || []),
+  ].filter((value): value is string => Boolean(value)))];
+  for (const datasourceId of ids) {
+    await restrictDatasource(client, datasourceId);
+    await deleteDatasource(client, datasourceId);
   }
-  await deleteDatasource(client, datasourceId);
   return undefined;
 }
 
-/** Revoke or unpublish a dataset. Idempotent when already revoked. */
+/**
+ * Revoke or unpublish a dataset. The revoked status is persisted with CAS
+ * *before* the public projection is touched, so a concurrent/failed delete can
+ * never leave a published dataset pointing at a missing projection. Cleanup is
+ * retried on the next revoke/publish transition via `projectionCleanup`.
+ */
 export async function revokeDataset(
   client: SynapseOneClient,
   dataset: DatasetRecord,
@@ -291,34 +402,40 @@ export async function revokeDataset(
 ): Promise<DatasetTransition> {
   const transition = dataset.status !== 'revoked';
   const now = new Date().toISOString();
-  await revokeProjection(client, dataset);
-  const updated: DatasetRecord = {
+  const datasourceIds = [...new Set([
+    dataset.ldsDatasourceId,
+    dataset.projectionPending?.datasourceId,
+    ...(dataset.projectionCleanup || []),
+  ].filter((value): value is string => Boolean(value)))];
+
+  if (!transition && !datasourceIds.length) {
+    return { dataset: { document: { id: dataset.id, version: ifVersion || 0, data: dataset }, data: dataset } };
+  }
+
+  const revoked: DatasetRecord = {
     ...dataset,
     status: 'revoked',
-    ldsDatasourceId: undefined,
     updatedAt: now,
+    ...(datasourceIds.length ? { projectionCleanup: datasourceIds } : {}),
   };
-  delete updated.ldsDatasourceId;
-  const saved = await saveDataset(client, updated, ifVersion);
-  return {
-    dataset: saved,
-    ...(transition
-      ? {
-        event: buildEvent('dataset.revoked', {
-          datasetId: updated.id,
-          at: now,
-          correlationId: options.correlationId,
-          ...(options.reason ? { payload: { reason: options.reason } } : {}),
-        }, options.idempotencyKey),
-      }
-      : {}),
-  };
+  delete revoked.ldsDatasourceId;
+  delete revoked.projectionPending;
+  const saved = await saveDataset(client, revoked, ifVersion);
+  const cleaned = await cleanupAfterCommit(client, saved);
+  const event = buildEvent('dataset.revoked', {
+    datasetId: cleaned.data.id,
+    at: now,
+    correlationId: options.correlationId,
+    ...(options.reason ? { payload: { reason: options.reason } } : {}),
+  }, options.idempotencyKey);
+  return { dataset: cleaned, ...(transition ? { event } : {}) };
 }
 
 /**
- * Rebuild the public projection from the current record set. Used when a
- * single record is withdrawn, purged or promoted so the removed entity is no
- * longer reachable through the old datasource id.
+ * Rebuild the public projection from the current record set. The replacement
+ * datasource is fully created and ingested before it is committed; the old one
+ * is removed only after the new id is durable. Any failure leaves the old
+ * projection (and dataset state) untouched.
  */
 export async function rebuildProjection(
   client: SynapseOneClient,
@@ -326,20 +443,54 @@ export async function rebuildProjection(
   ifVersion: number | undefined,
   options: PublishOptions,
 ): Promise<DatasetDocument> {
-  if (dataset.status !== 'published' || !dataset.public) return { document: { id: dataset.id, version: ifVersion || 0, data: dataset }, data: dataset };
+  if (dataset.status !== 'published' || !dataset.public) {
+    return { document: { id: dataset.id, version: ifVersion || 0, data: dataset }, data: dataset };
+  }
   const records = (await listDatasetRecords(client, dataset.id))
     .map((item) => item.data)
     .filter((record) => isRecordPublished(dataset, record));
   const oldDatasourceId = dataset.ldsDatasourceId;
-  if (oldDatasourceId) await deleteDatasource(client, oldDatasourceId);
   const now = new Date().toISOString();
+
   if (!records.length) {
-    const cleared: DatasetRecord = { ...dataset, updatedAt: now };
+    // Restrict the old projection first; a failures leaves the dataset pointing
+    // at an empty (not stale) public export.
+    if (oldDatasourceId) await restrictDatasource(client, oldDatasourceId);
+    const cleared: DatasetRecord = {
+      ...dataset,
+      updatedAt: now,
+      ...(oldDatasourceId ? { projectionCleanup: [...new Set([...(dataset.projectionCleanup || []), oldDatasourceId])] } : {}),
+    };
     delete cleared.ldsDatasourceId;
-    return saveDataset(client, cleared, ifVersion);
+    delete cleared.projectionPending;
+    return cleanupAfterCommit(client, await saveDataset(client, cleared, ifVersion));
   }
-  const datasourceId = await createDatasource(client, dataset, true);
-  await ingestRecords(client, dataset, datasourceId, records);
-  const updated: DatasetRecord = { ...dataset, ldsDatasourceId: datasourceId, updatedAt: now };
-  return saveDataset(client, updated, ifVersion);
+
+  let datasourceId: string | undefined;
+  try {
+    datasourceId = await createDatasource(client, dataset, true);
+    await ingestRecords(client, dataset, datasourceId, records);
+  } catch (error) {
+    await discardProjection(client, datasourceId);
+    throw error;
+  }
+
+  const cleanup = [...new Set([
+    ...(dataset.projectionCleanup || []),
+    ...(oldDatasourceId && oldDatasourceId !== datasourceId ? [oldDatasourceId] : []),
+  ])];
+  const updated: DatasetRecord = {
+    ...dataset,
+    ldsDatasourceId: datasourceId,
+    updatedAt: new Date().toISOString(),
+    ...(cleanup.length ? { projectionCleanup: cleanup } : {}),
+  };
+  delete updated.projectionPending;
+  try {
+    const saved = await saveDataset(client, updated, ifVersion);
+    return cleanupAfterCommit(client, saved);
+  } catch (error) {
+    await discardProjection(client, datasourceId);
+    throw error;
+  }
 }

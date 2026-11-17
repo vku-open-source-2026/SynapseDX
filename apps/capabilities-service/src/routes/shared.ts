@@ -9,8 +9,8 @@ import {
 } from '../auth';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
-import { DatasetRecord, serviceClient } from '../platform';
-import { DatasetDocument, loadDataset } from '../publication';
+import { CapabilityRecord, DatasetRecord, serviceClient } from '../platform';
+import { DatasetDocument, isRecordPublished, loadDataset } from '../publication';
 import { workspaceAccess } from '../workspace-access';
 
 const COMMON_ROUTES = /^\/v1\/capabilities\/(?:comments|inbox|notification-preferences|workspaces|pages|page-search|people|org-units|kpis|kpi-checkins|timesheets|forms|processes|process-instances|projects|project-tasks|milestones|raid|project-dependencies|project-capacity|reports|dashboards|report-runs|report-schedules|contracts|quality|lineage|ocr|agents|agent-runs|rag|assistant|approvals|files)(?:\/|$)/;
@@ -136,6 +136,41 @@ export function canReadRecordDrafts(dataset: DatasetRecord, caller: Caller): boo
 }
 
 /** Explicit route-level dataset visibility decision (never leaks existence). */
+/**
+ * Rows a non-draft reader may see: explicitly published records plus records
+ * that inherit publication from a published dataset. Kept in one place so the
+ * record API, workspace widgets/details, reports and dashboards agree.
+ */
+export function publishedRowFilter(): Record<string, unknown> {
+  return { or: [{ published: true }, { published: { exists: false } }] };
+}
+
+/**
+ * Dataset-scoped query filter that hides `published:false` rows from callers
+ * without draft rights. `extra` conditions are combined with `and` so callers
+ * never accidentally replace the dataset/publication predicates.
+ */
+export function readableRecordsWhere(
+  dataset: DatasetRecord,
+  caller: Caller,
+  extra?: Record<string, unknown> | Array<Record<string, unknown>>,
+): Record<string, unknown> {
+  const conditions: Array<Record<string, unknown>> = [{ datasetId: dataset.id }];
+  if (!canReadRecordDrafts(dataset, caller)) conditions.push(publishedRowFilter());
+  if (Array.isArray(extra)) conditions.push(...extra);
+  else if (extra) conditions.push(extra);
+  return conditions.length === 1 ? conditions[0] : { and: conditions };
+}
+
+/** Single-row equivalent of `readableRecordsWhere` for detail readers. */
+export function canReadCapabilityRecord(
+  dataset: DatasetRecord,
+  caller: Caller,
+  record: Pick<CapabilityRecord, 'published'>,
+): boolean {
+  return canReadRecordDrafts(dataset, caller) || isRecordPublished(dataset, record);
+}
+
 export function assertCanReadDataset(dataset: DatasetRecord, caller: Caller): void {
   if (!canAccessDataset(dataset, caller)) throw apiError(404, 'dataset_not_found', 'dataset not found');
   if (!caller.authenticated && !(dataset.public && dataset.status === 'published')) {

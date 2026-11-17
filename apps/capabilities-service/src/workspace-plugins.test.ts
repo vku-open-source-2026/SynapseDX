@@ -1129,6 +1129,43 @@ describe("workspace plugin routes", () => {
       false,
     );
 
+    // Per-record publication also applies to widget table/metric readers: a
+    // record explicitly withdrawn from the public projection must not appear.
+    const withdrawn = await api(
+      harness,
+      "/v1/capabilities/datasets/city-incidents/records",
+      {
+        method: "POST",
+        token: "admin-token",
+        body: { publish: false, data: { status: "open", severity: "high" } },
+      },
+    );
+    assert.equal(withdrawn.status, 201, JSON.stringify(withdrawn.body));
+    const metricAfter = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/installed/${id}/widgets/count/data?action=act-count-load`,
+      undefined,
+      "member-token",
+    );
+    assert.equal(metricAfter.body.count, 2);
+    const tableAfter = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/installed/${id}/widgets/list/data?action=act-list-load`,
+      undefined,
+      "member-token",
+    );
+    assert.equal(tableAfter.body.total, 2);
+
+    // The row-detail endpoint uses the same publication rule as the table.
+    const withdrawnDetail = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/installed/${id}/widgets/list/records/${withdrawn.body.id}?action=act-list-row`,
+      undefined,
+      "member-token",
+    );
+    assert.equal(withdrawnDetail.status, 404);
+    assert.equal(withdrawnDetail.body.error.code, "not_found");
+
     // A dataset owned by another organization is invisible.
     await createDataset(
       harness,

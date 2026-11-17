@@ -38,6 +38,38 @@ test('capability events are consumable from the Tier-2 feed with a cursor', asyn
   }
 });
 
+test('capability event feed is tenant-scoped for ordinary members (#75)', async () => {
+  const harness = await startHarness();
+  try {
+    await createDataset(harness, { slug: 'org-a-events', name: 'A events', public: false, license: 'LicenseRef-Proprietary' });
+    await api(harness, '/v1/capabilities/datasets/org-a-events/records', {
+      method: 'POST', token: 'user-token', body: { id: 'a1', data: { x: 1 } },
+    });
+    await createDataset(
+      harness,
+      { slug: 'org-b-events', name: 'B events', public: false, license: 'LicenseRef-Proprietary' },
+      { token: 'other-token' },
+    );
+    await api(harness, '/v1/capabilities/datasets/org-b-events/records', {
+      method: 'POST', token: 'other-token', body: { id: 'b1', data: { x: 2 } },
+    });
+
+    const feed = await api(harness, '/v1/capabilities/events?limit=100', { token: 'member-token' });
+    assert.equal(feed.status, 200);
+    assert.ok(feed.body.items.length >= 1);
+    assert.equal(feed.body.items.some((item: any) => item.event.datasetId === 'org-b-events'), false);
+    assert.equal(feed.body.items.some((item: any) => item.event.datasetId === 'org-a-events'), true);
+
+    const foreign = await api(harness, '/v1/capabilities/events?limit=100&datasetId=org-b-events', {
+      token: 'member-token',
+    });
+    assert.equal(foreign.status, 200);
+    assert.equal(foreign.body.items.length, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('health reports per-dependency status and readiness fails on a critical outage', async () => {
   const harness = await startHarness();
   try {
@@ -114,20 +146,20 @@ test('AI, identity, jobs, audit and usage capabilities are reachable through Tie
     });
     assert.equal(embeddings.status, 200);
 
+    const register = await api(harness, '/v1/capabilities/auth/register', {
+      method: 'POST', body: { email: 'operator@example.test', password: 'correct horse battery', orgSlug: 'acme' },
+    });
+    assert.equal(register.status, 201);
+    assert.ok(register.body.accessToken);
+
     const login = await api(harness, '/v1/capabilities/auth/login', {
-      method: 'POST', body: { email: 'operator@example.test' },
+      method: 'POST', body: { email: 'operator@example.test', password: 'correct horse battery', orgSlug: 'acme' },
     });
     assert.equal(login.status, 200);
     assert.ok(login.body.accessToken);
 
     const me = await api(harness, '/v1/capabilities/auth/me', { token: 'user-token' });
     assert.equal(me.status, 200);
-
-    const register = await api(harness, '/v1/capabilities/auth/register', {
-      method: 'POST', body: { email: 'new@example.test', password: 'correct horse battery' },
-    });
-    assert.equal(register.status, 201);
-    assert.ok(register.body.accessToken);
 
     const job = await api(harness, '/v1/capabilities/jobs', {
       method: 'POST', token: 'user-token',
@@ -177,7 +209,7 @@ test('files and notifications are live capabilities; unconfigured geo stays a ty
     assert.equal(files.body.upload.method, 'PUT');
 
     const notifications = await api(harness, '/v1/capabilities/notifications', {
-      method: 'POST', token: 'user-token', body: { channel: 'sms', to: '+840000', body: 'hello' },
+      method: 'POST', token: 'admin-token', body: { channel: 'sms', to: '+840000', body: 'hello' },
     });
     assert.equal(notifications.status, 202);
     assert.equal(notifications.body.notifications.length, 1);

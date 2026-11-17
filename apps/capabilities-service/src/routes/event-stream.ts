@@ -15,6 +15,7 @@ import { Express, Request, Response } from 'express';
 import { SynapseOneClient, SynapseOneError } from '@synapseone/sdk';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
+import { createEventAccessChecker } from '../event-access';
 import {
   EventStreamFilters, EventStreamRead, EventStreamSink, runEventStream,
 } from '../event-stream';
@@ -23,9 +24,12 @@ import { stringParam } from '../pagination';
 import { readContext } from './shared';
 
 export const MAX_CONCURRENT_EVENT_STREAMS = 100;
+export const MAX_CONCURRENT_EVENT_STREAMS_PER_TENANT = 20;
 
 let activeStreams = 0;
 let streamCapacity = MAX_CONCURRENT_EVENT_STREAMS;
+let tenantStreamCapacity = MAX_CONCURRENT_EVENT_STREAMS_PER_TENANT;
+const tenantStreams = new Map<string, number>();
 
 /** Test-only: number of live SSE connections in this process. */
 export function activeEventStreamConnections(): number {
@@ -37,10 +41,17 @@ export function setEventStreamCapacityForTests(value: number): void {
   streamCapacity = Math.max(1, Math.floor(value));
 }
 
-/** Test-only: restore the connection counter and default capacity. */
+/** Test-only per-tenant capacity override. */
+export function setEventStreamTenantCapacityForTests(value: number): void {
+  tenantStreamCapacity = Math.max(1, Math.floor(value));
+}
+
+/** Test-only: restore the connection counter and default capacities. */
 export function resetEventStreamStateForTests(): void {
   activeStreams = 0;
   streamCapacity = MAX_CONCURRENT_EVENT_STREAMS;
+  tenantStreamCapacity = MAX_CONCURRENT_EVENT_STREAMS_PER_TENANT;
+  tenantStreams.clear();
 }
 
 function cursorValue(value: string | undefined): string | undefined {
@@ -115,9 +126,10 @@ function responseSink(res: Response, isClosed: () => boolean): EventStreamSink {
 export function registerEventStreamRoutes(app: Express, config: ServiceConfig): void {
   app.get('/v1/capabilities/events/stream', handler(async (req: Request, res: Response) => {
     const { caller, client } = await readContext(req, config);
-    if (!caller.authenticated) {
+    if (!caller.authenticated || !caller.principal) {
       throw apiError(401, 'unauthorized', 'event consumption requires a verified credential');
     }
+    const tenantKey = caller.principal.sourceTenantKey || caller.principal.tenantKey;
 
     const since = cursorValue(stringParam(req.query.since, 512));
     const lastEventId = cursorValue(stringParam(req.header('last-event-id'), 512));
@@ -131,11 +143,17 @@ export function registerEventStreamRoutes(app: Express, config: ServiceConfig): 
     if (activeStreams >= streamCapacity) {
       throw apiError(503, 'stream_capacity', 'too many concurrent event streams', { limit: streamCapacity });
     }
+    if ((tenantStreams.get(tenantKey) || 0) >= tenantStreamCapacity) {
+      throw apiError(503, 'stream_capacity', 'too many concurrent event streams for this tenant', {
+        limit: tenantStreamCapacity,
+      });
+    }
 
-    // Reserve the slot in the same synchronous block as the check: resolving
+    // Reserve both slots in the same synchronous block as the check: resolving
     // the tail is an await, and parallel subscribers must not all pass the
     // capacity gate before any of them is counted.
     activeStreams += 1;
+    tenantStreams.set(tenantKey, (tenantStreams.get(tenantKey) || 0) + 1);
     let closed = false;
     const abort = new AbortController();
     const onClose = (): void => {
@@ -163,6 +181,7 @@ export function registerEventStreamRoutes(app: Express, config: ServiceConfig): 
         sink: responseSink(res, () => closed),
         cursor,
         filters,
+        accept: createEventAccessChecker(client, caller),
         stream: config.eventsStream,
         signal: abort.signal,
         isClosed: () => closed,
@@ -173,6 +192,9 @@ export function registerEventStreamRoutes(app: Express, config: ServiceConfig): 
       res.off('error', onClose);
       req.off('error', onClose);
       activeStreams = Math.max(0, activeStreams - 1);
+      const remaining = Math.max(0, (tenantStreams.get(tenantKey) || 1) - 1);
+      if (remaining === 0) tenantStreams.delete(tenantKey);
+      else tenantStreams.set(tenantKey, remaining);
       if (!res.writableEnded && !res.destroyed) {
         try {
           res.end();

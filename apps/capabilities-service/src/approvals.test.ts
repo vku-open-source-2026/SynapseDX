@@ -41,6 +41,23 @@ test('creates, lists and reads a tenant-scoped approval', async () => {
   }
 });
 
+test('empty approver role sets are rejected instead of becoming any-member approvals (#81)', async () => {
+  const harness = await startHarness();
+  try {
+    const created = await api(harness, '/v1/capabilities/approvals', {
+      method: 'POST', token: 'user-token',
+      body: {
+        title: 'No approver', module: 'sos.dispatch', action: 'dispatch.approve',
+        approverRoles: [], requiredApprovals: 1,
+      },
+    });
+    assert.equal(created.status, 400);
+    assert.equal(created.body.error.code, 'approver_roles_required');
+  } finally {
+    await harness.close();
+  }
+});
+
 test('separation of duties, approver roles and duplicate decisions are enforced', async () => {
   const harness = await startHarness();
   try {

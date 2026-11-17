@@ -58,7 +58,7 @@ test('OCR queues low-confidence fields and writes approved records with provenan
   }
 });
 
-test('agents deny unknown tools, pause high-risk runs for HITL and redact traces (#44)', async () => {
+test('agents deny unknown tools and report execution as unavailable instead of synthetic success (#44, #79)', async () => {
   const harness = await startHarness();
   try {
     const agent = await api(harness, '/v1/capabilities/agents', {
@@ -75,32 +75,17 @@ test('agents deny unknown tools, pause high-risk runs for HITL and redact traces
     assert.equal(denied.status, 403);
     assert.equal(denied.body.error.code, 'tool_not_allowed');
 
-    const paused = await api(harness, `/v1/capabilities/agents/${agentId}/runs`, {
+    const unavailable = await api(harness, `/v1/capabilities/agents/${agentId}/runs`, {
       method: 'POST', token: 'user-token',
       body: {
         input: { incident: 'INC-1', password: 'super-secret' },
         toolCalls: [{ tool: 'read_dataset', args: { token: 'abc', dataset: 'incidents' } }],
       },
     });
-    assert.equal(paused.status, 202, JSON.stringify(paused.body));
-    assert.equal(paused.body.approvalRequired, true);
-    const runId = paused.body.run.id;
-    const approvalId = paused.body.approvalId;
-
-    const approved = await api(harness, `/v1/capabilities/approvals/${approvalId}/decide`, {
-      method: 'POST', token: 'moderator-token', body: { decision: 'approve', note: 'safe' },
-    });
-    assert.equal(approved.status, 200, JSON.stringify(approved.body));
-
-    const resumed = await api(harness, `/v1/capabilities/agent-runs/${runId}/resume`, {
-      method: 'POST', token: 'user-token', body: {},
-    });
-    assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
-    assert.equal(resumed.body.run.status, 'completed');
-    assert.ok(resumed.body.run.trace.correlationId);
-    assert.equal(resumed.body.run.trace.input.password, '[REDACTED]');
-    assert.equal(resumed.body.run.trace.toolCalls[0].args.token, '[REDACTED]');
-    assert.ok(resumed.body.run.costUsd >= 0);
+    assert.equal(unavailable.status, 501, JSON.stringify(unavailable.body));
+    assert.equal(unavailable.body.error.code, 'not_implemented');
+    assert.equal((harness.fake.collections.get(COLLECTIONS.agentRuns)?.size || 0), 0);
+    assert.equal((harness.fake.collections.get(COLLECTIONS.approvals)?.size || 0), 0);
 
     const kill = await api(harness, `/v1/capabilities/agents/${agentId}/kill-switch`, {
       method: 'POST', token: 'user-token', body: { enabled: true },

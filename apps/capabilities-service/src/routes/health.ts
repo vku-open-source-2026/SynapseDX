@@ -11,8 +11,10 @@ import { Express } from 'express';
 import { SynapseOneClient, SynapseOneError } from '@synapseone/sdk';
 import { ServiceConfig } from '../config';
 import { handler } from '../http';
+import { kttvScheduleState } from '../kttv-schedule';
 import { OPTIMIZATION_LIMITS } from '../optimization';
-import { serviceClient } from '../platform';
+import { COLLECTIONS, getDocumentOrNull, serviceClient } from '../platform';
+import { CrawlStateRecord, hazardStatusView } from './hazards';
 
 export type DependencyStatus = 'ok' | 'degraded' | 'down';
 
@@ -22,6 +24,7 @@ export interface DependencyHealth {
   latency_ms: number;
   critical: boolean;
   error?: string;
+  details?: Record<string, unknown>;
 }
 
 interface Probe {
@@ -90,6 +93,64 @@ export function baseDatasetsProbe(): Probe {
   };
 }
 
+/**
+ * KTTV scheduler/freshness is a first-class health component. An enabled
+ * schedule that failed to provision, or a feed older than its freshness budget,
+ * degrades readiness instead of silently appearing healthy.
+ */
+async function kttvHealth(config: ServiceConfig, client: SynapseOneClient): Promise<DependencyHealth> {
+  const started = Date.now();
+  if (!config.kttvScheduleEnabled) {
+    return {
+      name: 'kttv',
+      status: 'ok',
+      latency_ms: 0,
+      critical: false,
+      details: { enabled: false, provisioned: false },
+    };
+  }
+  const scheduler = kttvScheduleState();
+  let state: CrawlStateRecord | null = null;
+  try {
+    const doc = await getDocumentOrNull<CrawlStateRecord>(client, COLLECTIONS.kttvState, 'state');
+    state = doc?.data || null;
+  } catch (error) {
+    return {
+      name: 'kttv',
+      status: 'degraded',
+      latency_ms: Date.now() - started,
+      critical: false,
+      error: safeCode(error),
+      details: { ...scheduler, enabled: true },
+    };
+  }
+  const feed = hazardStatusView(state, new Date(), config.hazardStaleMinutes);
+  const unhealthy = !scheduler.provisioned
+    || !!scheduler.error
+    || feed.status === 'unconfigured'
+    || feed.status === 'error'
+    || feed.status === 'stale';
+  return {
+    name: 'kttv',
+    status: unhealthy ? 'degraded' : 'ok',
+    latency_ms: Date.now() - started,
+    critical: false,
+    ...(scheduler.error ? { error: scheduler.error } : feed.error ? { error: feed.error } : feed.status === 'stale' ? { error: 'stale' } : {}),
+    details: {
+      enabled: true,
+      provisioned: scheduler.provisioned,
+      workflowId: scheduler.workflowId,
+      lastAttemptAt: scheduler.lastAttemptAt,
+      lastSuccessAt: scheduler.lastSuccessAt,
+      nextRetryAt: scheduler.nextRetryAt,
+      feedStatus: feed.status,
+      stale: feed.stale,
+      lastSuccessAgeSeconds: feed.last_success_age_seconds,
+      thresholdMinutes: feed.threshold_minutes,
+    },
+  };
+}
+
 function probesFor(config: ServiceConfig): Probe[] {
   return [
     baseDatasetsProbe(),
@@ -147,6 +208,7 @@ function packageVersion(): string {
 export async function collectHealth(config: ServiceConfig): Promise<HealthReport> {
   const client = serviceClient(config, Math.min(config.requestTimeoutMs, 5000));
   const dependencies = await Promise.all(probesFor(config).map((entry) => probe(entry, client, 3000)));
+  dependencies.push(await kttvHealth(config, client));
   const credentials = {
     serviceCredential: config.hasServiceCredential,
     callerVerification: 'tier1-iam',
@@ -178,9 +240,16 @@ export function registerHealthRoutes(app: Express, config: ServiceConfig): void 
   const ready = async (_req: import('express').Request, res: import('express').Response) => {
     const health = await collectHealth(config);
     const criticalDown = health.dependencies.some((dep) => dep.critical && dep.status === 'down');
-    const body = { ...health, status: criticalDown ? 'down' : health.status === 'down' ? 'degraded' : health.status };
+    // An enabled emergency hazard feed that is not provisioned/fresh is a
+    // readiness failure even though the remaining dependencies are reachable.
+    const kttvDegraded = config.kttvScheduleEnabled
+      && health.dependencies.some((dep) => dep.name === 'kttv' && dep.status !== 'ok');
+    const body = {
+      ...health,
+      status: criticalDown ? 'down' : health.status === 'down' ? 'degraded' : health.status,
+    };
     res.setHeader('cache-control', 'no-store');
-    res.status(criticalDown ? 503 : 200).json(body);
+    res.status(criticalDown || kttvDegraded ? 503 : 200).json(body);
   };
 
   app.get('/v1/capabilities/ready', handler(ready));

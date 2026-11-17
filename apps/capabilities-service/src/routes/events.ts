@@ -11,6 +11,7 @@ import { Express } from 'express';
 import { SynapseOneError } from '@synapseone/sdk';
 import { ServiceConfig } from '../config';
 import { apiError } from '../errors';
+import { createEventAccessChecker } from '../event-access';
 import { handler } from '../http';
 import { validateDatasetId } from '../ids';
 import { stringParam } from '../pagination';
@@ -49,12 +50,19 @@ export function registerEventRoutes(app: Express, config: ServiceConfig): void {
       }
       throw error;
     }
-    const items: FeedItem[] = events
+    // The stream is global. Apply the caller's dataset/tenant ACL per event and
+    // advance the cursor past denied events so they cannot pin the reader.
+    const observed = events
       .map((event) => ({ id: String(event.id), event: event.payload as CapabilityEvent }))
       .filter((item) => item.event && typeof item.event === 'object')
       .filter((item) => !type || item.event.type === type)
       .filter((item) => !datasetId || item.event.datasetId === datasetId);
-    const nextCursor = items.length ? items[items.length - 1].id : (since || null);
+    const readable = createEventAccessChecker(client, caller);
+    const items: FeedItem[] = [];
+    for (const item of observed) {
+      if (await readable(item.event)) items.push(item);
+    }
+    const nextCursor = observed.length ? observed[observed.length - 1].id : (since || null);
     res.setHeader('cache-control', 'no-store');
     res.json({ items, count: items.length, nextCursor });
   }));

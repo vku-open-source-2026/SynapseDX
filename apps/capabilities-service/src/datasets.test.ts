@@ -232,6 +232,107 @@ test('publish and revoke replay the same response and emit one event per transit
   }
 });
 
+test('publish persists pending state first and compensates on LDS create/ingest failure (#77)', async () => {
+  const harness = await startHarness();
+  try {
+    await createDataset(harness, { slug: 'pending-publish', name: 'Pending' });
+    await api(harness, '/v1/capabilities/datasets/pending-publish/records', {
+      method: 'POST', token: 'user-token', body: { id: 'r1', data: { x: 1 } },
+    });
+
+    // Fail the datasource create itself.
+    harness.fake.failLdsOnCall = 1;
+    harness.fake.ldsCalls = 0;
+    const failedCreate = await api(harness, '/v1/capabilities/datasets/pending-publish/publish', {
+      method: 'POST', token: 'user-token',
+    });
+    assert.ok(failedCreate.status >= 500, JSON.stringify(failedCreate.body));
+    const afterCreate = await api(harness, '/v1/capabilities/datasets/pending-publish', { token: 'user-token' });
+    assert.equal(afterCreate.body.status, 'draft');
+    assert.equal(afterCreate.body.ldsDatasourceId, undefined);
+    assert.equal(afterCreate.body.projectionPending, undefined);
+
+    // Fail during ingest after the datasource was created; compensation must
+    // delete it so no public projection exists for the draft dataset.
+    harness.fake.failLdsOnCall = 3; // create, setAttributes, ingest
+    harness.fake.ldsCalls = 0;
+    const failedIngest = await api(harness, '/v1/capabilities/datasets/pending-publish/publish', {
+      method: 'POST', token: 'user-token',
+    });
+    assert.ok(failedIngest.status >= 500, JSON.stringify(failedIngest.body));
+    const afterIngest = await api(harness, '/v1/capabilities/datasets/pending-publish', { token: 'user-token' });
+    assert.equal(afterIngest.body.status, 'draft');
+    assert.equal(afterIngest.body.ldsDatasourceId, undefined);
+    assert.equal(harness.fake.datasources.size, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('revoke persists revoked status before LDS cleanup and retries the cleanup (#77)', async () => {
+  const harness = await startHarness();
+  try {
+    await createDataset(harness, { slug: 'pending-revoke', name: 'Pending revoke' });
+    await api(harness, '/v1/capabilities/datasets/pending-revoke/records', {
+      method: 'POST', token: 'user-token', body: { id: 'r1', data: { x: 1 } },
+    });
+    const published = await api(harness, '/v1/capabilities/datasets/pending-revoke/publish', {
+      method: 'POST', token: 'user-token',
+    });
+    assert.equal(published.status, 200);
+    const datasourceId = published.body.ldsDatasourceId;
+
+    harness.fake.failLds = true;
+    const revoked = await api(harness, '/v1/capabilities/datasets/pending-revoke/revoke', {
+      method: 'POST', token: 'user-token',
+    });
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.equal(revoked.body.status, 'revoked');
+    assert.equal(revoked.body.ldsDatasourceId, undefined);
+    assert.deepEqual(revoked.body.projectionCleanup, [datasourceId]);
+    assert.ok(harness.fake.datasources.has(datasourceId));
+
+    harness.fake.failLds = false;
+    const retried = await api(harness, '/v1/capabilities/datasets/pending-revoke/revoke', {
+      method: 'POST', token: 'user-token',
+    });
+    assert.equal(retried.status, 200);
+    assert.equal(retried.body.projectionCleanup, undefined);
+    assert.equal(harness.fake.datasources.has(datasourceId), false);
+    assert.equal((await api(harness, `/v1/lds/datasources/${datasourceId}/entities`)).status, 404);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('rebuild keeps the previous projection when the replacement cannot be built (#77)', async () => {
+  const harness = await startHarness();
+  try {
+    await createDataset(harness, { slug: 'pending-rebuild', name: 'Pending rebuild' });
+    await api(harness, '/v1/capabilities/datasets/pending-rebuild/records', {
+      method: 'POST', token: 'user-token', body: { id: 'r1', data: { x: 1 } },
+    });
+    const published = await api(harness, '/v1/capabilities/datasets/pending-rebuild/publish', {
+      method: 'POST', token: 'user-token',
+    });
+    const datasourceId = published.body.ldsDatasourceId;
+    assert.ok(datasourceId);
+
+    harness.fake.failLds = true;
+    harness.fake.ldsCalls = 0;
+    const failed = await api(harness, '/v1/capabilities/datasets/pending-rebuild/records/r1', {
+      method: 'DELETE', token: 'user-token',
+    });
+    assert.ok(failed.status >= 500, JSON.stringify(failed.body));
+    const dataset = await api(harness, '/v1/capabilities/datasets/pending-rebuild', { token: 'user-token' });
+    assert.equal(dataset.body.status, 'published');
+    assert.equal(dataset.body.ldsDatasourceId, datasourceId);
+    assert.equal(harness.fake.datasources.has(datasourceId), true);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('dataset metadata is tenant-scoped and version-preconditioned', async () => {
   const harness = await startHarness();
   try {

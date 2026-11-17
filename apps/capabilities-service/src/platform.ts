@@ -83,6 +83,8 @@ export interface CapabilityEvent {
     | 'record.created' | 'record.updated' | 'record.deleted' | 'retention.purged';
   schemaVersion: 1;
   datasetId: string;
+  /** Dataset tenant stamped by Tier-2; consumers use it for tenant scoping. */
+  tenant?: string;
   recordId?: string;
   version?: string;
   at: string;
@@ -105,6 +107,18 @@ export interface DatasetRecord {
   schemaVersion: string;
   status: DatasetStatus;
   ldsDatasourceId?: string;
+  /**
+   * Durable marker for an in-flight publish transition. The dataset stays in
+   * its non-public status while the LDS projection is built; on failure the
+   * projection is deleted and the marker cleared.
+   */
+  projectionPending?: {
+    action: 'publish' | 'revoke' | 'rebuild';
+    datasourceId?: string;
+    startedAt: string;
+  };
+  /** Datasource ids that must be restricted/deleted after a committed update. */
+  projectionCleanup?: string[];
   retentionDays?: number;
   everPublished?: boolean;
   /** Optional GeoJSON index binding; `field` is a dotted path inside record.data. */
@@ -416,12 +430,18 @@ export async function emitEvent(
 ): Promise<EmitResult> {
   const pending = await flushPendingEvents(client, config, dataset);
   const merged = { ...dataset, ...pending };
+  // Stamp the owning tenant on every event. Feed/SSE consumers filter by this
+  // value before touching dataset metadata, so a legacy queue event cannot leak
+  // cross-tenant record activity.
+  const scopedEvent: CapabilityEvent = dataset.tenant && !event.tenant
+    ? { ...event, tenant: dataset.tenant }
+    : event;
   try {
-    await publishEvent(client, config, event);
-    return { delivered: true, event };
+    await publishEvent(client, config, scopedEvent);
+    return { delivered: true, event: scopedEvent };
   } catch (error) {
     console.warn(`[synapsedx] event ${event.eventId} pending in outbox: ${(error as Error).message}`);
-    const queue = [...(merged.pendingEvents || []), event].slice(-50);
+    const queue = [...(merged.pendingEvents || []), scopedEvent].slice(-50);
     try {
       const doc = await getDocumentOrNull<DatasetRecord>(client, COLLECTIONS.datasets, dataset.id);
       if (doc) {
@@ -433,7 +453,7 @@ export async function emitEvent(
     } catch (outboxError) {
       console.error(`[synapsedx] failed to persist event outbox for ${dataset.id}: ${(outboxError as Error).message}`);
     }
-    return { delivered: false, event };
+    return { delivered: false, event: scopedEvent };
   }
 }
 

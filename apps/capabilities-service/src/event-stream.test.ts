@@ -153,12 +153,14 @@ function capabilityEvent(
   datasetId: string,
   eventId: string,
   recordId?: string,
+  tenant = 'org-a',
 ): Record<string, unknown> {
   return {
     eventId,
     type,
     schemaVersion: 1,
     datasetId,
+    tenant,
     ...(recordId ? { recordId } : {}),
     at: new Date().toISOString(),
     correlationId: 'test-correlation',
@@ -260,6 +262,24 @@ test('type filtering advances the cursor past a non-matching event', { timeout: 
     const extra = await drainFrames(stream, 1400);
     assert.equal(extra.filter((frame) => frame.includes('id: 110-0')).length, 0);
     assert.equal(extra.filter((frame) => frame.includes('id: 110-1')).length, 0);
+  } finally {
+    await closeStream(stream);
+    await harness.close();
+  }
+});
+
+test('SSE never relays another tenant event but advances the cursor past it', { timeout: 20000 }, async () => {
+  const harness = await startHarness();
+  const stream = await openStream(harness, '/v1/capabilities/events/stream', { token: 'read-token' });
+  try {
+    await readEvent(stream, 'ready', READY_TIMEOUT_MS);
+    await publish(harness, capabilityEvent('record.created', 'org-b-dataset', 'foreign', 'org-b-record', 'org-b'), '145-0');
+    await publish(harness, capabilityEvent('record.created', 'org-a-dataset', 'own', 'org-a-record', 'org-a'), '145-1');
+    const delivered = await readEvent(stream, 'capability', 6000);
+    assert.equal(delivered.data.id, '145-1');
+    assert.equal((delivered.data.event as any).tenant, 'org-a');
+    const extra = await drainFrames(stream, 1400);
+    assert.equal(extra.filter((frame) => frame.includes('id: 145-0')).length, 0);
   } finally {
     await closeStream(stream);
     await harness.close();

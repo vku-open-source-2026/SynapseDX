@@ -9,10 +9,10 @@ import { createHash } from 'node:crypto';
 import { Express } from 'express';
 import { SynapseOneClient } from '@synapseone/sdk';
 import { CallerPrincipal, isAdmin } from '../auth';
-import { ServiceConfig } from '../config';
+import { isPrivateHost, ServiceConfig } from '../config';
 import { apiError } from '../errors';
 import { handler } from '../http';
-import { COLLECTIONS, ensureCollections, getDocumentOrNull } from '../platform';
+import { COLLECTIONS, ensureCollections, getDocumentOrNull, queryDocuments } from '../platform';
 import { authenticatedReadContext, writeContext } from './shared';
 import { createScoped, listScoped } from './module-helpers';
 import { detectProvinces } from '../crawlers/kttv';
@@ -143,6 +143,17 @@ export async function indexKnowledgeDocument(
   const body = String(input.body || '').slice(0, MAX_BODY);
   if (!title || body.trim().length < 20) throw apiError(400, 'invalid_document', 'title and a body of at least 20 chars are required');
   const url = clean(input.url || '', 1000);
+  if (url) {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw apiError(400, 'invalid_document', 'url must be an absolute public HTTP(S) URL');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password || isPrivateHost(parsed.hostname)) {
+      throw apiError(400, 'invalid_document', 'url must be an absolute public HTTP(S) URL without credentials');
+    }
+  }
   const source = clean(input.source || (url ? new URL(url).hostname : 'manual'), 200);
   const hash = sha1(`${title}\n${body}`);
   const id = input.id && /^[A-Za-z0-9_:.@+-]{1,120}$/.test(input.id) ? input.id : `k-${sha1(`${source}|${url}|${title}`).slice(0, 24)}`;
@@ -172,10 +183,31 @@ export async function indexKnowledgeDocument(
   }
 
   const chunks = chunkText(body);
+  const keptChunkIds = new Set<string>();
   for (let index = 0; index < chunks.length; index += 1) {
     const chunkId = `${id}-c${index}`;
     const text = chunks[index];
     if (!text.trim()) continue;
+    keptChunkIds.add(chunkId);
+    const existingChunk = await getDocumentOrNull<KnowledgeChunkRecord>(client, COLLECTIONS.knowledgeChunks, chunkId);
+    if (existingChunk) {
+      // Re-index must preserve tenant/documentId/version lineage; replacing the
+      // whole payload used to remove them and make the chunk invisible.
+      const data = {
+        ...existingChunk.data,
+        id: chunkId,
+        documentId: id,
+        title,
+        text,
+        index,
+        updatedAt: new Date().toISOString(),
+      };
+      await client.base.updateDocument(COLLECTIONS.knowledgeChunks, chunkId, {
+        data: data as unknown as Record<string, unknown>,
+        ...(existingChunk.version ? { ifVersion: existingChunk.version } : {}),
+      });
+      continue;
+    }
     await client.base.createDocument(COLLECTIONS.knowledgeChunks, {
       id: chunkId,
       data: {
@@ -191,10 +223,29 @@ export async function indexKnowledgeDocument(
       },
     }).catch(async (error) => {
       if (error instanceof Error && /exist/i.test(error.message)) {
-        await client.base.updateDocument(COLLECTIONS.knowledgeChunks, chunkId, { data: { text, title, index } }).catch(() => undefined);
-        return;
+        const raced = await getDocumentOrNull<KnowledgeChunkRecord>(client, COLLECTIONS.knowledgeChunks, chunkId);
+        if (raced) {
+          await client.base.updateDocument(COLLECTIONS.knowledgeChunks, chunkId, {
+            data: { ...raced.data, documentId: id, title, text, index, updatedAt: new Date().toISOString() } as unknown as Record<string, unknown>,
+            ...(raced.version ? { ifVersion: raced.version } : {}),
+          });
+          return;
+        }
       }
       throw error;
+    });
+  }
+
+  // A shorter re-index leaves stale trailing chunks behind; remove them so
+  // retrieval/citations only reference the current document body.
+  const previousChunks = await queryDocuments<KnowledgeChunkRecord>(client, COLLECTIONS.knowledgeChunks, {
+    where: { documentId: id },
+    limit: 500,
+  });
+  for (const chunk of previousChunks.items) {
+    if (keptChunkIds.has(chunk.id)) continue;
+    await client.base.deleteDocument(COLLECTIONS.knowledgeChunks, chunk.id).catch((error) => {
+      if (!(error instanceof Error && /not.?found|404/i.test(error.message))) throw error;
     });
   }
 

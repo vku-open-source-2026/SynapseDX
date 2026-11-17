@@ -18,7 +18,7 @@ records. No cross-product API call between City and SOS is involved.
 
 | Kind | Required payload | Notes |
 | --- | --- | --- |
-| `vndms.ingest` | `url` (public HTTPS) | Optional `district`, `format: json\|xml`, `since`. The runner fetches/parses/persists hazards and reports counts. |
+| `vndms.ingest` | `url` (public HTTPS) | Optional `district`, `format: json\|xml`, `since`. Tier-2 validates the URL at creation (HTTPS, no credentials/fragment, private/metadata host rejection, VNDMS/NCHMF host allowlist). The runner MUST re-resolve and revalidate every address and every redirect immediately before fetching; redirects to a non-allowlisted/private host are rejected. The runner fetches/parses/persists hazards and reports counts. |
 | `hazard.expire` | — | Optional `ttlMinutes` (1..259200), `dryRun`. The runner expires hazards and emits the product event. |
 | `report.generate` | `reportType` | Optional `format: pdf\|csv\|json`, `datasetId`, `fileId`. The runner generates the artifact and uploads it through the files capability. |
 | `generic` | — | Custom product job; Tier-3 owns payload semantics. |

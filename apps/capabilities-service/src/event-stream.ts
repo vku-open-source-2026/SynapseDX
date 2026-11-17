@@ -58,6 +58,8 @@ export interface EventStreamOptions {
   /** Last stream id already delivered; null starts at the oldest retained event. */
   cursor: string | null;
   filters?: EventStreamFilters;
+  /** Async ACL gate evaluated after type/dataset filters; denied events still advance the cursor. */
+  accept?: (payload: unknown) => boolean | Promise<boolean>;
   /** Stream/topic name reported in the ready frame. */
   stream: string;
   /** Aborted when the HTTP client disconnects. */
@@ -232,6 +234,15 @@ export async function runEventStream(options: EventStreamOptions): Promise<Event
       cursor = id;
       progressed = true;
       if (!payloadMatches(event.payload, filters)) continue;
+      if (options.accept) {
+        let accepted = false;
+        try {
+          accepted = await options.accept(event.payload);
+        } catch {
+          accepted = false;
+        }
+        if (!accepted) continue;
+      }
       if (!send(capabilityFrame({ id, payload: event.payload }))) {
         end();
         return { reason: stopReason(), cursor, delivered };

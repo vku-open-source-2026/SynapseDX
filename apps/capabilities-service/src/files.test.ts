@@ -84,6 +84,52 @@ test('file capability uploads/downloads binary data with metadata, checksum and 
   }
 });
 
+test('file quota uses an atomic reservation so concurrent uploads cannot overrun it (#83)', async () => {
+  const harness = await startHarness({ SYNAPSEDX_FILES_QUOTA_BYTES: '1000' });
+  try {
+    const create = () => api(harness, '/v1/capabilities/files', {
+      method: 'POST', token: 'user-token',
+      body: { filename: `race-${Math.random().toString(36).slice(2, 8)}.bin`, contentType: 'application/octet-stream', size: 600 },
+    });
+    const responses = await Promise.all([create(), create()]);
+    const created = responses.filter((response) => response.status === 201);
+    const rejected = responses.filter((response) => response.status === 413);
+    assert.equal(created.length, 1, JSON.stringify(responses.map((response) => response.status)));
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].body.error.code, 'quota_exceeded');
+    const quota = await api(harness, '/v1/capabilities/files/quota', { token: 'user-token' });
+    assert.equal(quota.body.usedBytes, 600);
+    assert.equal(quota.body.reservedBytes, 0);
+  } finally {
+    await harness.close();
+  }
+});
+
+test('quota accounting does not stop at 20,000 files (#83)', async () => {
+  const harness = await startHarness();
+  try {
+    const files = new Map<string, any>();
+    const now = new Date().toISOString();
+    for (let index = 0; index < 20001; index += 1) {
+      const id = `bulk-${index}`;
+      files.set(id, {
+        id,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+        data: { id, tenant: 'org-a', owner: 'user-1', filename: `${id}.bin`, contentType: 'application/octet-stream', size: 1, storageKey: id, createdAt: now, updatedAt: now },
+      });
+    }
+    harness.fake.collections.set('synapsedx_capability_files', files);
+    const quota = await api(harness, '/v1/capabilities/files/quota', { token: 'user-token' });
+    assert.equal(quota.status, 200);
+    assert.equal(quota.body.files, 20001);
+    assert.equal(quota.body.usedBytes, 20001);
+  } finally {
+    await harness.close();
+  }
+});
+
 test('a 10 MB binary upload goes through Tier-2 with a verifiable checksum', async () => {
   const harness = await startHarness();
   try {
