@@ -17,7 +17,9 @@ services:
       ALLOW_LOCAL_DEPENDENCIES: "false"
       SYNAPSEDX_AUTH_MODE: required
       # Production identity flows require an explicit organization binding.
-      SYNAPSEDX_AUTH_ORG_SLUG: ${SYNAPSEDX_AUTH_ORG_SLUG:?set SYNAPSEDX_AUTH_ORG_SLUG in .env}
+      # Production fails fast in the service when this is empty; keep Compose
+      # config loadable in CI/local so tests can exercise that validation.
+      SYNAPSEDX_AUTH_ORG_SLUG: ${SYNAPSEDX_AUTH_ORG_SLUG:-}
       SYNAPSEDX_FILES_BUCKET: ${SYNAPSEDX_FILES_BUCKET:-synapsedx-files}
       CORS_ORIGINS: https://synapsecity.sbs,https://sos.synapsecity.sbs,https://synapsedx.sbs,https://cloud.synapsedx.sbs
     expose:
