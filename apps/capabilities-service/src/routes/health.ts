@@ -95,8 +95,10 @@ export function baseDatasetsProbe(): Probe {
 
 /**
  * KTTV scheduler/freshness is a first-class health component. An enabled
- * schedule that failed to provision, or a feed older than its freshness budget,
- * degrades readiness instead of silently appearing healthy.
+ * schedule that failed to provision, a feed whose latest crawl reports every
+ * configured source unreachable (the status view reports `error`), or a feed
+ * older than its freshness budget degrades readiness instead of silently
+ * appearing healthy.
  */
 async function kttvHealth(config: ServiceConfig, client: SynapseOneClient): Promise<DependencyHealth> {
   const started = Date.now();
@@ -147,6 +149,7 @@ async function kttvHealth(config: ServiceConfig, client: SynapseOneClient): Prom
       stale: feed.stale,
       lastSuccessAgeSeconds: feed.last_success_age_seconds,
       thresholdMinutes: feed.threshold_minutes,
+      ...(feed.sources ? { sources: feed.sources } : {}),
     },
   };
 }

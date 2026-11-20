@@ -249,7 +249,10 @@ export async function buildHazardBrief(
 }
 
 /** Run both crawlers, persist hazards, index text and upsert GIS points. */
-export async function runKttvCrawl(config: ServiceConfig): Promise<{
+export async function runKttvCrawl(
+  config: ServiceConfig,
+  crawler: typeof crawlAll = crawlAll,
+): Promise<{
   hazards: number;
   indexed: number;
   sources: Record<string, unknown>;
@@ -262,7 +265,7 @@ export async function runKttvCrawl(config: ServiceConfig): Promise<{
   await ensureCollections(client);
   await saveState(client, principal, { running: true, last_run_at: new Date().toISOString(), error: null }).catch(() => undefined);
   try {
-    const { hazards, documents, stats } = await crawlAll();
+    const { hazards, documents, stats } = await crawler();
     let indexed = 0;
     // VNDMS PDFs are first-class knowledge documents (historical bulletins
     // included). Indexing them separately keeps the full text searchable even
@@ -330,15 +333,31 @@ export async function runKttvCrawl(config: ServiceConfig): Promise<{
         }).catch(() => undefined);
       }
     }
+    const sources = stats as unknown as Record<string, unknown>;
+    // A total source outage is not a successful run: keep the previous success
+    // timestamp (the map stays on the last good data) and record the failure so
+    // the status view and readiness report it. `hazards: 0` stays legitimate
+    // when at least one source is reachable.
+    const anySourceOk = stats.nchmf_ok === true || stats.sourceOk === true;
+    if (!anySourceOk) {
+      await saveState(client, principal, {
+        running: false,
+        hazards: hazards.length,
+        indexed,
+        sources,
+        error: 'all sources failed',
+      }).catch(() => undefined);
+      return { hazards: hazards.length, indexed, sources, error: 'all sources failed' };
+    }
     await saveState(client, principal, {
       running: false,
       last_success_at: new Date().toISOString(),
       hazards: hazards.length,
       indexed,
-      sources: stats as unknown as Record<string, unknown>,
+      sources,
       error: null,
     }).catch(() => undefined);
-    return { hazards: hazards.length, indexed, sources: stats as unknown as Record<string, unknown>, error: null };
+    return { hazards: hazards.length, indexed, sources, error: null };
   } catch (error) {
     const message = (error as Error)?.message || 'crawl failed';
     await saveState(client, principal, { running: false, error: message }).catch(() => undefined);
@@ -356,17 +375,29 @@ async function crawlState(client: SynapseOneClient, principal: CallerPrincipal):
 }
 
 export interface HazardStatusView {
-  status: 'ok' | 'running' | 'error' | 'stale' | 'unconfigured';
+  status: 'ok' | 'running' | 'error' | 'degraded' | 'stale' | 'unconfigured';
   stale: boolean;
   last_success_age_seconds: number | null;
   threshold_minutes: number;
   error: string | null;
+  /** Latest per-source outcomes (`nchmf_ok`, VNDMS `sourceOk`, counts). */
+  sources: Record<string, unknown> | null;
+}
+
+/** Per-source booleans from the latest crawl state, null when unreported. */
+function sourceOutcomes(state: CrawlStateRecord | null): { nchmfOk: boolean | null; vndmsOk: boolean | null } {
+  const sources = (state?.sources || {}) as Record<string, unknown>;
+  return {
+    nchmfOk: typeof sources.nchmf_ok === 'boolean' ? sources.nchmf_ok : null,
+    vndmsOk: typeof sources.sourceOk === 'boolean' ? sources.sourceOk : null,
+  };
 }
 
 /**
  * Status precedence follows the *latest* outcome: a running crawl, then the
- * latest failure, then freshness. A previous success must never mask a later
- * error or an expired feed.
+ * latest failure (including a total source outage), then a partial source
+ * outage, then freshness. A previous success must never mask a later error,
+ * degradation or an expired feed.
  */
 export function hazardStatusView(
   state: CrawlStateRecord | null,
@@ -384,10 +415,15 @@ export function hazardStatusView(
     || !state.last_run_at
     || Date.parse(state.last_run_at) >= Date.parse(state.last_success_at)
   );
+  const { nchmfOk, vndmsOk } = sourceOutcomes(state);
+  const known = [nchmfOk, vndmsOk].filter((value): value is boolean => value !== null);
+  // Some configured sources reported a failure while others succeeded.
+  const partialOutage = known.length > 0 && known.some((ok) => !ok) && known.some((ok) => ok);
   let status: HazardStatusView['status'];
   if (state?.running) status = 'running';
   else if (latestFailed) status = 'error';
   else if (!state?.last_success_at) status = 'unconfigured';
+  else if (partialOutage) status = 'degraded';
   else if (stale) status = 'stale';
   else status = 'ok';
   return {
@@ -396,6 +432,7 @@ export function hazardStatusView(
     last_success_age_seconds: ageSeconds,
     threshold_minutes: threshold,
     error: state?.error || null,
+    sources: state?.sources ? { ...state.sources } : null,
   };
 }
 

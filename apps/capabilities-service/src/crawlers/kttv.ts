@@ -186,11 +186,15 @@ async function fetchText(url: string): Promise<{ text: string; contentType: stri
       signal: controller.signal,
       headers: { 'user-agent': 'SynapseCity-KTTV-Crawler/1.0 (+https://synapsecity.sbs)' },
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn(`[kttv] fetch failed: ${parsed.toString()} -> HTTP ${response.status}`);
+      return null;
+    }
     const contentType = String(response.headers.get('content-type') || '');
     const buffer = Buffer.from(await response.arrayBuffer());
     return { text: buffer.toString('utf8'), contentType };
-  } catch {
+  } catch (error) {
+    console.warn(`[kttv] fetch failed: ${parsed.toString()} -> ${(error as Error)?.message || 'network error'}`);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -209,7 +213,10 @@ async function fetchPdfText(url: string): Promise<string | null> {
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     const response = await fetch(parsed, { signal: controller.signal, redirect: 'follow' });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.warn(`[kttv] fetch failed: ${parsed.toString()} -> HTTP ${response.status}`);
+      return null;
+    }
     const length = Number(response.headers.get('content-length') || 0);
     if (length > MAX_PDF_BYTES) return null;
     const buffer = Buffer.from(await response.arrayBuffer());
@@ -218,7 +225,8 @@ async function fetchPdfText(url: string): Promise<string | null> {
     const pdf = require('pdf-parse') as (data: Buffer) => Promise<{ text?: string }>;
     const parsedPdf = await pdf(buffer);
     return normalizeText(parsedPdf.text || '').slice(0, 60_000);
-  } catch {
+  } catch (error) {
+    console.warn(`[kttv] fetch failed: ${parsed.toString()} -> ${(error as Error)?.message || 'network error'}`);
     return null;
   } finally {
     clearTimeout(timeout);
@@ -270,9 +278,15 @@ function articleBody(html: string): { text: string; pdfs: string[] } {
 }
 
 /** Crawl NCHMF /kttv/ listing and today's warning articles. */
-export async function crawlNchmf(now = Date.now()): Promise<CrawledHazard[]> {
+export async function crawlNchmf(now = Date.now()): Promise<{
+  hazards: CrawledHazard[];
+  sourceOk: boolean;
+}> {
   const listing = await fetchText(`https://${NCHMF_HOST}/kttv/`);
-  if (!listing) return [];
+  // NCHMF has no status endpoint: a failed listing fetch is the outage signal
+  // for the whole source. A reachable listing means the source is up even when
+  // the current listing yields no recent warnings.
+  if (!listing) return { hazards: [], sourceOk: false };
   const $ = load(listing.text);
   const candidates: Array<{ url: string; title: string; publishedAt: string | null }> = [];
   const seen = new Set<string>();
@@ -335,7 +349,7 @@ export async function crawlNchmf(now = Date.now()): Promise<CrawledHazard[]> {
       approximate_geometry: true,
     });
   }
-  return hazards;
+  return { hazards, sourceOk: true };
 }
 
 interface S3Object { key: string; lastModified: string }
@@ -423,22 +437,42 @@ export async function crawlVndms(now = Date.now()): Promise<{
 export async function crawlAll(now = Date.now()): Promise<{
   hazards: CrawledHazard[];
   documents: CrawledDocument[];
-  stats: { nchmf: number; vndms: number; vndmsDocuments: number; sourceOk: boolean; startedAt: string; finishedAt: string };
+  stats: {
+    nchmf: number;
+    vndms: number;
+    vndmsDocuments: number;
+    /** NCHMF listing was reachable (fetch failure = source down). */
+    nchmf_ok: boolean;
+    /** VNDMS config status check passed. */
+    sourceOk: boolean;
+    startedAt: string;
+    finishedAt: string;
+  };
 }> {
   const startedAt = new Date(now).toISOString();
+  // A thrown crawler error is a source outage, not a successful empty run: the
+  // per-source outcome survives so the orchestrator can refuse to mark the
+  // whole feed healthy when every source is unreachable.
   const [nchmf, vndms] = await Promise.all([
-    crawlNchmf(now).catch(() => [] as CrawledHazard[]),
-    crawlVndms(now).catch(() => ({ hazards: [] as CrawledHazard[], documents: [] as CrawledDocument[], sourceOk: false })),
+    crawlNchmf(now).catch((error) => {
+      console.warn('[kttv] NCHMF crawl failed:', (error as Error)?.message || error);
+      return { hazards: [] as CrawledHazard[], sourceOk: false };
+    }),
+    crawlVndms(now).catch((error) => {
+      console.warn('[kttv] VNDMS crawl failed:', (error as Error)?.message || error);
+      return { hazards: [] as CrawledHazard[], documents: [] as CrawledDocument[], sourceOk: false };
+    }),
   ]);
   const byId = new Map<string, CrawledHazard>();
-  for (const hazard of [...nchmf, ...vndms.hazards]) byId.set(hazard.hazard_id, hazard);
+  for (const hazard of [...nchmf.hazards, ...vndms.hazards]) byId.set(hazard.hazard_id, hazard);
   return {
     hazards: [...byId.values()],
     documents: vndms.documents,
     stats: {
-      nchmf: nchmf.length,
+      nchmf: nchmf.hazards.length,
       vndms: vndms.hazards.length,
       vndmsDocuments: vndms.documents.length,
+      nchmf_ok: nchmf.sourceOk,
       sourceOk: vndms.sourceOk,
       startedAt,
       finishedAt: new Date().toISOString(),
