@@ -62,6 +62,7 @@ import {
   catalogMutation,
   catalogResources,
   catalogRoles,
+  catalogUnavailableActions,
   catalogWidgetTypes,
   exportBundleFileName,
   isSafeWorkflowArtifactId,
@@ -254,6 +255,7 @@ function WidgetEditor({
   formExecutionRequirement,
   actions,
   orgReadiness,
+  unavailableActions,
   onChange,
 }: {
   widget: WorkspaceWidget;
@@ -266,6 +268,8 @@ function WidgetEditor({
   formExecutionRequirement?: string;
   actions: WorkspaceFormAction[];
   orgReadiness?: WorkspaceOrgReadiness;
+  /** Catalog-declared capability actions this deployment cannot execute. */
+  unavailableActions: WorkspaceFormAction[];
   onChange: (patch: Partial<WorkspaceWidget>) => void;
 }) {
   const [columnsText, setColumnsText] = useState(
@@ -808,10 +812,31 @@ function WidgetEditor({
           </Field>
 
           {widget.resource?.startsWith("common") ? (
-            <p className="rounded-lg bg-teal-50 p-3 text-xs leading-5 text-teal-800 dark:bg-teal-950 dark:text-teal-200">
-              Bound to the Common capability. Actions use the member’s app
-              permissions.
-            </p>
+            <>
+              <p className="rounded-lg bg-teal-50 p-3 text-xs leading-5 text-teal-800 dark:bg-teal-950 dark:text-teal-200">
+                Bound to the Common capability. Actions use the member’s app
+                permissions.
+              </p>
+              {unavailableActions.includes(
+                (widget.action ?? "create") as WorkspaceFormAction,
+              ) ? (
+                <div
+                  role="note"
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/50 dark:text-amber-300"
+                >
+                  <p className="font-semibold">
+                    This action is unavailable on this deployment.
+                  </p>
+                  <p>
+                    The bound capability operation needs the agent runtime,
+                    which is not configured here. The published form stays
+                    read-only and submits are refused with reason{" "}
+                    <span className="font-mono">capability_unavailable</span>{" "}
+                    until a real runtime is configured.
+                  </p>
+                </div>
+              ) : null}
+            </>
           ) : (
             <>
               <Field
@@ -2029,6 +2054,11 @@ export function BuilderPanel({
                       }
                       actions={actionTypes}
                       orgReadiness={orgReadiness}
+                      unavailableActions={catalogUnavailableActions(
+                        catalog,
+                        product,
+                        selectedWidget.resource || "",
+                      )}
                       onChange={(patch) =>
                         patchWidget(selectedWidget.id, patch)
                       }

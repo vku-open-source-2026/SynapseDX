@@ -119,6 +119,19 @@ function allowedByAcl(record: { acl?: string[] }, principal: { subject: string; 
     || (!!principal.account && record.acl.includes(`account:${principal.account}`));
 }
 
+/**
+ * Single availability switch for agent execution on this deployment (#79).
+ *
+ * It stays `false` while `agentExecutionUnavailable()` is the behavior: no
+ * model/tool runtime is configured, so runs and resumes answer 501 and the
+ * form submit gate must refuse the agent lane instead of promising an
+ * executable action. The runtime wave flips only this function; the
+ * governance surface (registry, kill switch, run history) is real either way.
+ */
+export function agentExecutionAvailable(): boolean {
+  return false;
+}
+
 export function registerIntelligenceRoutes(app: Express, config: ServiceConfig): void {
   // ---------------- OCR ----------------
   app.post('/v1/capabilities/ocr/jobs', handler(async (req, res) => {
@@ -298,13 +311,13 @@ export function registerIntelligenceRoutes(app: Express, config: ServiceConfig):
       }
     }
     void input;
-    agentExecutionUnavailable();
+    if (!agentExecutionAvailable()) agentExecutionUnavailable();
   }));
 
   app.post('/v1/capabilities/agent-runs/:id/resume', handler(async (req, res) => {
     const { principal, client } = await writeContext(req, config);
     await getScoped<AgentRunRecord>(client, COLLECTIONS.agentRuns, String(req.params.id), principal, 'agent_run_not_found');
-    agentExecutionUnavailable();
+    if (!agentExecutionAvailable()) agentExecutionUnavailable();
   }));
 
   app.get('/v1/capabilities/agent-runs', handler(async (req, res) => {

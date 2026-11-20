@@ -14,7 +14,7 @@ import test, { afterEach, beforeEach, describe } from "node:test";
 import assert from "node:assert/strict";
 import { api, createDataset, Harness, startHarness } from "./testing/harness";
 import { COLLECTIONS } from "./platform";
-import { checksumOf } from "./workspace-plugins";
+import { checksumOf, type WorkspaceWidget } from "./workspace-plugins";
 import { workflowGraphChecksum } from "./routes/workflow-artifacts";
 
 const WORKFLOW_ARTIFACTS = "synapsedx_capability_workflow_artifacts";
@@ -1964,6 +1964,173 @@ describe("workspace plugin routes", () => {
     });
     assert.equal(members.status, 403);
     assert.equal(members.body.error.code, "admin_required");
+  });
+
+  test("agent-lane forms report capability_unavailable instead of a submit promise (#79)", async () => {
+    // Test-only: forward the common capability calls to this harness.
+    harness.config.publicUrl = harness.base;
+    const widgets = materializeActions<WorkspaceWidget>([
+      {
+        id: "agent-run",
+        type: "form",
+        title: "Run agent",
+        resource: "commonAgents",
+        action: "execute",
+        fields: [
+          { name: "record_id", type: "text", label: "Agent", required: true },
+          { name: "input", type: "json", label: "Input", required: true },
+        ],
+      },
+      {
+        id: "agent-resume",
+        type: "form",
+        title: "Resume run",
+        resource: "commonAgentRuns",
+        action: "execute",
+        fields: [
+          { name: "record_id", type: "text", label: "Run", required: true },
+        ],
+      },
+      {
+        id: "agent-register",
+        type: "form",
+        title: "Register agent",
+        resource: "commonAgents",
+        action: "create",
+        fields: [
+          { name: "name", type: "text", label: "Name", required: true },
+          { name: "model", type: "text", label: "Model", required: true },
+          {
+            name: "promptVersion",
+            type: "text",
+            label: "Prompt",
+            required: true,
+          },
+          { name: "tools", type: "json", label: "Tools", required: true },
+        ],
+      },
+      {
+        id: "task",
+        type: "form",
+        title: "New task",
+        resource: "commonTasks",
+        action: "create",
+        fields: [
+          { name: "name", type: "text", label: "Name", required: true },
+        ],
+      },
+    ]);
+    const created = await createPlugin({
+      slug: "agent-lane",
+      roles: ["admin", "manager"],
+      widgets,
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const id = created.body.id;
+    assert.equal(
+      (
+        await admin(
+          "POST",
+          `/v1/capabilities/workspaces/plugins/${id}/publish`,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await admin("POST", `/v1/capabilities/workspaces/plugins/${id}/install`, {
+          roles: ["admin"],
+        })
+      ).status,
+      201,
+    );
+    await admin("PUT", "/v1/capabilities/workspaces/members/member-1", {
+      productRoles: { city: ["admin"] },
+    });
+
+    // The catalog keeps the agent connectors (they carry governance value) but
+    // names the actions this deployment cannot execute.
+    const catalog = await admin(
+      "GET",
+      "/v1/capabilities/workspaces/catalog",
+    );
+    const city = catalog.body.products.find(
+      (product: any) => product.product === "city",
+    );
+    const agentsResource = city.resources.find(
+      (resource: any) => resource.key === "commonAgents",
+    );
+    assert.deepEqual(agentsResource.actions, ["create", "execute"]);
+    assert.deepEqual(agentsResource.unavailableActions, ["execute"]);
+    const runsResource = city.resources.find(
+      (resource: any) => resource.key === "commonAgentRuns",
+    );
+    assert.deepEqual(runsResource.unavailableActions, ["execute"]);
+    const tasksResource = city.resources.find(
+      (resource: any) => resource.key === "commonTasks",
+    );
+    assert.equal(tasksResource.unavailableActions, undefined);
+
+    // The honest preview: run/resume forms are read-only with the capability
+    // gap named; the registry form and ordinary common writes stay submittable.
+    const visible = await admin(
+      "GET",
+      "/v1/capabilities/workspaces/installed",
+      undefined,
+      "member-token",
+    );
+    assert.equal(visible.status, 200);
+    const byId = new Map<string, any>(
+      visible.body.items[0].widgets.map((widget: any) => [widget.id, widget]),
+    );
+    assert.equal(byId.get("agent-run").canSubmit, false);
+    assert.equal(byId.get("agent-run").canSubmitReason, "capability_unavailable");
+    assert.equal(byId.get("agent-resume").canSubmit, false);
+    assert.equal(
+      byId.get("agent-resume").canSubmitReason,
+      "capability_unavailable",
+    );
+    assert.equal(byId.get("agent-register").canSubmit, true);
+    assert.equal(
+      byId.get("agent-register").canSubmitReason,
+      "capability_ready",
+    );
+    assert.equal(byId.get("task").canSubmit, true);
+    assert.equal(byId.get("task").canSubmitReason, "capability_ready");
+
+    // The actual run attempt is refused with the capability gap, never a
+    // synthetic success or cost. The agent is registered through the same
+    // app context the form uses (the common lane is app-scoped).
+    const agent = await api(harness, "/v1/capabilities/agents", {
+      method: "POST",
+      token: "member-token",
+      headers: { "x-workspace-app": "city" },
+      body: {
+        name: "Triage agent",
+        model: "tier1/inference",
+        promptVersion: "v1",
+        tools: ["read_dataset"],
+      },
+    });
+    assert.equal(agent.status, 201, JSON.stringify(agent.body));
+    const submit = byId.get("agent-run").onSubmit;
+    const executed = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/installed/${id}/widgets/agent-run/execute?action=${submit}`,
+      {
+        values: {
+          record_id: agent.body.agent.id,
+          input: '{"incident":"INC-1"}',
+        },
+      },
+      "member-token",
+    );
+    assert.equal(executed.status, 501, JSON.stringify(executed.body));
+    assert.equal(executed.body.error.code, "not_implemented");
+    assert.equal(
+      harness.fake.collections.get(COLLECTIONS.agentRuns)?.size || 0,
+      0,
+    );
   });
 
   test("lifecycle actions are audited without token material", async () => {

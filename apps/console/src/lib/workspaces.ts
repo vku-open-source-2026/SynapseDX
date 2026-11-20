@@ -318,6 +318,12 @@ export interface WorkspaceLimits {
 export interface CatalogResource {
   binding?: "capability";
   actions?: WorkspaceFormAction[];
+  /**
+   * Capability actions the deployment cannot execute (the agent runtime).
+   * Kept in the catalog for governance, but forms bound to them must stay
+   * read-only with the `capability_unavailable` reason.
+   */
+  unavailableActions?: WorkspaceFormAction[];
   key: string;
   path?: string;
   dataset?: string;
@@ -1277,10 +1283,14 @@ function parseResource(value: unknown): CatalogResource | null {
     !isSafeResourceKey(value.key)
   )
     return null;
+  const unavailable = Array.isArray(value.unavailableActions)
+    ? value.unavailableActions.filter(isFormAction)
+    : [];
   return {
     key: value.key,
     ...(typeof value.path === "string" ? { path: value.path } : {}),
     ...(typeof value.dataset === "string" ? { dataset: value.dataset } : {}),
+    ...(unavailable.length ? { unavailableActions: unavailable } : {}),
   };
 }
 
@@ -1467,6 +1477,23 @@ export function catalogResources(
   return catalogProduct(catalog, product)?.resources ?? [];
 }
 
+/**
+ * Capability actions of a catalog resource that this deployment cannot
+ * execute. Builders use it to mark forms read-only honestly instead of
+ * promising a submit the runtime will refuse (reason
+ * `capability_unavailable`).
+ */
+export function catalogUnavailableActions(
+  catalog: WorkspaceCatalog | null,
+  product: WorkspaceProduct,
+  resource: string,
+): WorkspaceFormAction[] {
+  return (
+    catalogResources(catalog, product).find((item) => item.key === resource)
+      ?.unavailableActions ?? []
+  );
+}
+
 export function catalogWidgetTypes(
   catalog: WorkspaceCatalog | null,
   product?: WorkspaceProduct,
@@ -1633,6 +1660,8 @@ export function formDisabledReason(widget: RuntimeWidget): string | null {
 }
 
 const FORM_REASON_MESSAGES: Record<string, string> = {
+  capability_unavailable:
+    "This form's action depends on a capability this deployment has not configured (the agent runtime). It stays read-only until that capability is enabled.",
   workflow_technical_identity_missing:
     "This organization has no verified technical workflow identity. Configure an account-level SYNAPSEDX_WORKFLOW_API_KEYS entry for the organization before enabling form actions.",
   workflow_org_identity_unverified:

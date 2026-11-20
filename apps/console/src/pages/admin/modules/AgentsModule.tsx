@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
-/** Agents lane: registry, tool allowlists, runs and the kill switch. */
+/**
+ * Agents lane: registry, tool allowlists and the kill switch. The runtime
+ * panel is deliberately honest: this deployment has no agent model/tool
+ * runtime, so no trace, status or cost lane is rendered (#79).
+ */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bot, Power } from 'lucide-react';
 import { api } from '../../../lib/api';
-import { relativeTime, statusLabel, statusTone } from '../../../lib/format';
 import { useToastStore } from '../../../stores/toastStore';
 import {
   Button, Card, CardHeader, ConfirmDialog, EmptyState, Pill,
@@ -20,32 +23,22 @@ interface AgentItem {
   tools?: string[];
   riskTier?: string;
 }
-interface AgentRun {
-  id?: string;
-  agentId?: string;
-  status: string;
-  costUsd?: number;
-  createdAt?: string;
-}
 
 export function AgentsModule() {
   const queryClient = useQueryClient();
   const push = useToastStore((state) => state.push);
+  const [killFor, setKillFor] = useState<AgentItem | null>(null);
+  const [busy, setBusy] = useState(false);
   const agents = useQuery({
     queryKey: ['agents'],
     queryFn: () => api.get<{ items?: AgentItem[] }>('/v1/capabilities/agents'),
     retry: false,
   });
-  const runs = useQuery({
-    queryKey: ['agent-runs'],
-    queryFn: () => api.get<{ items?: AgentRun[] }>('/v1/capabilities/agent-runs'),
-    retry: false,
-  });
+  // No runs query: with no runtime configured there can be no runs, traces or
+  // costs, so a "recent traces" lane would be a promise this deployment
+  // cannot keep. The runtime panel below states that instead.
 
   const agentRows = (agents.data?.items ?? []).slice(0, 50);
-  const runRows = (runs.data?.items ?? []).slice(0, 30);
-  const [killFor, setKillFor] = useState<AgentItem | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const confirmKill = async () => {
     if (!killFor) return;
@@ -55,7 +48,6 @@ export function AgentsModule() {
       push('Agent kill switch enabled.');
       setKillFor(null);
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
-      void queryClient.invalidateQueries({ queryKey: ['agent-runs'] });
     } catch (failure) {
       push((failure as Error)?.message || 'The kill switch could not be enabled.', 'bad');
     } finally {
@@ -67,8 +59,8 @@ export function AgentsModule() {
     <section className="space-y-4">
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">CAPABILITY MODULE</p>
-        <h2 className="text-lg font-semibold tracking-tight text-slate-900">Agent registry and traces</h2>
-        <p className="text-sm text-slate-500">Tool allowlists are deny-by-default; high-risk runs pause for HITL and every trace is redacted.</p>
+        <h2 className="text-lg font-semibold tracking-tight text-slate-900">Agent registry</h2>
+        <p className="text-sm text-slate-500">Tool allowlists are deny-by-default. The registry and the kill switch below are live; run execution is disabled until a model/tool runtime is configured on this deployment.</p>
       </div>
 
       <Card className="overflow-hidden">
@@ -109,29 +101,19 @@ export function AgentsModule() {
         )}
       </Card>
 
-      <Card className="overflow-hidden">
-        <CardHeader eyebrow="RUNS" title="Recent traces" />
-        {runs.isLoading ? (
-          <div className="grid gap-3 px-5 py-6"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></div>
-        ) : runs.isError ? (
-          <div className="px-5 py-6"><EmptyState title="Recent traces could not be loaded" message={(runs.error as Error)?.message} action={<Button variant="primary" onClick={() => void runs.refetch()}>Retry</Button>} /></div>
-        ) : runRows.length === 0 ? (
-          <div className="px-5 pb-6 text-sm text-slate-500">No agent runs yet.</div>
-        ) : (
-          <TableShell>
-            <Thead><Th>Agent</Th><Th>Status</Th><Th>Cost</Th><Th>When</Th></Thead>
-            <tbody>
-              {runRows.map((run, index) => (
-                <Tr key={run.id ?? index}>
-                  <Td className="font-mono text-xs">{run.agentId?.slice(0, 8) || '—'}</Td>
-                  <Td><Pill tone={statusTone(run.status)}>{statusLabel(run.status)}</Pill></Td>
-                  <Td className="font-mono text-xs">{run.costUsd ? `$${Number(run.costUsd).toFixed(6)}` : '—'}</Td>
-                  <Td className="font-mono text-xs text-slate-500">{relativeTime(run.createdAt)}</Td>
-                </Tr>
-              ))}
-            </tbody>
-          </TableShell>
-        )}
+      <Card>
+        <CardHeader eyebrow="RUNTIME" title="Agent runtime is not configured on this deployment" />
+        <div className="space-y-3 px-5 py-4 text-sm text-slate-600 dark:text-slate-300">
+          <p>There is no agent model/tool runtime on this deployment, so:</p>
+          <ul className="list-disc space-y-1 pl-5 text-xs leading-5">
+            <li>agent run and resume requests are refused with <span className="font-mono">501 not_implemented</span> — no run, trace or cost is produced or stored;</li>
+            <li>forms bound to the agent lane render read-only with reason <span className="font-mono">capability_unavailable</span>;</li>
+            <li>the registry and the kill switch above remain live governance surfaces.</li>
+          </ul>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            When a real runtime is configured, this panel and a runs lane will report actual statuses and costs. No synthetic run is ever shown in the meantime.
+          </p>
+        </div>
       </Card>
 
       <ConfirmDialog

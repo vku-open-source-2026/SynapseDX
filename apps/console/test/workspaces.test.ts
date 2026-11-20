@@ -6,6 +6,7 @@ import {
   catalogMutation,
   catalogResources,
   catalogRoles,
+  catalogUnavailableActions,
   formDisabledReason,
   formReasonMessage,
   installedWidgetDataPath,
@@ -41,6 +42,21 @@ const catalogPayload = {
       publicRoles: ["citizen"],
       resources: [
         { key: "assets", path: "/v1/assets", dataset: "city-assets" },
+        {
+          key: "commonAgents",
+          path: "/v1/capabilities/agents",
+          dataset: "common:commonAgents",
+          binding: "capability",
+          actions: ["create", "execute"],
+          unavailableActions: ["execute"],
+        },
+        {
+          key: "commonTasks",
+          path: "/v1/capabilities/project-tasks",
+          dataset: "common:commonTasks",
+          binding: "capability",
+          actions: ["create", "update"],
+        },
       ],
       widgetTypes: ["text", "metric", "table", "form"],
       actionTypes: ["create", "update", "delete", "execute"],
@@ -334,7 +350,18 @@ describe("catalog and strict response parsing", () => {
     ]);
     expect(catalogResources(catalog, "city").map((item) => item.key)).toEqual([
       "assets",
+      "commonAgents",
+      "commonTasks",
     ]);
+    // Agent-lane honesty (#79): the catalog names capability actions this
+    // deployment cannot execute so builders keep those forms read-only.
+    expect(
+      catalogUnavailableActions(catalog, "city", "commonAgents"),
+    ).toEqual(["execute"]);
+    expect(
+      catalogUnavailableActions(catalog, "city", "commonTasks"),
+    ).toEqual([]);
+    expect(catalogUnavailableActions(catalog, "city", "assets")).toEqual([]);
     expect(catalogMutation(catalog).formExecution).toBe(false);
     expect(catalogMutation(catalog).directDatasetWrites).toBe(false);
     expect(catalogMutation(catalog).formRequiresWorkflowArtifact).toBe(true);
@@ -595,6 +622,15 @@ describe("runtime widgets, data and forms", () => {
     // Without version data the fallback keeps the deployment-scoped copy.
     expect(formReasonMessage("workflow_sdk_release_required")).toContain(
       "Update the SDK package on the capabilities service",
+    );
+    // The agent-lane gap is data-driven and truthful (#79): the form stays
+    // read-only because the deployment has no agent runtime, not because of
+    // a role or binding problem.
+    expect(formReasonMessage("capability_unavailable")).toContain(
+      "capability this deployment has not configured",
+    );
+    expect(formReasonMessage("capability_unavailable")).toContain(
+      "(capability_unavailable)",
     );
     expect(formReasonMessage("ready")).toBeNull();
   });

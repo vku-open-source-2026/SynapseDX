@@ -11,6 +11,13 @@ type Operation = {
   method: "POST" | "PATCH" | "PUT" | "DELETE";
   path: string;
   json?: string[];
+  /**
+   * The operation stays registered for governance (allowlists, kill switch,
+   * run history) but needs the agent runtime, which no deployment configures
+   * yet. Builders and the form submit gate must surface it as unavailable
+   * instead of promising an executable action; the runtime wave clears it.
+   */
+  unavailable?: boolean;
 };
 export interface CommonSource {
   key: string;
@@ -168,10 +175,15 @@ export const COMMON_SOURCES: CommonSource[] = [
       method: "POST",
       path: "agents/{record_id}/runs",
       json: ["input", "toolCalls"],
+      unavailable: true,
     },
   }),
   source("commonAgentRuns", "agent-runs", "run", {
-    execute: { method: "POST", path: "agent-runs/{record_id}/resume" },
+    execute: {
+      method: "POST",
+      path: "agent-runs/{record_id}/resume",
+      unavailable: true,
+    },
   }),
   source("commonKnowledge", "rag/documents", "document", {
     create: { method: "POST", path: "rag/documents", json: ["acl"] },

@@ -47,6 +47,7 @@ import { apiError } from "../errors";
 import { handler } from "../http";
 import { parsePagination, setPageHeaders } from "../pagination";
 import { querySpatialRecords } from "./spatial";
+import { agentExecutionAvailable } from "./intelligence";
 import {
   COLLECTIONS,
   CapabilityRecord,
@@ -927,8 +928,15 @@ function widgetSubmitState(
 ): SubmitState {
   if (widget.type !== "form") return { canSubmit: false };
   const common = commonSource(widget.resource);
-  if (common)
-    return common.operations[widget.action || "create"] &&
+  if (common) {
+    const operation = common.operations[widget.action || "create"];
+    // An operation flagged unavailable (agent runs/resume) must never promise
+    // an executable submit: the runtime answers 501 today, so the honest
+    // preview is a disabled form with the capability gap named (#79).
+    if (operation?.unavailable && !agentExecutionAvailable()) {
+      return { canSubmit: false, reason: "capability_unavailable" };
+    }
+    return operation &&
       roles.some((role) => role !== "viewer") &&
       (![
         "commonPeople",
@@ -939,6 +947,7 @@ function widgetSubmitState(
         roles.some((role) => ["admin", "manager"].includes(role)))
       ? { canSubmit: true, reason: "capability_ready" }
       : { canSubmit: false, reason: "mutation_not_supported" };
+  }
   if (!widget.workflowArtifactId)
     return { canSubmit: false, reason: "workflow_artifact_unbound" };
   if (!artifact)
@@ -1211,6 +1220,19 @@ function catalogPayload(
           ? {
               binding: "capability",
               actions: Object.keys(commonSource(resource.key)!.operations),
+              // Operations the deployment cannot execute (agent runtime) are
+              // still governed but must not be authored as submittable.
+              ...(Object.entries(commonSource(resource.key)!.operations).some(
+                ([, operation]) => operation?.unavailable,
+              )
+                ? {
+                    unavailableActions: Object.entries(
+                      commonSource(resource.key)!.operations,
+                    )
+                      .filter(([, operation]) => operation?.unavailable)
+                      .map(([action]) => action),
+                  }
+                : {}),
             }
           : {}),
       })),
