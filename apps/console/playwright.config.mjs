@@ -2,6 +2,21 @@
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 import { defineConfig, devices } from '@playwright/test';
 
+const PREVIEW_PORT = 4173;
+function isPreviewTarget() {
+  const base = String(process.env.PLAYWRIGHT_BASE_URL || '').trim().replace(/\/+$/, '');
+  return base === '' || base === `http://127.0.0.1:${PREVIEW_PORT}` || base === `http://localhost:${PREVIEW_PORT}`;
+}
+// Make the target-based skip explicit on preview runs (#87): the two
+// CSP/sandbox security checks in test/e2e/workspace-studio.spec.mjs only see
+// the real sandbox behaviour behind the production nginx headers.
+if (isPreviewTarget()) {
+  console.log(
+    '[playwright] target is the plain Vite preview: the CSP/sandbox security checks in ' +
+    'test/e2e/workspace-studio.spec.mjs will be skipped (they require the production nginx CSP on /studio-sandbox.html)',
+  );
+}
+
 export default defineConfig({
   testDir: './test/e2e',
   timeout: 45_000,

@@ -2,6 +2,24 @@ import { materializeActions } from "../../src/lib/studioActions.ts";
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 import { test, expect } from "@playwright/test";
+
+// The CSP/sandbox security checks need the production nginx headers that the
+// console image serves on /studio-sandbox.html (sandbox allow-scripts,
+// connect-src 'none', worker-src blob:). Without PLAYWRIGHT_BASE_URL the
+// suite targets the plain `vite preview` webServer from playwright.config.mjs
+// on 127.0.0.1:4173, which serves the same files without those headers; an
+// exported base URL that points at an nginx-served build (CI or a local
+// prod-shaped run) must run them.
+const PREVIEW_BASE_URLS = new Set([
+  "http://127.0.0.1:4173",
+  "http://localhost:4173",
+]);
+function targetsPlainVitePreview() {
+  const base = String(process.env.PLAYWRIGHT_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  return base === "" || PREVIEW_BASE_URLS.has(base);
+}
 const types = [
   "text",
   "metric",
@@ -620,8 +638,8 @@ test("published custom code uses authorized widget data and confirmed pinned act
   page,
 }) => {
   test.skip(
-    !process.env.PLAYWRIGHT_BASE_URL,
-    "This security check requires the production nginx CSP",
+    targetsPlainVitePreview(),
+    "This security check requires the production nginx CSP on /studio-sandbox.html; the plain Vite preview target cannot provide it",
   );
   await setup(page, false, ["city"]);
   const code = {
@@ -709,8 +727,8 @@ test("Code Studio blocks undeclared bindings, reports unavailable globals and st
   page,
 }) => {
   test.skip(
-    !process.env.PLAYWRIGHT_BASE_URL,
-    "This security check requires the production nginx CSP",
+    targetsPlainVitePreview(),
+    "This security check requires the production nginx CSP on /studio-sandbox.html; the plain Vite preview target cannot provide it",
   );
   await setup(page);
   await page.setViewportSize({ width: 1600, height: 1100 });

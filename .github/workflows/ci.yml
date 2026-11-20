@@ -93,7 +93,8 @@ jobs:
         run: npm run build --workspace=@synapsedx/console
       # The release gate also runs the full sibling-source/Studio suite locally
       # and against the public domain. CI keeps the deterministic console smoke
-      # subset so a browser-runner flake cannot mask the backend/build gate.
+      # subset so a browser-runner flake cannot mask the backend/build gate; the
+      # CSP/sandbox security checks run in the console-security-e2e job below.
       - name: Console and unauthenticated-navigation E2E
         run: npm run test:e2e:ci --workspace=@synapsedx/console
       - name: Upload Playwright artifacts on failure
@@ -101,6 +102,57 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: console-playwright
+          path: |
+            apps/console/test-results
+            apps/console/playwright-report
+          retention-days: 7
+
+  # CSP/sandbox regression gate (#87): the two security checks in
+  # workspace-studio.spec.mjs only see the real sandbox behaviour when the
+  # console is served with the production nginx headers
+  # (/studio-sandbox.html: `sandbox allow-scripts`, `connect-src 'none'`,
+  # `worker-src blob:`). The suite fulfils every API request in the browser
+  # (page.route), so no capabilities service or gateway is needed; the honest
+  # limitation is that the HTTP API layer itself is not exercised here — the
+  # contract suites in build-test cover it. The job fails when the CSP/sandbox
+  # assertions fail or the served CSP header regresses.
+  console-security-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+      - name: Build the production console image
+        run: docker build -f apps/console/Dockerfile -t synapsedx-console-e2e:ci .
+      - name: Serve the console with the production nginx config
+        run: |
+          docker run --rm -d --name synapsedx-console-e2e -p 127.0.0.1:8099:80 synapsedx-console-e2e:ci
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8099/ >/dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8099/ >/dev/null
+          curl -fsSI http://127.0.0.1:8099/studio-sandbox.html | tr -d '\r' \
+            | grep -q '^Content-Security-Policy:.*sandbox allow-scripts'
+      - name: CSP/sandbox security E2E against the nginx-served build
+        env:
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:8099
+        run: npm run test:e2e --workspace=@synapsedx/console -- test/e2e/workspace-studio.spec.mjs
+      - name: Stop the console container
+        if: always()
+        run: docker rm -f synapsedx-console-e2e >/dev/null 2>&1 || true
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-security-playwright
           path: |
             apps/console/test-results
             apps/console/playwright-report
