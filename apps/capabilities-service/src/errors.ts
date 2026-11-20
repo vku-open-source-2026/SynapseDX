@@ -218,7 +218,9 @@ export type ErrorCode =
   | "artifact_compensation_failed"
   | "delegated_trust_required"
   | "stream_capacity"
-  | "crawl_failed";
+  | "crawl_failed"
+  | "upstream_deactivate_failed"
+  | "upstream_delete_failed";
 
 export interface ErrorEnvelope {
   error: {

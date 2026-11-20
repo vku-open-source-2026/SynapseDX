@@ -342,6 +342,8 @@ export class FakeTier1 {
   /** Allow this many workflow updates, then fail (tests rollback failure). */
   failWorkflowUpdateAfter = 0;
   workflowUpdateCalls = 0;
+  /** Fail workflow activate/deactivate with a 500 (tests delete dependency breaks). */
+  failWorkflowLifecycle = false;
   /** Fail exactly this Base document PUT call (tests finalize failure). */
   failBaseUpdateOnCall = 0;
   baseDocumentUpdateCalls = 0;
@@ -416,6 +418,7 @@ export class FakeTier1 {
     this.failWorkflowUpdate = false;
     this.failWorkflowUpdateAfter = 0;
     this.workflowUpdateCalls = 0;
+    this.failWorkflowLifecycle = false;
     this.failBaseUpdateOnCall = 0;
     this.baseDocumentUpdateCalls = 0;
     this.enforceWorkflowTenant = false;
@@ -1756,6 +1759,7 @@ export class FakeTier1 {
     if (activateMatch && method === 'POST') {
       const workflow = this.workflows.get(activateMatch[1]);
       if (!workflow || !this.canAccessWorkflow(workflow, headers)) return this.json(res, 404, { error: 'not_found' });
+      if (this.failWorkflowLifecycle) return this.json(res, 500, { error: 'workflow_engine_error' });
       workflow.active = activateMatch[2] === 'activate';
       return this.json(res, 200, this.workflowView(workflow));
     }

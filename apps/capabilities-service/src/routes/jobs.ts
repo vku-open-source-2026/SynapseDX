@@ -24,7 +24,7 @@ import { handler } from '../http';
 import { booleanParam, parsePagination, setPageHeaders } from '../pagination';
 import {
   COLLECTIONS, JobRecord, JobSchedule, claimIdempotency, correlationIdOf, ensureCollections,
-  getDocumentOrNull, idempotencyKeyOf, queryDocuments, recordAudit, requestFingerprint,
+  getDocumentOrNull, idempotencyKeyOf, isNotFound, queryDocuments, recordAudit, requestFingerprint,
 } from '../platform';
 import { authenticatedReadContext, writeContext } from './shared';
 
@@ -480,8 +480,32 @@ export function registerJobRoutes(app: Express, config: ServiceConfig): void {
     const found = await getDocumentOrNull<JobRecord>(client, COLLECTIONS.jobs, id);
     if (!found || !canAccessJob(found.data, principal)) throw apiError(404, 'job_not_found', 'job not found');
     if (found.data.executor === 'workflow') {
-      try { await client.workflow.deactivateWorkflow(found.data.workflowId); } catch { /* already inactive */ }
-      try { await client.workflow.deleteWorkflow(found.data.workflowId); } catch { /* history may be retained */ }
+      // Only a workflow that is already gone may be skipped: the delete is
+      // then idempotent. Any other Tier-1 failure (timeout, 5xx, network) must
+      // abort the delete and keep the Tier-2 job record, so a dependency break
+      // is reported instead of silently orphaning the Tier-1 workflow.
+      try {
+        await client.workflow.deactivateWorkflow(found.data.workflowId);
+      } catch (error) {
+        if (isNotFound(error)) {
+          console.warn(`[jobs] workflow ${found.data.workflowId} for job ${id} was already inactive or gone`);
+        } else {
+          const message = (error as Error)?.message || 'unreachable';
+          console.error(`[jobs] deactivating workflow ${found.data.workflowId} for job ${id} failed: ${message}`);
+          throw apiError(502, 'upstream_deactivate_failed', `Tier-1 workflow deactivation failed: ${message}`);
+        }
+      }
+      try {
+        await client.workflow.deleteWorkflow(found.data.workflowId);
+      } catch (error) {
+        if (isNotFound(error)) {
+          console.warn(`[jobs] workflow ${found.data.workflowId} for job ${id} was already deleted`);
+        } else {
+          const message = (error as Error)?.message || 'unreachable';
+          console.error(`[jobs] deleting workflow ${found.data.workflowId} for job ${id} failed: ${message}`);
+          throw apiError(502, 'upstream_delete_failed', `Tier-1 workflow deletion failed: ${message}`);
+        }
+      }
     } else {
       const runs = await queryDocuments<JobRunRecord>(client, COLLECTIONS.jobRuns, {
         where: { jobId: id }, limit: 500,

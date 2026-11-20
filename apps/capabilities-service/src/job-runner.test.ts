@@ -318,3 +318,39 @@ test('runner jobs are tenant-scoped and deleting one cancels queued work', async
     await harness.close();
   }
 });
+
+test('deleting a workflow job reports Tier-1 failures and keeps the record (#85)', async () => {
+  const harness = await startHarness();
+  try {
+    const created = await api(harness, '/v1/capabilities/jobs', {
+      method: 'POST', token: 'user-token',
+      body: { name: 'nightly-etl', kind: 'generic', schedule: { cron: '0 2 * * *' } },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.executor, 'workflow');
+    const jobId = created.body.id;
+    const workflowId = created.body.workflowId;
+    assert.ok(workflowId);
+
+    // A Tier-1 deactivation outage must surface as a dependency failure and
+    // keep the Tier-2 job record instead of silently dropping it.
+    harness.fake.failWorkflowLifecycle = true;
+    let deleted = await api(harness, `/v1/capabilities/jobs/${jobId}`, { method: 'DELETE', token: 'user-token' });
+    assert.equal(deleted.status, 502);
+    assert.equal(deleted.body.error.code, 'upstream_deactivate_failed');
+    assert.ok(String(deleted.body.error.message).includes('Tier-1 workflow deactivation failed'));
+    let job = await api(harness, `/v1/capabilities/jobs/${jobId}`, { token: 'user-token' });
+    assert.equal(job.status, 200);
+    assert.ok(harness.fake.workflows.has(workflowId), 'the Tier-1 workflow is untouched');
+
+    // A workflow that is already gone is an idempotent delete: 404 is skipped.
+    harness.fake.failWorkflowLifecycle = false;
+    harness.fake.workflows.delete(workflowId);
+    deleted = await api(harness, `/v1/capabilities/jobs/${jobId}`, { method: 'DELETE', token: 'user-token' });
+    assert.equal(deleted.status, 204);
+    job = await api(harness, `/v1/capabilities/jobs/${jobId}`, { token: 'user-token' });
+    assert.equal(job.status, 404);
+  } finally {
+    await harness.close();
+  }
+});
