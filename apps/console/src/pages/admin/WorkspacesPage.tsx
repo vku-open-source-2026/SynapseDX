@@ -5,7 +5,7 @@
  * boundary; this page never treats a hidden button as authorization.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useBlocker, useNavigate, useSearch } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ExternalLink,
@@ -51,6 +51,22 @@ export function WorkspacesPage() {
       to: "/admin/workspaces",
       search: { product: value, plugin: undefined },
     });
+
+  // Guard against silent draft loss: switching Studio tabs or the workspace
+  // product already confirms, but an in-app route change (sidebar link) used to
+  // unmount the builder and discard an unsaved draft. Search-only changes
+  // (page/plugin selection) are the builder's own navigation and stay unblocked.
+  const blocker = useBlocker({
+    withResolver: true,
+    shouldBlockFn: ({ current, next }) =>
+      dirty && current.pathname !== next.pathname,
+  });
+  useEffect(() => {
+    if (blocker.status !== "blocked") return;
+    if (window.confirm("Discard unsaved changes to this draft?"))
+      blocker.proceed();
+    else blocker.reset();
+  }, [blocker]);
 
   const catalogQuery = useQuery({
     queryKey: ["workspace-catalog"],

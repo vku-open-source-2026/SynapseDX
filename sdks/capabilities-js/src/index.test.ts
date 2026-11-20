@@ -1523,3 +1523,34 @@ test("plans methods call the documented EOP orchestration routes", async () => {
     phaseCount: 3,
   });
 });
+
+test("workspace duplicate, delete and preview use their documented admin routes", async () => {
+  const { impl, requests } = mockFetch(() => ({
+    body: { id: "p2", version: 1, widgets: [] },
+  }));
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "tok",
+    fetch: impl,
+  });
+  await client.workspaces.duplicatePlugin("p1", { name: "Copy", slug: "copy" });
+  await client.workspaces.deletePlugin("p1", 4);
+  await client.workspaces.previewWidgetData("p1", "count", { action: "act-count-load", limit: 25 });
+
+  assert.equal(requests[0].method, "POST");
+  assert.equal(
+    requests[0].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/p1/duplicate",
+  );
+  assert.deepEqual(requests[0].body, { name: "Copy", slug: "copy" });
+  assert.equal(requests[1].method, "DELETE");
+  assert.equal(
+    requests[1].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/p1",
+  );
+  assert.deepEqual(requests[1].body, { version: 4 });
+  assert.equal(
+    requests[2].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/p1/preview/widgets/count/data?action=act-count-load&limit=25",
+  );
+});

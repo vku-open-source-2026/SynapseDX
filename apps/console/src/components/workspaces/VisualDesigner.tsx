@@ -420,6 +420,28 @@ export function VisualDesigner({
                         event.preventDefault();
                         onMove(index, index + 1);
                       }
+                      // Undo/redo shortcuts: Ctrl/Cmd+Z reverts the last edit,
+                      // +Shift (or Ctrl/Cmd+Y) re-applies it. The buttons stay
+                      // the visible affordance; this only removes the round
+                      // trip to the toolbar.
+                      if (
+                        (event.ctrlKey || event.metaKey) &&
+                        !event.altKey &&
+                        (event.key === "z" || event.key === "Z")
+                      ) {
+                        event.preventDefault();
+                        if (event.shiftKey) redo();
+                        else undo();
+                      }
+                      if (
+                        (event.ctrlKey || event.metaKey) &&
+                        !event.altKey &&
+                        !event.shiftKey &&
+                        (event.key === "y" || event.key === "Y")
+                      ) {
+                        event.preventDefault();
+                        redo();
+                      }
                     }}
                     className={cn(
                       "group relative min-w-0 rounded-xl border-2 p-1 outline-none transition focus-visible:ring-2 focus-visible:ring-indigo-400",

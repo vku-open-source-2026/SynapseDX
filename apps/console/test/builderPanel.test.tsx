@@ -288,3 +288,211 @@ describe('BuilderPanel bulk bundle import', () => {
     ).toBe(false);
   });
 });
+
+describe('BuilderPanel page lifecycle and form field tools', () => {
+  const formPlugin = pluginFixture({
+    name: 'Incident desk',
+    slug: 'incident-desk',
+    widgets: [
+      {
+        id: 'incident-create',
+        type: 'form',
+        title: 'Report an incident',
+        action: 'create',
+        resource: 'incidents',
+        fields: [
+          { name: 'title', label: 'Title', type: 'text', required: true },
+          { name: 'notes', label: 'Notes', type: 'textarea' },
+        ],
+      },
+    ] as WorkspacePlugin['widgets'],
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    if (vi.isMockFunction(window.confirm)) (window.confirm as ReturnType<typeof vi.fn>).mockRestore();
+  });
+
+  it('duplicates the selected page as a new draft through the duplicate route', async () => {
+    const copy = { ...formPlugin, id: 'copy-1', name: 'Incident desk copy', slug: 'incident-desk-copy', status: 'draft', version: 1, installed: false };
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (String(path).endsWith('/duplicate')) return Promise.resolve(copy);
+      return Promise.resolve({});
+    });
+    const onChanged = vi.fn();
+    const onSelected = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BuilderPanel
+          product="city"
+          catalog={null}
+          plugins={[formPlugin]}
+          loading={false}
+          onChanged={onChanged}
+          onSelected={onSelected}
+        />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Duplicate' }));
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+        `/v1/capabilities/workspaces/plugins/${PLUGIN_ID}/duplicate`,
+        {},
+      );
+    });
+    expect(onSelected).toHaveBeenCalledWith('copy-1');
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('deletes a saved page after uninstalling, and never an installed one', async () => {
+    window.confirm = vi.fn(() => true);
+    vi.mocked(api.del).mockResolvedValue({} as never);
+    const onSelected = vi.fn();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <BuilderPanel
+          product="city"
+          catalog={null}
+          plugins={[pluginFixture({ installed: true })]}
+          loading={false}
+          onChanged={vi.fn()}
+          onSelected={onSelected}
+        />
+      </QueryClientProvider>,
+    );
+
+    // An installed page explains the uninstall requirement instead of deleting:
+    // the button refuses to run (disabled) and carries the reason.
+    const installedDelete = await screen.findByRole('button', { name: 'Delete' });
+    expect(installedDelete.hasAttribute('disabled')).toBe(true);
+    expect(
+      installedDelete
+        .getAttribute('title')
+        ?.includes('Uninstall this page for your organization before deleting it'),
+    ).toBe(true);
+    fireEvent.click(installedDelete);
+    await Promise.resolve();
+    expect(vi.mocked(api.del).mock.calls.some(([path]) => String(path).includes('/plugins/'))).toBe(false);
+    expect(screen.queryByText(/Uninstall this page for your organization before deleting it\./)).toBeNull();
+
+    // Uninstalled: the confirm dialog guards an explicit, versioned delete.
+    // A fresh mount (key change) selects the uninstalled plugin.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <BuilderPanel
+          key="uninstalled"
+          product="city"
+          catalog={null}
+          plugins={[pluginFixture({ installed: false })]}
+          loading={false}
+          onChanged={vi.fn()}
+          onSelected={onSelected}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await waitFor(() => {
+      expect(vi.mocked(api.del)).toHaveBeenCalledWith(
+        `/v1/capabilities/workspaces/plugins/${PLUGIN_ID}`,
+        { version: 2 },
+      );
+    });
+    expect(window.confirm).toHaveBeenCalled();
+    expect(onSelected).toHaveBeenCalledWith('');
+  });
+
+  it('reorders and duplicates form fields from the inspector', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <BuilderPanel
+          product="city"
+          catalog={null}
+          plugins={[formPlugin]}
+          loading={false}
+          onChanged={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('Declared fields');
+    const names = () =>
+      screen
+        .getAllByPlaceholderText('name')
+        .map((input) => (input as HTMLInputElement).value);
+
+    // Move the first field down: title swaps under Notes.
+    fireEvent.click(screen.getByRole('button', { name: 'Move field Title down' }));
+    await waitFor(() => expect(names()[0]).toBe('notes'));
+
+    // Duplicate re-inserts a copy directly after the source with a unique name.
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate field Title' }));
+    await waitFor(() => expect(names()).toEqual(['notes', 'title', 'title_copy']));
+  });
+});
+
+describe('BuilderPanel live preview lane', () => {
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('previews live data through the admin draft lane, and says so', async () => {
+    const plugin = pluginFixture({
+      widgets: [
+        {
+          id: 'count',
+          type: 'metric',
+          title: 'Open incidents',
+          resource: 'incidents',
+          width: 'half',
+          onLoad: 'act-count-load',
+        },
+      ] as WorkspacePlugin['widgets'],
+    });
+    vi.mocked(api.get).mockImplementation((path: string) => {
+      if (String(path).includes('/preview/widgets/count/data')) {
+        return Promise.resolve({ type: 'metric', widgetId: 'count', count: 42 });
+      }
+      return Promise.resolve({ items: [] });
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <div>
+          <div id="workspace-studio-controls" />
+          <BuilderPanel
+            product="city"
+            catalog={null}
+            plugins={[plugin]}
+            loading={false}
+            onChanged={vi.fn()}
+          />
+        </div>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /Preview/ }));
+    await waitFor(() => {
+      expect(vi.mocked(api.get)).toHaveBeenCalledWith(
+        `/v1/capabilities/workspaces/plugins/${PLUGIN_ID}/preview/widgets/count/data`,
+        expect.objectContaining({ params: expect.anything() }),
+      );
+    });
+    // The placeholder is replaced by the real count from the preview lane.
+    expect(await screen.findByText('42')).toBeTruthy();
+    expect(screen.getByText(/Live preview/)).toBeTruthy();
+  });
+});

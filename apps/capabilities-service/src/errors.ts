@@ -195,6 +195,8 @@ export type ErrorCode =
   | "plugin_snapshot_missing"
   | "source_not_syncable"
   | "plugin_not_installed"
+  | "plugin_installed"
+  | "installation_role_forbidden"
   | "installation_exists"
   | "invalid_plugin"
   | "invalid_widget"

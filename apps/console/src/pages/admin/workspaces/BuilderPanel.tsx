@@ -24,6 +24,9 @@ const CodeStudio = lazy(() =>
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowUp,
+  Copy,
   History,
   Download,
   FileJson,
@@ -90,7 +93,10 @@ import {
 import {
   buildPluginBundle,
   createPlugin,
+  deletePlugin,
+  duplicatePlugin,
   exportPluginBundle,
+  fetchPluginPreviewData,
   fetchPluginRevisions,
   fetchWorkflowArtifacts,
   importPluginBundle,
@@ -303,6 +309,28 @@ function WidgetEditor({
     const fields = (widget.fields ?? []).map((field, current) =>
       current === fieldIndex ? { ...field, ...patch } : field,
     );
+    onChange({ fields });
+  };
+  const moveField = (from: number, to: number) => {
+    const fields = [...(widget.fields ?? [])];
+    if (to < 0 || to >= fields.length || from === to) return;
+    const [moved] = fields.splice(from, 1);
+    fields.splice(to, 0, moved);
+    onChange({ fields });
+  };
+  const duplicateField = (fieldIndex: number) => {
+    const fields = [...(widget.fields ?? [])];
+    if (fields.length >= 30) return;
+    const source = fields[fieldIndex];
+    const names = new Set(fields.map((field) => field.name));
+    let name = `${String(source.name).replace(/(_copy\d*)$/, "")}_copy`;
+    for (let attempt = 2; names.has(name); attempt += 1)
+      name = `${String(source.name).replace(/(_copy\d*)$/, "")}_copy${attempt}`;
+    fields.splice(fieldIndex + 1, 0, {
+      ...JSON.parse(JSON.stringify(source)),
+      name,
+      label: `${String(source.label).slice(0, 190)} copy`,
+    });
     onChange({ fields });
   };
 
@@ -966,7 +994,7 @@ function WidgetEditor({
               {(widget.fields ?? []).map((field, fieldIndex) => (
                 <div
                   key={fieldIndex}
-                  className="grid gap-2 rounded-xl border border-slate-200 p-2 dark:border-[#26354d] sm:grid-cols-[1fr_1fr_110px_70px_34px]"
+                  className="grid gap-2 rounded-xl border border-slate-200 p-2 dark:border-[#26354d] sm:grid-cols-[1fr_1fr_110px_70px_auto]"
                 >
                   <input
                     className={`${inputClassName} py-1.5 text-xs`}
@@ -1018,20 +1046,49 @@ function WidgetEditor({
                     />
                     Req.
                   </label>
-                  <SmallButton
-                    type="button"
-                    variant="danger"
-                    aria-label={`Remove field ${field.label}`}
-                    onClick={() =>
-                      onChange({
-                        fields: (widget.fields ?? []).filter(
-                          (_, current) => current !== fieldIndex,
-                        ),
-                      })
-                    }
-                  >
-                    <Trash2 size={13} />
-                  </SmallButton>
+                  <div className="flex items-center justify-end gap-1">
+                    <SmallButton
+                      type="button"
+                      variant="ghost"
+                      aria-label={`Move field ${field.label} up`}
+                      disabled={fieldIndex === 0}
+                      onClick={() => moveField(fieldIndex, fieldIndex - 1)}
+                    >
+                      <ArrowUp size={13} />
+                    </SmallButton>
+                    <SmallButton
+                      type="button"
+                      variant="ghost"
+                      aria-label={`Move field ${field.label} down`}
+                      disabled={fieldIndex === (widget.fields?.length ?? 0) - 1}
+                      onClick={() => moveField(fieldIndex, fieldIndex + 1)}
+                    >
+                      <ArrowDown size={13} />
+                    </SmallButton>
+                    <SmallButton
+                      type="button"
+                      variant="ghost"
+                      aria-label={`Duplicate field ${field.label}`}
+                      disabled={(widget.fields?.length ?? 0) >= 30}
+                      onClick={() => duplicateField(fieldIndex)}
+                    >
+                      <Copy size={13} />
+                    </SmallButton>
+                    <SmallButton
+                      type="button"
+                      variant="danger"
+                      aria-label={`Remove field ${field.label}`}
+                      onClick={() =>
+                        onChange({
+                          fields: (widget.fields ?? []).filter(
+                            (_, current) => current !== fieldIndex,
+                          ),
+                        })
+                      }
+                    >
+                      <Trash2 size={13} />
+                    </SmallButton>
+                  </div>
                   <div className="space-y-2 sm:col-span-5">
                     <label className="block text-xs text-dx-muted">Selected record field<input aria-label={`Selected record field for ${field.label}`} className={inputClassName + " mt-1"} placeholder={field.name} value={field.selectionPath || ""} onChange={e => updateField(fieldIndex, { selectionPath: e.target.value || undefined })} /></label>
                     {field.type === "json" && <label className="block text-xs text-dx-muted">Editor
@@ -1429,6 +1486,58 @@ export function BuilderPanel({
     }
   };
 
+  const duplicateCurrent = async () => {
+    if (!draft?.id || busy) return;
+    setBusy("duplicate");
+    setError(null);
+    try {
+      const copy = await duplicatePlugin(draft.id);
+      loadPlugin(copy);
+      onSelected?.(copy.id);
+      toast("Duplicated as a new draft. It was not published or installed.");
+      onChanged();
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const deleteCurrent = async () => {
+    if (!draft?.id || busy) return;
+    if (draft.installed) {
+      setError(
+        "This page is installed for your organization. Uninstall it before deleting it.",
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        `Delete "${draft.name}" permanently? The draft, its revision history and its published snapshots are removed. This cannot be undone.`,
+      )
+    )
+      return;
+    setBusy("delete");
+    setError(null);
+    try {
+      await deletePlugin(draft.id, draft.version);
+      setDraft(null);
+      setBaseline("");
+      setPast([]);
+      setFuture([]);
+      setSelectedWidgetId(null);
+      setPreview(false);
+      setIssues([]);
+      onSelected?.("");
+      toast("Page deleted.");
+      onChanged();
+    } catch (failure) {
+      setError(errorText(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const exportBundle = async () => {
     if (!draft?.id || busy) return;
     setBusy("export");
@@ -1681,13 +1790,18 @@ export function BuilderPanel({
                   target: `module:${item.id}`,
                 })),
               },
+              // A governed scaffold, never a legacy `capability` widget:
+              // publish governance refuses that type, so a template that
+              // seeded it could never be published without manual surgery.
+              // Add data/form components from the palette and bind them to
+              // catalog resources instead.
               {
-                id: "capability-content",
-                type: "capability",
+                id: "module-intro",
+                type: "text",
                 title:
                   MODULE_CATALOG.find((item) => item.id === template)?.label ??
                   name,
-                module: template,
+                text: "Add tables, metrics, charts and forms from the palette and bind them to your catalog resources. Members see this page after you publish and install it.",
                 width: "full",
               },
             ]
@@ -1786,6 +1900,30 @@ export function BuilderPanel({
               aria-label="Revision history"
             >
               <History size={14} /> Revisions
+            </Button>
+          ) : null}
+          {draft.id ? (
+            <Button
+              variant="ghost"
+              onClick={() => void duplicateCurrent()}
+              disabled={Boolean(busy)}
+              title="Save a copy of this page as a new draft"
+            >
+              <Copy size={14} /> Duplicate
+            </Button>
+          ) : null}
+          {draft.id ? (
+            <Button
+              variant="warn"
+              onClick={() => void deleteCurrent()}
+              disabled={Boolean(busy) || draft.installed}
+              title={
+                draft.installed
+                  ? "Uninstall this page for your organization before deleting it."
+                  : "Delete this page and its history permanently"
+              }
+            >
+              <Trash2 size={14} /> Delete
             </Button>
           ) : null}
         </>
@@ -2121,25 +2259,45 @@ export function BuilderPanel({
             </Modal>
 
             {preview ? (
-              <div className="grid grid-cols-12 gap-4 rounded-2xl border border-dx-line bg-dx-surface p-6">
-                {draft.widgets
-                  .filter((widget) => widget.type !== "action")
-                  .map((widget) => (
-                    <div
-                      key={widget.id}
-                      className={
-                        widget.width === "quarter"
-                          ? "col-span-12 sm:col-span-6 xl:col-span-3"
-                          : widget.width === "third"
-                            ? "col-span-12 lg:col-span-4"
-                            : widget.width === "half"
-                              ? "col-span-12 lg:col-span-6"
-                              : "col-span-12"
-                      }
-                    >
-                      <SafeWidget widget={widget} preview />
-                    </div>
-                  ))}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50/60 px-4 py-2 text-xs text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+                  <Wand2 size={13} aria-hidden="true" />
+                  {draft.id ? (
+                    <span>
+                      Live preview — data widgets run the exact member query
+                      path against this saved draft. Forms stay read-only.
+                    </span>
+                  ) : (
+                    <span>
+                      Save this draft to preview live data; new unsaved pages
+                      show placeholders.
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-12 gap-4 rounded-2xl border border-dx-line bg-dx-surface p-6">
+                  {draft.widgets
+                    .filter((widget) => widget.type !== "action")
+                    .map((widget) => (
+                      <div
+                        key={widget.id}
+                        className={
+                          widget.width === "quarter"
+                            ? "col-span-12 sm:col-span-6 xl:col-span-3"
+                            : widget.width === "third"
+                              ? "col-span-12 lg:col-span-4"
+                              : widget.width === "half"
+                                ? "col-span-12 lg:col-span-6"
+                                : "col-span-12"
+                        }
+                      >
+                        <PreviewWidgetCard
+                          key={`${widget.id}-${widget.onLoad ?? ""}`}
+                          pluginId={draft.id}
+                          widget={widget}
+                        />
+                      </div>
+                    ))}
+                </div>
               </div>
             ) : (
               <VisualDesigner
@@ -2556,5 +2714,62 @@ export function BuilderPanel({
         </div>
       </Modal>
     </div>
+  );
+}
+
+/**
+ * One preview-mode widget with live data: data widgets that declare a query
+ * action fetch through the admin draft-preview lane (`widgetDataPayload` behind
+ * GET /plugins/:id/preview/...), so the admin validates the real binding —
+ * including honest provisioning errors — before publishing. Widgets without a
+ * saved draft or a query action keep the placeholder preview.
+ */
+function PreviewWidgetCard({
+  pluginId,
+  widget,
+}: {
+  pluginId: string;
+  widget: WorkspaceWidget;
+}) {
+  const isDataWidget = [
+    "metric",
+    "table",
+    "chart",
+    "list",
+    "map",
+    "kanban",
+    "timeline",
+  ].includes(widget.type);
+  const query = useQuery({
+    queryKey: [
+      "plugin-preview-data",
+      pluginId,
+      widget.id,
+      widget.resource ?? "",
+      widget.onLoad ?? "",
+    ],
+    enabled:
+      Boolean(pluginId) &&
+      isDataWidget &&
+      Boolean(widget.resource) &&
+      Boolean(widget.onLoad),
+    retry: false,
+    staleTime: 30_000,
+    queryFn: () =>
+      fetchPluginPreviewData(
+        pluginId,
+        widget as { id: string; type: typeof widget.type },
+        { limit: widget.type === "metric" ? 1 : 25 },
+        widget.onLoad,
+      ),
+  });
+  return (
+    <SafeWidget
+      widget={widget}
+      preview
+      data={query.data}
+      dataLoading={query.isFetching}
+      dataError={query.isError ? errorText(query.error) : null}
+    />
   );
 }

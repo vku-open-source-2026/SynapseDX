@@ -12,7 +12,9 @@ import { recordGeometry } from '../../lib/mapGeometry';
 
 export function MapWidget({widget,data,preview,onSpatialSearch}:{widget:RuntimeWidget;data?:WidgetData;preview?:boolean;onSpatialSearch?:(bbox:string)=>void}) {
   const node = useRef<HTMLDivElement>(null), mapRef = useRef<L.Map | null>(null);
-  const {select} = useContext(RecordSelection);
+  // Null-safe outside the member runtime (admin builder preview).
+  const selection = useContext(RecordSelection);
+  const select = selection?.select;
   const [tilesFailed,setTilesFailed] = useState(false), [showLayer,setShowLayer] = useState(true);
   const rows = data?.rows ?? [];
   const located = rows.map(row=>({row,geometry:recordGeometry(row)})).filter(item=>item.geometry);
@@ -48,8 +50,8 @@ export function MapWidget({widget,data,preview,onSpatialSearch}:{widget:RuntimeW
         const layer=L.geoJSON(geometry as GeoJSON.Geometry,{style:{color,weight:2,fillOpacity:.12},pointToLayer:(_,latlng)=>L.circleMarker(latlng,{radius:7,color:'#fff',weight:2,fillColor:color,fillOpacity:1})});
         const popup=document.createElement('div');const title=document.createElement('strong');title.textContent=safeCellText(row.name??row.title??row.id);popup.append(title);
         const info=document.createElement('p');info.textContent=[row.status,row.address,row.district].filter(Boolean).join(' · ');popup.append(info);
-        const open=document.createElement('button');open.textContent='View details';open.className='mt-2 font-semibold text-teal-700';open.onclick=()=>select(widget.resource||'',row);popup.append(open);
-        layer.bindPopup(popup);layer.on('click',()=>select(widget.resource||'',row));group.addLayer(layer);
+        const open=document.createElement('button');open.textContent='View details';open.className='mt-2 font-semibold text-teal-700';open.onclick=()=>select?.(widget.resource||'',row);popup.append(open);
+        layer.bindPopup(popup);layer.on('click',()=>select?.(widget.resource||'',row));group.addLayer(layer);
       }catch{/* Malformed geometry is excluded without breaking other features. */}
     }
     const bounds=group.getBounds();boundsRef.current=bounds.isValid()?bounds:null;

@@ -37,7 +37,10 @@ export function RecordTable({
   preview?: boolean;
 }) {
   const actions = useContext(WorkspaceActions);
-  const { select } = useContext(RecordSelection);
+  // Null-safe outside the member runtime (the admin builder preview renders
+  // real data without a RecordSelection provider).
+  const selection = useContext(RecordSelection);
+  const select = selection?.select;
   const [sort, setSort] = useState<{ field: string; asc: boolean } | null>(
     null,
   );
@@ -149,7 +152,7 @@ export function RecordTable({
                     ) : i === 0 ? (
                       <button
                         type="button"
-                        onClick={() => select(widget.resource || "", row)}
+                        onClick={() => select?.(widget.resource || "", row)}
                         className="font-semibold text-dx-fg hover:text-teal-600"
                       >
                         {safeCellText(row[column])}
@@ -166,7 +169,7 @@ export function RecordTable({
                     type="button"
                     aria-label={`View ${safeCellText(row.name ?? row.title ?? row.id)}`}
                     className="rounded-lg p-2 text-dx-muted hover:bg-dx-line"
-                    onClick={() => select(widget.resource || "", row)}
+                    onClick={() => select?.(widget.resource || "", row)}
                   >
                     <Eye size={15} />
                   </button>

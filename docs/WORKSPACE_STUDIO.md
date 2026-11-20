@@ -37,7 +37,8 @@ import/export of a plugin never includes business records, memberships or secret
 ## Designer and runtime
 
 Studio includes a component library, responsive drag/drop canvas, layer list,
-properties, keyboard reorder, duplicate/remove, width controls and undo/redo.
+properties, keyboard reorder (Alt+Arrow and Ctrl/Cmd+Z undo / +Shift redo),
+duplicate/remove, width controls and undo/redo.
 Components: heading, text, alert, divider, navigation, tabs, button, metric, table,
 chart, list, progress, form, capability, map, Kanban, timeline, safe Markdown and custom code.
 Layouts use a responsive 12-column grid with full, half, third and quarter widths,
@@ -45,6 +46,27 @@ JSON widget order and optional section ids. Canvas section filtering keeps large
 pages manageable. Standard widgets are declarative. A custom code widget stores
 bounded HTML/CSS/JavaScript source and explicit same-page data/action references;
 DX never evaluates that source on its server.
+Form fields can be added, edited, reordered, duplicated and removed from the
+inspector; a duplicated field gets a unique `_copy` name directly after its
+source. Module templates seed governed widgets only — never a legacy
+`capability` embed that publication would reject.
+
+**Live preview.** Preview mode is not a placeholder: data widgets with a bound
+query action fetch through the admin draft-preview lane
+(`GET /workspaces/plugins/:id/preview/widgets/:widgetId/data`), which runs the
+exact member query path against the saved draft — including honest failures
+(dataset not provisioned, resource not allowed) before anything is published
+or installed. Forms stay read-only in preview. Unsaved drafts show placeholders
+until saved.
+
+**Page lifecycle.** Pages can now be duplicated (Save as copy → a new draft
+with fresh id/version, keeping resolved artifact bindings) and deleted
+(`DELETE /workspaces/plugins/:id`, optimistic `version`, refused while the
+plugin is installed — uninstall first; deletes the draft, its revision history
+and published snapshots, and is audited as `workspace.plugin.delete`). In-app
+navigation is blocked while a draft has unsaved changes, not just a full page
+unload. The Members panel reads products and roles from the workspace catalog
+instead of a hardcoded list.
 
 Runtime provides app navigation, operational metrics, searchable/paginated
 record tables, current-page CSV export, record details and contextual action

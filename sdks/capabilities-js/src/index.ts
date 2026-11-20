@@ -2624,6 +2624,26 @@ export class CapabilitiesClient {
       version: number,
       opts?: RequestOptions,
     ) => Promise<WorkspacePlugin & { restoredFrom: number }>;
+    /**
+     * Duplicate a plugin into a NEW draft ("Save as copy"). The copy keeps
+     * the resolved artifact bindings and never the id/version/status of the
+     * source; the source is not modified.
+     */
+    duplicatePlugin: (
+      id: string,
+      options?: { name?: string; slug?: string },
+      opts?: RequestOptions,
+    ) => Promise<WorkspacePlugin>;
+    /**
+     * Delete a plugin and its bounded history (revisions + snapshots).
+     * Requires the current version (optimistic) and refuses an installed
+     * plugin — uninstall it first. Audited; irreversible.
+     */
+    deletePlugin: (
+      id: string,
+      version: number,
+      opts?: RequestOptions,
+    ) => Promise<void>;
     /** Published snapshot for repository sync; `draft:true` is the explicit authoring view. */
     exportPlugin: (
       id: string,
@@ -2680,6 +2700,21 @@ export class CapabilitiesClient {
         status?: string;
         sortBy?: string;
         sortDirection?: "asc" | "desc";
+      },
+      opts?: RequestOptions,
+    ) => Promise<WorkspaceWidgetData>;
+    /**
+     * Admin draft preview: run the exact member query path against a saved
+     * DRAFT before publishing. Read-only, organization-admin only.
+     */
+    previewWidgetData: (
+      pluginId: string,
+      widgetId: string,
+      query?: {
+        action?: string;
+        limit?: number;
+        offset?: number;
+        search?: string;
       },
       opts?: RequestOptions,
     ) => Promise<WorkspaceWidgetData>;
@@ -4122,6 +4157,29 @@ export class CapabilitiesClient {
           { method: "POST", body: "{}" },
           requestOpts,
         ),
+      duplicatePlugin: (id, options, requestOpts) =>
+        this.http.request<WorkspacePlugin>(
+          `${pluginPath(id)}/duplicate`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              ...(options?.name !== undefined ? { name: options.name } : {}),
+              ...(options?.slug !== undefined ? { slug: options.slug } : {}),
+            }),
+          },
+          requestOpts,
+        ),
+      deletePlugin: (id, version, requestOpts) =>
+        this.http
+          .request<unknown>(
+            `${pluginPath(id)}`,
+            {
+              method: "DELETE",
+              body: JSON.stringify({ version }),
+            },
+            requestOpts,
+          )
+          .then(() => undefined),
       exportPlugin: (id, requestOpts) =>
         this.http.request<WorkspacePluginBundle>(
           `${pluginPath(id)}/export${requestOpts?.draft ? "?draft=1" : ""}`,
@@ -4194,6 +4252,12 @@ export class CapabilitiesClient {
       widgetData: (pluginId, widgetId, query = {}, requestOpts) =>
         this.http.request<WorkspaceWidgetData>(
           `${installedPath(pluginId)}/widgets/${encodeURIComponent(widgetId)}/data${queryString({ action: query.action, limit: query.limit, offset: query.offset, search: query.search, status: query.status, sortBy: query.sortBy, sortDirection: query.sortDirection })}`,
+          {},
+          requestOpts,
+        ),
+      previewWidgetData: (pluginId, widgetId, query = {}, requestOpts) =>
+        this.http.request<WorkspaceWidgetData>(
+          `${workspaceBase}/plugins/${encodeURIComponent(pluginId)}/preview/widgets/${encodeURIComponent(widgetId)}/data${queryString({ action: query.action, limit: query.limit, offset: query.offset, search: query.search })}`,
           {},
           requestOpts,
         ),

@@ -2530,4 +2530,203 @@ describe("workspace plugin routes", () => {
     assert.equal(serialized.includes(created.body.token), false);
     assert.equal(serialized.toLowerCase().includes("tokenhash"), false);
   });
+
+  test("delete removes a plugin with its history but never an installed page", async () => {
+    // An installed plugin cannot be deleted: members still see it.
+    const installed = await publishedInstalled({ slug: "still-installed" });
+    const refused = await admin(
+      "DELETE",
+      `/v1/capabilities/workspaces/plugins/${installed.id}`,
+      { version: 1 },
+    );
+    assert.equal(refused.status, 409, JSON.stringify(refused.body));
+    assert.equal(refused.body.error.code, "plugin_installed");
+
+    // Stale versions are rejected so a concurrent edit is never deleted.
+    const stale = await admin(
+      "DELETE",
+      `/v1/capabilities/workspaces/plugins/${installed.id}`,
+      { version: 99 },
+    );
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error.code, "version_conflict");
+
+    // Uninstall first, then delete the published plugin with all history.
+    const uninstall = await admin(
+      "DELETE",
+      `/v1/capabilities/workspaces/plugins/${installed.id}/install`,
+    );
+    assert.equal(uninstall.status, 204);
+    const revisionsBefore = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${installed.id}/revisions`,
+    );
+    assert.equal(revisionsBefore.body.items.length, 1);
+
+    const gone = await admin(
+      "DELETE",
+      `/v1/capabilities/workspaces/plugins/${installed.id}`,
+      { version: 1 },
+    );
+    assert.equal(gone.status, 204);
+
+    const missing = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${installed.id}`,
+    );
+    assert.equal(missing.status, 404);
+    assert.equal(missing.body.error.code, "plugin_not_found");
+    const revisionsAfter = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${installed.id}/revisions`,
+    );
+    assert.equal(revisionsAfter.status, 404);
+
+    // Deletion is audited.
+    const audit = await api(harness, "/v1/capabilities/audit?limit=200", {
+      token: "admin-token",
+    });
+    const entry = audit.body.items.find(
+      (item: any) =>
+        item.action === "workspace.plugin.delete" &&
+        item.details?.pluginId === installed.id,
+    );
+    assert.ok(entry, "delete audit entry missing");
+    assert.equal(entry.details.slug, "still-installed");
+
+    // A plain member token can never delete.
+    const forbidden = await admin(
+      "DELETE",
+      "/v1/capabilities/workspaces/plugins/00000000-0000-4000-8000-000000000000",
+      { version: 1 },
+      "member-token",
+    );
+    assert.equal(forbidden.status, 403);
+  });
+
+  test("duplicate saves a copy as a new draft and never touches the source", async () => {
+    const { id } = await publishedInstalled({ slug: "copy-source" });
+    const source = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}`,
+    );
+    assert.equal(source.body.status, "published");
+
+    const copy = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/duplicate`,
+      {},
+    );
+    assert.equal(copy.status, 201, JSON.stringify(copy.body));
+    assert.notEqual(copy.body.id, id);
+    assert.equal(copy.body.status, "draft");
+    assert.equal(copy.body.version, 1);
+    assert.equal(copy.body.slug, "copy-source-copy");
+    assert.equal(copy.body.name, "Volunteer desk copy");
+    assert.equal(copy.body.publishedVersion, undefined);
+    assert.equal(copy.body.installed, false);
+
+    // The source keeps its published state and version.
+    const after = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}`,
+    );
+    assert.equal(after.body.status, "published");
+    assert.equal(after.body.version, 1);
+
+    // Only an organization administrator may duplicate.
+    const forbidden = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/duplicate`,
+      {},
+      "member-token",
+    );
+    assert.equal(forbidden.status, 403);
+
+    // Slugs stay unique per product.
+    const conflict = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${copy.body.id}/duplicate`,
+      { slug: "copy-source-copy" },
+    );
+    assert.equal(conflict.status, 409, JSON.stringify(conflict.body));
+    assert.equal(conflict.body.error.code, "plugin_slug_exists");
+
+    // The copy is audited with its source.
+    const audit = await api(harness, "/v1/capabilities/audit?limit=200", {
+      token: "admin-token",
+    });
+    const entry = audit.body.items.find(
+      (item: any) =>
+        item.action === "workspace.plugin.duplicate" &&
+        item.details?.pluginId === copy.body.id,
+    );
+    assert.ok(entry, "duplicate audit entry missing");
+    assert.equal(entry.details.duplicatedFrom, id);
+  });
+
+  test("admin draft preview runs the member query path before publishing", async () => {
+    await createDataset(
+      harness,
+      { slug: "city-incidents", name: "Incidents", public: true },
+      { token: "admin-token" },
+    );
+    await api(harness, "/v1/capabilities/datasets/city-incidents/records", {
+      method: "POST",
+      token: "admin-token",
+      body: { data: { status: "open", severity: "high" } },
+    });
+
+    // A saved DRAFT (never published, never installed) with a bound query.
+    const created = await createPlugin({
+      slug: "preview-draft",
+      roles: ["admin"],
+      widgets: materializeActions([
+        {
+          id: "count",
+          type: "metric",
+          title: "Open",
+          resource: "incidents",
+        },
+      ]),
+    });
+    const id = created.body.id;
+
+    // The admin membership decides preview visibility; grant city access.
+    await admin("PUT", "/v1/capabilities/workspaces/members/admin-1", {
+      productRoles: { city: ["admin"] },
+    });
+    const preview = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/preview/widgets/count/data?action=act-count-load`,
+    );
+    assert.equal(preview.status, 200, JSON.stringify(preview.body));
+    assert.equal(preview.body.type, "metric");
+    assert.equal(preview.body.count, 1);
+
+    // A member session cannot use the preview lane.
+    const forbidden = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/preview/widgets/count/data?action=act-count-load`,
+      undefined,
+      "member-token",
+    );
+    assert.equal(forbidden.status, 403);
+
+    // Honest failure: a resource whose dataset is not provisioned for this
+    // organization reports 404 instead of pretending the page will work.
+    const missingDataset = await createPlugin({
+      slug: "preview-missing",
+      roles: ["admin"],
+      widgets: materializeActions([
+        { id: "count", type: "metric", title: "Assets", resource: "assets" },
+      ]),
+    });
+    const notProvisioned = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${missingDataset.body.id}/preview/widgets/count/data?action=act-count-load`,
+    );
+    assert.equal(notProvisioned.status, 404, JSON.stringify(notProvisioned.body));
+    assert.equal(notProvisioned.body.error.code, "widget_data_unavailable");
+  });
 });

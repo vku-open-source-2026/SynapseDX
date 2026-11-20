@@ -195,6 +195,33 @@ export async function restorePluginRevision(
 }
 
 /**
+ * Duplicate a plugin into a NEW draft ("Save as copy"). Keeps the resolved
+ * artifact bindings; the source plugin is never modified.
+ */
+export async function duplicatePlugin(
+  id: string,
+  options: { name?: string; slug?: string } = {},
+): Promise<WorkspacePlugin> {
+  return parsePlugin(
+    await api.post<unknown>(
+      `${WORKSPACE_API_BASE}/plugins/${encodeURIComponent(id)}/duplicate`,
+      options,
+    ),
+  );
+}
+
+/**
+ * Delete a plugin and its bounded history. Optimistic (`version`) and refused
+ * while the plugin is installed — uninstall it first. Irreversible.
+ */
+export async function deletePlugin(id: string, version: number): Promise<void> {
+  await api.del(
+    `${WORKSPACE_API_BASE}/plugins/${encodeURIComponent(id)}`,
+    { version },
+  );
+}
+
+/**
  * Member runtime list. This endpoint is role-filtered by the server; it is
  * never used to infer organization installation state in the admin console.
  */
@@ -336,12 +363,44 @@ export async function fetchWidgetData(
     widget.type !== "kanban" &&
     widget.type !== "timeline"
   ) {
-    throw new Error("Only metric and table widgets have a data endpoint.");
+    throw new Error("Data widgets (metric, table, chart, list, map, kanban, timeline) have a data endpoint.");
   }
   const payload = await api.get<unknown>(
     installedWidgetDataPath(installedId, widget.id),
     {
       params: { ...params, ...(actionId ? { action: actionId } : {}) },
+    },
+  );
+  return parseWidgetData(payload, widget.type);
+}
+
+/** Fetch one widget's live data through the admin DRAFT preview lane. */
+export async function fetchPluginPreviewData(
+  pluginId: string,
+  widget: Pick<WorkspaceWidget, "id" | "type">,
+  params: { limit?: number; offset?: number; search?: string } = {},
+  actionId?: string,
+): Promise<WidgetData> {
+  if (
+    widget.type !== "metric" &&
+    widget.type !== "table" &&
+    widget.type !== "chart" &&
+    widget.type !== "list" &&
+    widget.type !== "map" &&
+    widget.type !== "kanban" &&
+    widget.type !== "timeline"
+  ) {
+    throw new Error("Data widgets (metric, table, chart, list, map, kanban, timeline) have a preview data endpoint.");
+  }
+  const payload = await api.get<unknown>(
+    `${WORKSPACE_API_BASE}/plugins/${encodeURIComponent(pluginId)}/preview/widgets/${encodeURIComponent(widget.id)}/data`,
+    {
+      params: {
+        limit: params.limit ?? 25,
+        ...(params.offset !== undefined ? { offset: params.offset } : {}),
+        ...(params.search ? { search: params.search } : {}),
+        ...(actionId ? { action: actionId } : {}),
+      },
     },
   );
   return parseWidgetData(payload, widget.type);

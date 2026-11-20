@@ -12,8 +12,10 @@ export const api = {
     httpClient.put<T>(path, body).then((response) => response.data as T),
   patch: <T>(path: string, body?: unknown) =>
     httpClient.patch<T>(path, body).then((response) => response.data as T),
-  del: <T = unknown>(path: string) =>
-    httpClient.delete<T>(path).then((response) => response.data as T),
+  del: <T = unknown>(path: string, body?: unknown) =>
+    httpClient
+      .delete<T>(path, body === undefined ? undefined : { data: body })
+      .then((response) => response.data as T),
 };
 
 export interface HealthDependency {

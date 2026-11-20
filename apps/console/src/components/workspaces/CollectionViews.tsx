@@ -21,7 +21,9 @@ export function KanbanView({
   widget: RuntimeWidget;
   data?: WidgetData;
 }) {
-  const { select } = useContext(RecordSelection);
+  // Null-safe outside the member runtime (admin builder preview).
+  const selection = useContext(RecordSelection);
+  const select = selection?.select;
   const actions = useContext(BoardActions);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
@@ -110,7 +112,7 @@ export function KanbanView({
                     className="rounded-lg border border-dx-line bg-dx-surface p-4 shadow-sm hover:border-teal-400"
                   >
                     <button
-                      onClick={() => select(widget.resource || "", row)}
+                      onClick={() => select?.(widget.resource || "", row)}
                       className="block w-full text-left text-sm font-semibold"
                     >
                       {safeCellText(row[widget.columns?.[0] || "title"])}
@@ -155,7 +157,9 @@ export function TimelineView({
   widget: RuntimeWidget;
   data?: WidgetData;
 }) {
-  const { select } = useContext(RecordSelection);
+  // Null-safe outside the member runtime (admin builder preview).
+  const selection = useContext(RecordSelection);
+  const select = selection?.select;
   const date = widget.columns?.[1] || "createdAt";
   const rows = [...(data?.rows || [])].sort((a, b) =>
     String(a[date] || "").localeCompare(String(b[date] || "")),
@@ -168,7 +172,7 @@ export function TimelineView({
           <p className="text-[10px] text-dx-muted">{safeCellText(row[date])}</p>
           <button
             className="mt-1 text-sm font-semibold hover:text-teal-600"
-            onClick={() => select(widget.resource || "", row)}
+            onClick={() => select?.(widget.resource || "", row)}
           >
             {safeCellText(row[widget.columns?.[0] || "title"])}
           </button>

@@ -986,6 +986,10 @@ function widgetSubmitState(
   }
   if (!roles.length)
     return { canSubmit: false, reason: "installation_role_missing" };
+  // Workflow writes follow the same mutating-role rule as the common lane
+  // and uploads: a viewer-only member can read but never submit.
+  if (!roles.some((role) => role !== "viewer"))
+    return { canSubmit: false, reason: "mutation_not_supported" };
   if (!sdkReady)
     return { canSubmit: false, reason: "workflow_sdk_release_required" };
   if (!orgReadiness.ready)
@@ -1101,6 +1105,253 @@ async function loadArtifactMap(
   const map = new Map<string, WorkflowArtifactRecordLike | null>();
   for (const id of ids) map.set(id, await loadArtifact(client, tenant, id));
   return map;
+}
+
+/**
+ * Query one bound data widget through the exact read path members use. Shared
+ * by the member route (published install) and the admin draft-preview route so
+ * a preview can never diverge from production read semantics. Returns the JSON
+ * payload; the caller sets transport headers.
+ */
+async function widgetDataPayload(
+  context: WorkspaceContext,
+  config: ServiceConfig,
+  req: Request,
+  product: WorkspacePluginRecord["product"],
+  widget: WorkspaceWidget,
+): Promise<Record<string, unknown>> {
+      if (!widget.resource)
+        throw apiError(
+          400,
+          "widget_data_unavailable",
+          "this widget has no bound resource",
+        );
+      const allowedQuery = new Set([
+        "action",
+        "limit",
+        "offset",
+        "search",
+        "status",
+        "sortBy",
+        "sortDirection",
+        "bbox",
+      ]);
+      if (Object.keys(req.query).some((key) => !allowedQuery.has(key)))
+        throw apiError(
+          400,
+          "query_input_invalid",
+          "Undeclared query parameter",
+        );
+      for (const key of ["search", "status", "sortBy", "sortDirection"])
+        if (
+          req.query[key] !== undefined &&
+          (typeof req.query[key] !== "string" ||
+            (req.query[key] as string).length > 200)
+        )
+          throw apiError(400, "query_input_invalid", "Invalid query value");
+      const sortBy =
+        typeof req.query.sortBy === "string" ? req.query.sortBy : undefined;
+      if (sortBy && sortBy !== "id" && !widget.columns?.includes(sortBy))
+        throw apiError(
+          400,
+          "query_input_invalid",
+          "Sort field must be a published column",
+        );
+      const sortDirection = req.query.sortDirection || "asc";
+      if (!["asc", "desc"].includes(String(sortDirection)))
+        throw apiError(
+          400,
+          "query_input_invalid",
+          "Sort direction must be asc or desc",
+        );
+      if (String(req.query.search || "").trim() && !widget.columns?.length)
+        throw apiError(400, "query_input_invalid", "Search requires published columns; use a table query for text filters");
+      if (commonSource(widget.resource)) {
+        const pagination = parsePagination(
+            req,
+            context.limits.widgetDataMaxRows,
+          ),
+          columns = widget.columns || [];
+        let rows = await commonRows(
+          config,
+          context.caller.credential,
+          product,
+          widget.resource,
+        );
+        const search = String(req.query.search || "").toLowerCase();
+        if (search)
+          rows = rows.filter((row: any) =>
+            columns.some((key) =>
+              String(row[key] ?? "")
+                .toLowerCase()
+                .includes(search),
+            ),
+          );
+        if (req.query.status)
+          rows = rows.filter(
+            (row: any) => String(row.status || "") === req.query.status,
+          );
+        if (sortBy)
+          rows.sort(
+            (a: any, b: any) =>
+              String(a[sortBy] ?? "").localeCompare(
+                String(b[sortBy] ?? ""),
+                undefined,
+                { numeric: true },
+              ) * (sortDirection === "desc" ? -1 : 1),
+          );
+        const total = rows.length;
+        if (widget.type === "metric") {
+          return ({ type: "metric", widgetId: widget.id, count: total });
+        }
+        return ({
+          type: widget.type,
+          widgetId: widget.id,
+          columns,
+          items: rows
+            .slice(pagination.offset, pagination.offset + pagination.limit)
+            .map((row: any) =>
+              Object.fromEntries(
+                ["id", ...columns].map((key) => [key, row[key] ?? null]),
+              ),
+            ),
+          total,
+          limit: pagination.limit,
+          offset: pagination.offset,
+        });
+      }
+      const mapping = resourceFor(product, widget.resource);
+      if (!mapping)
+        throw apiError(
+          409,
+          "resource_not_allowed",
+          "this widget resource is no longer allowed",
+        );
+      const dataset = await loadWorkspaceDataset(
+        context.client,
+        mapping.dataset,
+      );
+      if (!dataset || dataset.data.tenant !== context.tenant) {
+        throw apiError(
+          404,
+          "widget_data_unavailable",
+          "the bound dataset is not provisioned for this organization",
+        );
+      }
+      const prefix = product === "city" ? "city-" : "sos-";
+      if (!dataset.data.id.startsWith(prefix)) {
+        throw apiError(
+          409,
+          "resource_not_allowed",
+          "the bound dataset does not belong to this product",
+        );
+      }
+      const pagination = parsePagination(req, context.limits.widgetDataMaxRows);
+      // A map viewport is a server-side spatial filter, not a client-supplied
+      // dataset or geometry path. The dataset binding and geo field stay server
+      // side; without a geo binding the normal query remains authoritative.
+      const bboxRaw = String(req.query.bbox || "").trim();
+      if (bboxRaw && widget.type === "map" && dataset.data.geo) {
+        const bbox = bboxRaw.split(",").map(Number);
+        if (bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) {
+          throw apiError(400, "query_input_invalid", "bbox must be west,south,east,north");
+        }
+        const spatial = await querySpatialRecords(
+          context.client,
+          dataset.data,
+          context.caller,
+          { mode: "bbox", bbox, limit: pagination.limit },
+        );
+        const spatialColumns = (widget.columns || []).slice(0, context.limits.maxColumns);
+        const rows = spatial.items.map((item) => {
+          const row: Record<string, unknown> = { id: item.id };
+          for (const column of spatialColumns) {
+            row[column] = column === "id" ? item.id : (item.data[column] ?? null);
+          }
+          return row;
+        });
+        return ({
+          widgetId: widget.id,
+          type: widget.type,
+          title: widget.title,
+          resource: widget.resource,
+          columns: spatialColumns,
+          items: rows,
+          total: rows.length,
+          limit: pagination.limit,
+          offset: 0,
+          spatial: true,
+          generatedAt: new Date().toISOString(),
+        });
+      }
+      const clauses: any[] = [
+        { deletedAt: { exists: false } },
+      ];
+      const search = String(req.query.search || "")
+        .trim()
+        .slice(0, 120);
+      const status = String(req.query.status || "")
+        .trim()
+        .slice(0, 80);
+      const columns = (widget.columns || []).slice(
+        0,
+        context.limits.maxColumns,
+      );
+      if (search && columns.length)
+        clauses.push({
+          or: columns
+            .map((column) => ({
+              field: column === "id" ? "id" : `data.${column}`,
+              op: "contains",
+              value: search,
+            })),
+        });
+      if (status)
+        clauses.push({ field: "data.status", op: "eq", value: status });
+      const result = await queryDocuments<CapabilityRecord>(
+        context.client,
+        COLLECTIONS.records,
+        {
+          where: { and: [readableRecordsWhere(dataset.data, context.caller), ...clauses] },
+          orderBy: {
+            field: !sortBy || sortBy === "id" ? "id" : `data.${sortBy}`,
+            direction: sortDirection as "asc" | "desc",
+          },
+          limit: widget.type === "metric" ? 1 : pagination.limit,
+          offset: widget.type === "metric" ? 0 : pagination.offset,
+        },
+      );
+      if (widget.type === "metric") {
+        return ({
+          widgetId: widget.id,
+          type: "metric",
+          title: widget.title,
+          resource: widget.resource,
+          count: result.total,
+          generatedAt: new Date().toISOString(),
+        });
+      }
+      return ({
+        widgetId: widget.id,
+        type: widget.type,
+        title: widget.title,
+        resource: widget.resource,
+        columns,
+        items: result.items.map((item) => {
+          const row: Record<string, unknown> = { id: item.data.id };
+          for (const column of columns) {
+            row[column] =
+              column === "id"
+                ? item.data.id
+                : (item.data.data?.[column] ?? null);
+          }
+          return row;
+        }),
+        total: result.total,
+        limit: pagination.limit,
+        offset: pagination.offset,
+        generatedAt: new Date().toISOString(),
+      });
 }
 
 async function installedEntries(
@@ -1937,6 +2188,193 @@ export function registerWorkspacePluginRoutes(
     }),
   );
 
+  /**
+   * Duplicate a plugin into a NEW draft ("Save as copy"). The copy keeps the
+   * same product, audience, roles and widgets — including the already-resolved
+   * artifact bindings, which stay valid inside the same organization — but
+   * never the id, version, status or pins of the source. The source is never
+   * modified; the copy starts at version 1 like any created plugin.
+   */
+  app.post(
+    `${base}/plugins/:id/duplicate`,
+    handler(async (req, res) => {
+      const context = await adminContext(req, config);
+      const id = pluginDocumentId(req.params.id);
+      const source = await loadPlugin(context.client, context.tenant, id);
+      const body = (req.body || {}) as Record<string, unknown>;
+      assertBodyKeys(body, ["name", "slug"]);
+      const nameInput =
+        body.name === undefined || body.name === null
+          ? `${source.record.name} copy`
+          : String(body.name);
+      const slugInput =
+        body.slug === undefined || body.slug === null
+          ? `${source.record.slug.replace(/-copy(-\d+)?$/, "")}-copy`
+          : String(body.slug);
+      const definition = parsePluginDefinition(
+        {
+          product: source.record.product,
+          name: nameInput,
+          slug: slugInput,
+          audience: source.record.audience,
+          roles: source.record.roles,
+          widgets: source.record.widgets,
+        },
+        context.limits,
+        { allowWorkflowArtifactId: true },
+      );
+      await ensureWorkspaceCollections(context.client);
+      const existing = await queryDocuments<WorkspacePluginRecord>(
+        context.client,
+        COLLECTIONS.workspacePlugins,
+        { where: { tenant: context.tenant }, limit: 1 },
+      );
+      if (existing.total >= context.limits.maxPluginsPerOrg) {
+        throw apiError(
+          409,
+          "plugin_limit_reached",
+          `this organization already has ${context.limits.maxPluginsPerOrg} plugins`,
+        );
+      }
+      await assertUniqueSlug(
+        context.client,
+        context.tenant,
+        definition.product,
+        definition.slug,
+      );
+      await assertArtifactBindings(
+        context.client,
+        context.tenant,
+        definition.widgets,
+      );
+      const now = new Date().toISOString();
+      const record: WorkspacePluginRecord = {
+        id: randomUUID(),
+        tenant: context.tenant,
+        ...(context.principal.org ? { org: context.principal.org } : {}),
+        product: definition.product,
+        name: definition.name,
+        slug: definition.slug,
+        audience: definition.audience,
+        roles: definition.roles,
+        widgets: definition.widgets,
+        status: "draft",
+        version: 1,
+        ...(source.record.source ? { source: source.record.source } : {}),
+        createdBy: context.principal.subject,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await context.client.base.createDocument(COLLECTIONS.workspacePlugins, {
+        id: record.id,
+        data: record as unknown as Record<string, unknown>,
+      });
+      await persistRevision(context.client, record, "draft");
+      invalidateWorkspaceCaches(context.tenant, record.id);
+      await recordAudit(context.client, config, {
+        actor: context.principal.subject,
+        tenant: context.tenant,
+        action: "workspace.plugin.duplicate",
+        correlationId: correlationIdOf(req),
+        details: {
+          pluginId: record.id,
+          product: record.product,
+          slug: record.slug,
+          duplicatedFrom: id,
+          duplicatedFromVersion: source.record.version,
+        },
+      });
+      res.setHeader(
+        "location",
+        `${base}/plugins/${encodeURIComponent(record.id)}`,
+      );
+      const installs = await listInstalls(context.client, context.tenant);
+      res.status(201).json(adminPluginView(record, installs));
+    }),
+  );
+
+  /**
+   * Delete a plugin and its bounded history (draft record, revisions and
+   * published snapshots). An installed plugin cannot be deleted — the install
+   * is what members see, so it must be removed explicitly first. Deletion is
+   * optimistic (`version`) and audited; it never touches another tenant's
+   * documents and never deletes a shared dataset.
+   */
+  app.delete(
+    `${base}/plugins/:id`,
+    handler(async (req, res) => {
+      const context = await adminContext(req, config);
+      const id = pluginDocumentId(req.params.id);
+      const current = await loadPlugin(context.client, context.tenant, id);
+      const body = (req.body || {}) as Record<string, unknown>;
+      assertBodyKeys(body, ["version"]);
+      const version = Number(body.version);
+      if (!Number.isInteger(version) || version !== current.record.version) {
+        throw apiError(
+          409,
+          "version_conflict",
+          "plugin was modified by another request",
+          { currentVersion: current.record.version },
+        );
+      }
+      const install = await loadInstall(context.client, context.tenant, id);
+      if (install) {
+        throw apiError(
+          409,
+          "plugin_installed",
+          "this plugin is installed for your organization; uninstall it before deleting it",
+        );
+      }
+      // All writes are tenant-scoped keys derived from this plugin id.
+      await context.client.base
+        .deleteDocument(COLLECTIONS.workspacePlugins, id)
+        .catch((error: unknown) => {
+          if (!isNotFound(error)) throw error;
+        });
+      const history = await queryDocuments<{ version: number }>(
+        context.client,
+        COLLECTIONS.workspacePluginRevisions,
+        { where: { tenant: context.tenant, pluginId: id }, limit: 1000 },
+      );
+      for (const revision of history.items) {
+        await context.client.base
+          .deleteDocument(
+            COLLECTIONS.workspacePluginRevisions,
+            revisionDocumentId(id, revision.data.version),
+          )
+          .catch(() => undefined);
+      }
+      const snapshots = await queryDocuments<{ version: number }>(
+        context.client,
+        COLLECTIONS.workspacePluginSnapshots,
+        { where: { tenant: context.tenant, pluginId: id }, limit: 1000 },
+      );
+      for (const snapshot of snapshots.items) {
+        await context.client.base
+          .deleteDocument(
+            COLLECTIONS.workspacePluginSnapshots,
+            snapshotDocumentId(id, snapshot.data.version),
+          )
+          .catch(() => undefined);
+      }
+      invalidateWorkspaceCaches(context.tenant, id);
+      await recordAudit(context.client, config, {
+        actor: context.principal.subject,
+        tenant: context.tenant,
+        action: "workspace.plugin.delete",
+        correlationId: correlationIdOf(req),
+        details: {
+          pluginId: id,
+          product: current.record.product,
+          slug: current.record.slug,
+          version: current.record.version,
+          status: current.record.status,
+        },
+      });
+      res.status(204).end();
+    }),
+  );
+
   app.get(
     `${base}/plugins/:id/revisions`,
     handler(async (req, res) => {
@@ -2346,6 +2784,106 @@ export function registerWorkspacePluginRoutes(
         `${base}/plugins/${encodeURIComponent(record.id)}`,
       );
       res.status(201).json(adminPluginView(record, installs));
+    }),
+  );
+
+  /**
+   * Admin draft preview: run the EXACT member query path against the current
+   * draft definition, before publishing or installing. Read-only. A preview
+   * sees what a member with the caller's intersecting roles would see —
+   * including honest failures (dataset not provisioned, resource not allowed)
+   * that would otherwise surface only after installation.
+   */
+  app.get(
+    `${base}/plugins/:id/preview/widgets/:widgetId/data`,
+    handler(async (req, res) => {
+      const context = await adminContext(req, config);
+      const id = pluginDocumentId(req.params.id);
+      const plugin = await loadPlugin(context.client, context.tenant, id);
+      const widgetId = String(req.params.widgetId || "").trim();
+      const widget = plugin.record.widgets.find(
+        (candidate) => candidate.id === widgetId,
+      );
+      if (!widget) throw apiError(404, "widget_not_found", "widget not found");
+      const registered = requireRegisteredAction(
+        plugin.record.widgets,
+        req.query.action,
+        widget.id,
+        "query",
+      );
+      queryInput(req, registered);
+      if (
+        registered.kind === "query" &&
+        registered.source !== widget.resource
+      ) {
+        throw apiError(
+          403,
+          "query_source_invalid",
+          "Query source does not match its catalog binding",
+        );
+      }
+      if (widget.type === "form") {
+        throw apiError(
+          400,
+          "mutation_not_supported",
+          "form widgets are executed through the workflow action endpoint, not read as data",
+        );
+      }
+      if (
+        ![
+          "metric",
+          "table",
+          "chart",
+          "list",
+          "map",
+          "kanban",
+          "timeline",
+        ].includes(widget.type)
+      ) {
+        throw apiError(
+          400,
+          "widget_data_unavailable",
+          "this widget type has no data source",
+        );
+      }
+      if (!widget.resource)
+        throw apiError(
+          400,
+          "widget_data_unavailable",
+          "this widget has no bound resource",
+        );
+      // Preview as a member of the caller's own intersecting roles: the
+      // admin membership rows decide what is readable, never the draft.
+      const memberRoles = await memberRolesFor(
+        context.client,
+        config,
+        context.tenant,
+        context.principal,
+        req,
+        plugin.record.product,
+      );
+      const roles = effectiveRoles(
+        memberRoles,
+        plugin.record.roles,
+        plugin.record.roles,
+      );
+      if (!roles.length) {
+        throw apiError(
+          403,
+          "invalid_membership",
+          "your account has no role for this product; grant yourself a matching app membership to preview member data",
+        );
+      }
+      res.setHeader("cache-control", "no-store");
+      res.json(
+        await widgetDataPayload(
+          context,
+          config,
+          req,
+          plugin.record.product,
+          widget,
+        ),
+      );
     }),
   );
 
@@ -2961,239 +3499,16 @@ export function registerWorkspacePluginRoutes(
           "widget_data_unavailable",
           "this widget has no bound resource",
         );
-      const allowedQuery = new Set([
-        "action",
-        "limit",
-        "offset",
-        "search",
-        "status",
-        "sortBy",
-        "sortDirection",
-        "bbox",
-      ]);
-      if (Object.keys(req.query).some((key) => !allowedQuery.has(key)))
-        throw apiError(
-          400,
-          "query_input_invalid",
-          "Undeclared query parameter",
-        );
-      for (const key of ["search", "status", "sortBy", "sortDirection"])
-        if (
-          req.query[key] !== undefined &&
-          (typeof req.query[key] !== "string" ||
-            (req.query[key] as string).length > 200)
-        )
-          throw apiError(400, "query_input_invalid", "Invalid query value");
-      const sortBy =
-        typeof req.query.sortBy === "string" ? req.query.sortBy : undefined;
-      if (sortBy && sortBy !== "id" && !widget.columns?.includes(sortBy))
-        throw apiError(
-          400,
-          "query_input_invalid",
-          "Sort field must be a published column",
-        );
-      const sortDirection = req.query.sortDirection || "asc";
-      if (!["asc", "desc"].includes(String(sortDirection)))
-        throw apiError(
-          400,
-          "query_input_invalid",
-          "Sort direction must be asc or desc",
-        );
-      if (String(req.query.search || "").trim() && !widget.columns?.length)
-        throw apiError(400, "query_input_invalid", "Search requires published columns; use a table query for text filters");
-      if (commonSource(widget.resource)) {
-        const pagination = parsePagination(
-            req,
-            context.limits.widgetDataMaxRows,
-          ),
-          columns = widget.columns || [];
-        let rows = await commonRows(
-          config,
-          context.caller.credential,
-          entry.snapshot.product,
-          widget.resource,
-        );
-        const search = String(req.query.search || "").toLowerCase();
-        if (search)
-          rows = rows.filter((row: any) =>
-            columns.some((key) =>
-              String(row[key] ?? "")
-                .toLowerCase()
-                .includes(search),
-            ),
-          );
-        if (req.query.status)
-          rows = rows.filter(
-            (row: any) => String(row.status || "") === req.query.status,
-          );
-        if (sortBy)
-          rows.sort(
-            (a: any, b: any) =>
-              String(a[sortBy] ?? "").localeCompare(
-                String(b[sortBy] ?? ""),
-                undefined,
-                { numeric: true },
-              ) * (sortDirection === "desc" ? -1 : 1),
-          );
-        const total = rows.length;
-        if (widget.type === "metric") {
-          res.json({ type: "metric", widgetId: widget.id, count: total });
-          return;
-        }
-        res.setHeader("cache-control", "no-store");
-        res.json({
-          type: widget.type,
-          widgetId: widget.id,
-          columns,
-          items: rows
-            .slice(pagination.offset, pagination.offset + pagination.limit)
-            .map((row: any) =>
-              Object.fromEntries(
-                ["id", ...columns].map((key) => [key, row[key] ?? null]),
-              ),
-            ),
-          total,
-          limit: pagination.limit,
-          offset: pagination.offset,
-        });
-        return;
-      }
-      const mapping = resourceFor(entry.snapshot.product, widget.resource);
-      if (!mapping)
-        throw apiError(
-          409,
-          "resource_not_allowed",
-          "this widget resource is no longer allowed",
-        );
-      const dataset = await loadWorkspaceDataset(
-        context.client,
-        mapping.dataset,
-      );
-      if (!dataset || dataset.data.tenant !== context.tenant) {
-        throw apiError(
-          404,
-          "widget_data_unavailable",
-          "the bound dataset is not provisioned for this organization",
-        );
-      }
-      const prefix = entry.snapshot.product === "city" ? "city-" : "sos-";
-      if (!dataset.data.id.startsWith(prefix)) {
-        throw apiError(
-          409,
-          "resource_not_allowed",
-          "the bound dataset does not belong to this product",
-        );
-      }
-      const pagination = parsePagination(req, context.limits.widgetDataMaxRows);
-      // A map viewport is a server-side spatial filter, not a client-supplied
-      // dataset or geometry path. The dataset binding and geo field stay server
-      // side; without a geo binding the normal query remains authoritative.
-      const bboxRaw = String(req.query.bbox || "").trim();
-      if (bboxRaw && widget.type === "map" && dataset.data.geo) {
-        const bbox = bboxRaw.split(",").map(Number);
-        if (bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) {
-          throw apiError(400, "query_input_invalid", "bbox must be west,south,east,north");
-        }
-        const spatial = await querySpatialRecords(
-          context.client,
-          dataset.data,
-          context.caller,
-          { mode: "bbox", bbox, limit: pagination.limit },
-        );
-        const spatialColumns = (widget.columns || []).slice(0, context.limits.maxColumns);
-        const rows = spatial.items.map((item) => {
-          const row: Record<string, unknown> = { id: item.id };
-          for (const column of spatialColumns) {
-            row[column] = column === "id" ? item.id : (item.data[column] ?? null);
-          }
-          return row;
-        });
-        res.setHeader("cache-control", "no-store");
-        res.json({
-          widgetId: widget.id,
-          type: widget.type,
-          title: widget.title,
-          resource: widget.resource,
-          columns: spatialColumns,
-          items: rows,
-          total: rows.length,
-          limit: pagination.limit,
-          offset: 0,
-          spatial: true,
-          generatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-      const clauses: any[] = [
-        { deletedAt: { exists: false } },
-      ];
-      const search = String(req.query.search || "")
-        .trim()
-        .slice(0, 120);
-      const status = String(req.query.status || "")
-        .trim()
-        .slice(0, 80);
-      const columns = (widget.columns || []).slice(
-        0,
-        context.limits.maxColumns,
-      );
-      if (search && columns.length)
-        clauses.push({
-          or: columns
-            .map((column) => ({
-              field: column === "id" ? "id" : `data.${column}`,
-              op: "contains",
-              value: search,
-            })),
-        });
-      if (status)
-        clauses.push({ field: "data.status", op: "eq", value: status });
-      const result = await queryDocuments<CapabilityRecord>(
-        context.client,
-        COLLECTIONS.records,
-        {
-          where: { and: [readableRecordsWhere(dataset.data, context.caller), ...clauses] },
-          orderBy: {
-            field: !sortBy || sortBy === "id" ? "id" : `data.${sortBy}`,
-            direction: sortDirection as "asc" | "desc",
-          },
-          limit: widget.type === "metric" ? 1 : pagination.limit,
-          offset: widget.type === "metric" ? 0 : pagination.offset,
-        },
-      );
       res.setHeader("cache-control", "no-store");
-      if (widget.type === "metric") {
-        res.json({
-          widgetId: widget.id,
-          type: "metric",
-          title: widget.title,
-          resource: widget.resource,
-          count: result.total,
-          generatedAt: new Date().toISOString(),
-        });
-        return;
-      }
-      res.json({
-        widgetId: widget.id,
-        type: widget.type,
-        title: widget.title,
-        resource: widget.resource,
-        columns,
-        items: result.items.map((item) => {
-          const row: Record<string, unknown> = { id: item.data.id };
-          for (const column of columns) {
-            row[column] =
-              column === "id"
-                ? item.data.id
-                : (item.data.data?.[column] ?? null);
-          }
-          return row;
-        }),
-        total: result.total,
-        limit: pagination.limit,
-        offset: pagination.offset,
-        generatedAt: new Date().toISOString(),
-      });
+      res.json(
+        await widgetDataPayload(
+          context,
+          config,
+          req,
+          entry.snapshot.product,
+          widget,
+        ),
+      );
     }),
   );
 
@@ -3283,6 +3598,17 @@ export function registerWorkspacePluginRoutes(
         req,
         id,
       );
+      // Writers need a mutating role. The published preview already reports
+      // mutation_not_supported for a viewer-only member; enforce the same gate
+      // here so a direct POST cannot bypass the advertised contract (the
+      // upload lane applies the same rule).
+      if (!entry.effectiveRoles.some((role) => role !== "viewer")) {
+        throw apiError(
+          403,
+          "installation_role_forbidden",
+          "a viewer role cannot execute mutations",
+        );
+      }
       const widgetId = String(req.params.widgetId || "").trim();
       const widget = entry.snapshot.widgets.find(
         (candidate) => candidate.id === widgetId,

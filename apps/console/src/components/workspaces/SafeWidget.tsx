@@ -649,6 +649,12 @@ export function SafeWidget({
   const pageActions = useContext(WorkspaceActions);
   const allowedPages = useContext(WorkspaceNavigation);
   const allowedModules = useContext(WorkspaceModules);
+  // Builder preview with real data: when the admin preview lane provides a
+  // payload (or a load error), data widgets render through their runtime path
+  // instead of the placeholder, so a preview can never lie about the query.
+  const livePreview =
+    preview === true &&
+    (data !== undefined || Boolean(dataLoading) || Boolean(dataError));
   const links = widget.links?.filter(
     (link) =>
       preview ||
@@ -777,7 +783,7 @@ export function SafeWidget({
         ) : dataLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : (
-          <ChartWidget widget={widget} data={data} preview={preview} />
+          <ChartWidget widget={widget} data={data} preview={preview && !livePreview} />
         )
       ) : null}
       {widget.type === "list" ? (
@@ -786,7 +792,7 @@ export function SafeWidget({
           data={data}
           loading={dataLoading}
           error={dataError}
-          preview={preview}
+          preview={preview && !livePreview}
         />
       ) : null}
       {widget.type === "markdown" ? (
@@ -817,7 +823,7 @@ export function SafeWidget({
           data={data}
           loading={dataLoading}
           error={dataError}
-          preview={preview}
+          preview={preview && !livePreview}
         />
       ) : null}
       {widget.type === "map" ? (
@@ -829,7 +835,7 @@ export function SafeWidget({
           <MapWidget
             widget={widget}
             data={data}
-            preview={preview}
+            preview={preview && !livePreview}
             onSpatialSearch={onSpatialSearch}
           />
         )
@@ -840,7 +846,7 @@ export function SafeWidget({
           data={data}
           loading={dataLoading}
           error={dataError}
-          preview={preview}
+          preview={preview && !livePreview}
         />
       ) : null}
       {widget.type === "form" ? (
