@@ -2954,7 +2954,14 @@ export function registerWorkspacePluginRoutes(
       await recordAudit(context.client, config, { actor: context.principal.subject, tenant: context.tenant, action: "workspace.file.upload", correlationId: correlationIdOf(req), details: { pluginId: entry.snapshot.pluginId, widgetId: widget.id, actionId: req.query.action, field: field.name, product: entry.snapshot.product, fileId: file.id } });
       res.status(201).json(result);
     } catch (error) {
-      await callCommon(config, context.caller.credential, entry.snapshot.product, `files/${encodeURIComponent(file.id)}`, "DELETE").catch(() => {});
+      await callCommon(config, context.caller.credential, entry.snapshot.product, `files/${encodeURIComponent(file.id)}`, "DELETE").catch((cleanupError) => {
+        // The compensation is best-effort: a 404 means the file never became
+        // visible. Any other failure leaves an orphan record worth a log line
+        // (#83 comment item 4) — the upload still fails with the original error.
+        if ((cleanupError as any)?.status !== 404) {
+          console.warn(`[workspace-plugins] upload compensation for file ${file.id} (${widget.id}) failed: ${(cleanupError as Error)?.message || cleanupError}`);
+        }
+      });
       throw error;
     }
   }));

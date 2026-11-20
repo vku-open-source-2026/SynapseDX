@@ -592,7 +592,14 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
         ...(found.version ? { ifVersion: found.version } : {}),
       });
     } catch (error) {
-      await client.ocs.deleteObject(config.filesBucket, nextStorageKey).catch(() => undefined);
+      await client.ocs.deleteObject(config.filesBucket, nextStorageKey).catch((cleanupError) => {
+        // The rollback is best-effort and keeps the previous metadata intact;
+        // only a missing object is silent. Any other failure leaves an orphan
+        // and must be operator-visible (#83 comment item 4).
+        if (!(cleanupError instanceof SynapseOneError && cleanupError.status === 404)) {
+          console.warn(`[files] rollback object ${nextStorageKey} for file ${record.id} could not be deleted: ${(cleanupError as Error)?.message}`);
+        }
+      });
       await release().catch(() => undefined);
       throw error;
     }
@@ -736,7 +743,13 @@ export function registerFileRoutes(app: Express, config: ServiceConfig): void {
         await client.ocs.deleteObject(found.data.ocsBucket, found.data.storageKey);
       } else {
         await client.storage.deleteObject(found.data.storageKey);
-        await client.ocs.deleteObject(config.filesBucket, found.data.storageKey).catch(() => undefined);
+        await client.ocs.deleteObject(config.filesBucket, found.data.storageKey).catch((cleanupError) => {
+          // Legacy records may have no OCS copy: 404 is the normal case and
+          // stays silent. Other failures orphan bytes and must be visible.
+          if (!(cleanupError instanceof SynapseOneError && cleanupError.status === 404)) {
+            console.warn(`[files] legacy OCS copy ${found.data.storageKey} for file ${found.data.id} could not be deleted: ${(cleanupError as Error)?.message}`);
+          }
+        });
       }
     } catch (error) {
       if (!(error instanceof SynapseOneError && error.status === 404)) mapStorageError(error);
