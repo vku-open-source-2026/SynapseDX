@@ -32,13 +32,13 @@ export function QualityModule() {
   const contract = useQuery({
     queryKey: ['contract', slug],
     enabled: Boolean(slug),
-    queryFn: () => api.get<{ contract: Contract | null }>(`/v1/capabilities/datasets/${slug}/contract`).catch(() => ({ contract: null })),
+    queryFn: () => api.get<{ contract: Contract | null }>(`/v1/capabilities/datasets/${slug}/contract`),
     retry: false,
   });
   const quality = useQuery({
     queryKey: ['quality', slug],
     enabled: Boolean(slug),
-    queryFn: () => api.get<{ latest: QualityRun | null }>(`/v1/capabilities/datasets/${slug}/quality`).catch(() => ({ latest: null })),
+    queryFn: () => api.get<{ latest: QualityRun | null }>(`/v1/capabilities/datasets/${slug}/quality`),
     retry: false,
   });
 
@@ -68,37 +68,61 @@ export function QualityModule() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card className="p-5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Contract</p>
-            <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">
-              {value ? `v${value.version ?? 1} · ${value.compatibility || 'n/a'}` : 'No contract'}
-            </h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {value
-                ? `${fieldCount} fields · license ${value.license || '—'}`
-                : 'Publish a contract to pin schema, owner, SLA and retention.'}
-            </p>
-            {value ? (
-              <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-[11px] text-slate-100">
-                {previewJson(value.schema, 800)}
-              </pre>
-            ) : null}
+            {contract.isError ? (
+              <>
+                <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">Contract unavailable</h3>
+                <p role="alert" className="mt-1 text-sm text-red-700">
+                  The contract could not be loaded: {(contract.error as Error)?.message}{' '}
+                  <button type="button" className="font-semibold underline" onClick={() => void contract.refetch()}>Retry</button>
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">
+                  {value ? `v${value.version ?? 1} · ${value.compatibility || 'n/a'}` : 'No contract'}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {value
+                    ? `${fieldCount} fields · license ${value.license || '—'}`
+                    : 'Publish a contract to pin schema, owner, SLA and retention.'}
+                </p>
+                {value ? (
+                  <pre className="mt-3 max-h-64 overflow-auto rounded-xl bg-slate-950 p-3 font-mono text-[11px] text-slate-100">
+                    {previewJson(value.schema, 800)}
+                  </pre>
+                ) : null}
+              </>
+            )}
           </Card>
           <Card className="p-5">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Quality</p>
-            <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">
-              {latest ? `${latest.status ?? 'unknown'} · ${latest.failed ?? 0} failed` : 'No run yet'}
-            </h3>
-            <p className="mt-1 text-sm text-slate-500">
-              {latest
-                ? `${latest.checked ?? 0} records checked`
-                : 'Run quality rules before publishing when a gate is configured.'}
-            </p>
-            {latest ? (
-              <div className="mt-3">
-                <Pill tone={(latest.failed ?? 0) === 0 ? 'ok' : 'warn'}>
-                  {(latest.failed ?? 0) === 0 ? 'All records pass' : `${latest.failed} record(s) need attention`}
-                </Pill>
-              </div>
-            ) : null}
+            {quality.isError ? (
+              <>
+                <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">Quality run unavailable</h3>
+                <p role="alert" className="mt-1 text-sm text-red-700">
+                  The latest quality run could not be loaded: {(quality.error as Error)?.message}{' '}
+                  <button type="button" className="font-semibold underline" onClick={() => void quality.refetch()}>Retry</button>
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 className="mt-0.5 text-lg font-semibold tracking-tight text-slate-900">
+                  {latest ? `${latest.status ?? 'unknown'} · ${latest.failed ?? 0} failed` : 'No run yet'}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {latest
+                    ? `${latest.checked ?? 0} records checked`
+                    : 'Run quality rules before publishing when a gate is configured.'}
+                </p>
+                {latest ? (
+                  <div className="mt-3">
+                    <Pill tone={(latest.failed ?? 0) === 0 ? 'ok' : 'warn'}>
+                      {(latest.failed ?? 0) === 0 ? 'All records pass' : `${latest.failed} record(s) need attention`}
+                    </Pill>
+                  </div>
+                ) : null}
+              </>
+            )}
           </Card>
         </div>
       )}

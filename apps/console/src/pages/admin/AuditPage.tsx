@@ -43,7 +43,7 @@ export function AuditPage() {
   const usage = useQuery({
     queryKey: ['usage'],
     enabled: readable,
-    queryFn: () => api.get<UsageResponse>('/v1/capabilities/usage').catch(() => null),
+    queryFn: () => api.get<UsageResponse>('/v1/capabilities/usage'),
     retry: false,
   });
 
@@ -56,17 +56,25 @@ export function AuditPage() {
   }
 
   const items = audit.data?.items ?? [];
+  const usageFailed = usage.isError;
   const totals = usage.data?.totals ?? {};
-  const usageWindow = usage.data?.window || 'current';
+  const usageWindow = usageFailed ? '—' : usage.data?.window || 'current';
 
   return (
     <div className="space-y-6">
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Audit metrics">
         <KpiCard label="Audit entries" value={formatNumber(audit.data?.total || items.length)} icon={<ScrollText size={18} />} />
-        <KpiCard label="API requests" value={formatNumber(totals.requests || 0)} icon={<Activity size={18} />} />
-        <KpiCard label="Usage errors" value={formatNumber(totals.errors || 0)} icon={<AlertTriangle size={18} />} />
+        <KpiCard label="API requests" value={usageFailed ? '—' : formatNumber(totals.requests || 0)} icon={<Activity size={18} />} />
+        <KpiCard label="Usage errors" value={usageFailed ? '—' : formatNumber(totals.errors || 0)} icon={<AlertTriangle size={18} />} />
         <KpiCard label="Usage window" value={usageWindow} icon={<Filter size={18} />} />
       </section>
+
+      {usageFailed ? (
+        <p role="alert" className="text-sm font-medium text-red-700">
+          Usage could not be loaded: {(usage.error as Error)?.message}{' '}
+          <button type="button" className="font-semibold underline" onClick={() => void usage.refetch()}>Retry</button>
+        </p>
+      ) : null}
 
       <Card className="overflow-hidden">
         <CardHeader eyebrow="GOVERNANCE" title="Mutation audit" />

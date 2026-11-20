@@ -38,7 +38,7 @@ export function AgentsModule() {
   });
   const runs = useQuery({
     queryKey: ['agent-runs'],
-    queryFn: () => api.get<{ items?: AgentRun[] }>('/v1/capabilities/agent-runs').catch(() => ({ items: [] as AgentRun[] })),
+    queryFn: () => api.get<{ items?: AgentRun[] }>('/v1/capabilities/agent-runs'),
     retry: false,
   });
 
@@ -111,7 +111,11 @@ export function AgentsModule() {
 
       <Card className="overflow-hidden">
         <CardHeader eyebrow="RUNS" title="Recent traces" />
-        {runRows.length === 0 ? (
+        {runs.isLoading ? (
+          <div className="grid gap-3 px-5 py-6"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></div>
+        ) : runs.isError ? (
+          <div className="px-5 py-6"><EmptyState title="Recent traces could not be loaded" message={(runs.error as Error)?.message} action={<Button variant="primary" onClick={() => void runs.refetch()}>Retry</Button>} /></div>
+        ) : runRows.length === 0 ? (
           <div className="px-5 pb-6 text-sm text-slate-500">No agent runs yet.</div>
         ) : (
           <TableShell>

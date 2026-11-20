@@ -42,7 +42,7 @@ export function FormsModule() {
   });
   const instances = useQuery({
     queryKey: ['process-instances'],
-    queryFn: () => api.get<{ items?: Array<{ status: string }> }>('/v1/capabilities/process-instances').catch(() => ({ items: [] })),
+    queryFn: () => api.get<{ items?: Array<{ status: string }> }>('/v1/capabilities/process-instances'),
     retry: false,
   });
 
@@ -145,7 +145,14 @@ export function FormsModule() {
           )}
         </Card>
       </div>
-      <p className="text-xs text-slate-500">{running} running instance{running === 1 ? '' : 's'}.</p>
+      {instances.isError ? (
+        <p role="alert" className="text-xs text-red-700">
+          Running instances could not be loaded: {(instances.error as Error)?.message}{' '}
+          <button type="button" className="font-semibold underline" onClick={() => void instances.refetch()}>Retry</button>
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500">{running} running instance{running === 1 ? '' : 's'}.</p>
+      )}
 
       <Modal
         open={Boolean(previewFormId)}

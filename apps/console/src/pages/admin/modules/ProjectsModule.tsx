@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 VKU.VIC
 /** Projects lane: portfolio, stage gates (HITL) and timesheet-derived capacity. */
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardHeader, EmptyState, Pill, TableShell, Thead, Th, Td, Tr } from '../../../components/ui';
+import { Button, Card, CardHeader, EmptyState, Pill, TableShell, Thead, Th, Td, Tr } from '../../../components/ui';
 import { api } from '../../../lib/api';
 
 interface ProjectItem {
@@ -28,7 +28,7 @@ export function ProjectsModule() {
   });
   const capacity = useQuery({
     queryKey: ['project-capacity'],
-    queryFn: () => api.get<{ items?: CapacityRow[] }>('/v1/capabilities/project-capacity').catch(() => ({ items: [] as CapacityRow[] })),
+    queryFn: () => api.get<{ items?: CapacityRow[] }>('/v1/capabilities/project-capacity'),
     retry: false,
   });
 
@@ -86,6 +86,8 @@ export function ProjectsModule() {
         <CardHeader eyebrow="CAPACITY" title="Allocation" description="Approved timesheet hours per person." />
         {capacity.isLoading ? (
           <div className="grid gap-3 px-5 py-6"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></div>
+        ) : capacity.isError ? (
+          <div className="px-5 py-6"><EmptyState title="Capacity could not be loaded" message={(capacity.error as Error)?.message} action={<Button variant="primary" onClick={() => void capacity.refetch()}>Retry</Button>} /></div>
         ) : capacityRows.length === 0 ? (
           <div className="px-5 pb-6 text-sm text-slate-500">No approved timesheets yet.</div>
         ) : (

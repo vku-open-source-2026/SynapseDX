@@ -7,7 +7,7 @@ import { Play, FileDown, LayoutDashboard } from 'lucide-react';
 import { api } from '../../../lib/api';
 import { relativeTime, previewJson } from '../../../lib/format';
 import { useToastStore } from '../../../stores/toastStore';
-import { Card, CardHeader, EmptyState, TableShell, Thead, Th, Td, Tr } from '../../../components/ui';
+import { Card, CardHeader, EmptyState, Button, TableShell, Thead, Th, Td, Tr } from '../../../components/ui';
 import { Modal } from '../../../components/Modal';
 
 interface ReportItem {
@@ -45,7 +45,7 @@ export function ReportsModule() {
   });
   const dashboards = useQuery({
     queryKey: ['dashboards'],
-    queryFn: () => api.get<{ items?: DashboardItem[] }>('/v1/capabilities/dashboards').catch(() => ({ items: [] as DashboardItem[] })),
+    queryFn: () => api.get<{ items?: DashboardItem[] }>('/v1/capabilities/dashboards'),
     retry: false,
   });
 
@@ -119,6 +119,8 @@ export function ReportsModule() {
       <Card className="overflow-hidden">
         {reports.isLoading ? (
           <div className="grid gap-3 px-5 py-6"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></div>
+        ) : reports.isError ? (
+          <div className="px-5 py-6"><EmptyState title="Reports could not be loaded" message={(reports.error as Error)?.message} action={<Button variant="primary" onClick={() => void reports.refetch()}>Retry</Button>} /></div>
         ) : reportRows.length === 0 ? (
           <div className="px-5 py-6"><EmptyState title="No reports yet" message="Ask the capability team to register a saved query." /></div>
         ) : (
@@ -165,7 +167,11 @@ export function ReportsModule() {
 
       <Card className="overflow-hidden">
         <CardHeader eyebrow="DASHBOARDS" title="Decision views" />
-        {dashboardRows.length === 0 ? (
+        {dashboards.isLoading ? (
+          <div className="grid gap-3 px-5 py-6"><div className="h-12 animate-pulse rounded-xl bg-slate-100" /></div>
+        ) : dashboards.isError ? (
+          <div className="px-5 py-6"><EmptyState title="Dashboards could not be loaded" message={(dashboards.error as Error)?.message} action={<Button variant="primary" onClick={() => void dashboards.refetch()}>Retry</Button>} /></div>
+        ) : dashboardRows.length === 0 ? (
           <div className="px-5 pb-6 text-sm text-slate-500">No dashboards yet.</div>
         ) : (
           <TableShell>

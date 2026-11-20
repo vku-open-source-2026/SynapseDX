@@ -35,7 +35,7 @@ export function WorkspaceModule() {
     queryFn: () =>
       Promise.all(
         items.map((item) =>
-          api.get<{ items?: PageItem[] }>(`/v1/capabilities/workspaces/${encodeURIComponent(item.id)}/pages`).catch(() => ({ items: [] as PageItem[] })),
+          api.get<{ items?: PageItem[] }>(`/v1/capabilities/workspaces/${encodeURIComponent(item.id)}/pages`),
         ),
       ),
     retry: false,
@@ -68,42 +68,50 @@ export function WorkspaceModule() {
           message="Create one through POST /v1/capabilities/workspaces."
         />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          {items.map((ws, index) => {
-            const wsPages = (pageSets[index]?.items ?? []).slice(0, 6);
-            return (
-              <Card key={ws.id} className="p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                      <BookOpen size={18} />
+        <div className="space-y-4">
+          {pages.isError ? (
+            <p role="alert" className="text-sm font-medium text-red-700">
+              Workspace pages could not be loaded: {(pages.error as Error)?.message}{' '}
+              <button type="button" className="font-semibold underline" onClick={() => void pages.refetch()}>Retry</button>
+            </p>
+          ) : null}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {items.map((ws, index) => {
+              const wsPages = (pageSets[index]?.items ?? []).slice(0, 6);
+              return (
+                <Card key={ws.id} className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                        <BookOpen size={18} />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-slate-900">{ws.name}</p>
+                        <p className="text-xs text-slate-500">{ws.para || 'para'} · {ws.visibility || 'private'} · {wsPages.length} page{wsPages.length === 1 ? '' : 's'}</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold text-slate-900">{ws.name}</p>
-                      <p className="text-xs text-slate-500">{ws.para || 'para'} · {ws.visibility || 'private'} · {wsPages.length} page{wsPages.length === 1 ? '' : 's'}</p>
-                    </div>
+                    {ws.owner ? <Chip>{ws.owner}</Chip> : null}
                   </div>
-                  {ws.owner ? <Chip>{ws.owner}</Chip> : null}
-                </div>
-                {wsPages.length > 0 ? (
-                  <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-100">
-                    {wsPages.map((page) => (
-                      <li key={page.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                        <span className="flex min-w-0 items-center gap-2 text-slate-700">
-                          <FileText size={14} className="shrink-0 text-slate-400" />
-                          <span className="min-w-0">
-                            <span className="block truncate font-medium">{page.title}</span>
-                            <span className="block truncate text-[11px] text-slate-400">{page.folder || 'root'} · v{page.versions?.length || 0} history</span>
+                  {wsPages.length > 0 ? (
+                    <ul className="mt-3 divide-y divide-slate-100 rounded-xl border border-slate-100">
+                      {wsPages.map((page) => (
+                        <li key={page.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                          <span className="flex min-w-0 items-center gap-2 text-slate-700">
+                            <FileText size={14} className="shrink-0 text-slate-400" />
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{page.title}</span>
+                              <span className="block truncate text-[11px] text-slate-400">{page.folder || 'root'} · v{page.versions?.length || 0} history</span>
+                            </span>
                           </span>
-                        </span>
-                        <Pill tone={page.attachments?.length ? 'ok' : 'neutral'}>{page.attachments?.length || 0} files</Pill>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </Card>
-            );
-          })}
+                          <Pill tone={page.attachments?.length ? 'ok' : 'neutral'}>{page.attachments?.length || 0} files</Pill>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </Card>
+              );
+            })}
+          </div>
         </div>
       )}
     </section>

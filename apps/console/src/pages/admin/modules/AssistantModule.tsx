@@ -30,7 +30,7 @@ function retrievalLabel(retrieval?: string): string {
 export function AssistantModule() {
   const usage = useQuery({
     queryKey: ['rag-usage'],
-    queryFn: () => api.get<RagUsage>('/v1/capabilities/rag/usage').catch(() => ({ queries: 0, costUsd: 0, noAnswer: 0 })),
+    queryFn: () => api.get<RagUsage>('/v1/capabilities/rag/usage'),
     retry: false,
   });
   const [question, setQuestion] = useState('');
@@ -110,9 +110,16 @@ export function AssistantModule() {
         )}
       </div>
 
-      <p className="text-xs text-slate-500">
-        {stats.queries || 0} queries · ${Number(stats.costUsd || 0).toFixed(6)} metered · {stats.noAnswer || 0} no-answer paths
-      </p>
+      {usage.isError ? (
+        <p role="alert" className="text-xs text-red-700">
+          Usage could not be loaded: {(usage.error as Error)?.message}{' '}
+          <button type="button" className="font-semibold underline" onClick={() => void usage.refetch()}>Retry</button>
+        </p>
+      ) : (
+        <p className="text-xs text-slate-500">
+          {stats.queries || 0} queries · ${Number(stats.costUsd || 0).toFixed(6)} metered · {stats.noAnswer || 0} no-answer paths
+        </p>
+      )}
     </section>
   );
 }
