@@ -28,12 +28,35 @@ const REPOSITORIES = [
 ];
 /** Local Tier-3 harness evidence: executed through the real Tier-1 engine. */
 const HARNESS_EVIDENCE = 'scripts/workflow-engine-harness.mts (local Tier-1 engine)';
+const DOMAIN_HARNESS_EVIDENCE =
+  'scripts/domain-workflows-harness.mts (local Tier-1 engine)';
+const FILE_HARNESS_EVIDENCE =
+  'scripts/file-actions-engine.mts (local Tier-1 engine)';
+/** The generic dispatcher is source-validated, not executed per form. */
+const DISPATCHER_EVIDENCE =
+  'Tier-3 workflow-artifact contract test (dispatcher graph, allowlists and pins)';
+/** Common capability forms run in Tier-2 and are covered by its route suite. */
+const COMMON_EVIDENCE =
+  'apps/capabilities-service common-workspace/file/approval route tests (Tier-2)';
+/** Workflows executed by the domain and file-action harnesses. */
+const DOMAIN_HARNESS_WORKFLOWS = [
+  /^city-incident-(comment|merge|upvote|visibility)$/,
+  /^city-maintenance-schedule(-check)?$/,
+  /^city-asset-document$/,
+  /^city-iot-batch$/,
+];
+const FILE_HARNESS_WORKFLOWS = [/^city-csv-import$/, /^city-generate-report$/];
 /** The harness subjects it can execute end-to-end (fake HTTP transport). */
 const HARNESS_WORKFLOW_PREFIXES = [
   /^city-incident-/,
   /^city-maintenance-/,
   /^sos-dispatch-/,
   /^sos-event-/,
+  /^sos-eop-/,
+  /^sos-sitrep-/,
+  /^sos-aar-/,
+  /^sos-mutual-aid-/,
+  /^sos-resource-/,
 ];
 const PENDING = 'pending acceptance test';
 const ACTION_VERBS = {
@@ -132,13 +155,20 @@ function expectedEffect(form, context) {
   return `${verb} a \`${resource}\` record in \`${dataset}\` via workflow \`${ref.name}\`${statusNote}.${operationNote}`;
 }
 
-function evidenceFor(form) {
+function evidenceFor(form, context) {
   const ref = form.workflowRef;
-  if (
-    ref &&
-    typeof ref.name === 'string' &&
-    HARNESS_WORKFLOW_PREFIXES.some((pattern) => pattern.test(ref.name))
-  ) {
+  if (!ref && typeof form.resource === 'string' && form.resource.startsWith('common')) {
+    return COMMON_EVIDENCE;
+  }
+  if (!ref || typeof ref.name !== 'string') return PENDING;
+  if (ref.name === context.dispatcher) return DISPATCHER_EVIDENCE;
+  if (FILE_HARNESS_WORKFLOWS.some((pattern) => pattern.test(ref.name))) {
+    return FILE_HARNESS_EVIDENCE;
+  }
+  if (DOMAIN_HARNESS_WORKFLOWS.some((pattern) => pattern.test(ref.name))) {
+    return DOMAIN_HARNESS_EVIDENCE;
+  }
+  if (HARNESS_WORKFLOW_PREFIXES.some((pattern) => pattern.test(ref.name))) {
     return HARNESS_EVIDENCE;
   }
   return PENDING;
@@ -168,7 +198,12 @@ for (const repo of REPOSITORIES) {
   }
   const context = {
     workflows,
-    manifestWorkflows: Array.isArray(manifest?.workflows) ? manifest.workflows : [],
+    manifestWorkflows: [
+      ...(Array.isArray(manifest?.workflows) ? manifest.workflows : []),
+      ...(Array.isArray(manifest?.lifecycleWorkflows) ? manifest.lifecycleWorkflows : []),
+      ...(Array.isArray(manifest?.domainWorkflows) ? manifest.domainWorkflows : []),
+      ...(Array.isArray(manifest?.fileActionWorkflows) ? manifest.fileActionWorkflows : []),
+    ],
     genericDatasets: manifest?.genericActionWorkflow?.datasets || {},
     dispatcher: manifest?.genericActionWorkflow?.workflow,
   };
@@ -215,7 +250,7 @@ for (const repo of REPOSITORIES) {
         widget: `\`${form.id}\` · ${form.action || 'create'}${form.onSubmit ? ` (submit \`${form.onSubmit}\`)` : ''}`,
         binding,
         effect: expectedEffect(form, context),
-        evidence: evidenceFor(form),
+        evidence: evidenceFor(form, context),
         sort: `${repo.product} ${plugin.slug} ${form.id}`,
       });
     }
@@ -237,10 +272,14 @@ form rows). Each row names the binding the capability service will enforce and
 the domain effect the bound source declares, so acceptance can be planned per
 form instead of per repository. The Evidence column defaults to
 \`${PENDING}\`; rows whose bound workflow is executed by the existing local
-engine harness cite that suite.
+engine harness cite that suite, and rows bound to the generic workspace-action
+dispatcher cite its workflow-artifact contract test.
 
 This document is a stop-condition input: a release is not done while rows cite
-\`${PENDING}\` without an owner.
+\`${PENDING}\` without an owner. A \`${PENDING}\` row is a live Tier-2/Tier-1
+acceptance item (deploy, import, publish, install, submit as a member), not a
+source gap: every bound workflow above is unit/engine tested in its Tier-3
+repository.
 
 ## Non-goals
 
