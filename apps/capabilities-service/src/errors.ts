@@ -188,6 +188,7 @@ export type ErrorCode =
   | "management_forbidden"
   | "workspace_tenant_required"
   | "plugin_not_found"
+  | "revision_not_found"
   | "plugin_slug_exists"
   | "plugin_limit_reached"
   | "plugin_not_published"

@@ -17,6 +17,8 @@ import {
   parseMembers,
   parsePlugin,
   parsePluginList,
+  parsePluginRevisions,
+  parseRestoredPlugin,
   parseTokens,
   parseWidgetData,
   parseWorkflowArtifacts,
@@ -24,6 +26,7 @@ import {
   parseWorkspaceCatalog,
   type InstalledPlugin,
   type PluginBundle,
+  type PluginRevisionSummary,
   type WidgetData,
   type WorkflowArtifactSummary,
   type WorkflowReadiness,
@@ -131,6 +134,31 @@ export async function importPluginBundle(
 ): Promise<WorkspacePlugin> {
   return parsePlugin(
     await api.post<unknown>(`${WORKSPACE_API_BASE}/import`, bundle),
+  );
+}
+
+/** Immutable revision history for one plugin (admin management view). */
+export async function fetchPluginRevisions(
+  id: string,
+): Promise<PluginRevisionSummary[]> {
+  const payload = await api.get<unknown>(
+    `${WORKSPACE_API_BASE}/plugins/${encodeURIComponent(id)}/revisions`,
+  );
+  return parsePluginRevisions(payload).items;
+}
+
+/**
+ * Restore a stored revision into a NEW draft version. The server revalidates
+ * the content through the normal update path; history stays immutable.
+ */
+export async function restorePluginRevision(
+  id: string,
+  version: number,
+): Promise<WorkspacePlugin & { restoredFrom: number }> {
+  return parseRestoredPlugin(
+    await api.post<unknown>(
+      `${WORKSPACE_API_BASE}/plugins/${encodeURIComponent(id)}/revisions/${encodeURIComponent(String(version))}/restore`,
+    ),
   );
 }
 

@@ -453,9 +453,23 @@ export interface WorkspacePluginRecord {
   unpublishedAt?: string;
   source?: PluginSource;
   checksum?: string;
+  /**
+   * Provenance of the last Tier-3 repository build. Management metadata
+   * only: never part of the portable plugin definition, never exported or
+   * written into build bundles.
+   */
+  lastBuild?: PluginLastBuild;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Repository sync provenance persisted at build time for the sync chip. */
+export interface PluginLastBuild {
+  checksum: string;
+  repository: string;
+  path: string;
+  builtAt: string;
 }
 
 /** Immutable published layout. Consumers read this, never the editable draft. */
@@ -1962,6 +1976,8 @@ export interface PluginView {
   version: number;
   publishedVersion?: number;
   publishedAt?: string;
+  /** Repository sync provenance of the last Tier-3 build, if any. */
+  lastBuild?: PluginLastBuild;
   createdAt: string;
   updatedAt: string;
 }
@@ -1981,6 +1997,7 @@ export function pluginView(plugin: WorkspacePluginRecord): PluginView {
       ? { publishedVersion: plugin.publishedVersion }
       : {}),
     ...(plugin.publishedAt ? { publishedAt: plugin.publishedAt } : {}),
+    ...(plugin.lastBuild ? { lastBuild: plugin.lastBuild } : {}),
     createdAt: plugin.createdAt,
     updatedAt: plugin.updatedAt,
   };

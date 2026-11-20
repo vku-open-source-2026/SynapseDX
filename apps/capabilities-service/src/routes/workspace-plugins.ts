@@ -77,6 +77,7 @@ import {
   WorkspaceSnapshotRecord,
   WorkspaceTokenRecord,
   WorkspaceWidget,
+  WorkspaceProduct,
   WidgetAction,
   buildBundle,
   canonicalPluginSource,
@@ -241,6 +242,24 @@ interface WorkspaceContext {
 interface PluginDocument {
   record: WorkspacePluginRecord;
   version: number;
+}
+
+/** Immutable revision history document written by `persistRevision`. */
+interface PluginRevisionRecord {
+  id: string;
+  tenant: string;
+  pluginId: string;
+  version: number;
+  status: WorkspacePluginRecord["status"];
+  product: WorkspaceProduct;
+  name: string;
+  slug: string;
+  audience: WorkspacePluginRecord["audience"];
+  roles: string[];
+  widgets: WorkspaceWidget[];
+  createdBy: string;
+  createdAt: string;
+  checksum: string;
 }
 
 interface InstalledEntry {
@@ -1360,6 +1379,102 @@ async function persistRevision(
   }
 }
 
+/** Editable definition fields shared by the update and restore paths. */
+interface PluginDefinitionFields {
+  name: string;
+  slug: string;
+  audience: WorkspacePluginRecord["audience"];
+  roles: string[];
+  widgets: WorkspaceWidget[];
+}
+
+/**
+ * The single forward-only write path for plugin definitions: validate the
+ * merged fields, bump the version under optimistic concurrency and persist an
+ * immutable revision. Both `PUT /plugins/:id` and revision restore go through
+ * it, so restored content becomes a NEW draft version and history is never
+ * rewritten. `source` is the resolved post-update source (undefined clears it).
+ */
+async function writePluginVersion(
+  context: WorkspaceContext,
+  config: ServiceConfig,
+  req: Request,
+  id: string,
+  current: PluginDocument,
+  fields: PluginDefinitionFields,
+  source: WorkspacePluginRecord["source"],
+  audit: {
+    action: "workspace.plugin.update" | "workspace.plugin.restore";
+    details?: Record<string, unknown>;
+  },
+): Promise<WorkspacePluginRecord> {
+  const definition = parsePluginDefinition(
+    { product: current.record.product, ...fields },
+    context.limits,
+    { allowWorkflowArtifactId: true },
+  );
+  if (definition.product !== current.record.product) {
+    throw apiError(400, "invalid_plugin", "product cannot be changed");
+  }
+  if (definition.slug !== current.record.slug) {
+    await assertUniqueSlug(
+      context.client,
+      context.tenant,
+      definition.product,
+      definition.slug,
+      id,
+    );
+  }
+  await assertArtifactBindings(
+    context.client,
+    context.tenant,
+    definition.widgets,
+  );
+  const updated: WorkspacePluginRecord = {
+    ...current.record,
+    name: definition.name,
+    slug: definition.slug,
+    audience: definition.audience,
+    roles: definition.roles,
+    widgets: definition.widgets,
+    version: current.record.version + 1,
+    ...(source ? { source } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  if (!source) {
+    delete (updated as { source?: unknown }).source;
+  }
+  try {
+    await context.client.base.updateDocument(COLLECTIONS.workspacePlugins, id, {
+      data: updated as unknown as Record<string, unknown>,
+      ifVersion: current.version,
+    });
+  } catch (error) {
+    if (isConflict(error))
+      throw apiError(
+        409,
+        "version_conflict",
+        "plugin was modified by another request",
+      );
+    throw error;
+  }
+  await persistRevision(context.client, updated, updated.status);
+  invalidateWorkspaceCaches(context.tenant, id);
+  await recordAudit(context.client, config, {
+    actor: context.principal.subject,
+    tenant: context.tenant,
+    action: audit.action,
+    correlationId: correlationIdOf(req),
+    details: {
+      pluginId: id,
+      version: updated.version,
+      status: updated.status,
+      ...(audit.details || {}),
+    },
+  });
+  return updated;
+}
+
 async function assertUniqueSlug(
   client: SynapseOneClient,
   tenant: string,
@@ -1600,85 +1715,30 @@ export function registerWorkspacePluginRoutes(
           },
         );
       }
-      const merged = {
-        product: current.record.product,
-        name: body.name ?? current.record.name,
-        slug: body.slug ?? current.record.slug,
-        audience: body.audience ?? current.record.audience,
-        roles: body.roles ?? current.record.roles,
-        widgets: body.widgets ?? current.record.widgets,
-      };
-      const definition = parsePluginDefinition(merged, context.limits, {
-        allowWorkflowArtifactId: true,
-      });
-      if (definition.product !== current.record.product) {
-        throw apiError(400, "invalid_plugin", "product cannot be changed");
-      }
       const source =
         body.source === undefined
           ? current.record.source
           : body.source === null
             ? undefined
             : parseSource(body.source);
-      if (definition.slug !== current.record.slug) {
-        await assertUniqueSlug(
-          context.client,
-          context.tenant,
-          definition.product,
-          definition.slug,
-          id,
-        );
-      }
-      await assertArtifactBindings(
-        context.client,
-        context.tenant,
-        definition.widgets,
-      );
-      const updated: WorkspacePluginRecord = {
-        ...current.record,
-        name: definition.name,
-        slug: definition.slug,
-        audience: definition.audience,
-        roles: definition.roles,
-        widgets: definition.widgets,
-        version: current.record.version + 1,
-        ...(source ? { source } : {}),
-        updatedAt: new Date().toISOString(),
-      };
-      if (!source) {
-        delete (updated as { source?: unknown }).source;
-      }
-      try {
-        await context.client.base.updateDocument(
-          COLLECTIONS.workspacePlugins,
-          id,
-          {
-            data: updated as unknown as Record<string, unknown>,
-            ifVersion: current.version,
-          },
-        );
-      } catch (error) {
-        if (isConflict(error))
-          throw apiError(
-            409,
-            "version_conflict",
-            "plugin was modified by another request",
-          );
-        throw error;
-      }
-      await persistRevision(context.client, updated, updated.status);
-      invalidateWorkspaceCaches(context.tenant, id);
-      await recordAudit(context.client, config, {
-        actor: context.principal.subject,
-        tenant: context.tenant,
-        action: "workspace.plugin.update",
-        correlationId: correlationIdOf(req),
-        details: {
-          pluginId: id,
-          version: updated.version,
-          status: updated.status,
+      const updated = await writePluginVersion(
+        context,
+        config,
+        req,
+        id,
+        current,
+        {
+          name: (body.name ?? current.record.name) as string,
+          slug: (body.slug ?? current.record.slug) as string,
+          audience: (body.audience ??
+            current.record.audience) as WorkspacePluginRecord["audience"],
+          roles: (body.roles ?? current.record.roles) as string[],
+          widgets: (body.widgets ??
+            current.record.widgets) as WorkspaceWidget[],
         },
-      });
+        source,
+        { action: "workspace.plugin.update" },
+      );
       const installs = await listInstalls(context.client, context.tenant);
       res.json(adminPluginView(updated, installs));
     }),
@@ -1914,6 +1974,81 @@ export function registerWorkspacePluginRoutes(
     }),
   );
 
+  /**
+   * Restore a stored revision into a NEW draft version. History stays
+   * immutable and forward-only: the revision document is never modified, the
+   * restored content is revalidated through the normal update path (slug
+   * uniqueness, artifact bindings, optimistic concurrency) and a fresh
+   * revision is persisted for the new version. Only editable definition
+   * fields are restored — never ids, status, pins or audit metadata.
+   */
+  app.post(
+    `${base}/plugins/:id/revisions/:version/restore`,
+    handler(async (req, res) => {
+      const context = await adminContext(req, config);
+      const id = pluginDocumentId(req.params.id);
+      const current = await loadPlugin(context.client, context.tenant, id);
+      const versionParam = String(req.params.version ?? "").trim();
+      if (!/^\d{1,9}$/.test(versionParam) || Number(versionParam) < 1) {
+        throw apiError(404, "revision_not_found", "revision not found");
+      }
+      const version = Number(versionParam);
+      const revision = await getDocumentOrNull<PluginRevisionRecord>(
+        context.client,
+        COLLECTIONS.workspacePluginRevisions,
+        revisionDocumentId(id, version),
+      );
+      if (
+        !revision ||
+        revision.data.tenant !== context.tenant ||
+        revision.data.pluginId !== id ||
+        revision.data.version !== version
+      ) {
+        throw apiError(404, "revision_not_found", "revision not found");
+      }
+      const stored: Partial<PluginRevisionRecord> = revision.data;
+      const fields: PluginDefinitionFields = {
+        name:
+          typeof stored.name === "string" && stored.name
+            ? stored.name
+            : current.record.name,
+        slug:
+          typeof stored.slug === "string" && stored.slug
+            ? stored.slug
+            : current.record.slug,
+        audience:
+          stored.audience === "admin" || stored.audience === "member"
+            ? stored.audience
+            : current.record.audience,
+        roles: Array.isArray(stored.roles)
+          ? stored.roles.map((role) => String(role))
+          : current.record.roles,
+        widgets: Array.isArray(stored.widgets)
+          ? (stored.widgets as WorkspaceWidget[])
+          : current.record.widgets,
+      };
+      const updated = await writePluginVersion(
+        context,
+        config,
+        req,
+        id,
+        current,
+        fields,
+        current.record.source,
+        {
+          action: "workspace.plugin.restore",
+          details: { restoredFrom: version },
+        },
+      );
+      const installs = await listInstalls(context.client, context.tenant);
+      res.setHeader("cache-control", "no-store");
+      res.json({
+        ...adminPluginView(updated, installs),
+        restoredFrom: version,
+      });
+    }),
+  );
+
   // ---- build / export / import ----
   /**
    * Build a Tier-3 repository artifact from the immutable published snapshot.
@@ -1980,6 +2115,38 @@ export function registerWorkspacePluginRoutes(
       const bundle = buildBundle(record, refs, source);
       const filename =
         source.path.split("/").pop() || `${plugin.record.slug}.plugin.json`;
+      // Persist build provenance on the plugin record (management metadata
+      // only: portableDefinition/buildBundle never include it, so exports and
+      // Tier-3 bundles stay checksum-stable).
+      const builtAt = new Date().toISOString();
+      const built: WorkspacePluginRecord = {
+        ...plugin.record,
+        lastBuild: {
+          checksum: bundle.checksum || "",
+          repository: source.repository,
+          path: source.path,
+          builtAt,
+        },
+      };
+      try {
+        await context.client.base.updateDocument(
+          COLLECTIONS.workspacePlugins,
+          id,
+          {
+            data: built as unknown as Record<string, unknown>,
+            ifVersion: plugin.version,
+          },
+        );
+      } catch (error) {
+        if (isConflict(error))
+          throw apiError(
+            409,
+            "version_conflict",
+            "plugin was modified by another request",
+          );
+        throw error;
+      }
+      invalidateWorkspaceCaches(context.tenant, id);
       await recordAudit(context.client, config, {
         actor: context.principal.subject,
         tenant: context.tenant,
@@ -1991,6 +2158,7 @@ export function registerWorkspacePluginRoutes(
           checksum: bundle.checksum,
           repository: source.repository,
           path: source.path,
+          builtAt,
         },
       });
       res.setHeader("x-synapsedx-build-plugin", id);

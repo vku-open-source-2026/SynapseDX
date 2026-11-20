@@ -18,6 +18,8 @@ import {
   parseInstalledList,
   parseMembers,
   parsePlugin,
+  parsePluginRevisions,
+  parseRestoredPlugin,
   parsePluginBundle,
   parseTokens,
   parseWidgetData,
@@ -441,6 +443,56 @@ describe("catalog and strict response parsing", () => {
     expect(() =>
       parseInstalledList({ items: [{ ...installed[0], id: undefined }] }),
     ).toThrow();
+  });
+
+  it("parses build provenance, revision history and restore responses", () => {
+    const withBuild = parsePlugin({
+      ...plugin,
+      lastBuild: {
+        checksum: `sha256:${"c".repeat(64)}`,
+        repository: "https://github.com/vku-open-source-2026/SynapseCity",
+        path: "plugins/city-team.plugin.json",
+        builtAt: "2026-11-19T00:00:00Z",
+      },
+    });
+    expect(withBuild.lastBuild).toEqual({
+      checksum: `sha256:${"c".repeat(64)}`,
+      repository: "https://github.com/vku-open-source-2026/SynapseCity",
+      path: "plugins/city-team.plugin.json",
+      builtAt: "2026-11-19T00:00:00Z",
+    });
+    // Provenance is optional: plugins never built keep a clean shape.
+    expect(parsePlugin(plugin).lastBuild).toBeUndefined();
+    // A malformed provenance block is rejected, not half-parsed.
+    expect(() =>
+      parsePlugin({ ...plugin, lastBuild: { checksum: "nope" } }),
+    ).toThrow();
+
+    const revisions = parsePluginRevisions({
+      items: [
+        {
+          version: 2,
+          status: "published",
+          createdAt: "2026-11-14T01:00:00Z",
+          createdBy: "admin-1",
+          checksum: `sha256:${"d".repeat(64)}`,
+        },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+    expect(revisions.items[0]).toMatchObject({
+      version: 2,
+      status: "published",
+      createdBy: "admin-1",
+    });
+    expect(() => parsePluginRevisions({ items: {} })).toThrow();
+
+    const restored = parseRestoredPlugin({ ...plugin, version: 3, restoredFrom: 2 });
+    expect(restored.version).toBe(3);
+    expect(restored.restoredFrom).toBe(2);
+    expect(() => parseRestoredPlugin({ ...plugin })).toThrow();
   });
 
   it("parses members, tokens and workflow artifacts strictly", () => {

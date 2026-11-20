@@ -2601,6 +2601,16 @@ export class CapabilitiesClient {
       limit: number;
       offset: number;
     }>;
+    /**
+     * Restore a stored revision into a NEW draft version. History stays
+     * immutable: the revision document is untouched and the restored content
+     * is revalidated through the normal update path.
+     */
+    restorePluginRevision: (
+      id: string,
+      version: number,
+      opts?: RequestOptions,
+    ) => Promise<WorkspacePlugin & { restoredFrom: number }>;
     /** Published snapshot for repository sync; `draft:true` is the explicit authoring view. */
     exportPlugin: (
       id: string,
@@ -4082,6 +4092,12 @@ export class CapabilitiesClient {
         }>(
           `${pluginPath(id)}/revisions${queryString({ limit: query.limit, offset: query.offset })}`,
           {},
+          requestOpts,
+        ),
+      restorePluginRevision: (id, version, requestOpts) =>
+        this.http.request<WorkspacePlugin & { restoredFrom: number }>(
+          `${pluginPath(id)}/revisions/${encodeURIComponent(String(version))}/restore`,
+          { method: "POST", body: "{}" },
           requestOpts,
         ),
       exportPlugin: (id, requestOpts) =>

@@ -796,8 +796,7 @@ test("workspace export can request the draft and build always uses the Tier-3 bu
   assert.equal(
     requests[0].url,
     "https://dx.example/v1/capabilities/workspaces/plugins/p1/export",
-  );
-  assert.equal(
+  );  assert.equal(
     requests[1].url,
     "https://dx.example/v1/capabilities/workspaces/plugins/p1/export?draft=1",
   );
@@ -806,6 +805,31 @@ test("workspace export can request the draft and build always uses the Tier-3 bu
     "https://dx.example/v1/capabilities/workspaces/plugins/p1/build",
   );
   assert.equal(requests[2].method, "GET");
+});
+
+test("workspace revision restore posts to the forward-only restore path", async () => {
+  const { impl, requests } = mockFetch(() => ({
+    body: { id: "p1", version: 3, restoredFrom: 1, widgets: [] },
+  }));
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "tok",
+    fetch: impl,
+  });
+  await client.workspaces.listPluginRevisions("p1", { limit: 25 });
+  const restored = await client.workspaces.restorePluginRevision("p1", 1);
+
+  assert.equal(
+    requests[0].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/p1/revisions?limit=25",
+  );
+  assert.equal(requests[1].method, "POST");
+  assert.equal(
+    requests[1].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/p1/revisions/1/restore",
+  );
+  assert.deepEqual(requests[1].body, {});
+  assert.equal(restored.restoredFrom, 1);
 });
 
 test("workspace widget execution sends exactly a values envelope", async () => {

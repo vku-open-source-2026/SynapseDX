@@ -1769,6 +1769,189 @@ describe("workspace plugin routes", () => {
     assert.equal(buildAfterUnpublish.body.error.code, "plugin_not_published");
   });
 
+  test("revision restore copies stored content into a new forward-only draft", async () => {
+    const { id } = await publishedInstalled({ slug: "restore-me" });
+    const edited = await admin(
+      "PUT",
+      `/v1/capabilities/workspaces/plugins/${id}`,
+      {
+        version: 1,
+        name: "Restore me v2",
+        widgets: [
+          {
+            id: "intro",
+            type: "text",
+            title: "Welcome",
+            text: "v2 content only.",
+          },
+        ],
+      },
+    );
+    assert.equal(edited.status, 200, JSON.stringify(edited.body));
+    assert.equal(edited.body.version, 2);
+
+    const revisions = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions`,
+    );
+    assert.equal(revisions.status, 200);
+    assert.deepEqual(
+      revisions.body.items.map((item: any) => item.version).sort(),
+      [1, 2],
+    );
+
+    // Only a verified organization administrator may restore.
+    const forbidden = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions/1/restore`,
+      {},
+      "member-token",
+    );
+    assert.equal(forbidden.status, 403);
+    assert.equal(forbidden.body.error.code, "admin_required");
+
+    // Unknown revision versions and unknown plugins are 404s.
+    const unknownRevision = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions/99/restore`,
+    );
+    assert.equal(unknownRevision.status, 404);
+    assert.equal(unknownRevision.body.error.code, "revision_not_found");
+    const malformed = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions/not-a-version/restore`,
+    );
+    assert.equal(malformed.status, 404);
+    assert.equal(malformed.body.error.code, "revision_not_found");
+    const unknownPlugin = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/00000000-0000-4000-8000-000000000000/revisions/1/restore",
+    );
+    assert.equal(unknownPlugin.status, 404);
+    assert.equal(unknownPlugin.body.error.code, "plugin_not_found");
+
+    const restored = await admin(
+      "POST",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions/1/restore`,
+    );
+    assert.equal(restored.status, 200, JSON.stringify(restored.body));
+    assert.equal(restored.body.version, 3);
+    assert.equal(restored.body.restoredFrom, 1);
+    // Only editable definition fields came back; ids, pins and audit untouched.
+    assert.equal(restored.body.id, id);
+    assert.equal(restored.body.name, "Volunteer desk");
+    assert.equal(restored.body.widgets[0].text, "Read your tasks below.");
+    assert.equal(restored.body.status, "published");
+    assert.equal(restored.body.publishedVersion, 1);
+
+    // History is immutable and forward-only: v1/v2 are untouched and the
+    // restore itself is documented as a new revision with v1's checksum.
+    const after = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/revisions`,
+    );
+    assert.deepEqual(
+      after.body.items.map((item: any) => item.version).sort(),
+      [1, 2, 3],
+    );
+    const v1 = after.body.items.find((item: any) => item.version === 1);
+    const v1Before = revisions.body.items.find(
+      (item: any) => item.version === 1,
+    );
+    assert.equal(v1.checksum, v1Before.checksum);
+    assert.equal(v1.createdAt, v1Before.createdAt);
+    const v3 = after.body.items.find((item: any) => item.version === 3);
+    assert.equal(v3.checksum, v1.checksum);
+
+    // The published snapshot consumers still see is never rewritten by a
+    // restore; the restored content is an editable draft.
+    await admin("PUT", "/v1/capabilities/workspaces/members/member-1", {
+      productRoles: { city: ["volunteer"] },
+    });
+    const installed = await admin(
+      "GET",
+      "/v1/capabilities/workspaces/installed",
+      undefined,
+      "member-token",
+    );
+    assert.equal(installed.body.items[0].version, 1);
+    assert.equal(
+      installed.body.items[0].widgets[0].text,
+      "Read your tasks below.",
+    );
+
+    // The restore is audited with its source revision.
+    const audit = await api(harness, "/v1/capabilities/audit?limit=200", {
+      token: "admin-token",
+    });
+    const entry = audit.body.items.find(
+      (item: any) =>
+        item.action === "workspace.plugin.restore" &&
+        item.details?.pluginId === id,
+    );
+    assert.ok(entry, "restore audit entry missing");
+    assert.equal(entry.details.restoredFrom, 1);
+  });
+
+  test("build provenance is persisted for the sync chip and never exported", async () => {
+    const { id } = await publishedInstalled({ slug: "provenance-chip" });
+    const before = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}`,
+    );
+    assert.equal(before.body.lastBuild, undefined);
+    const listBefore = await admin(
+      "GET",
+      "/v1/capabilities/workspaces/plugins?product=city",
+    );
+    assert.equal(
+      listBefore.body.items.find((plugin: any) => plugin.id === id).lastBuild,
+      undefined,
+    );
+
+    const built = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/build`,
+    );
+    assert.equal(built.status, 200, JSON.stringify(built.body));
+    // The portable payload stays checksum-stable: build metadata never
+    // becomes part of the bundle.
+    assert.equal("lastBuild" in built.body, false);
+    assert.equal(JSON.stringify(built.body).includes("builtAt"), false);
+
+    const after = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}`,
+    );
+    assert.equal(after.body.lastBuild.checksum, built.body.checksum);
+    assert.equal(
+      after.body.lastBuild.repository,
+      "https://github.com/vku-open-source-2026/SynapseCity",
+    );
+    assert.equal(
+      after.body.lastBuild.path,
+      "plugins/provenance-chip.plugin.json",
+    );
+    assert.equal(typeof after.body.lastBuild.builtAt, "string");
+    const listAfter = await admin(
+      "GET",
+      "/v1/capabilities/workspaces/plugins?product=city",
+    );
+    assert.equal(
+      listAfter.body.items.find((plugin: any) => plugin.id === id).lastBuild
+        .checksum,
+      built.body.checksum,
+    );
+
+    const exported = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${id}/export?draft=1`,
+    );
+    assert.equal(exported.status, 200);
+    assert.equal("lastBuild" in exported.body, false);
+    assert.equal(JSON.stringify(exported.body).includes("builtAt"), false);
+  });
+
   test("build refuses drafts and provenance that cannot belong to the product repository", async () => {
     const draft = await createPlugin({ slug: "build-draft-only" });
     assert.equal(draft.status, 201, JSON.stringify(draft.body));

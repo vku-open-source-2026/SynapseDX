@@ -24,6 +24,7 @@ const CodeStudio = lazy(() =>
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  History,
   Download,
   FileJson,
   Plus,
@@ -51,6 +52,7 @@ import { MODULE_CATALOG } from "../../../components/workspaces/CapabilityModule"
 import { commonTemplateForSection } from "../../../lib/commonTemplate";
 import { SafeWidget } from "../../../components/workspaces/SafeWidget";
 import { toast } from "../../../stores/toastStore";
+import { relativeTime } from "../../../lib/format";
 import {
   CAPABILITY_MODULES,
   DATA_WIDGETS,
@@ -74,6 +76,7 @@ import {
   validatePluginDraft,
   validateWidget,
   type PluginBundle,
+  type PluginRevisionSummary,
   type ValidationIssue,
   type WorkspaceCatalog,
   type WorkspaceField,
@@ -88,9 +91,11 @@ import {
   buildPluginBundle,
   createPlugin,
   exportPluginBundle,
+  fetchPluginRevisions,
   fetchWorkflowArtifacts,
   importPluginBundle,
   publishPlugin,
+  restorePluginRevision,
   unpublishPlugin,
   updatePlugin,
 } from "../../../lib/workspacesApi";
@@ -1172,6 +1177,12 @@ export function BuilderPanel({
   const [buildArtifact, setBuildArtifact] = useState<BuildArtifact | null>(
     null,
   );
+  const [revisionsOpen, setRevisionsOpen] = useState(false);
+  const [revisions, setRevisions] = useState<PluginRevisionSummary[]>([]);
+  const [revisionsError, setRevisionsError] = useState<string | null>(null);
+  const [restoringVersion, setRestoringVersion] = useState<number | null>(
+    null,
+  );
   const fileInput = useRef<HTMLInputElement | null>(null);
 
   const artifactsQuery = useQuery({
@@ -1465,6 +1476,37 @@ export function BuilderPanel({
     }
   };
 
+  const openRevisions = async () => {
+    if (!draft?.id) return;
+    setRevisionsOpen(true);
+    setRevisionsError(null);
+    try {
+      setRevisions(await fetchPluginRevisions(draft.id));
+    } catch (failure) {
+      setRevisions([]);
+      setRevisionsError(errorText(failure));
+    }
+  };
+
+  const restoreRevision = async (version: number) => {
+    if (!draft?.id || restoringVersion !== null) return;
+    setRestoringVersion(version);
+    setRevisionsError(null);
+    try {
+      const restored = await restorePluginRevision(draft.id, version);
+      loadPlugin(restored);
+      toast(
+        `Revision v${version} restored as a new draft (v${restored.version}). History was not rewritten.`,
+      );
+      setRevisionsOpen(false);
+      onChanged();
+    } catch (failure) {
+      setRevisionsError(errorText(failure));
+    } finally {
+      setRestoringVersion(null);
+    }
+  };
+
   const readImportFile = async (file: File | null) => {
     if (!file) return;
     setImportIssues([]);
@@ -1664,9 +1706,21 @@ export function BuilderPanel({
         {loading ? "Syncing…" : `${plugins.length} saved pages`}
       </span>
       {draft && (
-        <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
-          Page settings
-        </Button>
+        <>
+          <Button variant="ghost" onClick={() => setSettingsOpen(true)}>
+            Page settings
+          </Button>
+          {draft.id ? (
+            <Button
+              variant="ghost"
+              onClick={() => void openRevisions()}
+              disabled={Boolean(busy)}
+              aria-label="Revision history"
+            >
+              <History size={14} /> Revisions
+            </Button>
+          ) : null}
+        </>
       )}
       <Button
         variant="ghost"
@@ -1747,6 +1801,32 @@ export function BuilderPanel({
                     {plugin.installed ? "Installed · " : ""}
                     {plugin.status} · v{plugin.version} ·{" "}
                     {plugin.widgets.length} components
+                  </span>
+                  {/* Source sync chip: stored build provenance only — the
+                      console makes no network call to check the repository. */}
+                  <span
+                    aria-label={`Source sync for ${plugin.name}`}
+                    className={`mt-2 inline-flex max-w-full items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                      plugin.lastBuild
+                        ? "border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-300"
+                        : "border-dx-line bg-dx-subtle text-dx-muted"
+                    }`}
+                  >
+                    {plugin.lastBuild ? (
+                      <>
+                        <span
+                          className="inline-block size-1.5 rounded-full bg-teal-500"
+                          aria-hidden="true"
+                        />
+                        built {relativeTime(plugin.lastBuild.builtAt)} ·
+                        checksum{" "}
+                        {plugin.lastBuild.checksum
+                          .replace(/^sha256:/, "")
+                          .slice(0, 8)}
+                      </>
+                    ) : (
+                      "never built"
+                    )}
                   </span>
                 </button>
               ))}
@@ -2274,6 +2354,64 @@ export function BuilderPanel({
             </p>
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        open={revisionsOpen}
+        onClose={() => setRevisionsOpen(false)}
+        title="Revision history"
+        eyebrow={draft ? `${draft.name} · v${draft.version}` : undefined}
+        wide
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600 dark:text-slate-300">
+            Restoring a revision copies its widgets and settings into a{" "}
+            <strong>new draft version</strong> through the normal update path.
+            The stored history is never rewritten, and the restored draft is
+            editable and publishable as usual.
+          </p>
+          <ModalError message={revisionsError} />
+          {revisions.length === 0 && !revisionsError ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              No revisions yet. Save or publish the draft to create history.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-[#1f2c40]">
+              {revisions.map((revision) => (
+                <li
+                  key={revision.version}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5"
+                >
+                  <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    v{revision.version}
+                  </span>
+                  <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] uppercase text-slate-600 dark:bg-[#1a2740] dark:text-slate-300">
+                    {revision.status}
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                    {relativeTime(revision.createdAt)}
+                    {revision.createdBy ? ` · ${revision.createdBy}` : ""}
+                  </span>
+                  <span className="max-w-full truncate font-mono text-[10px] text-slate-400">
+                    {revision.checksum.replace(/^sha256:/, "").slice(0, 12)}
+                  </span>
+                  <span className="ml-auto">
+                    <Button
+                      variant="ghost"
+                      onClick={() => void restoreRevision(revision.version)}
+                      disabled={restoringVersion !== null}
+                      aria-label={`Restore revision v${revision.version}`}
+                    >
+                      {restoringVersion === revision.version
+                        ? "Restoring…"
+                        : `Restore v${revision.version}`}
+                    </Button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Modal>
     </div>
   );

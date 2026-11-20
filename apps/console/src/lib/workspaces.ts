@@ -247,6 +247,14 @@ export interface RuntimeWidget extends WorkspaceWidget {
   canSubmitReason?: string;
 }
 
+/** Repository sync provenance of the last Tier-3 build (management metadata). */
+export interface PluginLastBuild {
+  checksum: string;
+  repository: string;
+  path: string;
+  builtAt: string;
+}
+
 export interface WorkspacePlugin {
   id: string;
   product: WorkspaceProduct;
@@ -259,11 +267,22 @@ export interface WorkspacePlugin {
   version: number;
   publishedVersion?: number;
   publishedAt?: string;
+  /** Present when a Tier-3 repository build was persisted for this plugin. */
+  lastBuild?: PluginLastBuild;
   createdAt: string;
   updatedAt: string;
   /** Admin management metadata from the plugin list. */
   installed: boolean;
   installedRoles?: string[];
+}
+
+/** One immutable revision history entry (admin management view). */
+export interface PluginRevisionSummary {
+  version: number;
+  status: string;
+  createdAt: string;
+  createdBy: string;
+  checksum: string;
 }
 
 export interface InstalledPlugin {
@@ -2079,9 +2098,64 @@ export function parsePlugin(payload: unknown): WorkspacePlugin {
     plugin.publishedVersion = requireVersion(payload, "publishedVersion");
   if (payload.publishedAt !== undefined)
     plugin.publishedAt = optionalString(payload, "publishedAt");
+  if (payload.lastBuild !== undefined && isRecord(payload.lastBuild)) {
+    const build = payload.lastBuild;
+    plugin.lastBuild = {
+      checksum: requireString(build, "checksum"),
+      repository: requireString(build, "repository"),
+      path: requireString(build, "path"),
+      builtAt: requireString(build, "builtAt"),
+    };
+  }
   const installedRoles = parseInstalledRoles(payload.installedRoles);
   if (installedRoles) plugin.installedRoles = installedRoles;
   return plugin;
+}
+
+/** Parse the admin revision history list (forward-only, immutable entries). */
+export function parsePluginRevisions(payload: unknown): {
+  items: PluginRevisionSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+} {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error(
+      "The capability service returned an invalid revision list.",
+    );
+  }
+  return {
+    items: payload.items.map((item) => {
+      if (!isRecord(item)) {
+        throw new Error(
+          "The capability service returned an invalid revision entry.",
+        );
+      }
+      return {
+        version: requireVersion(item, "version"),
+        status: optionalString(item, "status") || "draft",
+        createdAt: optionalString(item, "createdAt") || "",
+        createdBy: optionalString(item, "createdBy") || "",
+        checksum: optionalString(item, "checksum") || "",
+      };
+    }),
+    total: requireVersion(payload, "total"),
+    limit: requireVersion(payload, "limit"),
+    offset: requireVersion(payload, "offset"),
+  };
+}
+
+/** Parse the restore response: the new draft plus the revision it came from. */
+export function parseRestoredPlugin(
+  payload: unknown,
+): WorkspacePlugin & { restoredFrom: number } {
+  if (!isRecord(payload)) {
+    throw new Error("The capability service returned an invalid restore.");
+  }
+  return {
+    ...parsePlugin(payload),
+    restoredFrom: requireVersion(payload, "restoredFrom"),
+  };
 }
 
 export function parsePluginList(payload: unknown): WorkspacePlugin[] {
