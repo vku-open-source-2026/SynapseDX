@@ -26,7 +26,7 @@ interface UsageResponse {
 export function AuditPage() {
   const context = useAuthStore((state) => state.context);
   const readable = can(context, 'audit:read');
-  const [applied, setApplied] = useState({ action: '', actor: '', datasetId: '' });
+  const [applied, setApplied] = useState({ action: '', actor: '', datasetId: '', pluginId: '' });
   const [draft, setDraft] = useState(applied);
 
   const query = new URLSearchParams({ limit: '100' });
@@ -86,12 +86,14 @@ export function AuditPage() {
               action: draft.action.trim(),
               actor: draft.actor.trim(),
               datasetId: draft.datasetId.trim(),
+              pluginId: draft.pluginId.trim(),
             });
           }}
         >
           <input className={`${inputClassName} max-w-44`} name="action" placeholder="Action (e.g. dataset.review)" value={draft.action} onChange={(event) => setDraft((current) => ({ ...current, action: event.target.value }))} />
           <input className={`${inputClassName} max-w-40`} name="actor" placeholder="Actor" value={draft.actor} onChange={(event) => setDraft((current) => ({ ...current, actor: event.target.value }))} />
           <input className={`${inputClassName} max-w-40`} name="datasetId" placeholder="Dataset id" value={draft.datasetId} onChange={(event) => setDraft((current) => ({ ...current, datasetId: event.target.value }))} />
+          <input className={`${inputClassName} max-w-40`} name="pluginId" placeholder="Plugin id" value={draft.pluginId} onChange={(event) => setDraft((current) => ({ ...current, pluginId: event.target.value }))} />
           <Button type="submit" variant="ghost">Apply filters</Button>
         </form>
 

@@ -832,6 +832,38 @@ test("workspace revision restore posts to the forward-only restore path", async 
   assert.equal(restored.restoredFrom, 1);
 });
 
+test("workspace bulk import posts one call and returns per-item outcomes", async () => {
+  const { impl, requests } = mockFetch(() => ({
+    body: {
+      results: [
+        { index: 0, ok: true, pluginId: "p1" },
+        { index: 1, ok: false, error: { code: "invalid_bundle", message: "no" } },
+      ],
+      summary: { total: 2, imported: 1, failed: 1 },
+    },
+  }));
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "tok",
+    fetch: impl,
+  });
+  const bundles = [
+    { format: "synapsedx-plugin", formatVersion: 1, plugin: { product: "city", name: "A", slug: "a", audience: "member", roles: ["volunteer"], widgets: [] } },
+    { format: "synapsedx-plugin", formatVersion: 1, plugin: { product: "city", name: "B", slug: "b", audience: "member", roles: ["volunteer"], widgets: [] } },
+  ] as any;
+  const result = await client.workspaces.importPluginBundles(bundles);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "POST");
+  assert.equal(
+    requests[0].url,
+    "https://dx.example/v1/capabilities/workspaces/plugins/import-bulk",
+  );
+  assert.deepEqual(requests[0].body, { bundles });
+  assert.equal(result.summary.imported, 1);
+  assert.equal(result.results[1].error?.code, "invalid_bundle");
+});
+
 test("workspace widget execution sends exactly a values envelope", async () => {
   const { impl, requests } = mockFetch(() => ({
     body: {

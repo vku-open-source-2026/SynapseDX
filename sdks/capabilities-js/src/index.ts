@@ -1736,6 +1736,19 @@ export interface WorkspacePluginBundle {
   checksum?: string;
 }
 
+/** One per-item outcome of a bulk import (all-or-nothing is not the contract). */
+export interface PluginBulkImportItem {
+  index: number;
+  ok: boolean;
+  pluginId?: string;
+  error?: { code: string; message: string };
+}
+
+export interface PluginBulkImportResult {
+  results: PluginBulkImportItem[];
+  summary: { total: number; imported: number; failed: number };
+}
+
 export interface WorkspaceWidgetData {
   widgetId: string;
   type: "metric" | "table" | "chart" | "list";
@@ -2625,6 +2638,15 @@ export class CapabilitiesClient {
       bundle: WorkspacePluginBundle,
       opts?: RequestOptions,
     ) => Promise<WorkspacePlugin>;
+    /**
+     * Import several portable bundles in one call (bounded server-side).
+     * Each item is validated through the single-import path and reported
+     * individually; a bad bundle never blocks the valid ones beside it.
+     */
+    importPluginBundles: (
+      bundles: WorkspacePluginBundle[],
+      opts?: RequestOptions,
+    ) => Promise<PluginBulkImportResult>;
     provisionPlugin: (
       id: string,
       opts?: RequestOptions,
@@ -4118,6 +4140,15 @@ export class CapabilitiesClient {
           {
             method: "POST",
             body: JSON.stringify(bundle),
+          },
+          requestOpts,
+        ),
+      importPluginBundles: (bundles, requestOpts) =>
+        this.http.request<PluginBulkImportResult>(
+          `${workspaceBase}/plugins/import-bulk`,
+          {
+            method: "POST",
+            body: JSON.stringify({ bundles }),
           },
           requestOpts,
         ),

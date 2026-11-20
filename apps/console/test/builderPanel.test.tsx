@@ -199,3 +199,92 @@ describe('BuilderPanel source-sync chip', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('BuilderPanel bulk bundle import', () => {
+  const widget = { id: 'intro', type: 'text', title: 'Welcome', text: 'Hi', width: 'half' };
+  const bundleFor = (name: string, slug: string) => ({
+    format: 'synapsedx-plugin',
+    formatVersion: 1,
+    plugin: {
+      product: 'city',
+      name,
+      slug,
+      audience: 'member',
+      roles: ['volunteer'],
+      widgets: [widget],
+    },
+    checksum: `sha256:${'a'.repeat(64)}`,
+  });
+  const fileFor = (bundle: unknown, fileName: string) =>
+    new File([JSON.stringify(bundle)], fileName, { type: 'application/json' });
+
+  it('imports several files in one call and renders per-item outcomes', async () => {
+    const first = bundleFor('First page', 'first-page');
+    const second = bundleFor('Second page', 'second-page');
+    vi.mocked(api.post).mockImplementation((path: string) => {
+      if (String(path).endsWith('/plugins/import-bulk')) {
+        return Promise.resolve({
+          results: [
+            { index: 0, ok: true, pluginId: 'plugin-1' },
+            {
+              index: 1,
+              ok: false,
+              error: { code: 'plugin_limit_reached', message: 'this organization already has 50 plugins' },
+            },
+          ],
+          summary: { total: 2, imported: 1, failed: 1 },
+        });
+      }
+      return Promise.resolve({});
+    });
+    const onChanged = vi.fn();
+    const { container } = render(renderPanel([], onChanged));
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    fireEvent.change(input, {
+      target: { files: [fileFor(first, 'first.json'), fileFor(second, 'second.json')] },
+    });
+
+    const submit = await screen.findByRole('button', { name: 'Import 2 bundles' });
+    fireEvent.click(submit);
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+        '/v1/capabilities/workspaces/plugins/import-bulk',
+        { bundles: [first, second] },
+      );
+    });
+    // A failed item is reported, not hidden, and the valid one still imported.
+    expect(await screen.findByText('plugin_limit_reached')).toBeTruthy();
+    expect(screen.getByText(/1 of 2\s+imported as drafts/)).toBeTruthy();
+    expect(onChanged).toHaveBeenCalled();
+    // The dialog stays open so the operator can read the failed item.
+    expect(screen.getByText('Second page')).toBeTruthy();
+  });
+
+  it('skips files that do not parse and never calls the bulk endpoint', async () => {
+    const valid = bundleFor('Only page', 'only-page');
+    const onChanged = vi.fn();
+    const { container } = render(renderPanel([], onChanged));
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(['{not json'], 'broken.json', { type: 'application/json' }), fileFor(valid, 'only.json')] },
+    });
+
+    expect(await screen.findByText(/The file is not valid JSON\./)).toBeTruthy();
+    const submit = await screen.findByRole('button', { name: 'Import as draft' });
+    fireEvent.click(submit);
+
+    await waitFor(() => {
+      expect(vi.mocked(api.post)).toHaveBeenCalledWith(
+        '/v1/capabilities/workspaces/import',
+        valid,
+      );
+    });
+    expect(
+      vi.mocked(api.post).mock.calls.some(([path]) => String(path).includes('import-bulk')),
+    ).toBe(false);
+  });
+});

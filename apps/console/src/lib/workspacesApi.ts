@@ -137,6 +137,38 @@ export async function importPluginBundle(
   );
 }
 
+/** Per-item outcome of a bulk import; a bad bundle never blocks its neighbours. */
+export interface PluginBulkImportItem {
+  index: number;
+  ok: boolean;
+  pluginId?: string;
+  error?: { code: string; message: string };
+}
+
+export interface PluginBulkImportResult {
+  results: PluginBulkImportItem[];
+  summary: { total: number; imported: number; failed: number };
+}
+
+/**
+ * Import several portable bundles in one call. The server bounds the batch and
+ * validates each item through the single-import path, so the caller must render
+ * the per-item outcomes instead of assuming success.
+ */
+export async function importPluginBundles(
+  bundles: PluginBundle[],
+): Promise<PluginBulkImportResult> {
+  const payload = await api.post<PluginBulkImportResult>(
+    `${WORKSPACE_API_BASE}/plugins/import-bulk`,
+    { bundles },
+  );
+  return {
+    results: Array.isArray(payload?.results) ? payload.results : [],
+    summary:
+      payload?.summary ?? { total: bundles.length, imported: 0, failed: bundles.length },
+  };
+}
+
 /** Immutable revision history for one plugin (admin management view). */
 export async function fetchPluginRevisions(
   id: string,

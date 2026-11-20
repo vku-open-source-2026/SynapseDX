@@ -2119,6 +2119,189 @@ describe("workspace plugin routes", () => {
     assert.equal(urlRejected.body.error.code, "invalid_widget");
   });
 
+  test("bulk import reports per-item outcomes through the single-import path", async () => {
+    const validBundle = (slug: string) => {
+      const plugin = {
+        product: "city",
+        name: `Bulk ${slug}`,
+        slug,
+        audience: "member" as const,
+        roles: ["volunteer"],
+        widgets: [
+          {
+            id: "intro",
+            type: "text",
+            title: "Welcome",
+            text: "Bulk import.",
+          },
+        ],
+      };
+      return {
+        format: "synapsedx-plugin",
+        formatVersion: 1,
+        plugin,
+        checksum: checksumOf(plugin),
+      };
+    };
+    const tampered = (slug: string) => {
+      const bundle = validBundle(slug);
+      return { ...bundle, checksum: `sha256:${"0".repeat(64)}` };
+    };
+
+    // Only a verified organization administrator may bulk import.
+    const forbidden = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      { bundles: [validBundle("bulk-forbidden")] },
+      "member-token",
+    );
+    assert.equal(forbidden.status, 403);
+    assert.equal(forbidden.body.error.code, "admin_required");
+
+    // The envelope itself is validated before any item is imported.
+    const empty = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      { bundles: [] },
+    );
+    assert.equal(empty.status, 400);
+    assert.equal(empty.body.error.code, "invalid_request");
+    const notAnArray = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      { bundles: validBundle("bulk-shape") },
+    );
+    assert.equal(notAnArray.status, 400);
+    assert.equal(notAnArray.body.error.code, "invalid_request");
+    const extraKey = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      { bundles: [validBundle("bulk-key")], dryRun: true },
+    );
+    assert.equal(extraKey.status, 400);
+    assert.equal(extraKey.body.error.code, "invalid_plugin");
+    const capped = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      {
+        bundles: Array.from({ length: 31 }, (_, index) =>
+          validBundle(`bulk-cap-${index}`),
+        ),
+      },
+    );
+    assert.equal(capped.status, 400);
+    assert.match(capped.body.error.message, /at most 30/);
+
+    // Two valid bundles and one invalid one: per-item outcomes, not
+    // all-or-nothing.
+    const bulk = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      {
+        bundles: [
+          validBundle("bulk-one"),
+          tampered("bulk-two"),
+          validBundle("bulk-three"),
+        ],
+      },
+    );
+    assert.equal(bulk.status, 200, JSON.stringify(bulk.body));
+    assert.deepEqual(bulk.body.summary, { total: 3, imported: 2, failed: 1 });
+    assert.equal(bulk.body.results[0].ok, true);
+    assert.ok(bulk.body.results[0].pluginId);
+    assert.equal(bulk.body.results[1].ok, false);
+    assert.equal(bulk.body.results[1].error.code, "bundle_checksum_mismatch");
+    assert.equal(bulk.body.results[1].pluginId, undefined);
+    assert.equal(bulk.body.results[2].ok, true);
+    assert.ok(bulk.body.results[2].pluginId);
+
+    // Imported items are real drafts, never installed, with revision history.
+    const one = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${bulk.body.results[0].pluginId}`,
+    );
+    assert.equal(one.status, 200);
+    assert.equal(one.body.status, "draft");
+    assert.equal(one.body.installed, false);
+    assert.equal(one.body.name, "Bulk bulk-one");
+    const revisions = await admin(
+      "GET",
+      `/v1/capabilities/workspaces/plugins/${bulk.body.results[0].pluginId}/revisions`,
+    );
+    assert.equal(revisions.body.total, 1);
+
+    // The invalid item blocked nothing; slugs are still enforced per item.
+    const duplicate = await admin(
+      "POST",
+      "/v1/capabilities/workspaces/plugins/import-bulk",
+      { bundles: [validBundle("bulk-one"), validBundle("bulk-four")] },
+    );
+    assert.equal(duplicate.status, 200);
+    assert.equal(duplicate.body.results[0].ok, false);
+    assert.equal(duplicate.body.results[0].error.code, "plugin_slug_exists");
+    assert.equal(duplicate.body.results[1].ok, true);
+    assert.deepEqual(duplicate.body.summary, { total: 2, imported: 1, failed: 1 });
+
+    // The bulk call is audited as one summary entry.
+    const audit = await api(
+      harness,
+      "/v1/capabilities/audit?action=workspace.plugin.import_bulk&limit=100",
+      { token: "admin-token" },
+    );
+    assert.equal(audit.status, 200);
+    assert.ok(
+      audit.body.items.some(
+        (item: any) =>
+          item.details?.total === 3 && item.details?.imported === 2,
+      ),
+      "bulk summary audit entry missing",
+    );
+  });
+
+  test("the audit lane filters by plugin id alongside the existing filters", async () => {
+    const first = await createPlugin({ slug: "audit-lane-one" });
+    const second = await createPlugin({ slug: "audit-lane-two" });
+    assert.equal(first.status, 201);
+    assert.equal(second.status, 201);
+
+    const lane = await api(
+      harness,
+      `/v1/capabilities/audit?pluginId=${encodeURIComponent(first.body.id)}&limit=200`,
+      { token: "admin-token" },
+    );
+    assert.equal(lane.status, 200);
+    assert.ok(lane.body.items.length > 0);
+    for (const item of lane.body.items) {
+      assert.equal(item.details?.pluginId, first.body.id);
+    }
+    assert.equal(
+      lane.body.items.some(
+        (item: any) => item.details?.pluginId === second.body.id,
+      ),
+      false,
+    );
+
+    // The plugin filter composes with the existing action filter.
+    const combined = await api(
+      harness,
+      `/v1/capabilities/audit?pluginId=${encodeURIComponent(first.body.id)}&action=workspace.plugin.create`,
+      { token: "admin-token" },
+    );
+    assert.equal(combined.status, 200);
+    assert.equal(combined.body.items.length, 1);
+    assert.equal(combined.body.items[0].action, "workspace.plugin.create");
+    assert.equal(combined.body.items[0].details.pluginId, first.body.id);
+
+    // An unknown plugin id yields an honest empty page, not an error.
+    const none = await api(
+      harness,
+      "/v1/capabilities/audit?pluginId=00000000-0000-4000-8000-000000000000",
+      { token: "admin-token" },
+    );
+    assert.equal(none.status, 200);
+    assert.equal(none.body.items.length, 0);
+  });
+
   test("the plugin API never shadows the legacy PARA workspace endpoints", async () => {
     // Legacy collaboration endpoints still answer.
     const legacy = await api(harness, "/v1/capabilities/workspaces", {

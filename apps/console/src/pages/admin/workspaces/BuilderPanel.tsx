@@ -94,12 +94,21 @@ import {
   fetchPluginRevisions,
   fetchWorkflowArtifacts,
   importPluginBundle,
+  importPluginBundles,
   publishPlugin,
   restorePluginRevision,
   unpublishPlugin,
   updatePlugin,
+  type PluginBulkImportResult,
 } from "../../../lib/workspacesApi";
 import type { WorkflowArtifactSummary } from "../../../lib/workspaces";
+
+/** One file selected in the import dialog, parsed locally before any upload. */
+interface ImportCandidate {
+  fileName: string;
+  bundle: PluginBundle | null;
+  issues: ValidationIssue[];
+}
 
 interface BuilderPanelProps {
   requestedPluginId?: string;
@@ -1171,9 +1180,12 @@ export function BuilderPanel({
   const [newSlugTouched, setNewSlugTouched] = useState(false);
   const [newAudience, setNewAudience] = useState<"admin" | "member">("member");
   const [importOpen, setImportOpen] = useState(false);
-  const [pendingBundle, setPendingBundle] = useState<PluginBundle | null>(null);
+  const [importQueue, setImportQueue] = useState<ImportCandidate[]>([]);
   const [importIssues, setImportIssues] = useState<ValidationIssue[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<PluginBulkImportResult | null>(
+    null,
+  );
   const [buildArtifact, setBuildArtifact] = useState<BuildArtifact | null>(
     null,
   );
@@ -1507,17 +1519,15 @@ export function BuilderPanel({
     }
   };
 
-  const readImportFile = async (file: File | null) => {
-    if (!file) return;
-    setImportIssues([]);
-    setImportError(null);
-    setPendingBundle(null);
+  const parseImportFile = async (file: File): Promise<ImportCandidate> => {
     if (file.size > 256 * 1024) {
-      setImportIssues([
-        { path: "file", message: "Bundle file must be 256 KiB or smaller." },
-      ]);
-      setImportOpen(true);
-      return;
+      return {
+        fileName: file.name,
+        bundle: null,
+        issues: [
+          { path: "file", message: "Bundle file must be 256 KiB or smaller." },
+        ],
+      };
     }
     try {
       const text = await file.text();
@@ -1525,42 +1535,100 @@ export function BuilderPanel({
       try {
         parsed = JSON.parse(text);
       } catch {
-        setImportIssues([
-          { path: "file", message: "The file is not valid JSON." },
-        ]);
-        setImportOpen(true);
-        return;
+        return {
+          fileName: file.name,
+          bundle: null,
+          issues: [{ path: "file", message: "The file is not valid JSON." }],
+        };
       }
       const result = parsePluginBundle(parsed);
       if (!result.ok) {
-        setImportIssues(result.issues);
-        setImportOpen(true);
-        return;
+        return { fileName: file.name, bundle: null, issues: result.issues };
       }
-      setPendingBundle(result.bundle);
-      setImportOpen(true);
+      return { fileName: file.name, bundle: result.bundle, issues: [] };
     } catch (failure) {
-      setImportIssues([{ path: "file", message: errorText(failure) }]);
-      setImportOpen(true);
+      return {
+        fileName: file.name,
+        bundle: null,
+        issues: [{ path: "file", message: errorText(failure) }],
+      };
     }
   };
 
+  const readImportFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    setImportIssues([]);
+    setImportError(null);
+    setBulkResult(null);
+    const parsed = await Promise.all(files.map((file) => parseImportFile(file)));
+    setImportQueue(parsed);
+    setImportOpen(true);
+  };
+
+  /** Bundles in the queue that passed local validation for this workspace. */
+  const importableEntries = importQueue
+    .map((candidate, queueIndex) => ({ candidate, queueIndex }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        candidate: ImportCandidate & { bundle: PluginBundle };
+        queueIndex: number;
+      } =>
+        entry.candidate.bundle !== null &&
+        entry.candidate.bundle.plugin.product === product,
+    );
+  const importableBundles = importableEntries.map(
+    (entry) => entry.candidate.bundle,
+  );
+  const wrongProduct = importQueue.filter(
+    (candidate) =>
+      candidate.bundle !== null && candidate.bundle.plugin.product !== product,
+  );
+
   const confirmImport = async () => {
-    if (!pendingBundle || busy) return;
-    if (pendingBundle.plugin.product !== product) {
+    if (importableBundles.length === 0 || busy) return;
+    if (wrongProduct.length > 0) {
       setImportError(
-        `Select the ${pendingBundle.plugin.product} workspace before importing this bundle.`,
+        `Select the ${wrongProduct[0].bundle?.plugin.product} workspace before importing ${wrongProduct[0].fileName}.`,
       );
+      return;
+    }
+    if (importableBundles.length === 1) {
+      setBusy("import");
+      setImportError(null);
+      try {
+        const imported = await importPluginBundle(importableBundles[0]);
+        loadPlugin(imported);
+        setImportOpen(false);
+        setImportQueue([]);
+        toast("Bundle imported as a draft. It was not installed.");
+        onChanged();
+      } catch (failure) {
+        setImportError(errorText(failure));
+      } finally {
+        setBusy(null);
+      }
       return;
     }
     setBusy("import");
     setImportError(null);
     try {
-      const imported = await importPluginBundle(pendingBundle);
-      loadPlugin(imported);
-      setImportOpen(false);
-      setPendingBundle(null);
-      toast("Bundle imported as a draft. It was not installed.");
+      const result = await importPluginBundles(importableBundles);
+      setBulkResult(result);
+      const firstImported = result.results.find((item) => item.ok);
+      if (firstImported?.pluginId) onSelected?.(firstImported.pluginId);
+      if (result.summary.failed === 0) {
+        setImportOpen(false);
+        setImportQueue([]);
+        toast(
+          `${result.summary.imported} bundles imported as drafts. They were not installed.`,
+        );
+      } else {
+        toast(
+          `${result.summary.imported} of ${result.summary.total} bundles imported; ${result.summary.failed} failed.`,
+        );
+      }
       onChanged();
     } catch (failure) {
       setImportError(errorText(failure));
@@ -1735,7 +1803,7 @@ export function BuilderPanel({
         onClick={() => fileInput.current?.click()}
         disabled={Boolean(busy)}
       >
-        <Upload size={14} /> Import bundle
+        <Upload size={14} /> Import bundles
       </Button>
       <Button
         variant="primary"
@@ -1838,9 +1906,10 @@ export function BuilderPanel({
         ref={fileInput}
         type="file"
         accept="application/json,.json"
+        multiple
         className="hidden"
         onChange={(event) => {
-          void readImportFile(event.target.files?.[0] ?? null);
+          void readImportFiles(Array.from(event.target.files ?? []));
           event.target.value = "";
         }}
       />
@@ -2242,23 +2311,35 @@ export function BuilderPanel({
         open={importOpen}
         onClose={() => {
           setImportOpen(false);
-          setPendingBundle(null);
+          setImportQueue([]);
           setImportIssues([]);
           setImportError(null);
+          setBulkResult(null);
         }}
-        title="Import portable bundle"
+        title="Import portable bundles"
         wide
         footer={
           <>
-            <Button variant="ghost" onClick={() => setImportOpen(false)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setImportOpen(false);
+                setImportQueue([]);
+                setBulkResult(null);
+              }}
+            >
               Cancel
             </Button>
             <Button
               variant="primary"
               onClick={() => void confirmImport()}
-              disabled={!pendingBundle || Boolean(busy)}
+              disabled={importableBundles.length === 0 || Boolean(busy)}
             >
-              {busy === "import" ? "Importing…" : "Import as draft"}
+              {busy === "import"
+                ? "Importing…"
+                : importableBundles.length > 1
+                  ? `Import ${importableBundles.length} bundles`
+                  : "Import as draft"}
             </Button>
           </>
         }
@@ -2266,34 +2347,95 @@ export function BuilderPanel({
         <div className="space-y-3">
           <p className="text-sm text-slate-600 dark:text-slate-300">
             Imports create a DRAFT and never auto-install. Server state, tenant
-            ids, tokens and membership are rejected.
+            ids, tokens and membership are rejected. Select several bundle files
+            at once to import them in one reviewable batch; a bad file never
+            blocks the valid ones beside it.
           </p>
           <Issues issues={importIssues} max={12} />
           <ModalError message={importError} />
-          {pendingBundle ? (
-            <div className="rounded-xl border border-slate-200 p-3 text-sm dark:border-[#26354d]">
-              <p className="font-semibold text-slate-900 dark:text-slate-100">
-                {pendingBundle.plugin.name}
-              </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                {pendingBundle.plugin.product} · {pendingBundle.plugin.audience}{" "}
-                · {pendingBundle.plugin.widgets.length} widget(s) · roles:{" "}
-                {pendingBundle.plugin.roles.join(", ") || "none"}
-              </p>
-              {pendingBundle.source?.repository ? (
-                <p className="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">
-                  source: {pendingBundle.source.repository}
-                  {pendingBundle.source.path
-                    ? `/${pendingBundle.source.path}`
-                    : ""}
-                </p>
-              ) : null}
-              {pendingBundle.checksum ? (
-                <p className="mt-1 break-all font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                  {pendingBundle.checksum}
-                </p>
-              ) : null}
-            </div>
+          {wrongProduct.length > 0 ? (
+            <p role="alert" className="text-xs font-medium text-amber-700 dark:text-amber-300">
+              {wrongProduct.length} file(s) belong to another workspace product
+              and will not be imported until you switch workspace.
+            </p>
+          ) : null}
+          {importQueue.length > 0 ? (
+            <ul className="space-y-2">
+              {importQueue.map((candidate, index) => {
+                const position = importableEntries.findIndex(
+                  (entry) => entry.queueIndex === index,
+                );
+                const outcome =
+                  position >= 0
+                    ? bulkResult?.results.find(
+                        (item) => item.index === position,
+                      )
+                    : undefined;
+                const valid =
+                  candidate.bundle !== null &&
+                  candidate.bundle.plugin.product === product;
+                return (
+                  <li
+                    key={`${candidate.fileName}-${index}`}
+                    className="rounded-xl border border-slate-200 p-3 text-sm dark:border-[#26354d]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-slate-900 dark:text-slate-100">
+                          {candidate.bundle?.plugin.name ?? candidate.fileName}
+                        </p>
+                        <p className="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">
+                          {candidate.fileName}
+                          {candidate.bundle
+                            ? ` · ${candidate.bundle.plugin.product} · ${candidate.bundle.plugin.widgets.length} widget(s)`
+                            : ""}
+                        </p>
+                      </div>
+                      <span
+                        className={
+                          outcome
+                            ? outcome.ok
+                              ? "shrink-0 text-xs font-semibold text-emerald-700 dark:text-emerald-400"
+                              : "shrink-0 text-xs font-semibold text-red-700 dark:text-red-400"
+                            : valid
+                              ? "shrink-0 text-xs font-semibold text-slate-500"
+                              : "shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-300"
+                        }
+                      >
+                        {outcome
+                          ? outcome.ok
+                            ? "imported"
+                            : outcome.error?.code || "failed"
+                          : valid
+                            ? "ready"
+                            : "skipped"}
+                      </span>
+                    </div>
+                    {outcome && !outcome.ok ? (
+                      <p className="mt-1 text-xs text-red-700 dark:text-red-400">
+                        {outcome.error?.message}
+                      </p>
+                    ) : null}
+                    {!outcome && candidate.issues.length > 0 ? (
+                      <ul className="mt-1 space-y-0.5 text-xs text-red-700 dark:text-red-400">
+                        {candidate.issues.slice(0, 4).map((issue, issueIndex) => (
+                          <li key={issueIndex}>
+                            {issue.path ? `${issue.path}: ` : ""}
+                            {issue.message}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          {bulkResult ? (
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
+              {bulkResult.summary.imported} of {bulkResult.summary.total}{" "}
+              imported as drafts · {bulkResult.summary.failed} failed
+            </p>
           ) : null}
         </div>
       </Modal>

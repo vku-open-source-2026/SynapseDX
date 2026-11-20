@@ -43,7 +43,7 @@ import {
   requireAuthenticated,
 } from "../auth";
 import { ServiceConfig } from "../config";
-import { apiError } from "../errors";
+import { ApiError, apiError } from "../errors";
 import { handler } from "../http";
 import { parsePagination, setPageHeaders } from "../pagination";
 import { querySpatialRecords } from "./spatial";
@@ -129,6 +129,8 @@ const WORKFLOW_ARTIFACT_ID_RE = /^[A-Za-z0-9_-]{8,120}$/;
 const WORKFLOW_ID_RE = /^[A-Za-z0-9_.:-]{1,128}$/;
 const FORM_TEXT_MAX = 4000;
 const REVISION_HISTORY_LIMIT = 25;
+/** One bulk import call is bounded so a single request stays reviewable. */
+const BULK_IMPORT_LIMIT = 30;
 
 const WORKSPACE_COLLECTIONS = [
   COLLECTIONS.workspacePlugins,
@@ -2251,82 +2253,177 @@ export function registerWorkspacePluginRoutes(
     }),
   );
 
+  // ---- import ----
+  /**
+   * The single-bundle import path shared by `POST /import` and the bulk
+   * importer: validate the portable bundle, rebind workflow refs to this
+   * organization's artifacts, enforce the plugin limit and slug uniqueness,
+   * create the draft and audit it. Per-item outcomes in a bulk call are this
+   * function's ApiError or its created record.
+   */
+  async function importSingleBundle(
+    context: WorkspaceContext,
+    req: Request,
+    bundleInput: unknown,
+  ): Promise<WorkspacePluginRecord> {
+    const bundle = parseBundle(bundleInput || {}, context.limits);
+    const definition = bundle.plugin;
+    const widgets = await resolveArtifactRefs(
+      context.client,
+      context.tenant,
+      definition.widgets,
+    );
+    await ensureWorkspaceCollections(context.client);
+    const existing = await queryDocuments<WorkspacePluginRecord>(
+      context.client,
+      COLLECTIONS.workspacePlugins,
+      {
+        where: { tenant: context.tenant },
+        limit: 1,
+      },
+    );
+    if (existing.total >= context.limits.maxPluginsPerOrg) {
+      throw apiError(
+        409,
+        "plugin_limit_reached",
+        `this organization already has ${context.limits.maxPluginsPerOrg} plugins`,
+      );
+    }
+    await assertUniqueSlug(
+      context.client,
+      context.tenant,
+      definition.product,
+      definition.slug,
+    );
+    await assertArtifactBindings(context.client, context.tenant, widgets);
+    const now = new Date().toISOString();
+    const record: WorkspacePluginRecord = {
+      id: randomUUID(),
+      tenant: context.tenant,
+      ...(context.principal.org ? { org: context.principal.org } : {}),
+      product: definition.product,
+      name: definition.name,
+      slug: definition.slug,
+      audience: definition.audience,
+      roles: definition.roles,
+      widgets,
+      status: "draft",
+      version: 1,
+      ...(bundle.source ? { source: bundle.source } : {}),
+      ...(bundle.checksum ? { checksum: bundle.checksum } : {}),
+      createdBy: context.principal.subject,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await context.client.base.createDocument(COLLECTIONS.workspacePlugins, {
+      id: record.id,
+      data: record as unknown as Record<string, unknown>,
+    });
+    await persistRevision(context.client, record, "draft");
+    invalidateWorkspaceCaches(context.tenant, record.id);
+    await recordAudit(context.client, config, {
+      actor: context.principal.subject,
+      tenant: context.tenant,
+      action: "workspace.plugin.import",
+      correlationId: correlationIdOf(req),
+      details: {
+        pluginId: record.id,
+        product: record.product,
+        checksum: bundle.checksum ?? null,
+      },
+    });
+    return record;
+  }
+
   app.post(
     `${base}/import`,
     handler(async (req, res) => {
       const context = await adminContext(req, config);
-      const bundle = parseBundle(req.body || {}, context.limits);
-      const definition = bundle.plugin;
-      const widgets = await resolveArtifactRefs(
-        context.client,
-        context.tenant,
-        definition.widgets,
-      );
-      await ensureWorkspaceCollections(context.client);
-      const existing = await queryDocuments<WorkspacePluginRecord>(
-        context.client,
-        COLLECTIONS.workspacePlugins,
-        {
-          where: { tenant: context.tenant },
-          limit: 1,
-        },
-      );
-      if (existing.total >= context.limits.maxPluginsPerOrg) {
-        throw apiError(
-          409,
-          "plugin_limit_reached",
-          `this organization already has ${context.limits.maxPluginsPerOrg} plugins`,
-        );
-      }
-      await assertUniqueSlug(
-        context.client,
-        context.tenant,
-        definition.product,
-        definition.slug,
-      );
-      await assertArtifactBindings(context.client, context.tenant, widgets);
-      const now = new Date().toISOString();
-      const record: WorkspacePluginRecord = {
-        id: randomUUID(),
-        tenant: context.tenant,
-        ...(context.principal.org ? { org: context.principal.org } : {}),
-        product: definition.product,
-        name: definition.name,
-        slug: definition.slug,
-        audience: definition.audience,
-        roles: definition.roles,
-        widgets,
-        status: "draft",
-        version: 1,
-        ...(bundle.source ? { source: bundle.source } : {}),
-        ...(bundle.checksum ? { checksum: bundle.checksum } : {}),
-        createdBy: context.principal.subject,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await context.client.base.createDocument(COLLECTIONS.workspacePlugins, {
-        id: record.id,
-        data: record as unknown as Record<string, unknown>,
-      });
-      await persistRevision(context.client, record, "draft");
-      invalidateWorkspaceCaches(context.tenant, record.id);
-      await recordAudit(context.client, config, {
-        actor: context.principal.subject,
-        tenant: context.tenant,
-        action: "workspace.plugin.import",
-        correlationId: correlationIdOf(req),
-        details: {
-          pluginId: record.id,
-          product: record.product,
-          checksum: bundle.checksum ?? null,
-        },
-      });
+      const record = await importSingleBundle(context, req, req.body || {});
       const installs = await listInstalls(context.client, context.tenant);
       res.setHeader(
         "location",
         `${base}/plugins/${encodeURIComponent(record.id)}`,
       );
       res.status(201).json(adminPluginView(record, installs));
+    }),
+  );
+
+  /**
+   * Bulk import: `{bundles: [...]}` (same payload shape as POST /import),
+   * capped per call. Items are validated and imported through the EXACT same
+   * single-import logic; the response reports a per-item outcome plus a
+   * summary. All-or-nothing is deliberately NOT the contract: a bad bundle
+   * must not block the valid ones beside it.
+   */
+  app.post(
+    `${base}/plugins/import-bulk`,
+    handler(async (req, res) => {
+      const context = await adminContext(req, config);
+      const body = (req.body || {}) as Record<string, unknown>;
+      assertBodyKeys(body, ["bundles"]);
+      if (!Array.isArray(body.bundles) || body.bundles.length === 0) {
+        throw apiError(
+          400,
+          "invalid_request",
+          "bundles must be a non-empty array of portable plugin bundles",
+        );
+      }
+      if (body.bundles.length > BULK_IMPORT_LIMIT) {
+        throw apiError(
+          400,
+          "invalid_request",
+          `a bulk import accepts at most ${BULK_IMPORT_LIMIT} bundles per call`,
+        );
+      }
+      const results: Array<{
+        index: number;
+        ok: boolean;
+        pluginId?: string;
+        error?: { code: string; message: string };
+      }> = [];
+      for (let index = 0; index < body.bundles.length; index++) {
+        try {
+          const record = await importSingleBundle(
+            context,
+            req,
+            body.bundles[index],
+          );
+          results.push({ index, ok: true, pluginId: record.id });
+        } catch (error) {
+          if (error instanceof ApiError) {
+            results.push({
+              index,
+              ok: false,
+              error: { code: error.code, message: error.message },
+            });
+            continue;
+          }
+          // An infrastructure failure is not a bundle outcome: fail loudly.
+          throw error;
+        }
+      }
+      const imported = results.filter((result) => result.ok).length;
+      await recordAudit(context.client, config, {
+        actor: context.principal.subject,
+        tenant: context.tenant,
+        action: "workspace.plugin.import_bulk",
+        correlationId: correlationIdOf(req),
+        details: {
+          total: body.bundles.length,
+          imported,
+          failed: body.bundles.length - imported,
+        },
+      });
+      res.setHeader("cache-control", "no-store");
+      res.json({
+        results,
+        summary: {
+          total: body.bundles.length,
+          imported,
+          failed: body.bundles.length - imported,
+        },
+      });
     }),
   );
 

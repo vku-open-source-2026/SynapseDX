@@ -40,12 +40,15 @@ export function registerAuditRoutes(app: Express, config: ServiceConfig): void {
     const datasetId = stringParam(req.query.datasetId, 80);
     const recordId = stringParam(req.query.recordId, 256);
     const actor = stringParam(req.query.actor, 256);
+    // Per-plugin audit lane: plugin lifecycle writes carry details.pluginId.
+    const pluginId = stringParam(req.query.pluginId, 80);
     const conditions: Record<string, unknown>[] = [];
     if (!isAdmin(principal)) conditions.push({ tenant: principal.tenantKey });
     if (action) conditions.push({ action });
     if (datasetId) conditions.push({ datasetId });
     if (recordId) conditions.push({ recordId });
     if (actor) conditions.push({ actor });
+    if (pluginId) conditions.push({ 'details.pluginId': pluginId });
     const where = conditions.length === 0 ? undefined : conditions.length === 1 ? conditions[0] : { and: conditions };
     const result = await queryDocuments<AuditRecord>(client, COLLECTIONS.audit, {
       ...(where ? { where } : {}),
