@@ -574,6 +574,28 @@ describe("runtime widgets, data and forms", () => {
     expect(
       formReasonMessage("workflow_sdk_release_required", "global requirement"),
     ).toBe("global requirement (workflow_sdk_release_required)");
+    // Deployment-conditional copy (#89): the readiness versions drive the
+    // message instead of a hardcoded external release claim.
+    expect(
+      formReasonMessage("workflow_sdk_release_required", null, {
+        installedVersion: "0.9.0",
+        minimumVersion: "0.9.1",
+      }),
+    ).toBe(
+      "This deployment's @synapseone/sdk is 0.9.0; pinned workflow execution requires >= 0.9.1. Update the SDK package on the capabilities service. (workflow_sdk_release_required)",
+    );
+    expect(
+      formReasonMessage("workflow_sdk_release_required", null, {
+        installedVersion: null,
+        minimumVersion: "0.9.1",
+      }),
+    ).toBe(
+      "This deployment's @synapseone/sdk version is unknown; pinned workflow execution requires >= 0.9.1. Update the SDK package on the capabilities service. (workflow_sdk_release_required)",
+    );
+    // Without version data the fallback keeps the deployment-scoped copy.
+    expect(formReasonMessage("workflow_sdk_release_required")).toContain(
+      "Update the SDK package on the capabilities service",
+    );
     expect(formReasonMessage("ready")).toBeNull();
   });
 

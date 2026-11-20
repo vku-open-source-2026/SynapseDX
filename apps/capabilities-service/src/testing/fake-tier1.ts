@@ -988,6 +988,19 @@ export class FakeTier1 {
     if (path === '/v1/inference/chat/completions' && method === 'POST') {
       this.chatRequests.push(body);
       if (process.env.FAKE_TIER1_CHAT_ERROR === 'true') return this.json(res, 503, { error: 'inference_unavailable' });
+      if (body?.stream === true) {
+        // OpenAI-compatible SSE: a role delta, content deltas, then [DONE].
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' });
+        const reply = process.env.FAKE_TIER1_CHAT_REPLY ?? 'ok';
+        const frames = [
+          JSON.stringify({ id: 'chat-1', model: body?.model || 'fake', choices: [{ index: 0, delta: { role: 'assistant' } }] }),
+          JSON.stringify({ id: 'chat-1', model: body?.model || 'fake', choices: [{ index: 0, delta: { content: reply } }] }),
+          '[DONE]',
+        ];
+        for (const frame of frames) res.write(`event: message\ndata: ${frame}\n\n`);
+        res.end();
+        return;
+      }
       const content = process.env.FAKE_TIER1_CHAT_REPLY ?? 'ok';
       return this.json(res, 200, { id: 'chat-1', object: 'chat.completion', created: 1, model: body?.model || 'fake', choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
     }

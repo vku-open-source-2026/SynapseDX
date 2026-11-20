@@ -43,16 +43,65 @@ export function registerAiRoutes(app: Express, config: ServiceConfig): void {
       }
       return { role, content: requireString(entry.content, `messages[${index}].content`) };
     });
-    if (body.stream === true) {
-      throw apiError(400, 'invalid_request', 'streaming responses are not supported by this route yet');
-    }
-    const response = await serviceClient(config, AI_TIMEOUT_MS).inference.chat(normalized as any, {
+    const opts = {
       ...(body.model ? { model: String(body.model) } : {}),
       ...(body.temperature !== undefined ? { temperature: Number(body.temperature) } : {}),
       ...(body.max_tokens !== undefined ? { max_tokens: Number(body.max_tokens) } : {}),
-    });
-    res.setHeader('cache-control', 'no-store');
-    res.json(response);
+    };
+    if (body.stream !== true) {
+      const response = await serviceClient(config, AI_TIMEOUT_MS).inference.chat(normalized as any, opts);
+      res.setHeader('cache-control', 'no-store');
+      res.json(response);
+      return;
+    }
+
+    // OpenAI-compatible SSE passthrough over the published SDK streaming
+    // client (`inference.chatStream`). The first frame is pulled before the
+    // SSE headers are committed so a refused upstream connection still gets
+    // the normal JSON error envelope; after that, failures are in-band.
+    const client = serviceClient(config, AI_TIMEOUT_MS);
+    const abort = new AbortController();
+    const onClose = (): void => { abort.abort(); };
+    req.on('close', onClose);
+    res.on('close', onClose);
+    res.on('error', onClose);
+    try {
+      const iterator = client.inference.chatStream(normalized as any, { ...opts, stream: true }, {
+        signal: abort.signal,
+      })[Symbol.asyncIterator]();
+      const first = await iterator.next();
+      res.status(200);
+      res.setHeader('content-type', 'text/event-stream; charset=utf-8');
+      res.setHeader('cache-control', 'no-cache, no-transform');
+      res.setHeader('connection', 'keep-alive');
+      res.setHeader('x-accel-buffering', 'no');
+      res.flushHeaders();
+      const writeFrame = (frame: { event: string; data: string }): void => {
+        res.write(`event: ${frame.event}\ndata: ${frame.data}\n\n`);
+      };
+      if (!first.done && !res.writableEnded && !res.destroyed) writeFrame(first.value);
+      for (;;) {
+        if (res.writableEnded || res.destroyed) break;
+        const next = await iterator.next();
+        if (next.done) break;
+        writeFrame(next.value);
+      }
+    } catch (error) {
+      // Before the SSE headers are committed, failures keep the JSON envelope.
+      if (!res.headersSent) throw error;
+      const message = (error as Error)?.message || 'the inference stream failed';
+      console.warn(`[ai] chat stream failed: ${message}`);
+      if (!res.writableEnded && !res.destroyed) {
+        res.write(`event: error\ndata: ${JSON.stringify({ code: 'upstream_unavailable', message })}\n\n`);
+      }
+    } finally {
+      req.off('close', onClose);
+      res.off('close', onClose);
+      res.off('error', onClose);
+      if (res.headersSent && !res.writableEnded && !res.destroyed) {
+        try { res.end(); } catch { /* the client already disconnected */ }
+      }
+    }
   }));
 
   app.post('/v1/capabilities/ai/embeddings', handler(async (req, res) => {

@@ -94,7 +94,14 @@
         if (m.type === 'log' && logs++ < 100) send('log', { level: ['log','info','warn','error'].includes(m.level) ? m.level : 'log', message: String(m.message).slice(0,4000) });
         if (m.type === 'ready') send('ready');
         if (m.type === 'result') {
-          try { if (JSON.stringify(m.value).length <= 20000) send('result', { value: m.value }); } catch {}
+          // The size cap stays: oversized or unserializable results are
+          // dropped, but the Studio log must say so instead of silence (#89).
+          try {
+            if (JSON.stringify(m.value).length <= 20000) send('result', { value: m.value });
+            else send('log', { level: 'warn', message: 'result dropped: exceeds 20000 chars or not serializable' });
+          } catch {
+            send('log', { level: 'warn', message: 'result dropped: exceeds 20000 chars or not serializable' });
+          }
         }
         if (m.type === 'request') {
           if (pending.size >= 10 || typeof m.id !== 'string' || m.id.length > 20) return;

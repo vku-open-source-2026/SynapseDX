@@ -446,10 +446,15 @@ fallback rules. SDK: `dx.plans.*`.
 | Method | Route | Auth | Description |
 | --- | --- | --- | --- |
 | GET | `/v1/capabilities/ai/status` | verified | Tier-1 inference health. |
-| POST | `/v1/capabilities/ai/chat` | verified | `{messages,model?,temperature?,max_tokens?}`. Streaming is not exposed. |
+| POST | `/v1/capabilities/ai/chat` | verified | `{messages,model?,temperature?,max_tokens?,stream?}`. With `stream: true` the route relays an OpenAI-compatible SSE stream (`text/event-stream`; frames are forwarded unmodified, ending with the upstream `data: [DONE]`). Failures before the first frame keep the JSON error envelope; failures after the stream is committed become an in-band `event: error` frame. |
 | POST | `/v1/capabilities/ai/embeddings` | verified | `{input,model?}` |
 | POST | `/v1/capabilities/ai/decision` | verified | `{state,questions}` |
 | POST | `/v1/capabilities/ai/route` | verified | `{input,choices,instruction?}` |
+
+Streaming note: the SSE relay forwards the raw upstream frames; read the
+incremental text with the Tier-1 SDK's `parseChatDelta` (exposed through the
+published SDK's `inference.chatStream` contract). There is no buffering or
+reconnection state in Tier-2 — a dropped stream is simply re-requested.
 
 ## Warehouse (OLAP + ETL)
 

@@ -1638,7 +1638,7 @@ const FORM_REASON_MESSAGES: Record<string, string> = {
   workflow_org_identity_unverified:
     "The organization workflow technical identity could not be verified by the workflow capability.",
   workflow_sdk_release_required:
-    "The published @synapseone/sdk does not yet support pinned workflow execution.",
+    "This deployment's @synapseone/sdk package does not support pinned workflow execution. Update the SDK package on the capabilities service.",
   workflow_artifact_unbound:
     "This form is not bound to a workflow artifact, so it stays read-only.",
   workflow_artifact_missing:
@@ -1656,15 +1656,30 @@ const FORM_REASON_MESSAGES: Record<string, string> = {
   no_form_widgets: "No workflow-bound form is installed for this organization.",
 };
 
+/** Deployment SDK versions reported by the workflow readiness payload. */
+export interface WorkflowSdkVersions {
+  installedVersion: string | null;
+  minimumVersion: string;
+}
+
 /** Map the backend reason code to a human explanation while keeping the code. */
 export function formReasonMessage(
   reason: string | undefined | null,
   fallbackRequirement?: string | null,
+  sdkVersions?: WorkflowSdkVersions | null,
 ): string | null {
   if (!reason) return fallbackRequirement ?? null;
   if (reason === "ready") return null;
-  if (reason === "workflow_sdk_release_required" && fallbackRequirement) {
-    return `${fallbackRequirement} (${reason})`;
+  if (reason === "workflow_sdk_release_required") {
+    // Deployment-conditional copy (#89): the workflow readiness payload
+    // already reports what this deployment runs and the minimum the pinned
+    // execution feature needs; render those instead of a release claim.
+    if (sdkVersions) {
+      return sdkVersions.installedVersion
+        ? `This deployment's @synapseone/sdk is ${sdkVersions.installedVersion}; pinned workflow execution requires >= ${sdkVersions.minimumVersion}. Update the SDK package on the capabilities service. (${reason})`
+        : `This deployment's @synapseone/sdk version is unknown; pinned workflow execution requires >= ${sdkVersions.minimumVersion}. Update the SDK package on the capabilities service. (${reason})`;
+    }
+    if (fallbackRequirement) return `${fallbackRequirement} (${reason})`;
   }
   const message = FORM_REASON_MESSAGES[reason] ?? "This form is read-only.";
   return `${message} (${reason})`;

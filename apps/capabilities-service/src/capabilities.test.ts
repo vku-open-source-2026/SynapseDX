@@ -198,6 +198,42 @@ test('AI, identity, jobs, audit and usage capabilities are reachable through Tie
   }
 });
 
+test('the AI chat route relays a streamed completion as SSE (#89)', async () => {
+  const harness = await startHarness();
+  try {
+    const response = await fetch(`${harness.base}/v1/capabilities/ai/chat`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer user-token', 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ stream: true, messages: [{ role: 'user', content: 'hello' }] }),
+    });
+    assert.equal(response.status, 200);
+    assert.match(String(response.headers.get('content-type') || ''), /^text\/event-stream/);
+    const text = await response.text();
+    // Frames are relayed in order: the role delta, the content delta, [DONE].
+    assert.match(text, /event: message\ndata: \{"id":"chat-1".*"delta":\{"role":"assistant"\}/);
+    assert.match(text, /"delta":\{"content":"ok"\}/);
+    assert.match(text, /data: \[DONE\]/);
+    // The unstreamed route still answers with one JSON completion.
+    const plain = await api(harness, '/v1/capabilities/ai/chat', {
+      method: 'POST', token: 'user-token', body: { messages: [{ role: 'user', content: 'hello' }] },
+    });
+    assert.equal(plain.status, 200);
+    assert.equal(plain.body.choices[0].message.content, 'ok');
+
+    // A refused upstream connection keeps the JSON error envelope because the
+    // SSE headers are only committed after the first frame arrives.
+    process.env.FAKE_TIER1_CHAT_ERROR = 'true';
+    const failed = await api(harness, '/v1/capabilities/ai/chat', {
+      method: 'POST', token: 'user-token', body: { stream: true, messages: [{ role: 'user', content: 'hello' }] },
+    });
+    assert.equal(failed.status, 503);
+    assert.equal(failed.body.error.code, 'upstream_unavailable');
+  } finally {
+    delete process.env.FAKE_TIER1_CHAT_ERROR;
+    await harness.close();
+  }
+});
+
 test('files and notifications are live capabilities; unconfigured geo stays a typed 503', async () => {
   const harness = await startHarness();
   try {

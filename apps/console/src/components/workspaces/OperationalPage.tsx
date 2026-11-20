@@ -21,7 +21,9 @@ import {
   safeCellText,
   type InstalledPlugin,
   type RuntimeWidget,
+  type WorkflowSdkVersions,
 } from "../../lib/workspaces";
+import { fetchWorkflowReadiness } from "../../lib/workspacesApi";
 import { MarkdownView } from "./CollectionViews";
 import { Modal } from "../Modal";
 import { Button } from "../ui";
@@ -114,6 +116,20 @@ export function OperationalPage({
     setActionsOpen(false);
     setDetails(false);
   };
+  // The pinned-workflow gate message needs this deployment's SDK versions;
+  // fetch the readiness payload only when a form actually reports that reason.
+  const needsSdkReadiness = plugin.widgets.some(
+    (widget) => widget.canSubmitReason === "workflow_sdk_release_required",
+  );
+  const sdkReadiness = useQuery({
+    queryKey: ["workflow-readiness", cacheScope],
+    enabled: needsSdkReadiness,
+    queryFn: fetchWorkflowReadiness,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const sdkVersions: WorkflowSdkVersions | null =
+    sdkReadiness.data?.workflowExecution ?? null;
   const render = (widget: RuntimeWidget) => (
     <RuntimeWidgetCard
       key={widget.id}
@@ -122,6 +138,7 @@ export function OperationalPage({
       product={plugin.product}
       widget={widget}
       cacheScope={cacheScope}
+      sdkVersions={sdkVersions}
     />
   );
   return (

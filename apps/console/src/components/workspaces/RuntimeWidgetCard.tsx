@@ -8,7 +8,7 @@ import { SafeWidget } from "./SafeWidget";
 import { WorkspaceActions } from "./WorkspaceActions";
 import { RecordSelection } from "./RecordSelection";
 import { BoardActions } from "./CollectionViews";
-import type { WidgetData } from "../../lib/workspaces";
+import type { WidgetData, WorkflowSdkVersions } from "../../lib/workspaces";
 import {
   parseWidgetData,
   formReasonMessage,
@@ -22,6 +22,7 @@ export function RuntimeWidgetCard({
   widget,
   cacheScope,
   formUnavailableReason,
+  sdkVersions,
 }: {
   installedId: string;
   widgets?: RuntimeWidget[];
@@ -29,6 +30,7 @@ export function RuntimeWidgetCard({
   widget: RuntimeWidget;
   cacheScope: string;
   formUnavailableReason?: string | null;
+  sdkVersions?: WorkflowSdkVersions | null;
 }) {
   const actions = useContext(WorkspaceActions);
   const selection = useContext(RecordSelection);
@@ -235,6 +237,7 @@ export function RuntimeWidgetCard({
                   : formReasonMessage(
                       widget.canSubmitReason,
                       formUnavailableReason,
+                      sdkVersions,
                     )
             }
             onFormSubmit={widget.type === "form" ? submit : undefined}
