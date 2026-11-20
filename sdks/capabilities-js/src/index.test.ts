@@ -1087,6 +1087,103 @@ test("events.stream surfaces a JSON error before any frame is yielded", async ()
   });
 });
 
+test("ai.chatStream POSTs stream:true and relays raw SSE frames (#89)", async () => {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encoder.encode(
+          `event: message\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: { role: "assistant" } }] })}\n\n`,
+        ),
+      );
+      // Delivered in a later chunk: the generator must yield frames as they
+      // arrive, not after the response ends.
+      setTimeout(() => {
+        controller.enqueue(
+          encoder.encode(
+            `event: message\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "hello" } }] })}\n\n`,
+          ),
+        );
+        controller.enqueue(encoder.encode("event: message\ndata: [DONE]\n\n"));
+        controller.close();
+      }, 5);
+    },
+  });
+  let captured: { url: string; method?: string; headers: Headers; body?: string } | undefined;
+  const impl = (async (input: any, init: any = {}) => {
+    captured = {
+      url: String(input),
+      method: init.method,
+      headers: new Headers(init.headers),
+      body: typeof init.body === "string" ? init.body : undefined,
+    };
+    return new Response(stream, {
+      status: 200,
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    });
+  }) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    token: "read-token",
+    fetch: impl,
+  });
+
+  const frames: Array<{ event: string; data: string }> = [];
+  let sawFirstFrameBeforeDone = false;
+  for await (const frame of client.ai.chatStream(
+    [{ role: "user", content: "hi" }],
+    { model: "fake" },
+  )) {
+    frames.push(frame);
+    if (frames.length === 1) sawFirstFrameBeforeDone = true;
+  }
+
+  assert.ok(sawFirstFrameBeforeDone);
+  assert.equal(frames.length, 3);
+  assert.equal(frames[0].event, "message");
+  assert.match(frames[0].data, /"delta":\{"role":"assistant"\}/);
+  assert.match(frames[1].data, /"content":"hello"/);
+  assert.equal(frames[2].data, "[DONE]");
+  assert.ok(captured);
+  assert.equal(captured.url, "https://dx.example/v1/capabilities/ai/chat");
+  assert.equal(captured.method, "POST");
+  assert.equal(captured.headers.get("accept"), "text/event-stream");
+  assert.equal(captured.headers.get("authorization"), "Bearer read-token");
+  assert.deepEqual(JSON.parse(captured.body!), {
+    messages: [{ role: "user", content: "hi" }],
+    stream: true,
+    model: "fake",
+  });
+});
+
+test("ai.chatStream surfaces the JSON error envelope when the route refuses the stream", async () => {
+  const impl = (async () =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: "upstream_unavailable",
+          message: "the inference stream failed",
+          requestId: "req-9",
+        },
+      }),
+      { status: 503, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+  const client = new CapabilitiesClient({
+    baseUrl: "https://dx.example",
+    fetch: impl,
+  });
+  await assert.rejects(async () => {
+    for await (const _frame of client.ai.chatStream([{ role: "user", content: "hi" }])) {
+      assert.fail("no frame should be yielded");
+    }
+  }, (error: any) => {
+    assert.ok(error instanceof CapabilitiesError);
+    assert.equal(error.status, 503);
+    assert.equal(error.code, "upstream_unavailable");
+    return true;
+  });
+});
+
 test("dataset spatial query, reindex and status use the documented routes", async () => {
   const { impl, requests } = mockFetch((request) => {
     const url = new URL(request.url);

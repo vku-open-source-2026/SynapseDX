@@ -289,6 +289,12 @@ export interface AiChatMessage {
   content: string;
 }
 
+/** One raw SSE frame relayed by `POST /v1/capabilities/ai/chat` (stream:true). */
+export interface ChatStreamFrame {
+  event: string;
+  data: string;
+}
+
 export interface JobSchedule {
   cron?: string;
   everySeconds?: number;
@@ -731,6 +737,51 @@ async function* parseEventStream(
   }
 }
 
+/**
+ * Decode a raw SSE byte stream into `{event, data}` frames without buffering
+ * the whole response. Comments and `retry` lines are skipped; the frame shape
+ * matches the Tier-1 SDK's `chatStream` contract.
+ */
+async function* parseChatFrames(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<ChatStreamFrame> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "message";
+  let data: string[] = [];
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line === "") {
+          if (data.length) yield { event: eventName, data: data.join("\n") };
+          eventName = "message";
+          data = [];
+        } else {
+          const field = sseField(line);
+          if (field?.field === "event") eventName = field.value;
+          else if (field?.field === "data") data.push(field.value);
+          // `retry` is advisory; the caller owns reconnection.
+        }
+        newline = buffer.indexOf("\n");
+      }
+    }
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      /* the caller aborted or the socket is already gone */
+    }
+  }
+}
+
 interface RawResponse<T> {
   data: T;
   headers: Headers;
@@ -980,7 +1031,7 @@ class Http {
    */
   async openEventStream(
     path: string,
-    opts: RequestOptions = {},
+    opts: RequestOptions & { method?: string; body?: string } = {},
   ): Promise<Response> {
     const headers = new Headers();
     headers.set("accept", "text/event-stream");
@@ -997,10 +1048,15 @@ class Http {
       headers.set(key, value);
     for (const [key, value] of Object.entries(opts.headers || {}))
       headers.set(key, value);
+    // SSE streams are GET by default; a POST SSE stream (chat streaming) also
+    // carries a JSON body.
+    if (opts.body !== undefined) headers.set("content-type", "application/json");
     let response: Response;
     try {
       response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         headers,
+        ...(opts.method ? { method: opts.method } : {}),
+        ...(opts.body !== undefined ? { body: opts.body } : {}),
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
     } catch (error) {
@@ -2254,6 +2310,15 @@ export class CapabilitiesClient {
         max_tokens?: number;
       },
     ) => Promise<unknown>;
+    /** Stream a chat completion as raw SSE `{event, data}` frames (#89). */
+    chatStream: (
+      messages: AiChatMessage[],
+      opts?: RequestOptions & {
+        model?: string;
+        temperature?: number;
+        max_tokens?: number;
+      },
+    ) => AsyncGenerator<ChatStreamFrame>;
     embeddings: (
       input: string | string[],
       opts?: RequestOptions & { model?: string },
@@ -3119,6 +3184,37 @@ export class CapabilitiesClient {
           },
           requestOpts,
         ),
+      chatStream: async function* chatStream(
+        this: CapabilitiesClient,
+        messages: AiChatMessage[],
+        requestOpts: RequestOptions & {
+          model?: string;
+          temperature?: number;
+          max_tokens?: number;
+        } = {},
+      ): AsyncGenerator<ChatStreamFrame> {
+        // Relay the route's OpenAI-compatible SSE frames as they arrive; the
+        // caller owns the lifetime (and reconnection) through `opts.signal`.
+        const response = await this.http.openEventStream(
+          "/v1/capabilities/ai/chat",
+          {
+            ...(requestOpts || {}),
+            method: "POST",
+            body: JSON.stringify({
+              messages,
+              stream: true,
+              ...(requestOpts.model ? { model: requestOpts.model } : {}),
+              ...(requestOpts.temperature !== undefined
+                ? { temperature: requestOpts.temperature }
+                : {}),
+              ...(requestOpts.max_tokens !== undefined
+                ? { max_tokens: requestOpts.max_tokens }
+                : {}),
+            }),
+          },
+        );
+        yield* parseChatFrames(response.body!);
+      }.bind(this) as CapabilitiesClient["ai"]["chatStream"],
       embeddings: (input, requestOpts = {}) =>
         this.http.request<unknown>(
           "/v1/capabilities/ai/embeddings",

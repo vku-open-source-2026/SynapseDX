@@ -321,6 +321,27 @@ internally; only `event: capability` frames are yielded. Enable `since` on a
 fresh subscription to replay from a known point, or omit it to start at the
 current tail without history.
 
+### Streaming chat (SSE)
+
+`ai.chatStream()` posts to `/v1/capabilities/ai/chat` with `stream: true` and
+yields the relayed OpenAI-compatible SSE frames as raw `{event, data}` records.
+The iterator ends when the upstream sends `data: [DONE]` or closes; a refused
+connection surfaces the normal typed `CapabilitiesError`. Use `opts.signal` to
+stop; reconnection is the caller's responsibility.
+
+```ts
+for await (const frame of dx.ai.chatStream(
+  [{ role: "user", content: "Summarize today's hazard feed." }],
+  { signal: controller.signal },
+)) {
+  const delta = JSON.parse(frame.data)?.choices?.[0]?.delta?.content;
+  if (delta) process.stdout.write(delta);
+}
+```
+
+`ai.chat()` stays the JSON-completion contract (`stream` is not silently
+dropped there — it is not part of its options).
+
 ## Identity and sessions
 
 ```ts
