@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, IncomingMessage, Server, ServerResponse } from 'node:http';
-import { createGateway } from './index';
+import { assertUpstream, createGateway, isPrivateHost } from './index';
 
 interface Upstream {
   base: string;
@@ -67,7 +67,14 @@ async function startUpstream(): Promise<Upstream> {
 }
 
 async function startGateway(options: { upstream: string; timeoutMs?: number; corsOrigins?: string[] }) {
-  const app = createGateway({ upstream: options.upstream, timeoutMs: options.timeoutMs ?? 5000, corsOrigins: options.corsOrigins });
+  // The upstream is a loopback test server; the declared trusted-network
+  // escape applies (compose dev uses the same flag, see docker-compose.yml).
+  const app = createGateway({
+    upstream: options.upstream,
+    timeoutMs: options.timeoutMs ?? 5000,
+    corsOrigins: options.corsOrigins,
+    allowLocal: true,
+  });
   const server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address();
@@ -205,5 +212,56 @@ test('unknown routes return the JSON error envelope', async () => {
   } finally {
     await gateway.close();
     await upstream.close();
+  }
+});
+
+// Same declared rule set as apps/gateway/src/main.rs
+// (`upstream_validation_rejects_private_metadata_and_plain_http_targets`):
+// the policy is strict in every mode and only the explicit trusted-network
+// escape admits private or plain-HTTP upstreams.
+test('upstream validation rejects private, metadata, internal and plain HTTP targets in every mode', () => {
+  for (const target of [
+    'http://capabilities:8082',
+    'http://127.0.0.1:8082',
+    'https://127.0.0.1:8082',
+    'https://[::1]:8082',
+    'http://169.254.169.254/latest/meta-data',
+    'https://10.0.0.5:8082',
+    'https://192.168.1.10',
+    'https://172.16.0.5',
+    'https://metadata.google.internal',
+    'https://postgres:5432',
+    'https://user:pass@example.com',
+    'https://example.com/#fragment',
+    'http://example.com',
+  ]) {
+    assert.throws(() => assertUpstream(target, false), /CAPABILITIES_SERVICE_URL/, `${target} must be rejected as a production upstream`);
+  }
+  assert.equal(assertUpstream('https://capabilities.synapsedx.sbs/', false), 'https://capabilities.synapsedx.sbs');
+  // The trusted container network / test escape admits private + plain HTTP.
+  assert.equal(assertUpstream('http://capabilities:8082', true), 'http://capabilities:8082');
+  assert.equal(assertUpstream('http://127.0.0.1:8082', true), 'http://127.0.0.1:8082');
+  assert.equal(assertUpstream('https://[::1]:8082', true), 'https://[::1]:8082');
+
+  // Host classification parity with the Rust gateway's `is_private_host`.
+  for (const host of ['localhost', 'db.docker.internal', '100.64.1.9', 'fd12::1', 'fe80::1', 'worker']) {
+    assert.equal(isPrivateHost(host), true, `${host} must classify as private`);
+  }
+  for (const host of ['api.synapseone.space', '8.8.8.8', '2001:4860:4860::8888']) {
+    assert.equal(isPrivateHost(host), false, `${host} must classify as public`);
+  }
+});
+
+test('ALLOW_LOCAL_DEPENDENCIES is the documented env escape for compose dev and tests', () => {
+  const previous = process.env.ALLOW_LOCAL_DEPENDENCIES;
+  try {
+    delete process.env.ALLOW_LOCAL_DEPENDENCIES;
+    assert.throws(() => assertUpstream('http://127.0.0.1:8082'));
+    process.env.ALLOW_LOCAL_DEPENDENCIES = 'true';
+    assert.equal(assertUpstream('http://127.0.0.1:8082'), 'http://127.0.0.1:8082');
+    assert.equal(assertUpstream('http://capabilities:8082'), 'http://capabilities:8082');
+  } finally {
+    if (previous === undefined) delete process.env.ALLOW_LOCAL_DEPENDENCIES;
+    else process.env.ALLOW_LOCAL_DEPENDENCIES = previous;
   }
 });
