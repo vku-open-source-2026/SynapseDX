@@ -88,6 +88,71 @@ test('quality rules run over records and block publication when configured (#40)
   }
 });
 
+test('quality rules reject an uncompilable regex at save time and report it per rule at run time (#88)', async () => {
+  const harness = await startHarness();
+  try {
+    const dataset = await createDataset(harness, { slug: 'quality-regex', public: false });
+    const id = dataset.body.id;
+    const created = await api(harness, `/v1/capabilities/datasets/${id}/records`, {
+      method: 'POST', token: 'user-token', body: { id: 'r1', data: { email: 'a@example.com', status: 'new' } },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+
+    // Save-time: a pattern that cannot compile is a typed 400 naming the rule.
+    const invalid = await api(harness, `/v1/capabilities/datasets/${id}/quality/rules`, {
+      method: 'PUT', token: 'user-token',
+      body: {
+        blockPublication: true,
+        rules: [{ name: 'status regex', type: 'regex', field: 'status', pattern: '(unclosed' }],
+      },
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.body.error.code, 'invalid_pattern');
+    assert.ok(String(invalid.body.error.message).includes('status regex'));
+
+    // A legacy rule saved before this validation can still reach a run; the
+    // run must mark the RULE as invalid instead of failing every row.
+    const rulesCollection = harness.fake.collections.get('synapsedx_capability_quality_rules');
+    assert.ok(rulesCollection);
+    const now = new Date().toISOString();
+    rulesCollection!.set('seeded', {
+      id: 'seeded', version: 1, createdAt: now, updatedAt: now,
+      data: {
+        id: 'seeded', tenant: 'org-a', createdBy: 'user-1', createdAt: now, updatedAt: now,
+        datasetId: id, blockPublication: true,
+        rules: [
+          { name: 'broken regex', type: 'regex', field: 'status', pattern: '(unclosed' },
+          { name: 'email required', type: 'required', field: 'email' },
+        ],
+      },
+    });
+
+    const run = await api(harness, `/v1/capabilities/datasets/${id}/quality/run`, { method: 'POST', token: 'user-token' });
+    assert.equal(run.status, 201, JSON.stringify(run.body));
+    // The other rule is still evaluated over the row; only the broken rule is
+    // reported as a rule error.
+    assert.equal(run.body.run.failed, 0);
+    assert.deepEqual(run.body.run.ruleErrors, [
+      { name: 'broken regex', type: 'regex', field: 'status', ruleError: 'invalid_pattern' },
+    ]);
+    const broken = run.body.run.results.find((result: any) => result.name === 'broken regex');
+    assert.equal(broken.ruleError, 'invalid_pattern');
+    assert.equal(broken.failed, 0);
+    const healthy = run.body.run.results.find((result: any) => result.name === 'email required');
+    assert.equal(healthy.failed, 0);
+    assert.equal(healthy.passed, 1);
+
+    // The publication gate names the invalid rule instead of blaming the data.
+    const published = await api(harness, `/v1/capabilities/datasets/${id}/publish`, { method: 'POST', token: 'user-token' });
+    assert.equal(published.status, 409);
+    assert.equal(published.body.error.code, 'quality_gate_failed');
+    assert.ok(String(published.body.error.message).includes('broken regex'));
+    assert.equal(published.body.error.details.ruleErrors[0].ruleError, 'invalid_pattern');
+  } finally {
+    await harness.close();
+  }
+});
+
 test('lineage is tenant-scoped and traversable (#40)', async () => {
   const harness = await startHarness();
   try {

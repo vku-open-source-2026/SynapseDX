@@ -37,6 +37,8 @@ interface QualityRuleRecord {
 interface QualityRunRecord {
   id: string; tenant: string; createdBy: string; createdAt: string; updatedAt: string;
   datasetId: string; status: 'passed' | 'failed'; results: Array<Record<string, any>>; checked: number; failed: number;
+  /** Rules that could not be evaluated (e.g. invalid_pattern), separate from row failures. */
+  ruleErrors?: Array<{ name: string; type: string; field: string; ruleError: string }>;
 }
 interface LineageRecord {
   id: string; tenant: string; createdBy: string; createdAt: string; updatedAt: string;
@@ -105,7 +107,8 @@ export function checkSchemaCompatibility(previous: Record<string, any> | null, n
 }
 
 /** Called by the dataset publish route. A failing quality run can block a
- *  publication when the tenant configured `blockPublication`. */
+ *  publication when the tenant configured `blockPublication`; a run that
+ *  reports a broken rule names it instead of blaming the data. */
 export async function assertDatasetPublishable(client: any, dataset: { id: string; tenant?: string }): Promise<void> {
   const rules = await queryDocuments<QualityRuleRecord>(client, COLLECTIONS.qualityRules, {
     where: { datasetId: dataset.id }, limit: 1,
@@ -117,9 +120,16 @@ export async function assertDatasetPublishable(client: any, dataset: { id: strin
   });
   const latest = runs.items[0]?.data;
   if (latest && latest.status === 'failed') {
-    throw apiError(409, 'quality_gate_failed', 'quality rules are failing; fix the data or disable the publication gate', {
-      failed: latest.failed, checked: latest.checked,
-    });
+    const ruleErrors = Array.isArray((latest as any).ruleErrors) ? (latest as any).ruleErrors : [];
+    throw apiError(409, 'quality_gate_failed',
+      ruleErrors.length
+        ? `quality rule(s) ${ruleErrors.map((rule: any) => `'${rule.name}'`).join(', ')} cannot be evaluated (invalid_pattern); fix the rule before publishing`
+        : 'quality rules are failing; fix the data or disable the publication gate',
+      {
+        failed: latest.failed, checked: latest.checked,
+        ...(ruleErrors.length ? { ruleErrors } : {}),
+      },
+    );
   }
 }
 
@@ -128,6 +138,21 @@ function evaluateRules(rules: Array<Record<string, any>>, records: Array<Record<
   for (const rule of rules) {
     const type = String(rule.type || '');
     const field = String(rule.field || '');
+    const name = String(rule.name || `${type}:${field}`);
+    // A regex pattern that cannot compile is a broken RULE, not broken data:
+    // report the rule as invalid and keep evaluating the remaining rules (#88).
+    let compiled: RegExp | null = null;
+    if (type === 'regex') {
+      try {
+        compiled = new RegExp(String(rule.pattern || '.*'));
+      } catch {
+        results.push({
+          name, type, field, ruleError: 'invalid_pattern',
+          pattern: String(rule.pattern ?? ''), failed: 0, passed: 0, examples: [],
+        });
+        continue;
+      }
+    }
     const values = records.map((record) => record[field]);
     let failed = 0;
     const examples: any[] = [];
@@ -137,9 +162,8 @@ function evaluateRules(rules: Array<Record<string, any>>, records: Array<Record<
       if (type === 'required') ok = value !== undefined && value !== null && value !== '';
       else if (type === 'unique') ok = values.filter((item) => item === value).length === 1;
       else if (type === 'range') ok = typeof value === 'number' && (rule.min === undefined || value >= Number(rule.min)) && (rule.max === undefined || value <= Number(rule.max));
-      else if (type === 'regex') {
-        try { ok = typeof value === 'string' && new RegExp(String(rule.pattern || '.*')).test(value); } catch { ok = false; }
-      } else if (type === 'freshness') {
+      else if (type === 'regex') ok = typeof value === 'string' && compiled!.test(value);
+      else if (type === 'freshness') {
         const at = new Date(String(value)).getTime();
         ok = Number.isFinite(at) && Date.now() - at <= Number(rule.maxAgeSeconds || 86400) * 1000;
       }
@@ -148,7 +172,7 @@ function evaluateRules(rules: Array<Record<string, any>>, records: Array<Record<
         if (examples.length < 5) examples.push({ index, value });
       }
     }
-    results.push({ name: String(rule.name || `${type}:${field}`), type, field, failed, passed: records.length - failed, examples });
+    results.push({ name, type, field, failed, passed: records.length - failed, examples });
   }
   return results;
 }
@@ -310,6 +334,15 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
       if (!rule || typeof rule !== 'object' || !['required', 'unique', 'range', 'regex', 'freshness'].includes(String(rule.type)) || !String(rule.field || '').trim()) {
         throw apiError(400, 'invalid_request', 'each rule needs type required|unique|range|regex|freshness and a field');
       }
+      // Reject a regex pattern that cannot compile at save time, so a broken
+      // rule can never reach a run and fail every row (#88).
+      if (String(rule.type) === 'regex') {
+        try {
+          new RegExp(String(rule.pattern ?? '.*'));
+        } catch (error) {
+          throw apiError(400, 'invalid_pattern', `rule '${String(rule.name || `regex:${String(rule.field)}`)}' has a pattern that does not compile: ${(error as Error)?.message || 'invalid regular expression'}`);
+        }
+      }
     }
     const existing = await queryDocuments<QualityRuleRecord>(client, COLLECTIONS.qualityRules, { where: { datasetId: dataset.data.id }, limit: 1 });
     let saved: QualityRuleRecord;
@@ -337,13 +370,20 @@ export function registerDataInsightRoutes(app: Express, config: ServiceConfig): 
     const rows = records.items.map((item) => item.data?.data || {});
     const results = evaluateRules(rules, rows);
     const failed = results.reduce((sum, result) => sum + Number(result.failed || 0), 0);
+    // Rule errors (e.g. a regex that cannot compile) are kept apart from row
+    // failures so the gate blocks with the real reason (#88).
+    const ruleErrors = results
+      .filter((result) => result.ruleError)
+      .map((result) => ({ name: result.name, type: result.type, field: result.field, ruleError: result.ruleError }));
     const run = await createScoped(client, COLLECTIONS.qualityRuns, principal, {
-      datasetId: dataset.data.id, status: failed > 0 ? 'failed' : 'passed',
+      datasetId: dataset.data.id,
+      status: failed > 0 || ruleErrors.length > 0 ? 'failed' : 'passed',
       results, checked: rows.length, failed,
+      ...(ruleErrors.length ? { ruleErrors } : {}),
     } as any) as unknown as QualityRunRecord;
     await recordAudit(client, config, {
       actor: principal.subject, tenant: principal.tenantKey, action: 'data.quality.run',
-      correlationId: correlationIdOf(req), details: { datasetId: dataset.data.id, failed, checked: rows.length },
+      correlationId: correlationIdOf(req), details: { datasetId: dataset.data.id, failed, checked: rows.length, ruleErrors: ruleErrors.length },
     });
     res.status(201).json({ run });
   }));

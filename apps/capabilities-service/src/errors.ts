@@ -142,6 +142,7 @@ export type ErrorCode =
   | "report_in_use"
   | "dashboard_not_found"
   | "incompatible_schema"
+  | "invalid_pattern"
   | "quality_gate_failed"
   | "ocr_job_not_found"
   | "field_not_found"
